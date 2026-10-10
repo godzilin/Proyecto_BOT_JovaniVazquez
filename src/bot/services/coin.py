@@ -172,15 +172,19 @@ class CoinGame:
     status: Status = Status.PLAYING
 
     @classmethod
-    def new(cls, stake: int, rng: random.Random) -> CoinGame:
+    def new(cls, stake: int, rng: random.Random, *, upcoming: Outcome | None = None) -> CoinGame:
         """Empieza una partida y sortea el primer lanzamiento.
+
+        Args:
+            upcoming: El primer lanzamiento, si ya se sorteó antes (la mesa lo
+                sortea por adelantado para tener pintado su GIF).
 
         Raises:
             ValueError: Si la apuesta no es positiva.
         """
         if stake <= 0:
             raise ValueError("La apuesta debe ser positiva.")
-        return cls(stake=stake, upcoming=toss(rng))
+        return cls(stake=stake, upcoming=upcoming if upcoming is not None else toss(rng))
 
     # -- Estado -----------------------------------------------------------------------
 

@@ -22,7 +22,7 @@ from bot.cogs import coin as coin_cog
 from bot.cogs.coin import COLOR_IDLE, Coin, CoinView
 from bot.repositories import sqlite as sqlite_module
 from bot.repositories.economy import EconomyRepository
-from bot.services.coin import MAX_FLIPS, Outcome, Side, Status
+from bot.services.coin import MAX_FLIPS, CoinGame, Outcome, Side, Status
 from bot.services.coin_render import Media
 from bot.services.economy import STARTING_BALANCE, EconomyService
 from bot.services.taxes import gambling_day_tax
@@ -645,3 +645,113 @@ async def test_al_terminar_se_apuntan_los_logros_y_la_jugada_despues_de_enseñar
         "logros",
         "apuestas",
     ]
+
+
+# -- GIF por adelantado ----------------------------------------------------------------
+
+
+class RecordingRenderer:
+    """Dibujo falso que apunta cada GIF pedido: qué partida, desde qué cara y con qué semilla."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[tuple[Side, Outcome]], Status, Side, int]] = []
+        self.gate: asyncio.Event | None = None
+
+    async def toss(self, game: CoinGame, *, start: Side, seed: int) -> Media:
+        if self.gate is not None:
+            await self.gate.wait()
+        flips = [(flip.pick, flip.outcome) for flip in game.flips]
+        self.calls.append((flips, game.status, start, seed))
+        return Media(gif=f"GIF{len(self.calls)}".encode(), png=b"png", seconds=0.0)
+
+    async def board(self, game: object, *, stake: int, face: object) -> bytes:
+        return b"png"
+
+    async def close(self) -> None:
+        return None
+
+
+async def ahead_cog(tmp_path: Path, *results: Outcome) -> tuple[Coin, RecordingRenderer]:
+    repository = EconomyRepository(tmp_path / "bot.db", starting_balance=STARTING_BALANCE)
+    await repository.initialize()
+    renderer = RecordingRenderer()
+    cog = Coin(
+        MagicMock(),
+        economy=EconomyService(repository),
+        rng=Scripted(*results, CARA, CARA),
+        renderer=renderer,  # type: ignore[arg-type]
+        ahead=True,
+    )
+    return cog, renderer
+
+
+async def settle_painting(view: CoinView) -> None:
+    """Espera a que la mesa acabe de pintar por adelantado."""
+    while view._painting is not None and not view._painting.done():
+        await asyncio.sleep(0)
+
+
+async def test_al_abrir_la_mesa_se_pintan_ya_los_dos_lados_de_la_primera(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, CRUZ)
+    view, _ = await open_table(cog)
+    await settle_painting(view)
+    # Antes de pulsar nada: pidiendo cara y pidiendo cruz, con la misma moneda (cruz).
+    assert [call[0] for call in renderer.calls] == [[(Side.CARA, CRUZ)], [(Side.CRUZ, CRUZ)]]
+    # Nada se ha cobrado todavía.
+    assert await balance(cog) == STARTING_BALANCE
+
+    interaction = await press(view, Side.CRUZ)
+    # El GIF que sube es el pintado por adelantado (pidiendo cruz) y no se dibuja otro.
+    gif_call = interaction.edit_original_response.await_args_list[0]
+    assert gif_call.kwargs["attachments"][0].fp.read() == b"GIF2"
+    assert view.game is not None and view.game.flips[0].outcome is CRUZ
+    # Con el GIF listo no hay paso intermedio: GIF y resultado, nada más.
+    assert interaction.edit_original_response.await_count == 2
+
+
+async def test_tras_un_acierto_el_gif_pintado_es_el_de_la_tirada_real(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, CARA, CARA, CRUZ)
+    view, _ = await open_table(cog)
+    await press(view, Side.CARA)
+    await settle_painting(view)
+    painted = {call[0][-1][0]: call for call in renderer.calls[-2:]}
+    await press(view, Side.CARA)
+    game = view.game
+    assert game is not None
+    # Lo pintado por adelantado para «cara» es exactamente la partida que ha quedado.
+    flips, status, _start, _seed = painted[Side.CARA]
+    assert flips == [(flip.pick, flip.outcome) for flip in game.flips]
+    assert status is game.status
+    await settle_painting(view)
+    assert view.game is not None and view.game.wins == 2
+
+
+async def test_si_el_dibujo_por_adelantado_no_ha_acabado_se_apaga_la_mesa_y_se_espera(
+    tmp_path: Path,
+) -> None:
+    cog, renderer = await ahead_cog(tmp_path, CARA)
+    renderer.gate = asyncio.Event()
+    view, _ = await open_table(cog)
+    interaction = make_interaction()
+    task = asyncio.create_task(view._flip_cara(interaction))
+    while not interaction.edit_original_response.await_count:
+        await asyncio.sleep(0)
+    # Mientras se pinta, la mesa ya está apagada (sin adjuntos nuevos).
+    assert "attachments" not in interaction.edit_original_response.await_args.kwargs
+    renderer.gate.set()
+    await task
+    # Apagar, GIF y resultado; y el GIF es el pintado por adelantado, no uno nuevo.
+    assert interaction.edit_original_response.await_count == 3
+    gif = interaction.edit_original_response.await_args_list[1].kwargs["attachments"][0]
+    assert gif.fp.read() == b"GIF1"
+
+
+async def test_cambiar_la_apuesta_vuelve_a_pintar_con_la_nueva(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, CARA)
+    view, _ = await open_table(cog, amount="100")
+    await settle_painting(view)
+    painted = len(renderer.calls)
+    await view._double(make_interaction())
+    await settle_painting(view)
+    assert len(renderer.calls) == painted + 2
+    assert view._plan is not None and view._plan[0][1] == 200

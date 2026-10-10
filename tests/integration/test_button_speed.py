@@ -227,6 +227,7 @@ def coin_view(client: BotClient, owner: MagicMock, *results: Outcome):  # noqa: 
     cog.renderer.toss = AsyncMock(return_value=module.Media(gif=b"GIF", png=b"PNG", seconds=0.0))
     cog.renderer.board = AsyncMock(return_value=b"PNG")
     cog.rng = Scripted(*results, Outcome.CARA)
+    cog.ahead = False
     return module.CoinView(cog, guild_id=GUILD_ID, owner=owner, stake=10)
 
 

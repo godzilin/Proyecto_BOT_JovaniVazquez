@@ -138,6 +138,13 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
 - **Tapar la espera.** Si el dibujo tarda más de un segundo, la jugada se enseña
   ya («🎲 No va más…» con los botones apagados) y el GIF llega después. El cambio
   va en paralelo al dibujo, nunca antes.
+- **Mejor aún, pintar antes del clic.** Si el resultado de la próxima jugada se
+  puede sortear por adelantado sin enseñarlo (la moneda: `CoinGame.upcoming`),
+  la mesa pinta en segundo plano los GIF posibles (uno por botón) mientras se ve
+  el GIF actual, y al pulsar solo queda subirlo (`CoinView.prepare`). En la
+  moneda, del clic al GIF pasó de ~1,1 s de dibujo a 0. Los dibujos por
+  adelantado no se cancelan a medias (el pintor de Node no admite cortar uno):
+  van de uno en uno y cada uno comprueba antes de empezar si sigue valiendo.
 
 ## Dos repositorios
 
