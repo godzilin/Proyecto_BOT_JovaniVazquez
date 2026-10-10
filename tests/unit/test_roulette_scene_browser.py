@@ -30,6 +30,8 @@ from bot.services.roulette_scene import (
 module_loop = pytest.mark.asyncio(loop_scope="module")
 #: Chromium del entorno de desarrollo, si lo hay (en Docker lo instala Playwright).
 LOCAL_CHROMIUM = Path("/opt/pw-browsers/chromium")
+#: Sin Node la escena cae a Chromium, que es lo que prueba este módulo.
+NO_NODE = "/no/existe/node"
 
 HISTORY = [17, 0, 37, 5, 22, 8, 31, 14, 2, 20, 9, 11, 25]
 
@@ -54,7 +56,7 @@ def outcome(pocket: int, bets: list[tuple[str, int]], lucky: dict[int, int] | No
 async def browser() -> RouletteScene:
     """Un solo Chromium para las pruebas con navegador del módulo."""
     path = str(LOCAL_CHROMIUM) if LOCAL_CHROMIUM.exists() else None
-    scene = RouletteScene(executable_path=path)
+    scene = RouletteScene(executable_path=path, node=NO_NODE)
     await scene.board(HISTORY)
     if scene.disabled:
         await scene.close()
