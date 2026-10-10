@@ -146,6 +146,64 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
   adelantado no se cancelan a medias (el pintor de Node no admite cortar uno):
   van de uno en uno y cada uno comprueba antes de empezar si sigue valiendo.
 
+## Acelerar un juego: receta de la moneda
+
+La moneda pasó de sentirse lenta («clic, nada, GIF») a salir nada más pulsar. Lo
+que más se nota no es el motor de dibujo sino lo que ve el usuario entre el clic y
+el GIF. Por orden de ganancia:
+
+1. **Medir del clic al GIF con el bot real**, no solo el dibujo: `load_bot` de
+   `tests/integration/test_button_speed.py`, la escena de verdad (no el doble de
+   `render_fakes`) y un `fake_interaction` cuyo `edit_original_response` apunta
+   el momento de la primera edición con un `.gif`. Pulsar varias veces con pausas
+   realistas (0,3 s y 1,5 s). Un cuelgue tampoco se ve sin esto: un clic sin
+   respuesta suele ser que no cambia nada en pantalla, no que el bot se pare.
+2. **Pintar antes del clic** («Rendimiento en el NAS»). Es la que convierte ~1 s de
+   espera en 0. Hace falta que el resultado se pueda sortear antes sin enseñarlo y
+   pocos botones distintos (en la moneda, dos GIF por tirada). Se empieza en
+   cuanto sale el GIF actual, no al enseñar el resultado: si no, quien pulsa rápido
+   sigue esperando. Con un `renderer` de prueba se apaga (`ahead=False`), y las
+   pruebas de integración que cambian el dibujo por un doble también
+   (`cog.ahead = False`): cada dibujo de más gasta el azar de guion.
+3. **Tapar la espera**, para cuando no hay nada pintado: apagar los botones en
+   paralelo al dibujo. Se apagan los que hay, sin `rebuild()`: las etiquetas nuevas
+   (×8, la apuesta) delatan el resultado antes de ver el GIF.
+4. **Pasar la escena de Chromium a Node** (`NodeScene`). Da poca velocidad (en la
+   moneda, la tirada bajó un 20 %) pero mucha memoria (177 MB frente a 580) y
+   arranque (0,35 s frente a 2,9). Pasos:
+   - En la escena, `u: window.exportFrame(out)` en lugar de `toDataURL`, con
+     `window.exportFrame ??= (c) => c.toDataURL("image/png")` para que Chromium
+     siga valiendo.
+   - Solo canvas: el `document` de `escena_node.cjs` solo crea lienzos. Lo que use
+     `<div>` o SVG (el cartel de los caballos) se pasa a canvas o se queda en
+     Chromium. Las fuentes de los `@font-face` se registran solas.
+   - La clase de la escena prueba Node, luego Chromium y luego Pillow
+     (`CoinScene._frames`). Las pruebas que quieren Chromium o Pillow pasan
+     `node="/no/existe/node"`.
+   - Una prueba compara Node con Chromium fotograma a fotograma (diferencia media
+     por debajo de 4/255; solo cambia algún borde de letra).
+5. **Recortar lo que no se ve.** Mirar qué tramo pesa con `perf_counter` en
+   Python y, en Node, forzando el raster: Skia dibuja en diferido y el coste
+   aparece al leer, así que un `ctx.getImageData(0, 0, 1, 1)` tras cada tramo dice
+   lo que cuesta de verdad. Con la moneda: el PNG final tardaba 227 ms con
+   `optimize=True` y 34 con `compress_level=6`.
+
+Lo que no compensó, para no repetirlo:
+
+- **PNG o GIF con menos colores.** La PNG de 256 colores pesa la cuarta parte,
+  pero el plateado de la moneda viraba a verde. Los visuales mandan.
+- **Congelar en `Image` los lienzos fijos** (caras, marcador) para esquivar la
+  copia de `drawImage` en Node: un 10 % y más código.
+- **Cambiar `imageSmoothingQuality`**: casi no cambia el tiempo.
+- **Bajar `REVEAL_MARGIN_SECONDS` sin probarlo en Discord**: cubre lo que tarda el
+  cliente en descargar el GIF, y si se queda corto el resultado sale antes de que
+  acabe la animación.
+
+Al tocar las dependencias de Node: versiones publicadas hace al menos dos
+semanas, fijadas en `package.json` con su `package-lock.json`. Aquí `docker
+build` no tiene red; se comprueba al menos que el `node` de `node:22-slim` y el
+`node_modules` pintan la escena dentro de `python:3.12-slim` con el usuario `bot`.
+
 ## Dos repositorios
 
 - `godzilin/Proyecto_BOT_JovaniVazquez` es el del bot: su `main` es lo que se despliega.
