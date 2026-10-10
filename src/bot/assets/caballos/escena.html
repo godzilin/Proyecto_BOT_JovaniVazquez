@@ -1,13 +1,17 @@
 <!doctype html>
 <!--
-Escena de las carreras de caballos, dibujada con canvas y HTML/CSS en un
-Chromium sin ventana (ver bot/services/horses_scene.py).
+Escena de las carreras de caballos (ver bot/services/horses_scene.py). La
+carrera (setupRace, renderFrames, renderPodium) es solo canvas y la pinta Node
+con Skia, sin navegador (assets/escena_node.cjs); la parrilla y el boleto
+(renderCard, renderTicket) son HTML/CSS con captura de pantalla y siguen en
+Chromium. Si no hay Node, la carrera también la pinta Chromium.
 
 No decide nada: Python le pasa dónde está cada caballo en cada fotograma (la
 carrera ya está resuelta) y aquí solo se pinta. Funciones que llama Python:
 
 - setupRace(meta)      prepara el fondo de una carrera (grada, pista, postes).
-- renderFrames(states) dibuja los fotogramas y devuelve sus PNG (data URL).
+- renderFrames(states) dibuja los fotogramas y devuelve cada uno entero
+                       (data URL de PNG en Chromium, píxeles en Node).
 - renderPodium(data)   el último fotograma: la llegada, con la foto-finish.
 - renderCard(data)     la parrilla de salida (HTML), para hacerle captura.
 - renderTicket(data)   el boleto (HTML), para hacerle captura.
@@ -571,10 +575,14 @@ function paint(st) {
   drawHud(g, st);
 }
 
+// En Chromium cada fotograma va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
+
 function snapshot() {
   octx.clearRect(0, 0, W, H);
   octx.drawImage(big, 0, 0, W, H);
-  return out.toDataURL("image/png");
+  return window.exportFrame(out);
 }
 
 window.renderFrames = (states) => states.map(st => { paint(st); return snapshot(); });
