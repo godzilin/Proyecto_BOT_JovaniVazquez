@@ -74,7 +74,7 @@ python -m bot
   | 🍻 Beernight | `beernight [sonido] [archivo]` |
   | 🛍️ Tienda | `mascota [miembro]` · `tienda` |
   | 🪏 Trabajo | `pala` |
-  | 🎰 Casino | `apuestas [miembro]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `imv` · `hacienda [miembro]` · `renta` · `ruleta [cantidad] [apuesta]` · `blackjack [cantidad]` (atajo `.bj`) · `cohete [cantidad] [auto]` · `minas [cantidad] [minas]` · `pollo [cantidad] [dificultad] [autocobro]` · `moneda [cantidad] [lado]` · `dados [cantidad] [apuesta]` · `pachinko [cantidad]` · `caballo [cantidad] [caballos] [tipo]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `loteria` · `saldo [miembro]` · `tragas [cantidad]` · `volcan [cantidad]` |
+  | 🎰 Casino | `apuestas [miembro]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `imv` · `hacienda [miembro]` · `renta` · `ruleta [cantidad] [apuesta]` · `blackjack [cantidad]` (atajo `.bj`) · `cohete [cantidad] [auto]` · `minas [cantidad] [minas]` · `pollo [cantidad] [dificultad] [autocobro]` · `moneda [cantidad] [lado]` · `autobus [cantidad]` · `dados [cantidad] [apuesta]` · `pachinko [cantidad]` · `caballo [cantidad] [caballos] [tipo]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `loteria` · `saldo [miembro]` · `tragas [cantidad]` · `volcan [cantidad]` |
   | 🔔 Entradas | `entrada [archivo] [volumen] [borrar]` |
   | 🗼 Diversión | `babel <texto \| @miembros #canales>` · `hongkong` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
@@ -399,6 +399,14 @@ python -m bot
   ventana, como los caballos (la moneda bimetálica gira, rebota
   y se asienta, o se tambalea y se queda de pie), con Pillow si no hay
   navegador. Al cobrar dice cómo habría caído la siguiente.
+- **Autobús** (`/autobus`, `.autobus [cantidad]`): Ride the Bus. Cuatro
+  cartas y cuatro preguntas: rojo o negro; mayor, menor o igual; dentro, fuera
+  o poste; y el palo. Tras cada acierto cobras o sigues, y quien acierta las
+  cuatro puede jugárselo a la vuelta (doble o nada). Cada botón enseña su
+  multiplicador y su probabilidad, y 📋 Tabla la tabla de pagos fija: cobres
+  donde cobres, devuelve el 99 %. La guagua avanza de parada en parada en un
+  GIF dibujado con canvas en Chromium; las cartas se sortean antes de jugar y
+  la animación de la mano siguiente se dibuja mientras piensas.
 - **Dados** (`/dados`, `.dados [cantidad] [apuesta]`): craps de casino. Eliges
   ✅ Pase o 🚫 No pase y tiras la salida: con Pase, el 7 y el 11 ganan y el 2,
   el 3 y el 12 pierden; con No pase, al revés, y el 12 empata. Cualquier otro
@@ -825,6 +833,7 @@ src/bot/
 │   ├── mines.py         # Minas: tablero de 5×5 con botones (componentes v2)
 │   ├── chicken.py       # Pollo: carretera con botones, GIF por paso y autocobro
 │   ├── coin.py          # moneda: cara o cruz con botones, doble o nada y canto
+│   ├── bus.py           # autobus: Ride the Bus con botones, cobro y precarga de los GIF
 │   ├── craps.py         # dados: craps con Pase, No pase, punto, Odds y la mano
 │   ├── pachinko.py      # Pachinko con botones, Ráfaga, Auto y turbo
 │   ├── horses.py        # caballo: carrera por canal, parrilla, boletos y Gran Premio
@@ -869,6 +878,9 @@ src/bot/
 │   ├── coin.py          # Cara o cruz: lanzamientos, canto, racha y doble o nada
 │   ├── coin_render.py   # Vuelo de la moneda, lo que se ve en cada fotograma y dibujo con Pillow
 │   ├── coin_scene.py    # Cara o cruz con canvas en Chromium (assets/moneda/escena.html)
+│   ├── bus.py           # Autobús: cartas, probabilidades exactas y pagos al 99 %
+│   ├── bus_render.py    # Autobús: lo que se ve en cada fotograma y dibujo con Pillow
+│   ├── bus_scene.py     # Autobús con canvas en Chromium (assets/autobus/escena.html)
 │   ├── craps.py         # Dados: salida, punto, Odds a la probabilidad exacta y la mano
 │   ├── craps_render.py  # Física de la tirada, cámara, dados en 3D y dibujo con Pillow
 │   ├── craps_scene.py   # Dados con canvas en Chromium (assets/dados/escena.html)

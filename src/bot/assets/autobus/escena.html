@@ -1,0 +1,530 @@
+<!doctype html>
+<!--
+Escena del Autobús (Ride the Bus), dibujada con canvas en un Chromium sin ventana
+(ver bot/services/bus_scene.py).
+
+No decide nada: Python le pasa, fotograma a fotograma, dónde está cada carta,
+el autobús, el humo, las chispas y el cartel (bot/services/bus_render.py,
+`board_state` y `reveal_states`). Aquí solo se pinta. Funciones que llama Python:
+
+- loadFonts()                espera a las fuentes (canvas no las carga solo).
+- setup(meta)                los nombres de las cinco paradas.
+- renderFrames(states, first) dibuja los fotogramas y devuelve, de cada uno, el
+                             PNG (data URL) del recuadro que ha cambiado y dónde va.
+                             Si un estado trae "full": true devuelve el fotograma
+                             entero (sirve para empezar un tramo nuevo que no sigue
+                             al fotograma anterior).
+
+Un estado es:
+  slots[5]   por hueco: card {rank, suit, label, red} | null, down (boca abajo),
+             flip (0 dorso, 1 cara), lift, dx, rot, glow, glowKind, mark
+             ("win"|"lose"|null), markA (escala de la marca), ghost.
+  active     hueco resaltado | null          question   la pregunta | null
+  bus        {x (parada, con decimales), hop, dx, tilt, soot, alert, smoke[[dx,dy,r,a]]}
+  sparks     [[x, y, radio, alfa, clase]]    banner  {kind, title, sub, a} | null
+
+Se dibuja al doble de tamaño (S = 2) y se reduce al copiarlo. El recuadro que
+cambia se calcula comparando con el fotograma anterior, así que montar los
+recuadros da exactamente lo mismo que pintar cada fotograma entero. Sin emojis:
+el Chromium del Docker no trae su fuente; los palos son trazados de canvas.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Luckiest"; src: url("../botes/fonts/luckiest-guy.woff"); }
+  @font-face { font-family: "Montserrat"; src: url("../memes/fonts/MontserratBold.ttf"); font-weight: 700; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+</style>
+</head>
+<body>
+<script>
+"use strict";
+const S = 2;
+const W = 640, H = 360;
+const SLOT_X = [66, 184, 302, 420, 574];     // centro de cada hueco (y de cada parada)
+const CARD_W = 90, CARD_H = 126, CARD_Y = 132, CARD_CY = CARD_Y + CARD_H / 2;
+const ROAD_TOP = 58, ROAD_BOT = 94, BUS_BASE = 91;
+const MARK_Y = 278;
+
+const big = document.createElement("canvas"); big.width = W * S; big.height = H * S;
+const out = document.createElement("canvas"); out.width = W; out.height = H;
+const crop = document.createElement("canvas");
+const bctx = big.getContext("2d");
+const octx = out.getContext("2d", { willReadFrequently: true });
+const cctx = crop.getContext("2d");
+
+let META = null;
+let BG = null;
+let PREV = null;           // píxeles del fotograma anterior (Uint32Array)
+const SPRITES = new Map(); // cartas ya dibujadas (una vez por página)
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function rng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function spaced(g, px) { if ("letterSpacing" in g) g.letterSpacing = px + "px"; }
+
+// -- Palos: trazados de canvas, centrados en (0, 0) y de lado 1 -------------------------------
+
+function suitPath(g, suit) {
+  g.beginPath();
+  if (suit === 2) {                                    // diamantes
+    g.moveTo(0, -0.5); g.quadraticCurveTo(0.12, -0.2, 0.37, 0); g.quadraticCurveTo(0.12, 0.2, 0, 0.5);
+    g.quadraticCurveTo(-0.12, 0.2, -0.37, 0); g.quadraticCurveTo(-0.12, -0.2, 0, -0.5);
+  } else if (suit === 1) {                             // corazones
+    g.moveTo(0, 0.5);
+    g.bezierCurveTo(-0.15, 0.35, -0.5, 0.12, -0.5, -0.15);
+    g.bezierCurveTo(-0.5, -0.38, -0.32, -0.5, -0.17, -0.5);
+    g.bezierCurveTo(-0.07, -0.5, 0, -0.43, 0, -0.32);
+    g.bezierCurveTo(0, -0.43, 0.07, -0.5, 0.17, -0.5);
+    g.bezierCurveTo(0.32, -0.5, 0.5, -0.38, 0.5, -0.15);
+    g.bezierCurveTo(0.5, 0.12, 0.15, 0.35, 0, 0.5);
+  } else if (suit === 0) {                             // picas: corazón del revés con tallo
+    g.moveTo(0, -0.5);
+    g.bezierCurveTo(0.12, -0.3, 0.5, -0.08, 0.5, 0.14);
+    g.bezierCurveTo(0.5, 0.34, 0.34, 0.42, 0.2, 0.42);
+    g.bezierCurveTo(0.1, 0.42, 0.03, 0.37, 0.03, 0.28);
+    g.bezierCurveTo(0.03, 0.38, 0.1, 0.47, 0.24, 0.5);
+    g.lineTo(-0.24, 0.5);
+    g.bezierCurveTo(-0.1, 0.47, -0.03, 0.38, -0.03, 0.28);
+    g.bezierCurveTo(-0.03, 0.37, -0.1, 0.42, -0.2, 0.42);
+    g.bezierCurveTo(-0.34, 0.42, -0.5, 0.34, -0.5, 0.14);
+    g.bezierCurveTo(-0.5, -0.08, -0.12, -0.3, 0, -0.5);
+  } else {                                             // tréboles: tres bolas y tallo
+    for (const [bx, by] of [[0, -0.27], [-0.27, 0.1], [0.27, 0.1]]) { g.moveTo(bx + 0.23, by); g.arc(bx, by, 0.23, 0, Math.PI * 2); }
+    g.moveTo(-0.04, 0.05); g.bezierCurveTo(-0.02, 0.3, -0.1, 0.42, -0.2, 0.5);
+    g.lineTo(0.2, 0.5); g.bezierCurveTo(0.1, 0.42, 0.02, 0.3, 0.04, 0.05); g.closePath();
+    g.moveTo(-0.15, -0.05); g.lineTo(0.15, -0.05); g.lineTo(0, 0.12); g.closePath();
+  }
+}
+function drawSuit(g, suit, x, y, size, color) {
+  g.save(); g.translate(x, y); g.scale(size, size); g.fillStyle = color; suitPath(g, suit); g.fill(); g.restore();
+}
+
+// -- Cartas (una vez cada una, a tamaño de dibujo) -------------------------------------------
+
+function faceSprite(card) {
+  const key = card.rank * 4 + card.suit;
+  if (SPRITES.has(key)) return SPRITES.get(key);
+  const c = document.createElement("canvas"); c.width = CARD_W * S; c.height = CARD_H * S;
+  const g = c.getContext("2d"); g.scale(S, S);
+  const color = card.red ? "#c8232f" : "#1a1c22";
+  roundRect(g, 0.5, 0.5, CARD_W - 1, CARD_H - 1, 8);
+  const grad = g.createLinearGradient(0, 0, CARD_W, CARD_H);
+  grad.addColorStop(0, "#ffffff"); grad.addColorStop(1, "#ebe8df");
+  g.fillStyle = grad; g.fill(); g.strokeStyle = "#a9a699"; g.lineWidth = 1; g.stroke();
+  // Índices en las esquinas (la de abajo, del revés).
+  const corner = () => {
+    g.fillStyle = color; g.font = `${card.label.length > 1 ? 19 : 23}px Luckiest`;
+    g.textAlign = "center"; g.textBaseline = "alphabetic"; g.fillText(card.label, 14, 27);
+    drawSuit(g, card.suit, 14, 40, 14, color);
+  };
+  corner();
+  g.save(); g.translate(CARD_W, CARD_H); g.rotate(Math.PI); corner(); g.restore();
+  // El palo grande, con un halo suave para que tenga cuerpo.
+  g.save(); g.shadowColor = "rgba(0,0,0,0.25)"; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
+  drawSuit(g, card.suit, CARD_W / 2, CARD_H / 2 + 1, 46, color); g.restore();
+  SPRITES.set(key, c);
+  return c;
+}
+function backSprite() {
+  if (SPRITES.has("back")) return SPRITES.get("back");
+  const c = document.createElement("canvas"); c.width = CARD_W * S; c.height = CARD_H * S;
+  const g = c.getContext("2d"); g.scale(S, S);
+  roundRect(g, 0.5, 0.5, CARD_W - 1, CARD_H - 1, 8); g.fillStyle = "#f4f1e8"; g.fill();
+  g.strokeStyle = "#a9a699"; g.lineWidth = 1; g.stroke();
+  const x = 5, y = 5, w = CARD_W - 10, h = CARD_H - 10;
+  roundRect(g, x, y, w, h, 5);
+  const grad = g.createLinearGradient(0, 0, CARD_W, CARD_H);
+  grad.addColorStop(0, "#a3202e"); grad.addColorStop(1, "#5e0f1b");
+  g.fillStyle = grad; g.fill();
+  g.save(); roundRect(g, x, y, w, h, 5); g.clip();
+  g.strokeStyle = "rgba(255,214,110,0.38)"; g.lineWidth = 1;     // rejilla de rombos
+  for (let k = -CARD_H; k < CARD_W + CARD_H; k += 11) {
+    g.beginPath(); g.moveTo(k, 0); g.lineTo(k + CARD_H, CARD_H); g.stroke();
+    g.beginPath(); g.moveTo(k + CARD_H, 0); g.lineTo(k, CARD_H); g.stroke();
+  }
+  g.restore();
+  roundRect(g, x + 5, y + 5, w - 10, h - 10, 3);
+  g.strokeStyle = "rgba(255,214,110,0.8)"; g.lineWidth = 1.2; g.stroke();
+  // Emblema central: un autobusito dorado.
+  g.save(); g.translate(CARD_W / 2, CARD_H / 2);
+  g.fillStyle = "#7d0f1d"; g.beginPath(); g.ellipse(0, 0, 21, 21, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = "#f3c64f"; g.lineWidth = 1.6; g.stroke();
+  g.fillStyle = "#f3c64f"; roundRect(g, -13, -8, 26, 14, 3); g.fill();
+  g.fillStyle = "#7d0f1d"; for (let k = 0; k < 4; k++) g.fillRect(-10 + k * 6, -5, 4, 5);
+  g.fillStyle = "#f3c64f"; for (const wx of [-7, 7]) { g.beginPath(); g.arc(wx, 7, 3, 0, Math.PI * 2); g.fill(); }
+  g.restore();
+  SPRITES.set("back", c);
+  return c;
+}
+
+// -- Fondo: tapete, ciudad, carretera --------------------------------------------------------
+
+function paintBackground() {
+  const c = document.createElement("canvas"); c.width = W * S; c.height = H * S;
+  const g = c.getContext("2d"); g.scale(S, S);
+  // Tapete.
+  let grad = g.createRadialGradient(320, 230, 30, 320, 220, 460);
+  grad.addColorStop(0, "#238253"); grad.addColorStop(0.55, "#135a37"); grad.addColorStop(1, "#06281a");
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  const r = rng(7);
+  // Cielo y ciudad.
+  grad = g.createLinearGradient(0, 0, 0, ROAD_TOP);
+  grad.addColorStop(0, "#08182a"); grad.addColorStop(1, "#1d4559");
+  g.fillStyle = grad; g.fillRect(0, 0, W, ROAD_BOT + 6);
+  g.fillStyle = "rgba(255,255,255,0.7)";
+  for (let k = 0; k < 26; k++) g.fillRect(r() * W, r() * 22, 1, 1);
+  let x = -6;
+  while (x < W) {
+    const bw = 16 + r() * 26, bh = 14 + r() * 22;
+    g.fillStyle = r() < 0.5 ? "#0c2233" : "#102b3f"; g.fillRect(x, ROAD_TOP - bh, bw, bh);
+    g.fillStyle = "rgba(255,214,110,0.55)";
+    for (let wy = ROAD_TOP - bh + 3; wy < ROAD_TOP - 4; wy += 5)
+      for (let wx = x + 3; wx < x + bw - 3; wx += 5) if (r() < 0.35) g.fillRect(wx, wy, 2, 2);
+    x += bw + 1 + r() * 4;
+  }
+  // Acera de atrás, carretera y bordillo de delante.
+  g.fillStyle = "#59606b"; g.fillRect(0, ROAD_TOP - 3, W, 5);
+  g.fillStyle = "#7d8693"; g.fillRect(0, ROAD_TOP - 3, W, 1);
+  grad = g.createLinearGradient(0, ROAD_TOP + 2, 0, ROAD_BOT);
+  grad.addColorStop(0, "#2c3038"); grad.addColorStop(1, "#1b1e24");
+  g.fillStyle = grad; g.fillRect(0, ROAD_TOP + 2, W, ROAD_BOT - ROAD_TOP - 2);
+  g.strokeStyle = "rgba(255,226,120,0.55)"; g.lineWidth = 1.5; g.setLineDash([12, 10]);
+  g.beginPath(); g.moveTo(0, 76); g.lineTo(W, 76); g.stroke(); g.setLineDash([]);
+  g.fillStyle = "#8d96a3"; g.fillRect(0, ROAD_BOT, W, 4);
+  g.fillStyle = "#4b525d"; g.fillRect(0, ROAD_BOT + 4, W, 3);
+  g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(0, ROAD_BOT + 7, W, 6);   // sombra sobre el tapete
+  // Postes de las paradas.
+  for (let i = 0; i < 5; i++) {
+    g.fillStyle = i === 4 ? "#c79a2e" : "#aab2bf"; g.fillRect(SLOT_X[i] - 1.5, 24, 3, ROAD_TOP - 22);
+    g.fillStyle = "#59606b"; roundRect(g, SLOT_X[i] - 7, ROAD_TOP - 5, 14, 5, 2); g.fill();
+  }
+  // Separador del doble o nada.
+  g.save(); g.strokeStyle = "rgba(255,206,90,0.35)"; g.lineWidth = 1.5; g.setLineDash([5, 6]);
+  g.beginPath(); g.moveTo(497, 118); g.lineTo(497, 300); g.stroke(); g.restore();
+  // Marco dorado fino y viñeta.
+  g.save(); roundRect(g, 5, 5, W - 10, H - 10, 12); g.strokeStyle = "rgba(255,214,110,0.22)"; g.lineWidth = 1; g.stroke(); g.restore();
+  grad = g.createRadialGradient(320, 190, 170, 320, 190, 420);
+  grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,0.5)");
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  // Rótulo de la mesa.
+  g.save(); g.font = "700 9px Montserrat"; g.textAlign = "center"; g.fillStyle = "rgba(255,214,110,0.2)";
+  spaced(g, 3); g.fillText("CASINO DEL ESTADO  ·  AUTOBÚS", 320, 351); g.restore();
+  return c;
+}
+
+// -- Paradas, autobús ------------------------------------------------------------------------
+
+function drawPlates(st) {
+  const g = bctx;
+  const bus = st.bus || { x: 0 };
+  for (let i = 0; i < 5; i++) {
+    const cx = SLOT_X[i], w = 84, h = 20, y = 5;
+    const slot = st.slots[i] || {};
+    const won = slot.mark === "win", lost = slot.mark === "lose";
+    const here = st.active === i || (st.active == null && Math.round(bus.x) === i && !won && !lost);
+    let top, bot, text;
+    if (i === 4) { top = "#ffe58a"; bot = "#d99a1a"; text = "#3b2905"; }
+    else if (won) { top = "#3fcf80"; bot = "#1b8a4c"; text = "#052b15"; }
+    else if (lost) { top = "#e55b5b"; bot = "#a42626"; text = "#fff"; }
+    else if (here) { top = "#ffe27a"; bot = "#e0a41c"; text = "#3b2905"; }
+    else { top = "#2a5aa8"; bot = "#173a73"; text = "#e8f0ff"; }
+    g.save();
+    if (here) { g.shadowColor = "rgba(255,214,90,0.9)"; g.shadowBlur = 12 * S; }
+    roundRect(g, cx - w / 2, y, w, h, 5);
+    const grad = g.createLinearGradient(0, y, 0, y + h); grad.addColorStop(0, top); grad.addColorStop(1, bot);
+    g.fillStyle = grad; g.fill(); g.shadowBlur = 0;
+    g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = 1.2; g.stroke();
+    g.font = "700 10.5px Montserrat"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = text;
+    spaced(g, 1);
+    g.fillText(META.stops[i], cx, y + h / 2 + 0.5);
+    g.restore();
+  }
+}
+
+function drawBus(st) {
+  const g = bctx, bus = st.bus;
+  const px = busX(bus.x);
+  const hop = bus.hop || 0, tilt = bus.tilt || 0, soot = bus.soot || 0;
+  g.save();
+  g.fillStyle = "rgba(0,0,0,0.4)"; g.beginPath(); g.ellipse(px, BUS_BASE + 2, 50, 4.5, 0, 0, Math.PI * 2); g.fill();
+  g.translate(px + (bus.dx || 0), BUS_BASE - hop); g.rotate(tilt); g.scale(1.15, 1.15);
+  const wheelAngle = px / 7;
+  // Carrocería.
+  const body = () => {
+    g.beginPath(); g.moveTo(-39, -9); g.lineTo(-39, -29); g.quadraticCurveTo(-39, -35, -33, -35);
+    g.lineTo(27, -35); g.quadraticCurveTo(33, -35, 36, -28); g.lineTo(39, -14);
+    g.quadraticCurveTo(40, -9, 35, -8); g.lineTo(-35, -8); g.quadraticCurveTo(-39, -8, -39, -9); g.closePath();
+  };
+  body();
+  let grad = g.createLinearGradient(0, -35, 0, -8); grad.addColorStop(0, "#ffd93a"); grad.addColorStop(1, "#e3a40d");
+  g.fillStyle = grad; g.fill(); g.strokeStyle = "#7a5206"; g.lineWidth = 1.2; g.stroke();
+  g.save(); body(); g.clip();
+  g.fillStyle = "#1f5fbf"; g.fillRect(-40, -17, 82, 6);                  // franja azul
+  g.fillStyle = "rgba(255,255,255,0.35)"; g.fillRect(-40, -34, 82, 2);     // brillo del techo
+  g.fillStyle = "#143f87"; g.fillRect(-40, -11, 82, 3);
+  g.restore();
+  // Ventanillas y parabrisas.
+  for (let k = 0; k < 5; k++) {
+    const wx = -34 + k * 12.5;
+    roundRect(g, wx, -31, 10.5, 11, 2);
+    g.fillStyle = "#b9e6f7"; g.fill(); g.strokeStyle = "#243447"; g.lineWidth = 1; g.stroke();
+    g.fillStyle = "rgba(255,255,255,0.55)"; g.beginPath();
+    g.moveTo(wx + 1.5, -30); g.lineTo(wx + 5.5, -30); g.lineTo(wx + 2, -22); g.lineTo(wx + 1.5, -22); g.closePath(); g.fill();
+  }
+  g.beginPath(); g.moveTo(30, -31); g.lineTo(34.5, -31); g.lineTo(37, -19); g.lineTo(30, -19); g.closePath();
+  g.fillStyle = "#b9e6f7"; g.fill(); g.strokeStyle = "#243447"; g.stroke();
+  g.fillStyle = "#111"; g.fillRect(23, -36.5, 12, 3);                    // rótulo de destino
+  g.fillStyle = "#ff9d2e"; g.fillRect(24.5, -35.8, 3, 1.6); g.fillRect(29, -35.8, 4, 1.6);
+  g.fillStyle = "#9aa3ad"; g.fillRect(-18, -38, 18, 3);                  // aire acondicionado
+  // Luces y parachoques.
+  g.fillStyle = "#fff6c4"; g.beginPath(); g.arc(37.5, -13, 2.4, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#e23b3b"; g.fillRect(-39.5, -15, 2.5, 5);
+  g.fillStyle = "#1d2026"; g.fillRect(-40, -9, 3, 3); g.fillRect(36, -9, 4, 3);
+  // Hollín de la avería.
+  if (soot > 0) { body(); g.fillStyle = `rgba(12,10,10,${0.5 * soot})`; g.fill(); }
+  // Ruedas.
+  for (const wx of [-24, 24]) {
+    g.save(); g.translate(wx, -6); g.fillStyle = "#14161a"; g.beginPath(); g.arc(0, 0, 7, 0, Math.PI * 2); g.fill();
+    g.rotate(wheelAngle); g.strokeStyle = "#c3cad4"; g.lineWidth = 1.3;
+    for (let k = 0; k < 3; k++) { g.rotate(Math.PI / 3); g.beginPath(); g.moveTo(-3.6, 0); g.lineTo(3.6, 0); g.stroke(); }
+    g.fillStyle = "#9aa0aa"; g.beginPath(); g.arc(0, 0, 1.6, 0, Math.PI * 2); g.fill(); g.restore();
+  }
+  // Intermitentes de avería.
+  if (bus.alert > 0) {
+    g.save(); g.globalAlpha = clamp(bus.alert, 0, 1);
+    for (const [ax, ay] of [[-38, -26], [38, -24]]) {
+      const rg = g.createRadialGradient(ax, ay, 0, ax, ay, 11);
+      rg.addColorStop(0, "rgba(255,170,40,1)"); rg.addColorStop(1, "rgba(255,170,40,0)");
+      g.fillStyle = rg; g.beginPath(); g.arc(ax, ay, 11, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+  }
+  g.restore();
+  // Humo: bolas grises que suben desde la parte de atrás.
+  g.save(); g.translate(px, BUS_BASE);
+  for (const [dx, dy, r, a] of bus.smoke || []) {
+    const rg = g.createRadialGradient(dx, dy, 0, dx, dy, r);
+    rg.addColorStop(0, `rgba(120,120,128,${a})`); rg.addColorStop(0.6, `rgba(150,150,158,${a * 0.75})`);
+    rg.addColorStop(1, "rgba(170,170,178,0)");
+    g.fillStyle = rg; g.beginPath(); g.arc(dx, dy, r, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
+}
+// La posición de una parada (con decimales) en píxeles: interpola entre los centros.
+function busX(p) {
+  const i = clamp(Math.floor(p), 0, 3), t = p - i;
+  return SLOT_X[i] + (SLOT_X[i + 1] - SLOT_X[i]) * t;
+}
+
+// -- Huecos y cartas ------------------------------------------------------------------------
+
+const GLOWS = { win: "#5dff9a", lose: "#ff4d4d", gold: "#ffd24a" };
+
+function drawQuestion(st) {
+  if (st.active == null || !st.question) return;
+  const g = bctx;
+  g.save(); g.font = "700 10px Montserrat"; spaced(g, 0.8);
+  const w = g.measureText(st.question).width + 24, h = 19;
+  const cx = clamp(SLOT_X[st.active], w / 2 + 8, W - w / 2 - 8), y = 106;
+  roundRect(g, cx - w / 2, y, w, h, 9.5);
+  g.fillStyle = "rgba(4,22,14,0.8)"; g.fill(); g.strokeStyle = "rgba(255,214,110,0.75)"; g.lineWidth = 1; g.stroke();
+  g.fillStyle = "#ffe08a"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(st.question, cx + 0.4, y + h / 2 + 0.5);
+  g.restore();
+}
+
+function drawEmptySlot(i, active) {
+  const g = bctx, x = SLOT_X[i] - CARD_W / 2;
+  g.save(); roundRect(g, x, CARD_Y, CARD_W, CARD_H, 8);
+  g.fillStyle = "rgba(0,0,0,0.2)"; g.fill();
+  g.setLineDash([5, 5]); g.lineWidth = 1.5;
+  g.strokeStyle = i === 4 ? "rgba(255,206,90,0.55)" : "rgba(255,255,255,0.22)"; g.stroke();
+  g.setLineDash([]);
+  g.font = "44px Luckiest"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = i === 4 ? "rgba(255,206,90,0.2)" : "rgba(255,255,255,0.1)";
+  g.fillText(String(i + 1), SLOT_X[i], CARD_CY + 3);
+  g.restore();
+}
+
+function drawCard(i, s) {
+  const g = bctx, cx = SLOT_X[i] + (s.dx || 0), lift = s.lift || 0;
+  const flip = s.card ? s.flip : 0, ang = clamp(flip, 0, 1) * Math.PI;
+  const faceUp = !!s.card && flip > 0.5;
+  const sx = Math.max(Math.abs(Math.cos(ang)), 0.025);
+  const zoom = 1 + lift / 300;
+  const alpha = s.ghost ? 0.5 : 1;
+  // Sombra sobre el tapete: se aleja y se aclara al levantar la carta.
+  g.save(); g.globalAlpha = 0.38 * (1 - Math.min(lift, 60) / 120);
+  g.fillStyle = "#000"; g.beginPath();
+  g.ellipse(SLOT_X[i] + 2 + lift * 0.25, CARD_CY + CARD_H / 2 - 4 + lift * 0.1,
+            CARD_W / 2 * (0.92 + lift / 160) * Math.max(sx, 0.3), 8 + lift / 8, 0, 0, Math.PI * 2);
+  g.fill(); g.restore();
+  g.save();
+  g.translate(cx, CARD_CY - lift); g.rotate(s.rot || 0); g.scale(sx * zoom, zoom);
+  if (s.glow > 0) {                                           // brillo detrás de la carta
+    g.save(); g.shadowColor = GLOWS[s.glowKind] || GLOWS.win; g.shadowBlur = 34 * S * clamp(s.glow, 0, 1);
+    g.fillStyle = GLOWS[s.glowKind] || GLOWS.win; g.globalAlpha = 0.85 * clamp(s.glow, 0, 1);
+    roundRect(g, -CARD_W / 2 + 3, -CARD_H / 2 + 3, CARD_W - 6, CARD_H - 6, 8); g.fill(); g.restore();
+  }
+  g.globalAlpha = alpha;
+  g.drawImage(faceUp ? faceSprite(s.card) : backSprite(), -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H);
+  if (faceUp && sx > 0.2 && s.glow > 0) {                     // un velo de luz sobre la cara
+    g.globalAlpha = 0.22 * clamp(s.glow, 0, 1); g.fillStyle = "#fff";
+    roundRect(g, -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H / 2, 8); g.fill();
+  }
+  g.restore();
+  if (s.ghost) {
+    g.save(); g.translate(SLOT_X[i], CARD_CY + 36); g.rotate(-0.12);
+    g.font = "16px Luckiest"; spaced(g, 1);
+    const w = g.measureText("ERA ESTA").width + 22;
+    roundRect(g, -w / 2, -13, w, 26, 6); g.fillStyle = "rgba(10,12,16,0.88)"; g.fill();
+    g.strokeStyle = "#ffd24a"; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = "#ffd24a"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("ERA ESTA", 0.5, 1);
+    g.restore();
+  }
+}
+
+function drawMark(i, s) {
+  if (!s.mark) return;
+  const g = bctx, scale = s.markA == null ? 1 : s.markA;
+  if (scale <= 0) return;
+  g.save(); g.translate(SLOT_X[i], MARK_Y); g.scale(scale, scale);
+  const win = s.mark === "win";
+  g.shadowColor = win ? "rgba(93,255,154,0.8)" : "rgba(255,77,77,0.8)"; g.shadowBlur = 10 * S;
+  g.beginPath(); g.arc(0, 0, 12, 0, Math.PI * 2);
+  g.fillStyle = win ? "#1fae62" : "#d83a3a"; g.fill(); g.shadowBlur = 0;
+  g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+  g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = 3.2; g.beginPath();
+  if (win) { g.moveTo(-5.5, 0.5); g.lineTo(-1.6, 4.6); g.lineTo(5.8, -4.2); }
+  else { g.moveTo(-4.6, -4.6); g.lineTo(4.6, 4.6); g.moveTo(4.6, -4.6); g.lineTo(-4.6, 4.6); }
+  g.stroke(); g.restore();
+}
+
+function drawActive(i) {
+  const g = bctx;
+  g.save(); g.shadowColor = "rgba(255,214,90,0.95)"; g.shadowBlur = 14 * S;
+  roundRect(g, SLOT_X[i] - CARD_W / 2 - 5, CARD_Y - 5, CARD_W + 10, CARD_H + 10, 11);
+  g.strokeStyle = "#ffd75e"; g.lineWidth = 2.6; g.stroke(); g.restore();
+  // Flecha que apunta a la carta desde la pregunta.
+  g.save(); g.fillStyle = "#ffd75e"; g.beginPath();
+  g.moveTo(SLOT_X[i] - 6, CARD_Y - 12); g.lineTo(SLOT_X[i] + 6, CARD_Y - 12); g.lineTo(SLOT_X[i], CARD_Y - 5);
+  g.closePath(); g.fill(); g.restore();
+}
+
+function spark(g, x, y, r, a, kind) {
+  const color = ["255,216,74", "109,255,158", "255,255,255", "255,110,110"][kind] || "255,255,255";
+  g.save(); g.translate(x, y);
+  const rg = g.createRadialGradient(0, 0, 0, 0, 0, r * 1.7);
+  rg.addColorStop(0, `rgba(${color},${a * 0.55})`); rg.addColorStop(1, `rgba(${color},0)`);
+  g.fillStyle = rg; g.beginPath(); g.arc(0, 0, r * 1.7, 0, Math.PI * 2); g.fill();
+  g.fillStyle = `rgba(${color},${a})`; g.beginPath();
+  for (let k = 0; k < 8; k++) { const rr = k % 2 ? r * 0.28 : r, an = k * Math.PI / 4 - Math.PI / 2;
+    g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); }
+  g.closePath(); g.fill(); g.restore();
+}
+
+function drawBanner(b) {
+  if (!b) return;
+  const g = bctx, a = clamp(b.a, 0, 1.4);
+  if (a <= 0) return;
+  const colors = { win: ["#47e08c", "#16824a"], lose: ["#ff6666", "#a52020"],
+    cash: ["#59b6ff", "#1f5fb8"], gold: ["#fff0a0", "#e0a010"] }[b.kind] || ["#fff", "#888"];
+  g.save(); g.font = "30px Luckiest"; spaced(g, 1);
+  const tw = g.measureText(b.title).width;
+  g.font = "700 13px Montserrat"; spaced(g, 0);
+  const sw = b.sub ? g.measureText(b.sub).width + 22 : 0;
+  const w = Math.max(250, tw + sw + (sw ? 56 : 44)), h = 50;
+  g.translate(W / 2, 319); const sc = 0.6 + 0.4 * a; g.scale(sc, sc); g.globalAlpha = clamp(a * 1.4, 0, 1);
+  g.shadowColor = "rgba(0,0,0,0.6)"; g.shadowBlur = 12 * S; g.shadowOffsetY = 3;
+  roundRect(g, -w / 2, -h / 2, w, h, 12);
+  const grad = g.createLinearGradient(0, -h / 2, 0, h / 2); grad.addColorStop(0, colors[0]); grad.addColorStop(1, colors[1]);
+  g.fillStyle = grad; g.fill(); g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.strokeStyle = b.kind === "gold" ? "#fffbe0" : "rgba(255,255,255,0.85)"; g.lineWidth = 2; g.stroke();
+  g.fillStyle = "rgba(255,255,255,0.22)"; roundRect(g, -w / 2 + 4, -h / 2 + 3, w - 8, h / 2 - 3, 9); g.fill();
+  const lx = sw ? -w / 2 + 22 + tw / 2 : 0;
+  g.font = "30px Luckiest"; spaced(g, 1); g.textAlign = "center"; g.textBaseline = "middle";
+  g.lineJoin = "round"; g.lineWidth = 6; g.strokeStyle = b.kind === "gold" ? "#6b4a05" : "rgba(8,24,16,0.85)";
+  g.strokeText(b.title, lx, 2); g.fillStyle = b.kind === "gold" ? "#fff6c8" : "#fff"; g.fillText(b.title, lx, 2);
+  if (sw) {
+    const px = w / 2 - 14 - sw / 2;
+    roundRect(g, px - sw / 2, -13, sw, 26, 13); g.fillStyle = "rgba(6,20,14,0.75)"; g.fill();
+    g.font = "700 13px Montserrat"; spaced(g, 0.5); g.fillStyle = "#ffe08a"; g.fillText(b.sub, px, 1);
+  }
+  g.restore();
+}
+
+function paint(st) {
+  const g = bctx;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(BG, 0, 0);
+  g.save(); g.scale(S, S);
+  drawPlates(st);
+  drawBus(st);
+  drawQuestion(st);
+  const slots = st.slots;
+  for (let i = 0; i < 5; i++) {
+    const s = slots[i];
+    if (!s.card && !s.down) drawEmptySlot(i);
+  }
+  if (st.active != null) drawActive(st.active);
+  // Las cartas levantadas van encima de las demás.
+  const order = [0, 1, 2, 3, 4].sort((a, b) => (slots[a].lift || 0) - (slots[b].lift || 0));
+  for (const i of order) {
+    const s = slots[i];
+    if (s.card || s.down) drawCard(i, s);
+  }
+  for (let i = 0; i < 5; i++) drawMark(i, slots[i]);
+  for (const [x, y, r, a, kind] of st.sparks || []) spark(g, x, y, r, a, kind);
+  drawBanner(st.banner);
+  g.restore();
+}
+
+// -- Salida: solo el recuadro que cambia ------------------------------------------------------
+
+function snapshot(full) {
+  octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
+  octx.drawImage(big, 0, 0, W, H);
+  const cur = new Uint32Array(octx.getImageData(0, 0, W, H).data.buffer);
+  let x0 = 0, y0 = 0, x1 = W, y1 = H;
+  if (!full && PREV) {
+    x0 = W; y0 = H; x1 = 0; y1 = 0;
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0; x < W; x++) {
+        if (cur[row + x] !== PREV[row + x]) {
+          if (x < x0) x0 = x; if (x >= x1) x1 = x + 1;
+          if (y < y0) y0 = y; if (y >= y1) y1 = y + 1;
+        }
+      }
+    }
+    if (x1 <= x0) { x0 = 0; y0 = 0; x1 = 1; y1 = 1; }   // nada ha cambiado
+  }
+  PREV = cur;
+  const w = x1 - x0, h = y1 - y0;
+  crop.width = w; crop.height = h;
+  cctx.drawImage(out, x0, y0, w, h, 0, 0, w, h);
+  return { x: x0, y: y0, u: crop.toDataURL("image/png") };
+}
+
+window.loadFonts = async () => {
+  await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);
+  await document.fonts.ready;
+  return true;
+};
+window.setup = (meta) => {
+  META = meta; PREV = null;
+  if (!BG) BG = paintBackground();
+  return true;
+};
+window.renderFrames = (states, first = 0) => states.map((st) => { paint(st); return snapshot(!!st.full); });
+</script>
+</body>
+</html>

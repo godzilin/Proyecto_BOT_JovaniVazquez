@@ -48,6 +48,7 @@ sys.path.insert(0, "src")
 
 from bot.services import blackjack as bj  # noqa: E402
 from bot.services import (  # noqa: E402
+    bus,
     chicken,
     coin,
     craps,
@@ -68,6 +69,7 @@ from bot.services.achievements import (  # noqa: E402
     Rarity,
     StatDelta,
     blackjack_stats,
+    bus_stats,
     casino_stats,
     chicken_stats,
     coin_stats,
@@ -119,6 +121,7 @@ RITMO_CASINO = {
     "mines": 40,
     "chicken": 60,
     "coin": 60,
+    "bus": 60,
     "dice": 50,
     "pachinko": 60,
     "horses": 30,
@@ -402,6 +405,32 @@ def _jugar_moneda(j: Jugador) -> StatDelta:
     return _con_casino(coin_stats(game, when=NOON), stake=APUESTA, net=game.net)
 
 
+#: Parada en la que se baja un jugador normal del autobús (5 = se juega la vuelta).
+_PARADAS = ((1, 25), (2, 25), (3, 20), (4, 20), (5, 10))
+#: Cómo elige en cada mano: la opción más probable, una cualquiera o la más larga.
+_ELECCIONES = (("segura", 75), ("azar", 20), ("larga", 5))
+
+
+def _jugar_autobus(j: Jugador) -> StatDelta:
+    rng = j.rng
+    game = bus.BusGame.new(APUESTA, rng)
+    target = _elegir(rng, _PARADAS)
+    while game.playing and game.hand is not None and game.wins < target:  # type: ignore[operator]
+        options = [o for o in game.options() if o.chance]
+        estilo = _elegir(rng, _ELECCIONES)
+        if estilo == "segura":
+            top = max(o.chance for o in options)
+            pick = rng.choice([o for o in options if o.chance == top]).pick
+        elif estilo == "larga":
+            pick = min(options, key=lambda o: o.chance).pick
+        else:
+            pick = rng.choice(options).pick
+        game.play(pick)
+    if game.playing:
+        game.cash_out()
+    return _con_casino(bus_stats(game, when=NOON), stake=APUESTA, net=game.net)
+
+
 #: Apuesta de salida de un jugador normal de dados: casi siempre Pase.
 _APUESTAS_DADOS = ((craps.Bet.PASS, 85), (craps.Bet.DONT, 15))
 #: Cuántas Odds pone con el punto puesto: ninguna, una ficha o al tope.
@@ -567,6 +596,7 @@ JUEGOS: dict[str, Callable[[Jugador], StatDelta]] = {
     "mines": _jugar_minas,
     "chicken": _jugar_pollo,
     "coin": _jugar_moneda,
+    "bus": _jugar_autobus,
     "dice": _jugar_dados,
     "crash": _jugar_crash,
     "roulette": _jugar_ruleta,

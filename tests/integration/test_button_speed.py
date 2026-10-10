@@ -249,6 +249,40 @@ async def press_coin_cash_out(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+def bus_view(client: BotClient, owner: MagicMock):  # noqa: ANN201
+    """Mesa del autobús con dibujo falso, sin esperas y con cartas fijas (todas rojas)."""
+    cog = client.get_cog("Autobús")
+    module = module_of(client, "Autobús")
+    module.REVEAL_MARGIN_SECONDS = 0
+    media = module.Media(gif=b"GIF", png=b"PNG", seconds=0.0)
+    cog.renderer = MagicMock()
+    cog.renderer.reveal = AsyncMock(return_value=module.Reveal(win=media, lose=media))
+    cog.renderer.board = AsyncMock(return_value=b"PNG")
+    view = module.BusView(cog, guild_id=GUILD_ID, owner=owner, stake=10)
+    view.deck = (module.Card(7, 1),) * 5
+    return view, module
+
+
+async def press_bus_pick(client: BotClient, owner: MagicMock) -> Click:
+    view, module = bus_view(client, owner)
+
+    async def click(interaction: MagicMock) -> None:
+        await view._pick(interaction, module.Pick.RED)
+
+    return click
+
+
+async def press_bus_cash_out(client: BotClient, owner: MagicMock) -> Click:
+    view, module = bus_view(client, owner)
+    # Un acierto ya en marcha (la apuesta cobrada antes de medir).
+    await view.play(module.Pick.RED, AsyncMock())
+
+    async def click(interaction: MagicMock) -> None:
+        await view._cash_out(interaction)
+
+    return click
+
+
 def dice_view(client: BotClient, owner: MagicMock, *rolls: tuple[int, int]):  # noqa: ANN201
     """Mesa de los dados con dibujo falso, sin esperas y con el azar de guion."""
     cog = client.get_cog("Dados")
@@ -433,6 +467,8 @@ CASES: dict[str, Press] = {
     "pachinko: auto": press_pachinko_autoplay,
     "moneda: cara": press_coin_flip,
     "moneda: cobrar": press_coin_cash_out,
+    "autobús: pedir carta": press_bus_pick,
+    "autobús: cobrar": press_bus_cash_out,
     "dados: pase": press_dice_pass,
     "dados: tirar": press_dice_roll,
     "dados: odds": press_dice_odds,

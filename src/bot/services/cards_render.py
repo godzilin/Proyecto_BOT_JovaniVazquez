@@ -162,6 +162,14 @@ class CardRenderer:
 
     # -- Cartas ---------------------------------------------------------------------
 
+    def card_sprite(self, card: Card | None) -> Image.Image:
+        """Imagen RGBA de una carta (o del dorso si `card` es `None`), a 76×106.
+
+        La comparten otros dibujos de cartas (el Autobús). Es la de la caché:
+        quien la use debe copiarla antes de modificarla.
+        """
+        return self._sprite(None if card is None else (card.rank, card.suit))
+
     def _sprite(self, key: tuple[int, int] | None) -> Image.Image:
         """Carta (o dorso si `key` es `None`) a tamaño final, con transparencia."""
         sprite = self._sprites.get(key)

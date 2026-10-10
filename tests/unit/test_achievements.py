@@ -29,6 +29,7 @@ from bot.services.achievements import (
     APUESTAS_PAGES,
     APUESTAS_PERIODS,
     AVAILABLE,
+    BUS_WIN_PREFIX,
     BY_ID,
     CASINO_GROUP,
     CATALOG,
@@ -79,6 +80,7 @@ from bot.services.achievements import (
 from bot.services.autoplay import StopReason
 from bot.services.beernight import Reason as BeerReason
 from bot.services.blackjack import MAX_STAKE, BlackjackGame, Card, Hand
+from bot.services.bus import Pick as BusPick
 from bot.services.chicken import DIFFICULTIES as CHICKEN_DIFFICULTIES
 from bot.services.economy import STARTING_BALANCE, STATE_ACCOUNT_ID, EconomyService, IncomeResult
 from bot.services.levels import TIMEZONE
@@ -271,6 +273,14 @@ PRODUCED_STATS = {
     "coin_first_fail", "coin_next_edge", "coin_loyal_cara", "coin_loyal_cruz", "coin_flipflop",
     "coin_edge_lost", "coin_night", "coin_hispanidad", "coin_nochevieja", "coin_friday13",
     "coin_cash_666", "coin_first_edge",
+    # cogs/bus.py (`bus_stats`)
+    "bus_games", "bus_hands", "bus_wins", "bus_cashouts", "bus_losses", "bus_complete",
+    "bus_turned", "bus_turn_lost", "bus_mult_max", "bus_win_max", "bus_suit_wins",
+    "bus_longshots", "bus_contrarian", "bus_sure_fail", "bus_first_fail", "bus_last_fail",
+    "bus_gallina", "bus_missed_longshot", "bus_lost_big", "bus_all_red", "bus_trio",
+    "bus_cash_666", "bus_cash_69", "bus_min_stake", "bus_night", "bus_rush", "bus_canarias",
+    "bus_friday13",
+    *(f"{BUS_WIN_PREFIX}{pick.key}" for pick in BusPick),
     # cogs/craps.py (`craps_stats`)
     "dice_games", "dice_rolls", "dice_pass_games", "dice_dont_games", "dice_naturals",
     "dice_craps_rolls", "dice_elevens", "dice_points_set", "dice_points_made", "dice_hard",

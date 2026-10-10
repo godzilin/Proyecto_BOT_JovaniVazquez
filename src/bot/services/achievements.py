@@ -12,7 +12,7 @@ estadísticas son contadores con nombre (`messages`, `voice_minutes`,
 Quien juega o habla no toca esto directamente: los cogs calculan qué ha
 pasado con las funciones de este módulo (`message_stats`, `roulette_stats`,
 `blackjack_stats`, `slots_stats`, `hold_win_stats`, `hold_win_bonus_stats`,
-`crash_stats`, `mines_stats`, `chicken_stats`, `coin_stats`, `craps_stats`,
+`crash_stats`, `mines_stats`, `chicken_stats`, `coin_stats`, `bus_stats`, `craps_stats`,
 `pachinko_stats`, `horses_stats`, `porra_open_stats`, `porra_bet_stats`,
 `porra_bettor_stats`, `porra_subject_stats`,
 `casino_stats`, `shop_stats`, `bizum_stats`, `message_delta`,
@@ -29,12 +29,14 @@ Los `id` no se cambian nunca: son lo que se guarda en la base de datos.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from bot.services.autoplay import StopReason
@@ -49,6 +51,13 @@ from bot.services.blackjack import (
     hand_total,
     is_blackjack,
 )
+from bot.services.bus import HANDS as BUS_HANDS
+from bot.services.bus import BusGame
+from bot.services.bus import Hand as BusHand
+from bot.services.bus import Pick as BusPick
+from bot.services.bus import Status as BusStatus
+from bot.services.bus import chance as bus_chance
+from bot.services.bus import picks_for as bus_picks_for
 from bot.services.chicken import ChickenGame
 from bot.services.chicken import Status as ChickenStatus
 from bot.services.coin import MAX_FLIPS as COIN_MAX_FLIPS
@@ -215,6 +224,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("mines", "💣 Minas", group=_CG),
     Category("chicken", "🐔 Pollo", group=_CG),
     Category("coin", "🪙 Cara o cruz", group=_CG),
+    Category("bus", "🚌 Autobús", group=_CG),
     Category("dice", "🎲 Dados", group=_CG),
     Category("pachinko", "🌸 Pachinko", group=_CG),
     Category("horses", "🏇 Caballos", group=_CG),
@@ -410,6 +420,15 @@ FIRST_TAX_WEEKLY = FIRST_TAX_YEARLY * 7 // 365
 
 #: Tipos de vehículo del Pollo (`chicken_render.VEHICLES`), uno por logro de atropello.
 CHICKEN_VEHICLE_KINDS = ("car", "van", "truck", "bus", "moto", "taxi")
+
+#: Prefijo de los aciertos del Autobús por opción (`bus_win_igual`, `bus_win_picas`…).
+BUS_WIN_PREFIX = "bus_win_"
+#: Una mano del Autobús es «cuota larga» con esta probabilidad o menos (2 de 13 alturas).
+BUS_LONGSHOT = Fraction(2, 13)
+#: Fallar con esta probabilidad o más a favor es «lo tenías hecho» (11 de 13 alturas).
+BUS_SURE = Fraction(11, 13)
+#: Desde este multiplicador en juego, perder es perder a lo grande (×20).
+BUS_LOST_BIG = 20
 
 #: Tipos de boleto de las carreras (`horses.BetKind`), uno por condición de «Quiniela completa».
 HORSE_BET_KINDS = tuple(kind.key for kind in HorseBetKind)
@@ -2948,6 +2967,176 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Que la moneda caiga de canto en el primer lanzamiento de la partida.", C, True),
     ])  # fmt: skip
 
+    # 🚌 Autobús --------------------------------------------------------------------------
+    a += _tiers("bus", "bus_games", [
+        (1, "bus_1", "Sube, que no muerde", "Juega tu primera partida al autobús.", C),
+        (100, "bus_100", "Abono transporte", "Juega 100 partidas al autobús.", C),
+        (1_000, "bus_1k", "Abono gratis de Renfe",
+         "Juega 1.000 partidas al autobús. Gratis no es, pero lo parece.", E),
+        (10_000, "bus_10k", "Conductor de la EMT", "Juega 10.000 partidas al autobús.", L),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_hands", [
+        (100, "busm_100", "Billete sencillo", "Juega 100 manos al autobús.", C),
+        (1_000, "busm_1k", "Bonobús de diez viajes", "Juega 1.000 manos al autobús.", R),
+        (10_000, "busm_10k", "La Global de punta a punta", "Juega 10.000 manos al autobús.", L),
+        (50_000, "busm_50k", "Más kilómetros que el Falcon",
+         "Juega 50.000 manos al autobús.", M),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_wins", [
+        (50, "busw_50", "Cartomante de parada", "Acierta 50 manos al autobús.", C),
+        (500, "busw_500", "Echadora de cartas del Puerto", "Acierta 500 manos al autobús.", R),
+        (5_000, "busw_5k", "Tezanos al volante",
+         "Acierta 5.000 manos al autobús. El CIS quiere tu método.", L),
+        (20_000, "busw_20k", "Vidente de la DGT", "Acierta 20.000 manos al autobús.", M),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_cashouts", [
+        (10, "busc_10", "Próxima parada: mi casa", "Cobra 10 partidas al autobús.", C),
+        (100, "busc_100", "Picar el billete", "Cobra 100 partidas al autobús.", R),
+        (1_000, "busc_1k", "Concesión de la línea", "Cobra 1.000 partidas al autobús.", L),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_losses", [
+        (1, "busp_1", "Se te escapó la guagua", "Pierde tu primera partida al autobús.", C),
+        (10, "busp_10", "Huelga de transporte", "Pierde 10 partidas al autobús.", C),
+        (100, "busp_100", "Servicios mínimos", "Pierde 100 partidas al autobús.", C),
+        (1_000, "busp_1k", "Manual de resistencia en la marquesina",
+         "Pierde 1.000 partidas al autobús y sigue esperando la guagua.", E),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_complete", [
+        (1, "bus_completo", "Fin de trayecto", "Acierta las cuatro manos del autobús.", C),
+        (10, "bus_completo_10", "Abono anual", "Acierta las cuatro manos 10 veces.", R),
+        (100, "bus_completo_100", "Jefe de cocheras", "Acierta las cuatro manos 100 veces.", L),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_turned", [
+        (1, "bus_vuelta", "Billete de ida y vuelta",
+         "Completa el autobús y acierta también la vuelta.", R),
+        (10, "bus_vuelta_10", "Línea circular", "Acierta la vuelta 10 veces.", L),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_turn_lost", [
+        (1, "bus_vuelta_perdida", "Doble o nada: nada",
+         "Completa el autobús, juégatelo a la vuelta y piérdelo todo.", R, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_mult_max", [
+        (500, "bus_x5", "Suplemento de equipaje", "Cobra al autobús en ×5 o más.", C),
+        (2_000, "bus_x20", "Primera clase en la guagua", "Cobra al autobús en ×20 o más.", C),
+        (10_000, "bus_x100", "El autobús de los fondos europeos",
+         "Cobra al autobús en ×100 o más.", E),
+        (50_000, "bus_x500", "Autobús oficial de Moncloa", "Cobra al autobús en ×500 o más.", M),
+        (200_000, "bus_x2000", "La guagua dorada", "Cobra al autobús en ×2.000 o más.", M),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_win_max", [
+        (10_000, "bus_rich", "Billete premiado", "Gana 10.000 Y$ en una partida al autobús.", E),
+        (100_000, "bus_richer", "Concesión pública a dedo",
+         "Gana 100.000 Y$ en una partida al autobús. La UCO toma nota.", M),
+    ], unit="money")  # fmt: skip
+    a += _tiers("bus", "bus_win_igual", [
+        (1, "bus_igual", "Clavado", "Acierta «igual» al autobús.", R),
+        (10, "bus_igual_10", "Gemelos del Congreso", "Acierta «igual» 10 veces.", E),
+        (50, "bus_igual_50", "Fotocopiadora del BOE", "Acierta «igual» 50 veces.", M),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_win_poste", [
+        (1, "bus_poste", "Al palo", "Acierta «poste» al autobús.", R),
+        (10, "bus_poste_10", "Parada de la marquesina", "Acierta «poste» 10 veces.", L),
+        (50, "bus_poste_50", "Francotirador de Pegasus", "Acierta «poste» 50 veces.", M),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_suit_wins", [
+        (10, "buss_10", "Echar las cartas", "Acierta el palo 10 veces.", R),
+        (100, "buss_100", "Tarotista de madrugada", "Acierta el palo 100 veces.", L),
+        (1_000, "buss_1k", "Bruja con licencia de Hacienda", "Acierta el palo 1.000 veces.", M),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="bus_baraja",
+        name="Baraja completa",
+        description="Acierta el palo con picas, corazones, diamantes y tréboles.",
+        category="bus",
+        rarity=R,
+        conditions=tuple((f"{BUS_WIN_PREFIX}{p.key}", 1) for p in bus_picks_for(BusHand.SUIT)),
+    ))  # fmt: skip
+    a.append(Achievement(
+        id="bus_todas",
+        name="Me sé todas las paradas",
+        description="Acierta al autobús con cada una de las opciones, la vuelta incluida.",
+        category="bus",
+        rarity=E,
+        conditions=tuple((f"{BUS_WIN_PREFIX}{p.key}", 1) for p in BusPick),
+    ))  # fmt: skip
+    a.append(Achievement(
+        id="bus_transversal",
+        name="Transversal",
+        description="Acierta 100 veces rojo y 100 veces negro en el color del autobús.",
+        category="bus",
+        rarity=R,
+        conditions=((f"{BUS_WIN_PREFIX}rojo", 100), (f"{BUS_WIN_PREFIX}negro", 100)),
+    ))  # fmt: skip
+    a += _tiers("bus", "bus_longshots", [
+        (25, "bus_largas", "Amante de las cuotas largas",
+         "Acierta 25 manos con 2 de 13 cartas o menos a favor.", E),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_contrarian", [
+        (10, "bus_contra_10", "Llevar la contraria",
+         "Acierta 10 manos eligiendo una opción menos probable que otra.", R),
+        (100, "bus_contra_100", "Oposición de manual",
+         "Acierta 100 manos eligiendo una opción menos probable que otra.", R),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_sure_fail", [
+        (1, "bus_lo_tenias", "Lo tenías hecho",
+         "Falla una mano con 11 de cada 13 cartas a favor.", C, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_first_fail", [
+        (10, "bus_ni_subir", "Ni subirse", "Falla el color en 10 partidas.", C),
+        (250, "bus_ni_subir_250", "Vecino de la marquesina", "Falla el color en 250 partidas.", R),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_last_fail", [
+        (1, "bus_casi", "A una parada de casa", "Falla el palo con tres manos acertadas.", C),
+        (25, "bus_casi_25", "Siempre te bajas en la penúltima", "Falla el palo 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_gallina", [
+        (25, "bus_gallina", "Me bajo aquí mismo",
+         "Cobra 25 veces tras acertar solo el color.", R),
+        (250, "bus_gallina_250", "Una parada y a casa",
+         "Cobra 250 veces tras acertar solo el color.", R),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_missed_longshot", [
+        (1, "bus_te_bajaste", "Te bajaste antes del premio",
+         "Cobra justo cuando la carta siguiente pagaba ×6,5 o más.", C, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_lost_big", [
+        (1, "bus_rescate", "Del Falcon a la guagua", "Pierde con ×20 o más en juego.", R, True),
+        (10, "bus_rescate_10", "Rescate de aerolínea",
+         "Pierde con ×20 o más en juego 10 veces.", L),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_all_red", [
+        (1, "bus_todo_rojo", "Ni el PSOE es tan rojo",
+         "Descubre cuatro cartas rojas seguidas en una partida.", R, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_trio", [
+        (1, "bus_trio", "Trío en la marquesina",
+         "Acierta «igual» y luego «poste» en la misma partida.", L, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_cash_666", [
+        (1, "bus_666", "La línea de la bestia", "Cobra exactamente 666 Y$ al autobús.", C, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_cash_69", [
+        (1, "bus_69", "Línea 69", "Cobra exactamente 69 Y$ al autobús.", C, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_min_stake", [
+        (1, "bus_1y", "Tarifa reducida", "Juega al autobús apostando 1 Y$.", C, True),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_night", [
+        (1, "bus_buho", "Búho nocturno", "Juega al autobús de madrugada (de 2 a 6).", C),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_rush", [
+        (1, "bus_hora_punta", "Hora punta",
+         "Juega al autobús un día laborable entre las 7 y las 9 de la mañana.", C),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_canarias", [
+        (1, "bus_guagua", "¡Que es guagua, no autobús!",
+         "Juega al autobús el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
+    a += _tiers("bus", "bus_friday13", [
+        (1, "bus_viernes13", "Autobús de la mala suerte",
+         "Pierde una partida al autobús un viernes 13.", C, True),
+    ])  # fmt: skip
+
     # 🎲 Dados ----------------------------------------------------------------------------
     a += _tiers("dice", "dice_games", [
         (1, "dados_1", "Alea iacta est", "Juega tu primera partida de dados.", C),
@@ -3495,6 +3684,19 @@ def _build_catalog() -> tuple[Achievement, ...]:
             ("crash_rounds", 1), ("mines_games", 1), ("pachinko_volleys", 1),
             ("botes_spins", 1), ("chicken_games", 1), ("coin_games", 1),
             ("horse_bets", 1), ("dice_games", 1),
+        ),
+    ))  # fmt: skip
+    a.append(Achievement(
+        id="casino_twelve_games",
+        name="Doce apellidos ludópatas",
+        description="Juega a los doce juegos del casino: de la ruleta al autobús.",
+        category="casino",
+        rarity=R,
+        conditions=(
+            ("roulette_spins", 1), ("bj_hands", 1), ("slots_spins", 1),
+            ("crash_rounds", 1), ("mines_games", 1), ("pachinko_volleys", 1),
+            ("botes_spins", 1), ("chicken_games", 1), ("coin_games", 1),
+            ("horse_bets", 1), ("dice_games", 1), ("bus_games", 1),
         ),
     ))  # fmt: skip
 
@@ -8957,6 +9159,67 @@ def coin_stats(game: CoinGame, *, when: datetime) -> StatDelta:
     bump("coin_hispanidad", when.month == 10 and when.day == 12)
     bump("coin_nochevieja", when.month == 12 and when.day == 31)
     bump("coin_friday13", game.net < 0 and when.weekday() == 4 and when.day == 13)
+    return delta
+
+
+def bus_stats(game: BusGame, *, when: datetime) -> StatDelta:
+    """Contadores de una partida del Autobús terminada (sin lo común del casino).
+
+    Args:
+        game: La partida terminada.
+        when: Hora local.
+    """
+    delta = StatDelta(add={"bus_games": 1, "bus_hands": len(game.guesses)})
+    add = delta.add
+
+    def bump(stat: str, condition: bool = True, amount: int = 1) -> None:
+        if condition and amount:
+            add[stat] = add.get(stat, 0) + amount
+
+    won = [g for g in game.guesses if g.won]
+    bump("bus_wins", amount=len(won))
+    table = []
+    for guess in game.guesses:
+        best = max(bus_chance(p, table) for p in bus_picks_for(guess.pick.hand))
+        if guess.won:
+            bump(f"{BUS_WIN_PREFIX}{guess.pick.key}")
+            bump("bus_suit_wins", guess.pick.hand is BusHand.SUIT)
+            bump("bus_longshots", guess.chance <= BUS_LONGSHOT)
+            bump("bus_contrarian", guess.chance < best)
+        else:
+            bump("bus_sure_fail", guess.chance >= BUS_SURE)
+        table.append(guess.card)
+    picks = [g.pick for g in won]
+    bump("bus_trio", BusPick.EQUAL in picks and BusPick.POST in picks)
+    cards = game.table
+    bump("bus_all_red", len(cards) >= BUS_HANDS and all(c.is_red for c in cards[:BUS_HANDS]))
+    bump("bus_complete", game.completed)
+    bump("bus_turned", game.turned)
+    bump("bus_min_stake", game.stake == 1)
+    if game.status is BusStatus.CASHED:
+        bump("bus_cashouts")
+        delta.peak["bus_mult_max"] = math.floor(game.multiplier * 100)
+        if game.net > 0:
+            delta.peak["bus_win_max"] = game.net
+        bump("bus_gallina", len(won) == 1)
+        bump("bus_cash_666", game.payout == 666)
+        bump("bus_cash_69", game.payout == 69)
+        missed = game.missed()
+        bump(
+            "bus_missed_longshot",
+            bool(missed) and bus_chance(missed[0], cards) <= BUS_LONGSHOT,
+        )
+    elif game.status is BusStatus.LOST:
+        bump("bus_losses")
+        last = len(game.guesses)
+        bump("bus_first_fail", last == 1)
+        bump("bus_last_fail", last == BUS_HANDS)
+        bump("bus_turn_lost", last == BUS_HANDS + 1)
+        bump("bus_lost_big", game.multiplier >= BUS_LOST_BIG)
+        bump("bus_friday13", when.weekday() == 4 and when.day == 13)
+    bump("bus_night", 2 <= when.hour < 6)
+    bump("bus_rush", when.weekday() < 5 and 7 <= when.hour < 9)
+    bump("bus_canarias", when.month == 5 and when.day == 30)
     return delta
 
 

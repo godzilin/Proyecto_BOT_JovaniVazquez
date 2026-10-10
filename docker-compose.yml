@@ -21,9 +21,10 @@ services:
       - ./.despliegue/buzon:/app/.despliegue/buzon
     # Los límites evitan que un fallo acapare el NAS. La memoria se la llevan los
     # Chromium de los juegos (ver bot/services/browser_scene.py): la ruleta con
-    # sus dos pestañas ocupa ~370 MB y la moneda, los dados y los caballos unos
-    # 170 MB cada uno, que se cierran tras 10 min sin uso. Con el bot (~300 MB)
-    # y todos abiertos se rondan los 1,2 GB; con 768 MB el sistema mataba
+    # sus dos pestañas ocupa ~370 MB, el autobús otros ~370 MB (también dibuja
+    # con dos pestañas) y la moneda, los dados y los caballos unos 170 MB cada
+    # uno, que se cierran tras 10 min sin uso. Con el bot (~300 MB) y todos
+    # abiertos se rondan los 1,6 GB; con 768 MB el sistema mataba
     # procesos. CPU: 3,5 de los 4 hilos del NAS, para que las dos pestañas y
     # los hilos que montan el GIF trabajen a la vez y quede medio hilo al NAS.
     mem_limit: 2g

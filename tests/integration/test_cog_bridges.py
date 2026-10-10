@@ -23,6 +23,7 @@ from render_fakes import use_fake_drawings
 
 from bot.app import INITIAL_EXTENSIONS, BotClient
 from bot.repositories.economy import LedgerEntry
+from bot.services.blackjack import Card
 from bot.services.coin import Outcome
 
 GUILD_ID = 1
@@ -915,5 +916,49 @@ async def test_el_perfil_junta_todas_las_secciones_con_el_bot_real(tmp_path: Pat
         profile = await client.get_cog("Achievements").fresh_profile(GUILD_ID, OWNER_ID)
         assert profile.stats["perfil_views"] == 1
         assert profile.stats["perfil_seen_resumen"] == 1
+    finally:
+        await client.close()
+
+
+async def test_el_autobus_apunta_sus_logros_y_su_jugada_con_el_bot_real(tmp_path: Path) -> None:
+    """El autobús carga antes que los logros: sus partidas llegan a `logros` y a `apuestas`."""
+    client = await load_bot(tmp_path)
+    try:
+        autobus = importer("Autobús", client)
+        autobus.REVEAL_MARGIN_SECONDS = 0
+        media = autobus.Media(gif=b"GIF", png=b"PNG", seconds=0.0)
+        cog = client.get_cog("Autobús")
+        cog.renderer = MagicMock()
+        cog.renderer.reveal = AsyncMock(return_value=autobus.Reveal(win=media, lose=media))
+        cog.renderer.board = AsyncMock(return_value=b"PNG")
+        owner = MagicMock(spec=discord.Member)
+        owner.id = OWNER_ID
+        owner.display_name = "Diego"
+        owner.mention = f"<@{OWNER_ID}>"
+        owner.bot = False
+        await cog._autobus_impl(
+            guild=MagicMock(id=GUILD_ID),
+            channel=None,
+            user=owner,
+            amount_text="100",
+            send=AsyncMock(return_value=MagicMock()),
+            send_error=AsyncMock(),
+        )
+        (view,) = cog.views
+        view.deck = (Card(2, 0),) * 5  # negra: pedir rojo falla
+        interaction = fake_interaction()
+        interaction.user = owner
+        interaction.guild = None
+
+        await view._pick(interaction, autobus.Pick.RED)
+
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats["bus_games"] == 1
+        assert profile.stats["bus_losses"] == 1
+        assert {"bus_1", "busp_1"} <= set(profile.unlocked)
+        report = await client.casino_stats.report(
+            GUILD_ID, OWNER_ID, since=None, today=date(2026, 10, 6)
+        )
+        assert report.by_game["autobus"].plays == 1
     finally:
         await client.close()

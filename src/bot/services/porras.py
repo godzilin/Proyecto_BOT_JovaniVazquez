@@ -228,6 +228,14 @@ PROPOSITIONS: tuple[Proposition, ...] = (
         details=frozenset({"wins"}),
     ),
     Proposition(
+        "trayecto", "🚌", "¿Completa el autobús?",
+        "¿{who} acierta las cuatro manos en alguna de las {n} partidas al autobús?",
+        ("🚌 Llega al final", "🚏 Se baja antes"),
+        lambda plays, _stake: 0 if any(p.detail("wins") >= 4 for p in plays) else 1,
+        games=frozenset({"autobus"}),
+        details=frozenset({"wins"}),
+    ),
+    Proposition(
         "punto", "🎯", "¿Hace algún punto?",
         "¿{who} repite el punto en alguna de las {n} partidas a los dados?",
         ("🎯 Hace un punto", "🎲 Ni uno"),
