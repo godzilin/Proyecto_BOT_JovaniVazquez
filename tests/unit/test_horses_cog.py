@@ -605,3 +605,60 @@ async def test_cada_boleto_dice_a_las_porras_cuando_se_hizo(
     force(monkeypatch, fixed_result((0, 1, 2, 3, 4, 5)))
     await race.race()
     assert record.await_args.kwargs["details"] == (("started", int(START)),)
+
+
+async def test_si_la_carrera_aun_se_dibuja_se_cierran_las_apuestas_al_momento(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Con todos listos antes de acabar el dibujo, la parrilla pierde los botones ya.
+
+    Antes se quedaba igual, con los botones vivos, hasta tener el GIF (5-8 s).
+    """
+    cog, _clock = await make_cog(tmp_path)
+    channel = make_channel()
+    await caballo(cog, channel, amount="100", pick="1")
+    race = cog.races[CHANNEL_ID]
+    race.message = channel.test_message
+    force(monkeypatch, fixed_result((0, 1, 2, 3, 4, 5)))
+    release = asyncio.Event()
+    real = cog.renderer.race
+
+    async def slow(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        await release.wait()
+        return await real(*args, **kwargs)
+
+    cog.renderer.race = slow  # type: ignore[method-assign]
+    race.prepare()
+    edits = channel.test_message.edit
+    edits.reset_mock()
+    task = asyncio.create_task(race.race())
+
+    def closing() -> dict | None:
+        for call in edits.await_args_list:
+            embed = call.kwargs.get("embed")
+            if embed is not None and "Cajones cerrados" in (embed.title or ""):
+                return call.kwargs
+        return None
+
+    async def closed() -> None:
+        while closing() is None:
+            await asyncio.sleep(0)
+
+    # El dibujo sigue parado y la parrilla ya está cerrada.
+    await asyncio.wait_for(closed(), 1)
+    shown = closing()
+    assert shown is not None
+    assert shown["view"] is None and "attachments" not in shown
+    release.set()
+    await task
+    # Después, el GIF de la carrera, nunca antes del cierre.
+    kinds = [
+        "gif" if (call.kwargs.get("attachments") or [None])[0] is not None else "texto"
+        for call in edits.await_args_list
+    ]
+    gif_at = kinds.index("gif")
+    assert edits.await_args_list[gif_at].kwargs["attachments"][0].filename == cog_module.RACE_GIF
+    assert (
+        edits.await_args_list.index(next(c for c in edits.await_args_list if c.kwargs is shown))
+        < gif_at
+    )
