@@ -16,8 +16,14 @@ los logros. Se anuncian en el canal las manos de 5 puntos o más.
 
 Cada tirada es un GIF: los dados cruzan el tapete, chocan contra la pared
 de pirámides, ruedan y se paran. Después el bot cambia el GIF por un PNG con
-el resultado y vuelve a activar los botones. El dibujo lo hace Chromium con
-canvas (`bot.services.craps_scene`) y, si no hay navegador, Pillow.
+el resultado y vuelve a activar los botones. El dibujo lo hace
+`bot.services.craps_scene` con canvas, con Pillow de reserva.
+
+Para que el clic se note al instante, la mesa sortea los dados de la próxima
+tirada por adelantado (`_dice`, sin enseñarlos) y pinta su GIF en segundo plano
+mientras se ve el actual: uno con el punto puesto (🎲 Tirar) y dos en la salida
+(✅ Pase y 🚫 No pase). Las Odds cambian las fichas que se ven, así que ponerlas
+lo vuelve a pintar. Al pulsar solo queda subir el GIF.
 
 Dinero: juego. La apuesta se cobra al tirar la salida y las Odds al
 ponerlas (`place_bet`); se paga al decidirse la partida (`pay_winnings`, con
@@ -41,6 +47,7 @@ import random
 import secrets
 import time
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -70,6 +77,7 @@ from bot.services.craps import (
     odds_profit,
     parse_bet,
     point_chance,
+    throw,
 )
 from bot.services.craps_render import OPENING_REST, DieRest, Media, Table
 from bot.services.craps_scene import CrapsScene
@@ -185,6 +193,15 @@ class CrapsView(ui.View):
         self._busy = False
         self._lock = asyncio.Lock()
         self._last_interaction: discord.Interaction | None = None
+        #: Dados de la próxima tirada y semilla de su vuelo, sorteados por adelantado.
+        self._dice: tuple[int, int] | None = None
+        self._seed: int | None = None
+        #: GIF pintados por adelantado: para qué estado valen y uno por botón que tira
+        #: (`None` es 🎲 Tirar con el punto puesto; Pase o No pase, en la salida).
+        self._plan: (
+            tuple[tuple[Any, ...], dict[Bet | None, asyncio.Future[Media | None]]] | None
+        ) = None
+        self._painting: asyncio.Task[None] | None = None
 
     def table(self) -> Table:
         """Lo que se dibuja: partida, mano, apuesta e historial de la mano."""
@@ -430,6 +447,87 @@ class CrapsView(ui.View):
         await self._after_game(None, game, settlement)
         return True
 
+    # -- GIF por adelantado -------------------------------------------------------------
+
+    def _plan_key(self) -> tuple[Any, ...]:
+        """Lo que decide el GIF de la próxima tirada, salvo el botón que se pulse."""
+        game = self.game
+        if game is not None and game.playing:
+            match = (id(game), len(game.rolls), game.odds)
+        else:
+            match = (None, self.stake, self.hand.seven_out)
+        return (*match, len(self.history), self._dice, self._seed)
+
+    def _predict(self, bet: Bet | None) -> Table:
+        """La mesa tal como quedará si se pulsa `bet` (sobre copias)."""
+        assert self._dice is not None
+        game, hand, history = deepcopy(self.game), deepcopy(self.hand), list(self.history)
+        if game is None or not game.playing:
+            assert bet is not None
+            game = CrapsGame.new(self.stake, bet)
+            if hand.seven_out:
+                hand, history = Hand(), []
+        roll = game.roll(self._dice)
+        hand.observe(roll)
+        history.append((roll, game.bet))
+        return Table(game, hand, self.stake, game.bet, tuple(history))
+
+    def prepare(self) -> None:
+        """Pinta en segundo plano los GIF de la próxima tirada, si no lo están ya.
+
+        Se llama en cuanto sale el GIF de una tirada (los dados de la siguiente se
+        sortean ya, así que se pinta mientras se ve esta), al abrir la mesa, al
+        poner Odds y al cambiar la apuesta. Los GIF se pintan uno detrás de otro y
+        nunca se cancelan a medias: si mientras tanto la mesa cambia, el que aún no
+        ha empezado no se pinta.
+        """
+        if not self.cog.ahead or self.is_finished():
+            return
+        if self._dice is None:
+            self._dice = throw(self.cog.rng)
+        if self._seed is None:
+            self._seed = self.cog.rng.randrange(1, 2**31)
+        key = self._plan_key()
+        if self._plan is not None and self._plan[0] == key:
+            return
+        order: list[Bet | None] = (
+            [None] if self.point_on else [self.bet, Bet.DONT if self.bet is Bet.PASS else Bet.PASS]
+        )
+        loop = asyncio.get_running_loop()
+        futures: dict[Bet | None, asyncio.Future[Media | None]] = {
+            choice: loop.create_future() for choice in order
+        }
+        self._plan = (key, futures)
+        previous = self._painting
+        self._painting = asyncio.create_task(self._paint_ahead(key, order, futures, previous))
+
+    async def _paint_ahead(
+        self,
+        key: tuple[Any, ...],
+        order: list[Bet | None],
+        futures: dict[Bet | None, asyncio.Future[Media | None]],
+        previous: asyncio.Task[None] | None,
+    ) -> None:
+        # Un plan detrás de otro: así un plan viejo nunca hace esperar dos dibujos.
+        if previous is not None:
+            await asyncio.gather(previous, return_exceptions=True)
+        for choice in order:
+            media: Media | None = None
+            if self._plan_key() == key and not self.is_finished():
+                try:
+                    media = await self.cog.renderer.throw(self._predict(choice), seed=key[-1])
+                except Exception:
+                    logger.warning("No se pudieron pintar por adelantado los dados", exc_info=True)
+            if not futures[choice].done():
+                futures[choice].set_result(media)
+
+    def _take_plan(self, bet: Bet | None) -> asyncio.Future[Media | None] | None:
+        """El GIF por adelantado de pulsar `bet`, si vale para la mesa tal como está."""
+        plan, self._plan = self._plan, None
+        if plan is None or plan[0] != self._plan_key():
+            return None
+        return plan[1].get(None if self.point_on else bet)
+
     # -- Dinero y partida -------------------------------------------------------------
 
     def _observe(self, roll: Roll, game: CrapsGame) -> None:
@@ -522,19 +620,51 @@ class CrapsView(ui.View):
         )
         await self.cog.shout(game, self.hand, self.owner, self.channel)
 
-    async def _show_throw(self, editor: Callable[..., Awaitable[Any]], *, waiting: str) -> None:
-        """Enseña el GIF de la tirada y después el PNG con el resultado."""
-        media: Media = await self.cog.renderer.throw(
-            self.table(), seed=self.cog.rng.randrange(1, 2**31)
-        )
+    async def _show_throw(
+        self,
+        editor: Callable[..., Awaitable[Any]],
+        *,
+        waiting: str,
+        seed: int,
+        ready: asyncio.Future[Media | None] | None = None,
+    ) -> None:
+        """Enseña el GIF de la tirada y después el PNG con el resultado.
+
+        Si el GIF ya estaba pintado por adelantado (`ready`), va directo. Si no,
+        mientras se pinta la mesa ya enseña la jugada con los botones apagados.
+        Se apagan sin reconstruirlos: los nuevos (🎲 Tirar o Pase y No pase)
+        dirían si la partida sigue antes de ver los dados.
+        """
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+
+        async def show_waiting() -> None:
+            try:
+                await editor(embed=self.embed(text=waiting, color=COLOR_IDLE), view=self)
+            except discord.HTTPException:
+                logger.warning("No se pudo apagar la mesa de los dados", exc_info=True)
+
+        async def paint() -> Media:
+            media = await ready if ready is not None else None
+            if media is None:
+                media = await self.cog.renderer.throw(self.table(), seed=seed)
+            return media
+
+        media: Media
+        if ready is not None and ready.done() and ready.result() is not None:
+            media = await paint()
+        else:
+            _, media = await asyncio.gather(show_waiting(), paint())
         self.rest = media.rest
-        self.rebuild(busy=True)
         await editor(
             # Color neutro: el del final delataría el resultado antes del GIF.
             embed=self.embed(image=GIF_NAME, text=waiting, color=COLOR_IDLE),
             attachments=[discord.File(io.BytesIO(media.gif), filename=GIF_NAME)],
             view=self,
         )
+        # Los dados siguientes se sortean ya y se pintan mientras se ve esta tirada.
+        self.prepare()
         await asyncio.sleep(media.seconds + REVEAL_MARGIN_SECONDS)
         self.rebuild()
         await editor(
@@ -567,16 +697,21 @@ class CrapsView(ui.View):
         game: CrapsGame | None = None
         try:
             async with self._lock:
+                if (self.game is None or not self.game.playing) and bet is None:
+                    return None
+                ready = self._take_plan(bet)
                 if self.game is None or not self.game.playing:
-                    if bet is None:
-                        return None
+                    assert bet is not None
                     if error := await self._start(bet):
                         return error
                 game = self.game
                 assert game is not None
                 waiting = self.flying_text()
+                dice = self._dice if self._dice is not None else throw(self.cog.rng)
+                seed = self._seed if self._seed is not None else self.cog.rng.randrange(1, 2**31)
+                self._dice = self._seed = None
                 try:
-                    roll = game.play(self.cog.rng)
+                    roll = game.roll(dice)
                 except CrapsError:
                     return None
                 self._observe(roll, game)
@@ -586,7 +721,7 @@ class CrapsView(ui.View):
                     self.note = None
                 if interaction is not None:
                     self._last_interaction = interaction
-            await self._show_throw(editor, waiting=waiting)
+            await self._show_throw(editor, waiting=waiting, seed=seed, ready=ready)
         except discord.HTTPException:
             logger.warning("No se pudo enseñar una tirada de los dados", exc_info=True)
         finally:
@@ -671,6 +806,7 @@ class CrapsView(ui.View):
             attachments=[discord.File(io.BytesIO(png), filename=PNG_NAME)],
             view=self,
         )
+        self.prepare()
 
     def _idle(self) -> bool:
         return not self._busy and not self.point_on
@@ -685,6 +821,7 @@ class CrapsView(ui.View):
             return
         self.rebuild()
         await edit(interaction, embed=self.embed(), view=self)
+        self.prepare()
 
     async def _halve(self, interaction: discord.Interaction) -> None:
         await ack(interaction)
@@ -725,12 +862,21 @@ class Craps(commands.Cog, name="Dados"):
         casino_channel_ids: frozenset[int] = frozenset(),
         rng: random.Random | None = None,
         renderer: CrapsScene | None = None,
+        ahead: bool | None = None,
     ) -> None:
+        """Prepara el cog; el dibujo por defecto es `CrapsScene`.
+
+        Args:
+            ahead: Si las mesas pintan por adelantado el GIF de la próxima tirada
+                (`CrapsView.prepare`). Por defecto, solo con el dibujo de verdad: con
+                un `renderer` de prueba, cada dibujo de más se contaría como jugada.
+        """
         self.bot = bot
         self.economy = economy
         self.casino_channel_ids = casino_channel_ids
         # `secrets` usa el azar del sistema operativo: no se puede predecir.
         self.rng = rng or secrets.SystemRandom()
+        self.ahead = renderer is None if ahead is None else ahead
         self.renderer = renderer or CrapsScene()
         # Mesas abiertas: para decidir sus partidas si el bot se apaga.
         self.views: set[CrapsView] = set()
@@ -810,7 +956,9 @@ class Craps(commands.Cog, name="Dados"):
             embed=view.embed(), file=discord.File(io.BytesIO(png), filename=PNG_NAME), view=view
         )
         self.views.add(view)
-        if bet is not None:
+        if bet is None:
+            view.prepare()
+        else:
             message = view.message
 
             async def editor(**kwargs: Any) -> None:

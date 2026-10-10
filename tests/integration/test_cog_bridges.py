@@ -366,6 +366,8 @@ async def test_los_dados_apuntan_sus_logros_y_jugadas_con_el_bot_real(tmp_path: 
         )
         cog.renderer.board = AsyncMock(return_value=b"PNG")
         cog.rng = DiceScripted((1, 1))  # pide pase, sale pifia
+        # Con un dibujo falso, pintar por adelantado gastaría el azar de guion.
+        cog.ahead = False
         owner = MagicMock(spec=discord.Member)
         owner.id = OWNER_ID
         owner.display_name = "Diego"
