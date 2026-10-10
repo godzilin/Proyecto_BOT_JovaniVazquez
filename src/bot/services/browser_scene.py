@@ -64,15 +64,23 @@ def assemble(patches: list[Patch], size: tuple[int, int]) -> list[Image.Image]:
     La escena devuelve el fotograma entero (`size`) cuando hace falta y, si no,
     solo el recuadro que ha cambiado (`x`, `y` y su PNG en `u`). Los PNG se
     descomprimen en varios hilos (no dependen del orden y Pillow suelta el GIL);
-    pegar sí va en orden.
+    pegar sí va en orden. Los recuadros de `bot.services.node_scene` ya traen la
+    imagen abierta (`image`) y no hay nada que descomprimir.
 
     Raises:
         ValueError: Si el primer fotograma no viene entero.
     """
-    with ThreadPoolExecutor(max_workers=QUANTIZE_THREADS) as pool:
-        images = list(
-            pool.map(lambda p: Image.open(io.BytesIO(png_bytes(p))).convert("RGB"), patches)
-        )
+
+    def image_of(patch: Patch) -> Image.Image:
+        if "image" in patch:
+            return patch["image"]
+        return Image.open(io.BytesIO(png_bytes(patch))).convert("RGB")
+
+    if all("image" in patch for patch in patches):
+        images = [patch["image"] for patch in patches]
+    else:
+        with ThreadPoolExecutor(max_workers=QUANTIZE_THREADS) as pool:
+            images = list(pool.map(image_of, patches))
     frames: list[Image.Image] = []
     for patch, image in zip(patches, images, strict=True):
         if image.size != size:

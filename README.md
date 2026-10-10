@@ -396,10 +396,10 @@ python -m bot
   (×1.024). Una de cada cien cae **de canto**: se queda de pie, Perro Sanxe
   la sella y pierdes lo que hubiera. Es la ventaja de la casa: cada
   lanzamiento devuelve el 99 %, así que cobrar tras k aciertos devuelve
-  0,99^k. Cada lanzamiento es un GIF dibujado con canvas en un Chromium sin
-  ventana, como los caballos (la moneda bimetálica gira, rebota
-  y se asienta, o se tambalea y se queda de pie), con Pillow si no hay
-  navegador. Al cobrar dice cómo habría caído la siguiente.
+  0,99^k. Cada lanzamiento es un GIF dibujado con canvas en Node con Skia,
+  sin navegador (la moneda bimetálica gira, rebota y se asienta, o se
+  tambalea y se queda de pie). Si no hay Node, lo pinta Chromium y, si
+  tampoco, Pillow. Al cobrar dice cómo habría caído la siguiente.
 - **Autobús** (`/guagua`, `.guagua [cantidad]`): Ride the Bus. Cuatro
   cartas y cuatro preguntas: rojo o negro; mayor, menor o igual; dentro, fuera
   o poste; y el palo. Tras cada acierto cobras o sigues, y quien acierta las
@@ -673,6 +673,9 @@ audio. La imagen incluye `ffmpeg` y `libopus`, y un Chromium sin ventana
 cara o cruz y los dados. Cada juego abre el suyo: mientras se usa ocupa unos
 150-250 MB de memoria (el doble o el triple si coinciden varios juegos) y se
 cierra solo tras 10 minutos sin uso; si no estuviera, el bot dibuja con Pillow.
+Cara o cruz ya no usa Chromium: la pinta Node con `@napi-rs/canvas` (Skia, el
+mismo motor de dibujo), con dos procesos de unos 90 MB que arrancan en menos
+de medio segundo.
 
 1. Lleva el proyecto al NAS (`git clone` por SSH, o copia la carpeta).
 2. Crea el archivo de configuración y pon tu token:
@@ -878,7 +881,7 @@ src/bot/
 │   ├── chicken_render.py # GIF y PNG de la carretera, el pollo y los coches
 │   ├── coin.py          # Cara o cruz: lanzamientos, canto, racha y doble o nada
 │   ├── coin_render.py   # Vuelo de la moneda, lo que se ve en cada fotograma y dibujo con Pillow
-│   ├── coin_scene.py    # Cara o cruz con canvas en Chromium (assets/moneda/escena.html)
+│   ├── coin_scene.py    # Cara o cruz con canvas en Node o Chromium (assets/moneda/escena.html)
 │   ├── bus.py           # Autobús: cartas, probabilidades exactas y pagos al 99 %
 │   ├── bus_render.py    # Autobús: lo que se ve en cada fotograma y dibujo con Pillow
 │   ├── bus_scene.py     # Autobús con canvas en Chromium (assets/autobus/escena.html)
@@ -886,6 +889,7 @@ src/bot/
 │   ├── craps_render.py  # Física de la tirada, cámara, dados en 3D y dibujo con Pillow
 │   ├── craps_scene.py   # Dados con canvas en Chromium (assets/dados/escena.html)
 │   ├── browser_scene.py # Pestaña de Chromium sin ventana con una escena HTML cargada
+│   ├── node_scene.py    # La misma escena pintada en Node con Skia, sin navegador
 │   ├── pachinko.py      # Tableros, clavos, bolsillos, sorteo, rush y retorno exacto
 │   ├── pachinko_render.py # GIF neón de cada tanda, con un tema por tablero
 │   ├── pachinko_physics.py # Clavos, paredes y caída con física de las bolas del pachinko

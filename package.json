@@ -1,0 +1,8 @@
+{
+  "name": "bot-escenas",
+  "private": true,
+  "description": "Dependencias de Node para pintar las escenas de canvas sin navegador (src/bot/assets/escena_node.cjs).",
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.9"
+  }
+}
