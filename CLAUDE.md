@@ -103,6 +103,15 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
   nueva no puede guardar estado entre lotes que no se reinicie en `setup`. Se
   comprueba que dos pestañas dan los mismos fotogramas que una. Más de 2
   pestañas no compensa: deja sin hilos al bot y a la codificación del GIF.
+- **Sin navegador: `NodeScene`.** Una escena que solo usa canvas 2D se pinta
+  en Node con `@napi-rs/canvas` (Skia, el mismo motor que Chrome) cargando la
+  misma `escena.html` (`assets/escena_node.cjs`). La escena devuelve cada
+  recuadro con `window.exportFrame(lienzo)` y no con `toDataURL`, y así Node lo
+  manda en RGBA crudo, sin PNG. Con la moneda: arranca en 0,35 s (Chromium,
+  2,9 s), ocupa 177 MB frente a 580 y la tirada baja de 1,3 a 1,05 s. Pinta
+  lo mismo salvo algún borde de letra. Lo que queda es el raster de Skia, igual
+  en los dos: para bajar más hay que pintar menos, no cambiar de motor. En
+  Node, usar un lienzo como origen de `drawImage` lo copia entero cada vez.
 - **En el navegador, lo caro es el PNG.** `toDataURL` comprime en un solo hilo
   (`toBlob` no ayuda sin GPU) y cada fotograma viaja en base64 a Python. Hay
   que devolver solo el recuadro que cambia y no marcar `full` sin necesidad: un

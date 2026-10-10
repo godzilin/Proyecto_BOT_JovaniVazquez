@@ -2,6 +2,8 @@
 
 Las que necesitan Chromium se saltan si no hay navegador en la máquina; la de
 la reserva con Pillow no lo necesita (apunta a un ejecutable que no existe).
+Todas apuntan a un Node que no existe para probar Chromium y Pillow; el
+camino de Node está en `test_node_scene.py`.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from bot.services.coin_scene import SCENE, CoinScene
 module_loop = pytest.mark.asyncio(loop_scope="module")
 #: Chromium del entorno de desarrollo, si lo hay (en Docker lo instala Playwright).
 LOCAL_CHROMIUM = Path("/opt/pw-browsers/chromium")
+#: Sin Node, la escena va a Chromium y luego a Pillow.
+NO_NODE = "/no/existe/node"
 
 
 def lost_game() -> CoinGame:
@@ -41,7 +45,7 @@ def test_la_escena_existe_y_trae_sus_funciones() -> None:
 
 
 async def test_sin_navegador_dibuja_con_pillow_y_se_queda_desactivado() -> None:
-    scene = CoinScene(executable_path="/no/existe/chromium")
+    scene = CoinScene(executable_path="/no/existe/chromium", node=NO_NODE)
     assert not scene.disabled
     game = lost_game()
 
@@ -69,7 +73,7 @@ async def test_el_plan_b_usa_el_dibujo_de_reserva_que_se_le_da() -> None:
             return "MEDIA-DE-RESERVA"
 
     fallback = Fallback()
-    scene = CoinScene(fallback, executable_path="/no/existe/chromium")  # type: ignore[arg-type]
+    scene = CoinScene(fallback, executable_path="/no/existe/chromium", node=NO_NODE)  # type: ignore[arg-type]
     assert await scene.board(None, stake=1, face=Side.CARA) == b"PNG-DE-RESERVA"
     assert await scene.toss(lost_game(), start=Side.CARA, seed=1) == "MEDIA-DE-RESERVA"
     assert fallback.calls == ["board", "toss"]
@@ -80,7 +84,7 @@ async def test_el_plan_b_usa_el_dibujo_de_reserva_que_se_le_da() -> None:
 async def browser() -> CoinScene:
     """Un solo Chromium para las pruebas con navegador del módulo."""
     path = str(LOCAL_CHROMIUM) if LOCAL_CHROMIUM.exists() else None
-    scene = CoinScene(executable_path=path)
+    scene = CoinScene(executable_path=path, node=NO_NODE)
     await scene.board(None, stake=100, face=Side.CARA)
     if scene.disabled:
         await scene.close()

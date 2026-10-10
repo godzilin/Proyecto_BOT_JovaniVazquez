@@ -28,6 +28,8 @@ Principios obligatorios:
 - **Interfaz del bot:** preferir interacciones y respuestas efímeras cuando el contenido sea privado o solo relevante para quien ejecuta el comando.
 - **Documentación del código:** documentar cada archivo, módulo, clase y función pública según las normas de la sección 8.1.
 
+Node (`package.json` de la raíz) solo se usa para pintar las escenas de canvas sin navegador (`bot.services.node_scene`); el bot sigue siendo Python.
+
 No fijar versiones de paquetes al azar ni añadir una dependencia para una tarea que pueda resolverse claramente con la biblioteca estándar o con herramientas ya instaladas.
 
 ## 3. Estructura de referencia
