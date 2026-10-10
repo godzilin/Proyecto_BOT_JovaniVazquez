@@ -1,5 +1,9 @@
 """Dibujo del Pollo: la carretera, el pollo y los coches, en GIF y PNG.
 
+Ahora es la reserva de Pillow (cuando no hay Node ni Chromium) y la fuente de
+la línea de tiempo (`timeline`, `resting_scene`, `start_scene`) que también
+pinta `chicken_scene` con canvas.
+
 Vista cenital de una carretera genérica: acera a la izquierda, carriles de
 asfalto con una alcantarilla en cada uno que lleva su multiplicador, y la meta
 a la derecha. El pollo cruza de izquierda a derecha y los coches bajan por
@@ -174,15 +178,21 @@ class Media:
 
 
 @dataclass(slots=True)
-class _Car:
+class Car:
+    """Un vehículo en un carril: dónde va el morro y si frena."""
+
     lane: int
     y_front: float
     braking: bool = False
 
 
 @dataclass(slots=True)
-class _Scene:
-    """Todo lo que cambia entre fotogramas."""
+class Scene:
+    """Todo lo que cambia entre fotogramas.
+
+    Lo leen el dibujo de Pillow (`ChickenRenderer`) y la escena de canvas
+    (`bot.services.chicken_scene`): la animación se decide aquí una sola vez.
+    """
 
     difficulty: Difficulty
     seed: int
@@ -198,7 +208,7 @@ class _Scene:
     glow: float = 0.0
     #: Faros al fondo del carril (0-1).
     headlights: float = 0.0
-    cars: list[_Car] = field(default_factory=list)
+    cars: list[Car] = field(default_factory=list)
     #: Valla que está cayendo: (carril, progreso 0-1).
     falling_fence: tuple[int, float] | None = None
     skid: int | None = None
@@ -239,6 +249,189 @@ def camera_for(difficulty: Difficulty, chicken_x: float) -> float:
     return max(0.0, min(chicken_x - CAMERA_LEAD, world_width(difficulty) - W))
 
 
+# -- Línea de tiempo (la comparten Pillow y la escena de canvas) ---------------------------
+
+
+def start_scene(difficulty: Difficulty, *, stake: int, seed: int) -> Scene:
+    """Antes de jugar: el pollo en la acera y la primera ficha encendida."""
+    return Scene(
+        difficulty=difficulty,
+        seed=seed,
+        fenced=0,
+        chicken_at=0,
+        glow_lane=1,
+        glow=0.6,
+        hud_cents=100,
+        hud_value=None,
+        hud_note="Pulsa Cruzar",
+        stake=stake,
+    )
+
+
+def resting_scene(game: ChickenGame, *, seed: int, note: str = "") -> Scene:
+    """El fotograma quieto de la partida: en juego, atropellada o cobrada."""
+    difficulty = game.difficulty
+    scene = Scene(
+        difficulty=difficulty,
+        seed=seed,
+        fenced=game.crossed,
+        chicken_at=game.crossed,
+        hud_cents=game.cents,
+        hud_value=game.cashout_value if game.crossed else None,
+        hud_note=note,
+        stake=game.stake,
+    )
+    if game.playing:
+        if not game.finished_road:
+            scene.glow_lane = game.crossed + 1
+            scene.glow = 0.7
+        return scene
+    if game.status is Status.SPLAT:
+        scene.chicken_at = game.crossed + 1
+        scene.splat = True
+        scene.plaf = True
+        scene.pose = "splat"
+        scene.hud_value = 0
+        return scene
+    # Cobrado: celebra y enseña dónde estaba el coche.
+    scene.pose = "win"
+    scene.celebrate = 1.0
+    if game.finished_road:
+        scene.chicken_at = difficulty.lanes + 1.15
+    if game.hit_lane is not None:
+        scene.ghost_lane = game.hit_lane
+    return scene
+
+
+def timeline(game: ChickenGame, *, start: int, seed: int) -> list[tuple[Scene, int]]:
+    """Los fotogramas (escena y milisegundos) de los carriles cruzados desde `start`.
+
+    Los carriles intermedios (solo en el autocobro) son una carrera
+    rápida con la cámara saltando por páginas, para que el GIF pese poco.
+    El último carril lleva la tensión entera. Si `game` acabó atropellado,
+    el último salto es el del atropello. Detrás va el fotograma quieto de
+    `resting_scene(game)`, que no está en la lista.
+
+    Args:
+        game: La partida ya avanzada.
+        start: Carriles cruzados antes del paso.
+        seed: Azar de la partida (vehículos y colores).
+
+    Raises:
+        ValueError: Si no hay ningún carril que enseñar.
+    """
+    difficulty = game.difficulty
+    splat = game.status is Status.SPLAT
+    lanes = list(range(start + 1, game.crossed + 1))
+    if splat:
+        lanes.append(game.crossed + 1)
+    if not lanes:
+        raise ValueError("No hay saltos que dibujar.")
+    frames: list[tuple[Scene, int]] = []
+
+    def push(scene: Scene, ms: int) -> None:
+        frames.append((scene, ms))
+
+    def cents(lane: int) -> int:
+        return multiplier_cents(difficulty, lane)
+
+    auto_note = f"Autocobro {format_multiplier(game.auto_target)}" if game.auto_target else ""
+
+    # Carrera del autocobro: salto y aterrizaje por carril, cámara por páginas.
+    camera: float | None = None
+    for lane in lanes[:-1]:
+        x = lane_x(lane)
+        if camera is None or x - camera > W - 150:
+            camera = camera_for(difficulty, x)
+        hop = Scene(
+            difficulty=difficulty,
+            seed=seed,
+            fenced=lane - 1,
+            chicken_at=lane - 0.5,
+            hop=1.0,
+            pose="jump",
+            camera=camera,
+            hud_cents=cents(lane - 1),
+            hud_note=auto_note,
+            stake=game.stake,
+        )
+        push(hop, 45)
+        push(
+            replace(hop, chicken_at=lane, hop=0.0, pose="idle", fenced=lane, hud_cents=cents(lane)),
+            75,
+        )
+
+    # Último carril: tensión, salto y coche.
+    lane = lanes[-1]
+    target = cents(lane)
+    base = Scene(
+        difficulty=difficulty,
+        seed=seed,
+        fenced=lane - 1,
+        chicken_at=lane - 1,
+        hud_cents=cents(lane - 1),
+        hud_note=f"Siguiente {format_multiplier(target)}",
+        stake=game.stake,
+    )
+    steps = max(2, round(tension_seconds(target) * 1000 / 90))
+    for i in range(steps):
+        progress = (i + 1) / steps
+        push(
+            replace(
+                base,
+                pose="crouch" if i % 2 == 0 else "scared",
+                shake=(1.0 + 2.5 * progress) * (1 if i % 2 else -1),
+                glow_lane=lane,
+                glow=0.35 + 0.65 * (i % 2),
+                headlights=progress,
+            ),
+            90,
+        )
+    for i in range(1, 6):
+        t = i / 5
+        push(
+            replace(
+                base,
+                chicken_at=lane - 1 + t,
+                hop=math.sin(math.pi * t),
+                pose="jump",
+                glow_lane=lane,
+                headlights=1.0,
+            ),
+            50,
+        )
+    landed = replace(base, chicken_at=lane, pose="scared")
+    # El coche entra igual en los dos casos: no se sabe nada hasta el final.
+    for y in (-12.0, 70.0):
+        push(replace(landed, cars=[Car(lane, y)]), 50)
+    if splat:
+        push(replace(landed, cars=[Car(lane, GROUND_Y - 22)]), 45)
+        for y, impact, ms in (
+            (GROUND_Y + 40, 1.0, 80),
+            (GROUND_Y + 130, 0.6, 70),
+            (H + 70, 0.3, 80),
+        ):
+            push(
+                replace(landed, cars=[Car(lane, y)], splat=True, impact=impact, hud_value=0),
+                ms,
+            )
+    else:
+        stop = BARRIER_Y - 8
+        for i, (fall, y) in enumerate(((0.5, 120.0), (1.0, stop + 6), (1.0, stop))):
+            push(
+                replace(
+                    landed,
+                    falling_fence=(lane, fall),
+                    cars=[Car(lane, y, braking=True)],
+                    skid=lane if i else None,
+                    hud_cents=target,
+                ),
+                60,
+            )
+
+    return frames
+
+
 # -- Fuentes ---------------------------------------------------------------------------
 
 
@@ -277,195 +470,28 @@ class ChickenRenderer:
 
     def board(self, game: ChickenGame, *, seed: int, note: str = "") -> bytes:
         """PNG del estado actual de la partida (o de cómo acabó)."""
-        return self._png(self._frame(self._resting_scene(game, seed=seed, note=note)))
+        return self._png(self._frame(resting_scene(game, seed=seed, note=note)))
 
     def start(self, difficulty: Difficulty, *, stake: int, seed: int) -> bytes:
         """PNG antes de jugar: el pollo en la acera."""
-        scene = _Scene(
-            difficulty=difficulty,
-            seed=seed,
-            fenced=0,
-            chicken_at=0,
-            glow_lane=1,
-            glow=0.6,
-            hud_cents=100,
-            hud_value=None,
-            hud_note="Pulsa Cruzar",
-            stake=stake,
-        )
-        return self._png(self._frame(scene))
+        return self._png(self._frame(start_scene(difficulty, stake=stake, seed=seed)))
 
     def hops(self, game: ChickenGame, *, start: int, seed: int, note: str = "") -> Media:
-        """GIF de los carriles cruzados desde `start` hasta el estado de `game`.
+        """GIF de los carriles cruzados desde `start` hasta el estado de `game` (ver `timeline`).
 
-        Los carriles intermedios (solo en el autocobro) son una carrera
-        rápida con la cámara saltando por páginas, para que el GIF pese poco.
-        El último carril lleva la tensión entera. Si `game` acabó atropellado,
-        el último salto es el del atropello. El último fotograma es el PNG de
-        `board(game)`.
-
-        Args:
-            game: La partida ya avanzada.
-            start: Carriles cruzados antes del paso.
-            seed: Azar de la partida (vehículos y colores).
-            note: Texto pequeño del marcador final.
+        El último fotograma es el PNG de `board(game)`.
 
         Raises:
             ValueError: Si no hay ningún carril que enseñar.
         """
-        difficulty = game.difficulty
-        splat = game.status is Status.SPLAT
-        lanes = list(range(start + 1, game.crossed + 1))
-        if splat:
-            lanes.append(game.crossed + 1)
-        if not lanes:
-            raise ValueError("No hay saltos que dibujar.")
-        frames: list[Image.Image] = []
-        durations: list[int] = []
-
-        def push(scene: _Scene, ms: int) -> None:
-            frames.append(self._frame(scene))
-            durations.append(ms)
-
-        def cents(lane: int) -> int:
-            return multiplier_cents(difficulty, lane)
-
-        auto_note = f"Autocobro {format_multiplier(game.auto_target)}" if game.auto_target else ""
-
-        # Carrera del autocobro: salto y aterrizaje por carril, cámara por páginas.
-        camera: float | None = None
-        for lane in lanes[:-1]:
-            x = lane_x(lane)
-            if camera is None or x - camera > W - 150:
-                camera = camera_for(difficulty, x)
-            hop = _Scene(
-                difficulty=difficulty,
-                seed=seed,
-                fenced=lane - 1,
-                chicken_at=lane - 0.5,
-                hop=1.0,
-                pose="jump",
-                camera=camera,
-                hud_cents=cents(lane - 1),
-                hud_note=auto_note,
-                stake=game.stake,
-            )
-            push(hop, 45)
-            push(
-                replace(
-                    hop, chicken_at=lane, hop=0.0, pose="idle", fenced=lane, hud_cents=cents(lane)
-                ),
-                75,
-            )
-
-        # Último carril: tensión, salto y coche.
-        lane = lanes[-1]
-        target = cents(lane)
-        base = _Scene(
-            difficulty=difficulty,
-            seed=seed,
-            fenced=lane - 1,
-            chicken_at=lane - 1,
-            hud_cents=cents(lane - 1),
-            hud_note=f"Siguiente {format_multiplier(target)}",
-            stake=game.stake,
-        )
-        steps = max(2, round(tension_seconds(target) * 1000 / 90))
-        for i in range(steps):
-            progress = (i + 1) / steps
-            push(
-                replace(
-                    base,
-                    pose="crouch" if i % 2 == 0 else "scared",
-                    shake=(1.0 + 2.5 * progress) * (1 if i % 2 else -1),
-                    glow_lane=lane,
-                    glow=0.35 + 0.65 * (i % 2),
-                    headlights=progress,
-                ),
-                90,
-            )
-        for i in range(1, 6):
-            t = i / 5
-            push(
-                replace(
-                    base,
-                    chicken_at=lane - 1 + t,
-                    hop=math.sin(math.pi * t),
-                    pose="jump",
-                    glow_lane=lane,
-                    headlights=1.0,
-                ),
-                50,
-            )
-        landed = replace(base, chicken_at=lane, pose="scared")
-        # El coche entra igual en los dos casos: no se sabe nada hasta el final.
-        for y in (-12.0, 70.0):
-            push(replace(landed, cars=[_Car(lane, y)]), 50)
-        if splat:
-            push(replace(landed, cars=[_Car(lane, GROUND_Y - 22)]), 45)
-            for y, impact, ms in (
-                (GROUND_Y + 40, 1.0, 80),
-                (GROUND_Y + 130, 0.6, 70),
-                (H + 70, 0.3, 80),
-            ):
-                push(
-                    replace(landed, cars=[_Car(lane, y)], splat=True, impact=impact, hud_value=0),
-                    ms,
-                )
-        else:
-            stop = BARRIER_Y - 8
-            for i, (fall, y) in enumerate(((0.5, 120.0), (1.0, stop + 6), (1.0, stop))):
-                push(
-                    replace(
-                        landed,
-                        falling_fence=(lane, fall),
-                        cars=[_Car(lane, y, braking=True)],
-                        skid=lane if i else None,
-                        hud_cents=target,
-                    ),
-                    60,
-                )
-
-        frames.append(self._frame(self._resting_scene(game, seed=seed, note=note)))
+        steps = timeline(game, start=start, seed=seed)
+        frames = [self._frame(scene) for scene, _ms in steps]
+        frames.append(self._frame(resting_scene(game, seed=seed, note=note)))
+        durations = [ms for _scene, ms in steps]
         seconds = sum(durations) / 1000
         durations.append(FINAL_FRAME_MS)
         gif = local_palette_gif(frames, durations)
         return Media(gif=gif, png=self._png(frames[-1]), seconds=seconds)
-
-    # -- Escenas en reposo ------------------------------------------------------------------
-
-    def _resting_scene(self, game: ChickenGame, *, seed: int, note: str) -> _Scene:
-        difficulty = game.difficulty
-        scene = _Scene(
-            difficulty=difficulty,
-            seed=seed,
-            fenced=game.crossed,
-            chicken_at=game.crossed,
-            hud_cents=game.cents,
-            hud_value=game.cashout_value if game.crossed else None,
-            hud_note=note,
-            stake=game.stake,
-        )
-        if game.playing:
-            if not game.finished_road:
-                scene.glow_lane = game.crossed + 1
-                scene.glow = 0.7
-            return scene
-        if game.status is Status.SPLAT:
-            scene.chicken_at = game.crossed + 1
-            scene.splat = True
-            scene.plaf = True
-            scene.pose = "splat"
-            scene.hud_value = 0
-            return scene
-        # Cobrado: celebra y enseña dónde estaba el coche.
-        scene.pose = "win"
-        scene.celebrate = 1.0
-        if game.finished_road:
-            scene.chicken_at = difficulty.lanes + 1.15
-        if game.hit_lane is not None:
-            scene.ghost_lane = game.hit_lane
-        return scene
 
     # -- Mundo estático ---------------------------------------------------------------------
 
@@ -615,7 +641,7 @@ class ChickenRenderer:
 
     # -- Fotograma -------------------------------------------------------------------------
 
-    def _frame(self, scene: _Scene) -> Image.Image:
+    def _frame(self, scene: Scene) -> Image.Image:
         difficulty = scene.difficulty
         chicken_x = (
             lane_x(scene.chicken_at)
@@ -1067,7 +1093,7 @@ class ChickenRenderer:
                 outline=INK,
             )
 
-    def _hud(self, frame: Image.Image, scene: _Scene) -> None:
+    def _hud(self, frame: Image.Image, scene: Scene) -> None:
         """Pega el marcador de arriba (de un caché: las letras son lo más lento)."""
         key = (
             scene.difficulty.key,
@@ -1088,7 +1114,7 @@ class ChickenRenderer:
                 self._huds[key] = hud
         frame.paste(hud, (0, 0))
 
-    def _paint_hud(self, d: ImageDraw.ImageDraw, scene: _Scene) -> None:
+    def _paint_hud(self, d: ImageDraw.ImageDraw, scene: Scene) -> None:
         difficulty = scene.difficulty
         d.rectangle(_xy(0, 0, W, HUD_H), fill=HUD_BG)
         d.text(_xy(14, 9), f"POLLO · {difficulty.name.upper()}", font=_title(18), fill=GOLD)

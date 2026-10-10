@@ -574,7 +574,9 @@ async def test_una_porra_entera_de_principio_a_fin(tmp_path: Path) -> None:
     assert porra_.seen == []
     await cog.observe(GUILD, ANA, play(-200, stake=200))
     await cog.observe(GUILD, ANA, play(700, stake=200))
-    for _ in range(200):
+    # Se resuelve en segundo plano. Hasta 10 s: con toda la batería en paralelo
+    # (y escenas de Node y Chromium arrancando a la vez) 2 s se quedaban cortos.
+    for _ in range(1000):
         if porra_.status is Status.RESOLVED:
             break
         await asyncio.sleep(0.01)

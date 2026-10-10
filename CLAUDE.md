@@ -209,6 +209,14 @@ en orden y en un solo proceso. Cualquier función de la escena puede devolver
 imágenes de `exportFrame`. Lo que sea HTML con CSS (la parrilla y el boleto de
 los caballos, capturas de pantalla) se queda en Chromium.
 
+Rehacer un juego con escena nueva (el Pollo): la animación se queda en Python
+(`chicken_render.timeline`, que ya usaba Pillow) y la escena solo pinta lo que
+le pasa `chicken_scene.frame_state`. Así Pillow sigue de reserva con los mismos
+estados, y la refactorización se comprueba sacando el mismo GIF byte a byte. Una
+escena más rica puede pintar más lento que el Pillow de antes (el paso del Pollo,
+442 ms frente a 259): pintar antes del clic lo tapa entero (del clic al GIF, de
+~440 ms a 0).
+
 Lo que no compensó, para no repetirlo:
 
 - **PNG o GIF con menos colores.** La PNG de 256 colores pesa la cuarta parte,
