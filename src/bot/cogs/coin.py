@@ -433,13 +433,31 @@ class CoinView(ui.View):
         start: Side,
         waiting: str,
     ) -> None:
-        """Enseña el GIF del lanzamiento y después el PNG con el resultado."""
+        """Enseña el GIF del lanzamiento y después el PNG con el resultado.
+
+        Mientras se pinta el GIF (1-2 s), la mesa ya enseña la jugada con los
+        botones apagados: si no, tras el clic no cambia nada y parece que el botón
+        no responde. Los botones se apagan sin reconstruirlos, con las etiquetas
+        de antes de lanzar, porque las nuevas (×8 o la apuesta) delatarían el
+        resultado.
+        """
         game = self.game
         assert game is not None
-        media: Media = await self.cog.renderer.toss(
-            game, start=start, seed=self.cog.rng.randrange(1, 2**31)
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+
+        async def show_waiting() -> None:
+            try:
+                await editor(embed=self.embed(text=waiting, color=COLOR_IDLE), view=self)
+            except discord.HTTPException:
+                logger.warning("No se pudo apagar la mesa de la moneda", exc_info=True)
+
+        media: Media
+        _, media = await asyncio.gather(
+            show_waiting(),
+            self.cog.renderer.toss(game, start=start, seed=self.cog.rng.randrange(1, 2**31)),
         )
-        self.rebuild(busy=True)
         await editor(
             # Color neutro: el del final delataría el resultado antes del GIF.
             embed=self.embed(image=GIF_NAME, text=waiting, color=COLOR_IDLE),
