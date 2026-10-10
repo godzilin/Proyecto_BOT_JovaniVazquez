@@ -71,13 +71,92 @@ def test_blackjack_con_apuesta_impar_redondea_hacia_abajo() -> None:
     assert finish(g) == 5 + 7
 
 
-def test_banca_con_blackjack_termina_la_mano_en_empate_y_devuelve_la_apuesta() -> None:
+def test_banca_con_blackjack_y_un_10_a_la_vista_gana_sin_turno() -> None:
+    g = game("10♠", "K♥", "Q♦", "A♣")
+
+    assert not g.insurance_pending
+    assert not g.player_turn
+    assert finish(g) == 0
+    assert g.hands[0].result is Result.LOSE
+    assert g.net == -100
+
+
+def test_banca_con_as_ofrece_seguro_antes_de_mirar() -> None:
     g = game("10♠", "A♥", "Q♦", "K♣")
 
+    assert g.insurance_pending
     assert not g.player_turn
-    assert finish(g) == 100
-    assert g.hands[0].result is Result.PUSH
+    assert not g.hole_revealed
+    assert not g.can(Action.HIT)
+    assert g.insurance_cost == 50
+
+
+def test_sin_seguro_y_banca_con_blackjack_se_pierde() -> None:
+    g = game("10♠", "A♥", "Q♦", "K♣")
+
+    g.decide_insurance(False)
+
+    assert not g.player_turn
+    assert finish(g) == 0
+    assert g.net == -100
+
+
+def test_seguro_paga_2_a_1_si_la_banca_tiene_blackjack() -> None:
+    g = game("10♠", "A♥", "Q♦", "K♣")
+
+    g.decide_insurance(True)
+
+    assert g.total_stake == 150
+    assert finish(g) == 150
+    assert g.insurance_paid
     assert g.net == 0
+
+
+def test_seguro_se_pierde_si_la_banca_no_tiene_blackjack_y_se_juega() -> None:
+    g = game("10♠", "A♥", "Q♦", "7♣")
+
+    g.decide_insurance(True)
+    assert g.player_turn
+    g.act(Action.STAND)
+
+    assert finish(g) == 200  # 20 contra 18: gana la mano, el seguro se va
+    assert not g.insurance_paid
+    assert g.net == 50
+
+
+def test_con_blackjack_propio_no_hay_seguro() -> None:
+    g = game("A♠", "A♥", "K♦", "7♣")
+
+    assert not g.insurance_pending
+    assert finish(g) == 250
+
+
+def test_seguro_imposible_con_ficha_de_1() -> None:
+    g = game("10♠", "A♥", "Q♦", "7♣", stake=1)
+
+    assert g.insurance_pending
+    assert not g.can_insure()
+    with pytest.raises(IllegalAction):
+        g.decide_insurance(True)
+    g.decide_insurance(False)
+    assert g.player_turn
+
+
+def test_no_se_liquida_con_el_seguro_sin_decidir() -> None:
+    g = game("10♠", "A♥", "Q♦", "K♣")
+    g.reveal_hole()
+
+    with pytest.raises(RuntimeError):
+        g.settle()
+
+
+def test_stand_all_con_seguro_pendiente_lo_rechaza() -> None:
+    g = game("10♠", "A♥", "Q♦", "K♣")
+
+    g.stand_all()
+
+    assert finish(g) == 0
+    assert g.insurance == 0
 
 
 def test_blackjack_contra_blackjack_es_empate() -> None:
@@ -110,6 +189,7 @@ def test_plantarse_y_ganar_paga_1_a_1() -> None:
 def test_la_banca_se_planta_en_17_blando() -> None:
     g = game("10♠", "A♥", "8♦", "6♣", "5♠")
 
+    g.decide_insurance(False)
     g.act(Action.STAND)
     g.reveal_hole()
 

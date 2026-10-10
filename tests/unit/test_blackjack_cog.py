@@ -18,7 +18,7 @@ from interaction_fakes import fake_interaction
 import bot.cogs.blackjack as blackjack_module
 from bot.cogs.blackjack import PNG_NAME, Blackjack, BlackjackTable
 from bot.repositories.economy import EconomyRepository
-from bot.services.blackjack import MAX_STAKE, Action, Card
+from bot.services.blackjack import Action, Card
 from bot.services.economy import STARTING_BALANCE, EconomyService
 
 GUILD_ID = 1
@@ -275,35 +275,73 @@ async def test_all_in_tras_la_mano_pone_todo_el_saldo(tmp_path: Path) -> None:
     assert table.stake == STARTING_BALANCE - 100
 
 
-async def test_la_banca_con_blackjack_devuelve_la_apuesta(tmp_path: Path) -> None:
-    cog = await make_cog(tmp_path, c(10), c(1), c(9), c(13))
+async def test_la_banca_con_blackjack_se_lleva_la_apuesta(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, c(10), c(13), c(9), c(1))
 
     table, *_ = await open_table(cog)
 
     assert table.game.settled
-    assert table.game.net == 0
+    assert table.game.net == -100
+    assert await balance(cog) == STARTING_BALANCE - 100
+
+
+async def test_con_un_as_de_la_banca_salen_los_botones_del_seguro(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, c(10), c(1), c(9), c(13))
+
+    table, *_ = await open_table(cog)
+
+    assert table.game.insurance_pending
+    assert all(b in table.children for b in table.insurance_buttons.values())
+    assert all(b.disabled for b in table.action_buttons.values())
+    assert table.deal_button.disabled
+
+
+async def test_seguro_cobra_media_apuesta_y_paga_2_a_1(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, c(10), c(1), c(9), c(13))
+    table, *_ = await open_table(cog)
+    interaction = make_interaction()
+
+    await table.insure(interaction, take=True)
+
+    assert table.game.settled
+    assert table.game.insurance_paid
     assert await balance(cog) == STARTING_BALANCE
+    interaction.response.defer.assert_awaited_once()
+    assert all(b not in table.children for b in table.insurance_buttons.values())
 
 
-async def test_la_apuesta_inicial_no_pasa_del_tope_de_la_mesa(tmp_path: Path) -> None:
+async def test_sin_seguro_y_sin_blackjack_de_la_banca_se_juega(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, c(10), c(1), c(9), c(7))
+    table, *_ = await open_table(cog)
+
+    await table.insure(make_interaction(), take=False)
+
+    assert table.game.player_turn
+    assert not table.action_buttons[Action.HIT].disabled
+    assert await balance(cog) == STARTING_BALANCE - 100
+
+
+async def test_la_mesa_no_tiene_tope_de_apuesta(tmp_path: Path) -> None:
     cog = await make_cog(tmp_path, c(10), c(9), c(6), c(8))
-    await cog.economy.grant(GUILD_ID, OWNER_ID, amount=MAX_STAKE * 3, reason="prueba")
+    await cog.economy.grant(GUILD_ID, OWNER_ID, amount=50_000, reason="prueba")
     start = await balance(cog)
 
     table, _, send_error, _ = await open_table(cog, amount="all")
 
     send_error.assert_not_awaited()
-    assert table.game.stake == MAX_STAKE
-    assert await balance(cog) == start - MAX_STAKE
+    assert table.game.stake == start
+    assert await balance(cog) == 0
 
 
-async def test_all_in_y_doblar_ficha_se_quedan_en_el_tope(tmp_path: Path) -> None:
+async def test_all_in_y_doblar_ficha_llegan_al_saldo(tmp_path: Path) -> None:
     cog = await make_cog(tmp_path, c(10), c(9), c(6), c(8), c(10))
-    await cog.economy.grant(GUILD_ID, OWNER_ID, amount=MAX_STAKE * 3, reason="prueba")
+    await cog.economy.grant(GUILD_ID, OWNER_ID, amount=50_000, reason="prueba")
     table, *_ = await open_table(cog)
     await table.act(make_interaction(), Action.HIT)
+    left = await balance(cog)
 
     await table._all_in(make_interaction())
-    assert table.stake == MAX_STAKE
+    assert table.stake == left
+    await table._halve(make_interaction())
     await table._double_stake(make_interaction())
-    assert table.stake == MAX_STAKE
+    assert table.stake == left // 2 * 2

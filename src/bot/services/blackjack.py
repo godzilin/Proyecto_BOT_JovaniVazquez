@@ -5,27 +5,29 @@ partida dice cuánto hay que cobrar antes de cada acción (`extra_stake`) y
 cuánto devolver al terminar (`total_return`), y el cog lo mueve a través de
 la economía.
 
-Reglas (las habituales de un casino, salvo el empate con el blackjack de la
-banca y el tope de apuesta):
+Reglas (las habituales de un casino):
 
 - Zapato de 6 barajas, barajado de nuevo en cada mano (no se pueden contar
   cartas).
 - La banca se planta en 17, también en 17 blando.
 - La banca mira si tiene blackjack cuando enseña un as o una figura/10; si
-  lo tiene, la mano acaba en empate y se recupera la apuesta (regla de la
-  casa: perder sin jugar no tiene gracia).
+  lo tiene, la mano acaba ahí y se pierde la apuesta (empate si el jugador
+  también tiene blackjack).
+- Seguro cuando la banca enseña un as: media apuesta que paga 2:1 si la
+  banca tiene blackjack. Se decide antes de que la banca mire su carta.
+  Con blackjack propio no se ofrece.
 - Blackjack paga 3:2 (redondeando hacia abajo los céntimos que no existen).
 - Doblar con cualquier par de cartas, también tras separar.
 - Separar una vez dos cartas del mismo valor. Los ases separados reciben
   una carta cada uno y no cuentan como blackjack si suman 21.
-- Sin seguro ni rendición.
-- Apuesta inicial de `MAX_STAKE` como mucho.
+- Sin rendición.
+- Sin tope de apuesta: lo había mientras el juego favorecía al jugador.
 
-El empate con el blackjack de la banca le da la vuelta a la ventaja: con
-estrategia básica el juego devuelve ≈ 103,6 % de lo apostado (sin él, ≈ 99,6 %).
-El tope por mano evita que ese 3,6 % se exprima a golpe de all-in: con 5.000
-Y$ por mano, la ganancia media de una mano bien jugada es de unas 180 Y$, y
-tributa como juego. Cifras sacadas simulando 200.000 manos con el código real.
+Con estrategia básica (sin seguro) el juego devuelve ≈ 99,7 % de lo apostado.
+El seguro devuelve ≈ 92 % de lo que se mete en él: la banca solo tiene
+blackjack 4 de cada 13 veces que enseña un as, y pagar 2:1 necesitaría una
+de cada tres. Hasta este cambio el blackjack de la banca era empate y el
+juego devolvía ≈ 103,6 %. Cifras sacadas simulando manos con el código real.
 """
 
 from __future__ import annotations
@@ -40,9 +42,8 @@ DECKS = 6
 SUITS = ("♠", "♥", "♦", "♣")
 RANK_LABELS = {1: "A", 11: "J", 12: "Q", 13: "K"}
 DEALER_STANDS_ON = 17
-#: Apuesta inicial máxima por mano (50 tiradas). Doblar y separar pueden
-#: llevar lo que hay en juego hasta el doble o el cuádruple.
-MAX_STAKE = 5_000
+#: El seguro paga 2:1: se devuelve lo asegurado más el doble.
+INSURANCE_PAYS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +174,10 @@ class BlackjackGame:
     active: int = 0
     hole_revealed: bool = False
     settled: bool = False
+    #: La banca enseña un as y falta decidir el seguro (no se juega hasta entonces).
+    insurance_pending: bool = False
+    #: Lo apostado al seguro (0 si no se tomó).
+    insurance: int = 0
 
     # -- Reparto -------------------------------------------------------------------
 
@@ -183,7 +188,8 @@ class BlackjackGame:
         """Reparte dos cartas a cada uno y resuelve los blackjacks iniciales.
 
         Si alguien tiene blackjack la mano termina aquí: la banca enseña su
-        carta tapada y no hay turno de jugador.
+        carta tapada y no hay turno de jugador. Si la banca enseña un as, la
+        mano espera a `decide_insurance` antes de que la banca mire.
         """
         if self.stake <= 0:
             raise ValueError("La apuesta debe ser positiva.")
@@ -193,18 +199,59 @@ class BlackjackGame:
         self.dealer.append(self._draw())
         self.hands = [Hand(player, self.stake)]
 
+        if self.dealer[0].rank == 1 and not self.hands[0].natural:
+            self.insurance_pending = True
+            return
+        self._peek()
+
+    def _peek(self) -> None:
+        """La banca mira su carta tapada: con blackjack (o el del jugador) se acaba."""
         dealer_peeks = self.dealer[0].value in (1, 10)
         dealer_bj = dealer_peeks and is_blackjack(self.dealer)
         if dealer_bj or self.hands[0].natural:
             self.hands[0].done = True
             self.hole_revealed = True
 
+    # -- Seguro --------------------------------------------------------------------
+
+    @property
+    def insurance_cost(self) -> int:
+        """Lo que cuesta el seguro: media apuesta, sin céntimos (0 si la ficha es 1)."""
+        return self.stake // 2
+
+    def can_insure(self) -> bool:
+        """Si se puede tomar el seguro ahora mismo."""
+        return self.insurance_pending and self.insurance_cost > 0
+
+    def decide_insurance(self, take: bool) -> None:
+        """Toma o rechaza el seguro; después la banca mira si tiene blackjack.
+
+        Raises:
+            IllegalAction: Si no hay seguro que decidir o no se puede tomar.
+        """
+        if not self.insurance_pending or (take and not self.can_insure()):
+            raise IllegalAction("insurance")
+        self.insurance_pending = False
+        if take:
+            self.insurance = self.insurance_cost
+        self._peek()
+
+    @property
+    def insurance_paid(self) -> bool:
+        """Si el seguro se tomó y la banca tenía blackjack."""
+        return self.insurance > 0 and self.hole_revealed and is_blackjack(self.dealer)
+
+    @property
+    def insurance_return(self) -> int:
+        """Lo que devuelve el seguro (lo asegurado y el premio 2:1, o nada)."""
+        return self.insurance * (1 + INSURANCE_PAYS) if self.insurance_paid else 0
+
     # -- Turno del jugador ---------------------------------------------------------
 
     @property
     def player_turn(self) -> bool:
-        """Si queda alguna mano por jugar."""
-        return any(not hand.done for hand in self.hands)
+        """Si queda alguna mano por jugar (no mientras se decide el seguro)."""
+        return not self.insurance_pending and any(not hand.done for hand in self.hands)
 
     @property
     def current(self) -> Hand:
@@ -274,7 +321,11 @@ class BlackjackGame:
             self.active += 1
 
     def stand_all(self) -> None:
-        """Planta todas las manos abiertas (al caducar la mesa o al apagar)."""
+        """Planta todas las manos abiertas (al caducar la mesa o al apagar).
+
+        Un seguro sin decidir cuenta como rechazado.
+        """
+        self.insurance_pending = False
         for hand in self.hands:
             hand.done = True
 
@@ -325,7 +376,12 @@ class BlackjackGame:
         Raises:
             RuntimeError: Si aún queda turno del jugador o de la banca.
         """
-        if self.player_turn or self.dealer_should_draw() or not self.hole_revealed:
+        if (
+            self.insurance_pending
+            or self.player_turn
+            or self.dealer_should_draw()
+            or not self.hole_revealed
+        ):
             raise RuntimeError("La mano no ha terminado.")
         dealer_bj = is_blackjack(self.dealer)
         dealer_total = self.dealer_total
@@ -335,9 +391,9 @@ class BlackjackGame:
             elif hand.natural and not dealer_bj:
                 hand.result = Result.BLACKJACK
             elif dealer_bj:
-                # Solo puede pasar en el reparto (la banca lo mira con as o 10 a
-                # la vista y la mano acaba ahí): empate, se recupera la apuesta.
-                hand.result = Result.PUSH
+                # La banca lo mira en el reparto y la mano acaba ahí: solo
+                # empata quien también tiene blackjack.
+                hand.result = Result.PUSH if hand.natural else Result.LOSE
             elif dealer_total > 21 or hand.total > dealer_total:
                 hand.result = Result.WIN
             elif hand.total == dealer_total:
@@ -349,13 +405,15 @@ class BlackjackGame:
 
     @property
     def total_stake(self) -> int:
-        """Total apostado en la mano (dobles y separaciones incluidos)."""
-        return sum(hand.stake for hand in self.hands)
+        """Total apostado en la mano (dobles, separaciones y seguro incluidos)."""
+        return sum(hand.stake for hand in self.hands) + self.insurance
 
     @property
     def total_return(self) -> int:
-        """Total que se devuelve al jugador (0 hasta `settle`)."""
-        return sum(hand.payout() for hand in self.hands)
+        """Total que se devuelve al jugador (0 hasta `settle`), seguro incluido."""
+        if not self.settled:
+            return 0
+        return sum(hand.payout() for hand in self.hands) + self.insurance_return
 
     @property
     def net(self) -> int:

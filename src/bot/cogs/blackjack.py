@@ -34,7 +34,7 @@ from bot.cogs import apuestas, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import blackjack_stats, casino_stats
 from bot.services.blackjack import (
-    MAX_STAKE,
+    INSURANCE_PAYS,
     Action,
     BlackjackGame,
     Card,
@@ -71,10 +71,7 @@ COLOR_WIN = discord.Color.from_rgb(255, 196, 0)
 COLOR_LOSS = discord.Color.from_rgb(80, 84, 92)
 COLOR_PUSH = discord.Color.from_rgb(120, 140, 160)
 
-RULES_FOOTER = (
-    "Blackjack paga 3:2 · la banca se planta en 17 · su blackjack es empate"
-    f" · máx. {format_amount(MAX_STAKE)}"
-)
+RULES_FOOTER = "Blackjack paga 3:2 · seguro 2:1 · la banca se planta en 17"
 
 BLACKJACK_LINES = ("🂡 ¡BLACKJACK!", "💥 ¡BLACKJACK!", "🔥 ¡BLACKJACK!")
 WIN_LINES = ("¡Ganas", "¡Le ganas a la banca!", "¡Cobras", "¡Toma ya!")
@@ -137,8 +134,14 @@ def render_table(renderer: CardRenderer, game: BlackjackGame) -> bytes:
 def result_headline(game: BlackjackGame, rng: random.Random | None = None) -> str:
     """Titular grande con lo ganado o perdido en la mano completa."""
     rng = rng or random.Random()
+    return _main_headline(game, rng) + insurance_line(game)
+
+
+def _main_headline(game: BlackjackGame, rng: random.Random) -> str:
     net = game.net
     results = {hand.result for hand in game.hands}
+    if game.insurance_paid:
+        return "# 🛡️ El seguro te cubre\nLa banca tenía blackjack."
     if net > 0:
         if results == {Result.BLACKJACK}:
             return f"# {rng.choice(BLACKJACK_LINES)}\n### +{format_amount(net)}"
@@ -148,6 +151,15 @@ def result_headline(game: BlackjackGame, rng: random.Random | None = None) -> st
     if results == {Result.BUST}:
         return f"# 💥 {rng.choice(BUST_LINES)}\n### -{format_amount(-net)}"
     return f"# -{format_amount(-net)}\n### {rng.choice(LOSS_LINES)}"
+
+
+def insurance_line(game: BlackjackGame) -> str:
+    """Línea con lo que hizo el seguro, si se tomó."""
+    if not game.insurance:
+        return ""
+    if game.insurance_paid:
+        return f"\n🛡️ El seguro paga +{format_amount(game.insurance * INSURANCE_PAYS)}."
+    return f"\n🛡️ Seguro perdido: -{format_amount(game.insurance)}."
 
 
 def table_embed(
@@ -162,6 +174,18 @@ def table_embed(
     """Embed de la mesa. `headline` es el resultado de la última mano, si acabó."""
     if game is None:
         description = "Pulsa 🃏 **Repartir** para empezar."
+        color = COLOR_PLAYING
+    elif game.insurance_pending:
+        cost = game.insurance_cost
+        offer = (
+            f"🛡️ **Seguro** por {format_amount(cost)}: paga 2:1 si tiene blackjack."
+            if cost
+            else "Con una ficha de 1 no hay seguro."
+        )
+        description = (
+            f"## Tú {game.current.total} · Banca {game.visible_dealer_total}\n"
+            f"La banca enseña un as. {offer}"
+        )
         color = COLOR_PLAYING
     elif game.player_turn:
         description = (
@@ -259,6 +283,10 @@ class BlackjackTable(discord.ui.View):
                 "✂️ Separar", 0, self._action(Action.SPLIT), style=gray, custom_id="split"
             ),
         }
+        self.insurance_buttons = {
+            True: self._add("🛡️ Seguro", 2, self._insure_yes, style=blue, custom_id="insure"),
+            False: self._add("Sin seguro", 2, self._insure_no, style=gray, custom_id="noinsure"),
+        }
         self.deal_button = self._add(
             "🃏 Repartir", 1, self._deal_again, style=green, custom_id="deal"
         )
@@ -270,12 +298,23 @@ class BlackjackTable(discord.ui.View):
         self._update_buttons()
 
     def _update_buttons(self, *, locked: bool = False) -> None:
-        """Activa las acciones de la mano o las de repartir, según toque."""
-        in_hand = self.game is not None and self.game.player_turn
+        """Activa las acciones de la mano o las de repartir, según toque.
+
+        Los botones del seguro solo están en la mesa mientras se decide.
+        """
+        game = self.game
+        insuring = game is not None and game.insurance_pending
+        in_hand = game is not None and (game.player_turn or insuring)
         for action, button in self.action_buttons.items():
-            button.disabled = locked or not (in_hand and self.game.can(action))  # type: ignore[union-attr]
+            button.disabled = locked or not (in_hand and game.can(action))  # type: ignore[union-attr]
         for button in (self.deal_button, *self.stake_buttons):
             button.disabled = locked or in_hand
+        for take, button in self.insurance_buttons.items():
+            if insuring and button not in self.children:
+                self.add_item(button)
+            elif not insuring and button in self.children:
+                self.remove_item(button)
+            button.disabled = locked or not insuring or (take and not game.can_insure())  # type: ignore[union-attr]
 
     # -- Ciclo de vida --------------------------------------------------------------
 
@@ -369,7 +408,7 @@ class BlackjackTable(discord.ui.View):
         self.game = BlackjackGame(stake=self.stake, shoe=self.cog.new_shoe())
         self.headline = None
         self.game.deal()
-        if self.game.player_turn:
+        if self.game.player_turn or self.game.insurance_pending:
             await self._show(first_edit)
         else:
             # Blackjack de alguien en el reparto: se resuelve sin turno.
@@ -411,6 +450,56 @@ class BlackjackTable(discord.ui.View):
         finally:
             self._busy = False
         if game.settled:
+            await renta.remind(self.cog.bot, interaction)
+
+    async def _insure_yes(self, interaction: discord.Interaction) -> None:
+        await self.insure(interaction, take=True)
+
+    async def _insure_no(self, interaction: discord.Interaction) -> None:
+        await self.insure(interaction, take=False)
+
+    async def insure(self, interaction: discord.Interaction, *, take: bool) -> None:
+        """Toma o rechaza el seguro; luego la banca mira si tiene blackjack.
+
+        El seguro es una apuesta más del juego (`place_bet`, y lo que paga va
+        con el resto de la mano en `pay_winnings`): tributa como juego.
+        """
+        game = self.game
+        if (
+            self._busy
+            or game is None
+            or not game.insurance_pending
+            or (take and not game.can_insure())
+        ):
+            await ack(interaction)
+            return
+        self._busy = True
+        try:
+            await ack(interaction)
+            if take:
+                cost = game.insurance_cost
+                try:
+                    await self.cog.economy.place_bet(
+                        self.guild_id, self.owner.id, game=GAME, stake=cost
+                    )
+                except InsufficientFundsError as error:
+                    await notify(
+                        interaction,
+                        f"El seguro cuesta {format_amount(cost)} y tienes "
+                        f"{format_amount(error.balance)}.",
+                    )
+                    return
+            game.decide_insurance(take)
+            self._last_interaction = interaction
+            if game.player_turn:
+                await self._show(interaction.edit_original_response)
+            else:
+                await self._finish(
+                    interaction.edit_original_response, interaction.edit_original_response
+                )
+        finally:
+            self._busy = False
+        if take or game.settled:
             await renta.remind(self.cog.bot, interaction)
 
     async def _finish(self, first_edit: EditFn, next_edit: EditFn) -> None:
@@ -531,7 +620,7 @@ class BlackjackTable(discord.ui.View):
     async def _double_stake(self, interaction: discord.Interaction) -> None:
         await ack(interaction)
         balance = await self.balance()
-        self.stake = max(1, min(self.stake * 2, balance, MAX_STAKE))
+        self.stake = max(1, min(self.stake * 2, balance))
         await self._refresh(interaction, balance)
 
     async def _all_in(self, interaction: discord.Interaction) -> None:
@@ -540,7 +629,7 @@ class BlackjackTable(discord.ui.View):
         if balance == 0:
             await notify(interaction, insufficient_text(0))
             return
-        self.stake = min(balance, MAX_STAKE)
+        self.stake = balance
         await self._refresh(interaction, balance)
 
     async def _deal_again(self, interaction: discord.Interaction) -> None:
@@ -627,9 +716,6 @@ class Blackjack(commands.Cog):
         except ValueError as error:
             await send_error(str(error))
             return
-        # Con el empate ante el blackjack de la banca el juego favorece al que
-        # juega bien: el tope impide exprimirlo con un all-in (ver el servicio).
-        stake = min(stake, MAX_STAKE)
         if stake > balance:
             await send_error(insufficient_text(balance))
             return
