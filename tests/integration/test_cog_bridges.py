@@ -936,7 +936,7 @@ async def test_el_autobus_apunta_sus_logros_y_su_jugada_con_el_bot_real(tmp_path
         owner.display_name = "Diego"
         owner.mention = f"<@{OWNER_ID}>"
         owner.bot = False
-        await cog._autobus_impl(
+        await cog._guagua_impl(
             guild=MagicMock(id=GUILD_ID),
             channel=None,
             user=owner,

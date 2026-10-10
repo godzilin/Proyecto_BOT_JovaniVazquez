@@ -82,7 +82,7 @@ async def open_table(
 ) -> tuple[BusView, AsyncMock]:
     send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
     errors = AsyncMock()
-    await cog._autobus_impl(
+    await cog._guagua_impl(
         guild=MagicMock(id=GUILD_ID),
         channel=None,
         user=make_user(),
@@ -166,7 +166,7 @@ async def test_al_abrir_ya_se_esta_dibujando_la_primera_mano(tmp_path: Path) -> 
 async def test_sin_saldo_no_se_abre_la_mesa(tmp_path: Path) -> None:
     cog = await make_cog(tmp_path)
     errors = AsyncMock()
-    await cog._autobus_impl(
+    await cog._guagua_impl(
         guild=MagicMock(id=GUILD_ID),
         channel=None,
         user=make_user(),

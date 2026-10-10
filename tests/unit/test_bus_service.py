@@ -1,4 +1,4 @@
-"""Pruebas de bot.services.bus: las reglas puras del Autobús (`autobus`).
+"""Pruebas de bot.services.bus: las reglas puras del Autobús (`guagua`).
 
 Las cartas se fuerzan construyendo la partida con las que tocan, nunca con
 estadística. El 99 % se comprueba con cuentas exactas sobre las 52 cartas.
