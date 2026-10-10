@@ -418,7 +418,7 @@ python -m bot
   devuelve el 98,6 % y No pase el 98,6 %, con las reglas de cualquier casino.
   La mesa lleva la mano del tirador hasta el siete fuera, y las manos de 5
   puntos o más se anuncian en el canal. Cada tirada es un GIF dibujado con
-  canvas en Chromium: los dados rojos vuelan en 3D, chocan contra la pared de
+  canvas en Node con Skia, sin navegador (si no hay Node, en Chromium y, si tampoco, con Pillow): los dados rojos vuelan en 3D, chocan contra la pared de
   pirámides, ruedan y se paran; luego se encienden el total y el cartel, el
   disco ON/OFF se mueve a su casilla y Perro Sanxe recoge o paga las fichas.
 - **Carreras de caballos** (`/caballo`, `.caballo [cantidad] [caballos] [tipo]`):
@@ -670,10 +670,10 @@ UGREEN DXP2800 (Intel N100): consume poca CPU y memoria y no necesita abrir
 puertos, porque solo hace conexiones salientes a Discord y a las fuentes de
 audio. La imagen incluye `ffmpeg` y `libopus`, y un Chromium sin ventana
 (Playwright, unos 300 MB más) con el que se dibujan las carreras de caballos,
-cara o cruz y los dados. Cada juego abre el suyo: mientras se usa ocupa unos
+la ruleta, el autobús y, si falla Node, cara o cruz y los dados. Cada juego abre el suyo: mientras se usa ocupa unos
 150-250 MB de memoria (el doble o el triple si coinciden varios juegos) y se
 cierra solo tras 10 minutos sin uso; si no estuviera, el bot dibuja con Pillow.
-Cara o cruz ya no usa Chromium: la pinta Node con `@napi-rs/canvas` (Skia, el
+Cara o cruz y los dados ya no usan Chromium: los pinta Node con `@napi-rs/canvas` (Skia, el
 mismo motor de dibujo), con dos procesos de unos 90 MB que arrancan en menos
 de medio segundo.
 
@@ -904,7 +904,7 @@ src/bot/
 │   ├── bus_scene.py     # Autobús con canvas en Chromium (assets/autobus/escena.html)
 │   ├── craps.py         # Dados: salida, punto, Odds a la probabilidad exacta y la mano
 │   ├── craps_render.py  # Física de la tirada, cámara, dados en 3D y dibujo con Pillow
-│   ├── craps_scene.py   # Dados con canvas en Chromium (assets/dados/escena.html)
+│   ├── craps_scene.py   # Dados con canvas en Node o Chromium (assets/dados/escena.html)
 │   ├── browser_scene.py # Pestaña de Chromium sin ventana con una escena HTML cargada
 │   ├── node_scene.py    # La misma escena pintada en Node con Skia, sin navegador
 │   ├── pachinko.py      # Tableros, clavos, bolsillos, sorteo, rush y retorno exacto
