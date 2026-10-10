@@ -11,6 +11,7 @@
 //   {"call": "setup", "args": [meta]}                -> {"ok": true}
 //   {"call": "renderFrames", "args": [states, first]} -> {"ok": true, "frames": [[x, y, w, h], ...]}
 //                                                       y detrás los píxeles RGBA de cada recuadro
+//   (cualquier función que devuelva imágenes de exportFrame responde igual)
 //   {"call": "<expr>", "eval": true}                  -> {"ok": true, "value": ...}
 // Si algo falla: {"ok": false, "error": "..."}. Al arrancar escribe {"ready": true}.
 //
@@ -56,12 +57,20 @@ function send(header, buffers = []) {
   for (const buffer of buffers) process.stdout.write(buffer);
 }
 
+// Lo que devuelve exportFrame (`{w, h, rgba}`), solo o dentro de un recuadro
+// (`{x, y, u}`), cuenta como imagen. Cualquier función puede devolver una o una
+// lista: los fotogramas de renderFrames, el podio de los caballos...
+const isImage = (v) => v && typeof v === "object" && v.rgba instanceof Uint8ClampedArray;
+const asPatch = (v) => (isImage(v) ? { x: 0, y: 0, u: v } : v && isImage(v.u) ? v : null);
+
 async function handle(request) {
   if (request.eval) return send({ ok: true, value: await vm.runInThisContext(request.call) });
   const result = await globalThis[request.call](...(request.args || []));
-  if (request.call !== "renderFrames") return send({ ok: true });
-  const frames = result.map((p) => [p.x, p.y, p.u.w, p.u.h]);
-  const buffers = result.map((p) => Buffer.from(p.u.rgba.buffer, p.u.rgba.byteOffset, p.u.rgba.byteLength));
+  const list = Array.isArray(result) ? result : [result];
+  const patches = list.map(asPatch);
+  if (!list.length || patches.some((p) => p === null)) return send({ ok: true });
+  const frames = patches.map((p) => [p.x, p.y, p.u.w, p.u.h]);
+  const buffers = patches.map((p) => Buffer.from(p.u.rgba.buffer, p.u.rgba.byteOffset, p.u.rgba.byteLength));
   send({ ok: true, frames }, buffers);
 }
 
