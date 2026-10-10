@@ -8,6 +8,7 @@ lanzamiento gasta uno más para sortear el siguiente.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -227,7 +228,10 @@ async def test_el_lanzamiento_enseña_el_gif_neutro_y_luego_el_png_sin_destripar
     interaction.edit_original_response.side_effect = capture
     await view._flip_cara(interaction)
 
-    gif_call, png_call = interaction.edit_original_response.await_args_list
+    wait_call, gif_call, png_call = interaction.edit_original_response.await_args_list
+    # Antes del GIF, la mesa apaga los botones y enseña la jugada sin adjuntos nuevos.
+    assert "attachments" not in wait_call.kwargs
+    assert wait_call.kwargs["embed"].description == gif_call.kwargs["embed"].description
     assert gif_call.kwargs["attachments"][0].filename == "moneda.gif"
     assert png_call.kwargs["attachments"][0].filename == "moneda.png"
     waiting = gif_call.kwargs["embed"]
@@ -236,12 +240,48 @@ async def test_el_lanzamiento_enseña_el_gif_neutro_y_luego_el_png_sin_destripar
     assert "Pides" in (waiting.description or "")
     for hint in ("Cruz", "Fallaste", "DE CANTO", "-100"):
         assert hint not in (waiting.description or "")
-    # Durante el GIF todo está apagado; después, vuelven los botones.
-    assert all(states[0]) and not any(states[1])
+    # Mientras se pinta y durante el GIF todo está apagado; después, vuelven los botones.
+    assert all(states[0]) and all(states[1]) and not any(states[2])
     final = png_call.kwargs["embed"]
     assert "Ha salido **✈️ Cruz** y pediste cara" in (final.description or "")
     # El GIF se pidió con la cara de reposo de la que parte la moneda.
     assert cog.renderer.toss.await_args.kwargs["start"] is Side.CARA
+
+
+async def test_tras_un_acierto_la_mesa_se_apaga_antes_de_pintar_y_sin_destripar(
+    tmp_path: Path,
+) -> None:
+    """Con un dibujo lento, el clic se nota ya: los botones se apagan mientras se pinta.
+
+    Antes, tras un acierto, la mesa seguía igual durante todo el dibujo y parecía
+    que el botón no respondía (y un segundo clic se perdía en silencio).
+    """
+    cog = await make_cog(tmp_path, CARA, CRUZ)
+    view, _ = await open_table(cog)
+    await press(view, Side.CARA)
+    painting = asyncio.Event()
+    release = asyncio.Event()
+    toss = cog.renderer.toss.return_value
+
+    async def slow_toss(*args: object, **kwargs: object) -> Media:
+        painting.set()
+        await release.wait()
+        return toss
+
+    cog.renderer.toss.side_effect = slow_toss
+    interaction = make_interaction()
+    task = asyncio.create_task(view._flip_cara(interaction))
+    await painting.wait()
+    await asyncio.sleep(0)
+    # El dibujo sigue en marcha y la mesa ya está apagada.
+    first = interaction.edit_original_response.await_args_list[0].kwargs
+    assert all(b.disabled for b in view.children if isinstance(b, ui.Button))
+    # Las etiquetas son las de antes de lanzar: ni ×8 ni la apuesta, que delatarían el resultado.
+    assert labels(first["view"])[:2] == ["👑 Cara · ×4", "✈️ Cruz · ×4"]
+    assert "Fallaste" not in (first["embed"].description or "")
+    release.set()
+    await task
+    assert interaction.edit_original_response.await_count == 3
 
 
 async def test_la_moneda_parte_de_la_cara_que_quedo_arriba(tmp_path: Path) -> None:
@@ -373,7 +413,7 @@ async def test_cada_boton_contesta_una_sola_vez_y_antes_de_editar(tmp_path: Path
     flip.response.defer.assert_awaited_once()  # cualquier segunda respuesta lanzaría error
     flip.response.edit_message.assert_not_awaited()
     assert events[0] == "response.defer"
-    assert events.count("edit_original_response") == 2  # GIF y PNG
+    assert events.count("edit_original_response") == 3  # jugada, GIF y PNG
     events.clear()
     out = make_interaction(events=events)
     await view._cash_out(out)
@@ -511,10 +551,11 @@ async def test_moneda_500_cara_lanza_directamente(tmp_path: Path) -> None:
     cog.renderer.toss.assert_awaited_once()
     message = send.return_value
     # La mesa se abrió con los botones apagados y luego se editó con el GIF y el PNG.
-    assert [call.kwargs["attachments"][0].filename for call in message.edit.await_args_list] == [
-        "moneda.gif",
-        "moneda.png",
-    ]
+    assert [
+        call.kwargs["attachments"][0].filename
+        for call in message.edit.await_args_list
+        if "attachments" in call.kwargs
+    ] == ["moneda.gif", "moneda.png"]
 
 
 async def test_el_comando_de_texto_acepta_cantidad_y_lado_en_cualquier_orden(
@@ -598,6 +639,7 @@ async def test_al_terminar_se_apuntan_los_logros_y_la_jugada_despues_de_enseñar
     # Primero se contesta y se enseña el PNG final; los logros y las porras, después.
     assert events == [
         "response.defer",
+        "edit_original_response",
         "edit_original_response",
         "edit_original_response",
         "logros",
