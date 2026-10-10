@@ -1,6 +1,7 @@
 <!doctype html>
 <!--
-Escena de Cara o cruz, dibujada con canvas en un Chromium sin ventana (ver
+Escena de Cara o cruz, dibujada con canvas. La pinta Node con Skia
+(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver
 bot/services/coin_scene.py).
 
 No decide nada: Python le pasa dónde está la moneda en cada fotograma (el
@@ -463,9 +464,12 @@ function snapshot(full) {
   out.width = w; out.height = h;
   octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
   octx.drawImage(big, x0 * S, y0 * S, w * S, h * S, 0, 0, w, h);
-  return { x: x0, y: y0, u: out.toDataURL("image/png") };
+  return { x: x0, y: y0, u: window.exportFrame(out) };
 }
 
+// En Chromium cada recuadro va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
 window.loadFonts = async () => {
   await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);
   await document.fonts.ready;

@@ -28,3 +28,6 @@ dist/
 
 # Estado y log de actualizar.sh en el NAS
 .despliegue/
+
+# Dependencias de Node de las escenas (package.json)
+node_modules/

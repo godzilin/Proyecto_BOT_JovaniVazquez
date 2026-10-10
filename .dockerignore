@@ -15,3 +15,4 @@ tests
 *.md
 Biblia.txt
 .despliegue
+node_modules
