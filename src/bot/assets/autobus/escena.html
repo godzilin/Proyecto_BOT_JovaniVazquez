@@ -1,7 +1,8 @@
 <!doctype html>
 <!--
-Escena del Autobús (Ride the Bus), dibujada con canvas en un Chromium sin ventana
-(ver bot/services/bus_scene.py).
+Escena del Autobús (Ride the Bus), dibujada con canvas. La pinta Node con Skia
+(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver
+bot/services/bus_scene.py).
 
 No decide nada: Python le pasa, fotograma a fotograma, dónde está cada carta,
 el autobús, el humo, las chispas y el cartel (bot/services/bus_render.py,
@@ -10,7 +11,8 @@ el autobús, el humo, las chispas y el cartel (bot/services/bus_render.py,
 - loadFonts()                espera a las fuentes (canvas no las carga solo).
 - setup(meta)                los nombres de las cinco paradas.
 - renderFrames(states, first) dibuja los fotogramas y devuelve, de cada uno, el
-                             PNG (data URL) del recuadro que ha cambiado y dónde va.
+                             recuadro que ha cambiado (PNG en Chromium, píxeles
+                             crudos en Node) y dónde va.
                              Si un estado trae "full": true devuelve el fotograma
                              entero (sirve para empezar un tramo nuevo que no sigue
                              al fotograma anterior).
@@ -511,8 +513,12 @@ function snapshot(full) {
   const w = x1 - x0, h = y1 - y0;
   crop.width = w; crop.height = h;
   cctx.drawImage(out, x0, y0, w, h, 0, 0, w, h);
-  return { x: x0, y: y0, u: crop.toDataURL("image/png") };
+  return { x: x0, y: y0, u: window.exportFrame(crop) };
 }
+
+// En Chromium cada recuadro va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
 
 window.loadFonts = async () => {
   await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);
