@@ -133,8 +133,11 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
   `pyproject.toml` (lo vigila `tests/unit/test_packaging.py`). Si una escena no
   llega, el juego se dibuja con Pillow sin dar error: así estuvieron la moneda,
   los dados y la ruleta. Lo mismo con la memoria: cada Chromium abierto suma
-  ~170 MB (la ruleta, ~370 con sus dos pestañas) contra el `mem_limit` de
-  `docker-compose.yml`; un juego nuevo con navegador se suma a la cuenta de ahí.
+  ~170 MB (el autobús, ~370 con sus dos pestañas) y cada juego en Node ~180 MB
+  con sus dos procesos (moneda, dados, ruleta) contra el `mem_limit` de
+  `docker-compose.yml`; un juego nuevo con dibujo se suma a la cuenta de ahí.
+  Si Node falla en el NAS, el juego vuelve a Chromium sin avisar a nadie: el log
+  dice «El pintor de … no está disponible».
 - **Tapar la espera.** Si el dibujo tarda más de un segundo, la jugada se enseña
   ya («🎲 No va más…» con los botones apagados) y el GIF llega después. El cambio
   va en paralelo al dibujo, nunca antes.
@@ -143,7 +146,8 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
   la mesa pinta en segundo plano los GIF posibles (uno por botón) mientras se ve
   el GIF actual, y al pulsar solo queda subirlo (`CoinView.prepare`). En la
   moneda, del clic al GIF pasó de ~1,1 s de dibujo a 0; en los dados, de ~0,9 s
-  a 0 (`CrapsView.prepare`). Los dibujos por adelantado no se cancelan a medias:
+  a 0 (`CrapsView.prepare`). La ruleta ya precargaba la jugada más probable
+  (repetir la última apuesta) y con Node el giro bajó de 1,8 a 1,1 s. Los dibujos por adelantado no se cancelan a medias:
   van de uno en uno y cada uno comprueba antes de empezar si sigue valiendo. Si
   aun así se corta uno, `NodeScene` mata sus procesos y los arranca de nuevo en
   el siguiente dibujo (~0,35 s), porque quedarían píxeles sin leer en la tubería.
