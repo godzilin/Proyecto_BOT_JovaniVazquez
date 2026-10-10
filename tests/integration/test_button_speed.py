@@ -296,6 +296,7 @@ def dice_view(client: BotClient, owner: MagicMock, *rolls: tuple[int, int]):  # 
     )
     cog.renderer.board = AsyncMock(return_value=b"PNG")
     cog.rng = DiceScripted(*rolls)
+    cog.ahead = False
     return module.CrapsView(cog, guild_id=GUILD_ID, owner=owner, stake=10, bet=Bet.PASS)
 
 

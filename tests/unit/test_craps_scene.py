@@ -1,7 +1,8 @@
-"""Pruebas de bot.services.craps_scene: los dados dibujados con Chromium y su plan B con Pillow.
+"""Pruebas de bot.services.craps_scene: los dados con Chromium y su plan B con Pillow.
 
-Las que necesitan Chromium se saltan si no hay navegador en la máquina; la de
-la reserva con Pillow no lo necesita (apunta a un ejecutable que no existe).
+Siempre con `node=NO_NODE`, para no pasar por Node. Las que necesitan Chromium
+se saltan si no hay navegador en la máquina; la de la reserva con Pillow no lo
+necesita (apunta a ejecutables que no existen).
 """
 
 from __future__ import annotations
@@ -24,6 +25,8 @@ from bot.services.craps_scene import SCENE, CrapsScene, assemble
 module_loop = pytest.mark.asyncio(loop_scope="module")
 #: Chromium del entorno de desarrollo, si lo hay (en Docker lo instala Playwright).
 LOCAL_CHROMIUM = Path("/opt/pw-browsers/chromium")
+#: Un Node que no existe: fuerza el camino de Chromium o de Pillow.
+NO_NODE = "/no/existe/node"
 
 
 def point_game() -> CrapsGame:
@@ -38,7 +41,7 @@ def test_la_escena_existe_y_trae_sus_funciones() -> None:
 
 
 async def test_sin_navegador_dibuja_con_pillow_y_se_queda_desactivado() -> None:
-    scene = CrapsScene(executable_path="/no/existe/chromium")
+    scene = CrapsScene(executable_path="/no/existe/chromium", node=NO_NODE)
     assert not scene.disabled
 
     png = await scene.board(table_for(None), OPENING_REST)
@@ -65,7 +68,7 @@ async def test_el_plan_b_usa_el_dibujo_de_reserva_que_se_le_da() -> None:
             return "MEDIA-DE-RESERVA"
 
     fallback = Fallback()
-    scene = CrapsScene(fallback, executable_path="/no/existe/chromium")  # type: ignore[arg-type]
+    scene = CrapsScene(fallback, executable_path="/no/existe/chromium", node=NO_NODE)  # type: ignore[arg-type]
     assert await scene.board(table_for(None), OPENING_REST) == b"PNG-DE-RESERVA"
     assert await scene.throw(table_for(point_game()), seed=1) == "MEDIA-DE-RESERVA"
     assert fallback.calls == ["board", "throw"]
@@ -123,7 +126,7 @@ def test_assemble_falla_si_el_primer_fotograma_no_viene_entero() -> None:
 async def browser() -> CrapsScene:
     """Un solo Chromium para las pruebas con navegador del módulo."""
     path = str(LOCAL_CHROMIUM) if LOCAL_CHROMIUM.exists() else None
-    scene = CrapsScene(executable_path=path)
+    scene = CrapsScene(executable_path=path, node=NO_NODE)
     await scene.board(table_for(None), OPENING_REST)
     if scene.disabled:
         await scene.close()

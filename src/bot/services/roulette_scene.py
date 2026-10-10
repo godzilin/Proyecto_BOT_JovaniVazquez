@@ -1,4 +1,4 @@
-"""La ruleta dibujada con canvas en Chromium: el giro, el marcador y los carteles.
+"""La ruleta con canvas: en Node, si no en Chromium y, si no, con Pillow.
 
 La escena (`assets/ruleta/escena.html`) pinta la rueda en perspectiva, la bola
 con su sombra, los rayos, el marcador de la derecha y los carteles. Python
@@ -25,14 +25,21 @@ decidido y cobrado cuando se pinta):
 - *El marcador.* Los últimos números, los calientes y los fríos del servidor
   (`roulette.hot_cold`), como las pantallas de las mesas de casino.
 
-**Si no hay navegador, se usa Pillow** (`bot.services.roulette_render`, la
-rueda de antes, sin marcador ni rayos). El primer fallo de Chromium se avisa
-en el log y desde entonces cada imagen sale de ahí (`bot.services.browser_scene`).
+La misma escena se pinta de tres maneras, de mejor a peor:
 
-Coste de una tirada: ~70 fotogramas, ~2 s de navegador (pintar, comprimir
-cada recuadro en PNG y pasarlo a Python) y ~1 s de montar el GIF en un hilo.
-El GIF pesa ~1,5-2 MB. Un navegador propio, como la moneda y los dados, que se
-cierra tras 10 minutos sin uso.
+1. **Node con Skia** (`bot.services.node_scene`): sin navegador y con los
+   fotogramas en RGBA crudo, sin pasar por PNG.
+2. **Chromium** (`bot.services.browser_scene`), si no hay Node o falla; cada
+   recuadro se comprime en PNG y viaja a Python.
+3. **Pillow** (`bot.services.roulette_render`, la rueda de antes, sin marcador
+   ni rayos), si tampoco hay navegador.
+
+El primer fallo de cada uno se avisa en el log y desde entonces se usa el
+siguiente. El juego nunca se queda sin imagen.
+
+Coste de una tirada: ~70 fotogramas, pintados y montados en el GIF en un hilo.
+El GIF pesa ~1,5-2 MB. Node y Chromium son propios de la ruleta, como los de la
+moneda y los dados, y se cierran tras 10 minutos sin uso.
 """
 
 from __future__ import annotations
@@ -50,7 +57,8 @@ from typing import Any
 from PIL import Image
 
 from bot.services import browser_scene
-from bot.services.browser_scene import BrowserScene, png_bytes
+from bot.services.browser_scene import BrowserScene
+from bot.services.node_scene import NodeScene, patch_png
 from bot.services.roulette import (
     WHEEL_ORDER,
     RoundOutcome,
@@ -446,17 +454,23 @@ def encode(frames: list[Image.Image], durations: list[int]) -> Media:
 
 
 class RouletteScene:
-    """Dibuja la ruleta en Chromium y, si no puede, con Pillow (`fallback`).
+    """Dibuja la ruleta con Node, si no con Chromium y, si no, con Pillow (`fallback`).
 
     Args:
         fallback: La rueda de Pillow de siempre.
         executable_path: Chromium concreto (si no, el que instaló Playwright).
+        node: Node concreto (si no, el del PATH).
     """
 
     def __init__(
-        self, fallback: WheelRenderer | None = None, *, executable_path: str | None = None
+        self,
+        fallback: WheelRenderer | None = None,
+        *,
+        executable_path: str | None = None,
+        node: str | None = None,
     ) -> None:
         self.fallback = fallback or WheelRenderer()
+        self.painter = NodeScene(SCENE, name="El pintor de la ruleta", node=node)
         self.browser = BrowserScene(
             SCENE,
             name="El navegador de la ruleta",
@@ -467,23 +481,28 @@ class RouletteScene:
 
     @property
     def disabled(self) -> bool:
-        """Si el navegador falló y ya solo se dibuja con Pillow."""
-        return self.browser.disabled
+        """Si Node y el navegador fallaron y ya solo se dibuja con Pillow."""
+        return self.painter.disabled and self.browser.disabled
 
     async def close(self) -> None:
-        """Cierra el navegador (al apagar el bot)."""
+        """Cierra Node y el navegador (al apagar el bot)."""
+        await self.painter.close()
         await self.browser.close()
 
     async def _frames(self, states: list[dict[str, Any]], seed: int) -> list[dict[str, Any]] | None:
-        """Recuadros de cada fotograma (ver `assemble`); `None` si no hay navegador."""
-        return await self.browser.render({**meta_state(), "seed": seed}, states)
+        """Recuadros de cada fotograma (ver `assemble`); `None` si no hay Node ni navegador."""
+        meta = {**meta_state(), "seed": seed}
+        patches = await self.painter.render(meta, states)
+        if patches is None:
+            patches = await self.browser.render(meta, states)
+        return patches
 
     async def board(self, history: Sequence[int], wagers: Sequence[Wager] = ()) -> bytes:
         """PNG de la mesa recién abierta."""
         patches = await self._frames([board_state(history, wagers)], seed=0)
         if patches is None:
             return await asyncio.to_thread(self.fallback.idle_png)
-        return png_bytes(patches[0])
+        return patch_png(patches[0])
 
     async def spin(self, outcome: RoundOutcome, *, history: Sequence[int], seed: int) -> Media:
         """GIF de la tirada, su PNG final y lo que dura hasta el cartel."""
