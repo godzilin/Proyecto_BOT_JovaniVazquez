@@ -10,7 +10,14 @@ Cada paso es un GIF: el pollo tiembla en el bordillo mientras se encienden
 unos faros al fondo del carril (esa espera es la tensión, más larga cuanto
 más hay en juego), salta, y el coche frena en la valla o le atropella.
 Después el bot cambia el GIF por un PNG con el estado nuevo y vuelve a
-activar los botones (`bot.services.chicken_render`).
+activar los botones. Lo pinta `bot.services.chicken_scene` con canvas, al
+estilo de las demás mesas del casino (Node, con Chromium y Pillow de reserva).
+
+**El siguiente paso ya está pintado al pulsar.** El carril del atropello se
+sortea al empezar (`ChickenGame.hit_lane`) y no se enseña, así que mientras se
+ve un GIF la carretera pinta en segundo plano el del próximo 🐔 Cruzar (y el
+del 🎯 autocobro, si hay). Si no ha acabado a tiempo, la carretera se apaga al
+momento y espera.
 
 🎯 **Autocobro**: en un menú se elige un multiplicador objetivo (×1,5, ×3,
 ×10…). Con él, 🎯 cruza solo hasta alcanzarlo y cobra, todo en un GIF. Se
@@ -28,8 +35,7 @@ caduca (3 min sin tocarla) o el bot se apaga de forma ordenada con una
 partida a medias, se cobra sola; si no se había cruzado nada, se devuelve
 la apuesta.
 
-Ancho de banda: cada paso sube un GIF (~150-250 KB) y un PNG (~10-15 KB).
-El dibujo va en un hilo (`asyncio.to_thread`) para no bloquear el bot.
+Ancho de banda: cada paso sube un GIF (~200-300 KB) y un PNG.
 
 Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
 Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
@@ -46,6 +52,7 @@ import re
 import secrets
 import time
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import discord
@@ -73,7 +80,8 @@ from bot.services.chicken import (
     parse_difficulty,
     survival,
 )
-from bot.services.chicken_render import ChickenRenderer, Media, vehicle_for
+from bot.services.chicken_render import Media, vehicle_for
+from bot.services.chicken_scene import ChickenScene
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -217,6 +225,10 @@ class ChickenView(ui.View):
         self._busy = False
         self._lock = asyncio.Lock()
         self._last_interaction: discord.Interaction | None = None
+        #: GIF pintados por adelantado: para qué estado valen y uno por botón que
+        #: cruza (`"cross"` es 🐔 Cruzar; `"auto"`, 🎯 Hasta…).
+        self._plan: tuple[tuple[Any, ...], dict[str, asyncio.Future[Media | None]]] | None = None
+        self._painting: asyncio.Task[None] | None = None
 
     # -- Texto ------------------------------------------------------------------------
 
@@ -526,6 +538,82 @@ class ChickenView(ui.View):
                 logger.warning("No se pudo devolver una apuesta del Pollo.")
             self.game = None
 
+    # -- GIF por adelantado -------------------------------------------------------------
+
+    def _plan_key(self) -> tuple[Any, ...]:
+        """Lo que decide los GIF del próximo paso, salvo el botón que se pulse."""
+        game = self.game
+        assert game is not None
+        return (id(game), game.crossed, self.auto, self.seed)
+
+    def _predict(self, kind: str) -> tuple[ChickenGame, int]:
+        """La partida tal como quedará si se pulsa `kind` (sobre una copia) y desde dónde."""
+        game = deepcopy(self.game)
+        assert game is not None
+        start = game.crossed
+        if kind == "auto":
+            assert self.auto is not None
+            game.cross_until(self.auto)
+        else:
+            game.cross()
+        if game.playing and (game.finished_road or kind == "auto"):
+            game.cash_out()
+        return game, start
+
+    def prepare(self) -> None:
+        """Pinta en segundo plano los GIF del próximo paso, si no lo están ya.
+
+        Se llama en cuanto sale el GIF de un paso (dónde atropellan ya está
+        sorteado, así que se pinta mientras se ve este) y al poner la carretera
+        quieta. Los GIF se pintan uno detrás de otro y nunca se cancelan a
+        medias: si mientras tanto la partida cambia, el que aún no ha empezado no
+        se pinta.
+        """
+        game = self.game
+        if not self.cog.ahead or self.is_finished() or game is None or not game.playing:
+            return
+        key = self._plan_key()
+        if self._plan is not None and self._plan[0] == key:
+            return
+        order = ["cross"]
+        if self.auto and self.auto > game.cents:
+            order.append("auto")
+        loop = asyncio.get_running_loop()
+        futures: dict[str, asyncio.Future[Media | None]] = {k: loop.create_future() for k in order}
+        self._plan = (key, futures)
+        previous = self._painting
+        self._painting = asyncio.create_task(self._paint_ahead(key, order, futures, previous))
+
+    async def _paint_ahead(
+        self,
+        key: tuple[Any, ...],
+        order: list[str],
+        futures: dict[str, asyncio.Future[Media | None]],
+        previous: asyncio.Task[None] | None,
+    ) -> None:
+        # Un plan detrás de otro: así un plan viejo nunca hace esperar dos dibujos.
+        if previous is not None:
+            await asyncio.gather(previous, return_exceptions=True)
+        for kind in order:
+            media: Media | None = None
+            if self.game is not None and self._plan_key() == key and not self.is_finished():
+                try:
+                    future, start = self._predict(kind)
+                    media = await self.cog.renderer.hops(
+                        future, start=start, seed=self.seed, note=self._end_note(future)
+                    )
+                except Exception:
+                    logger.warning("No se pudo pintar por adelantado el Pollo", exc_info=True)
+            if not futures[kind].done():
+                futures[kind].set_result(media)
+
+    def _take_plan(self, kind: str) -> asyncio.Future[Media | None] | None:
+        """El GIF por adelantado de pulsar `kind`, si vale para la partida tal como está."""
+        plan, self._plan = self._plan, None
+        if plan is None or self.game is None or plan[0] != self._plan_key():
+            return None
+        return plan[1].get(kind)
+
     # -- Dinero y partida -------------------------------------------------------------
 
     async def start(self) -> str | None:
@@ -616,25 +704,56 @@ class ChickenView(ui.View):
             return "¡Meta!" if game.finished_road else "¡Cobrado!"
         return ""
 
-    async def _show(self, interaction: discord.Interaction, *, start: int, waiting: str) -> None:
+    async def _show(
+        self,
+        interaction: discord.Interaction,
+        *,
+        start: int,
+        waiting: str,
+        ready: asyncio.Future[Media | None] | None = None,
+    ) -> None:
         """Enseña el GIF del paso y después el PNG con el estado nuevo.
 
         La interacción ya está aplazada (`defer`): se edita con
-        `edit_original_response`.
+        `edit_original_response`. Si el GIF ya estaba pintado (`ready`), va
+        directo. Si no, mientras se pinta la carretera enseña el paso con los
+        botones apagados. Se apagan sin reconstruirlos: los nuevos (🔁 Jugar o
+        Cobrar con otra cifra) dirían cómo acaba antes de ver el GIF.
         """
         game = self.game
         assert game is not None
         note = self._end_note(game)
-        media: Media = await asyncio.to_thread(
-            self.cog.renderer.hops, game, start=start, seed=self.seed, note=note
-        )
-        self.rebuild(busy=True)
+        for item in self.children:
+            if isinstance(item, ui.Button | ui.Select):
+                item.disabled = True
+
+        async def show_waiting() -> None:
+            try:
+                await interaction.edit_original_response(
+                    embed=self.embed(text=waiting, color=COLOR_PLAYING), view=self
+                )
+            except discord.HTTPException:
+                logger.warning("No se pudo apagar la carretera del Pollo", exc_info=True)
+
+        async def paint() -> Media:
+            media = await ready if ready is not None else None
+            if media is None:
+                media = await self.cog.renderer.hops(game, start=start, seed=self.seed, note=note)
+            return media
+
+        media: Media
+        if ready is not None and ready.done() and ready.result() is not None:
+            media = await paint()
+        else:
+            _, media = await asyncio.gather(show_waiting(), paint())
         await interaction.edit_original_response(
             # Color neutro: el del final delataría el resultado antes del GIF.
             embed=self.embed(image=GIF_NAME, text=waiting, color=COLOR_PLAYING),
             attachments=[discord.File(io.BytesIO(media.gif), filename=GIF_NAME)],
             view=self,
         )
+        # El paso siguiente ya está sorteado: se pinta mientras se ve este.
+        self.prepare()
         await asyncio.sleep(media.seconds + REVEAL_MARGIN_SECONDS)
         self.rebuild()
         await interaction.edit_original_response(
@@ -647,13 +766,11 @@ class ChickenView(ui.View):
         """Pone el PNG del estado actual (sin animación)."""
         game = self.game
         if game is None:
-            png = await asyncio.to_thread(
-                self.cog.renderer.start, self.difficulty, stake=self.stake, seed=self.seed or 1
+            png = await self.cog.renderer.start(
+                self.difficulty, stake=self.stake, seed=self.seed or 1
             )
         else:
-            png = await asyncio.to_thread(
-                self.cog.renderer.board, game, seed=self.seed, note=self._end_note(game)
-            )
+            png = await self.cog.renderer.board(game, seed=self.seed, note=self._end_note(game))
         self.rebuild()
         await edit(
             interaction,
@@ -661,6 +778,7 @@ class ChickenView(ui.View):
             attachments=[discord.File(io.BytesIO(png), filename=PNG_NAME)],
             view=self,
         )
+        self.prepare()
 
     async def _step(self, interaction: discord.Interaction, *, auto: bool) -> None:
         """🐔 Cruzar (un carril) o 🎯 (hasta el autocobro), con su animación."""
@@ -676,6 +794,7 @@ class ChickenView(ui.View):
         try:
             await ack(interaction)
             async with self._lock:
+                ready = self._take_plan("auto" if auto and self.auto else "cross")
                 start = game.crossed
                 waiting = self.crossing_text(auto=auto, target=game.next_cents)
                 try:
@@ -692,7 +811,7 @@ class ChickenView(ui.View):
                 else:
                     self.note = None
                 self._last_interaction = interaction
-            await self._show(interaction, start=start, waiting=waiting)
+            await self._show(interaction, start=start, waiting=waiting, ready=ready)
         except discord.HTTPException:
             logger.warning("No se pudo enseñar un paso del Pollo", exc_info=True)
         finally:
@@ -835,15 +954,23 @@ class Chicken(commands.Cog, name="Pollo"):
         economy: EconomyService,
         casino_channel_ids: frozenset[int] = frozenset(),
         rng: random.Random | None = None,
-        renderer: ChickenRenderer | None = None,
+        renderer: ChickenScene | None = None,
         load_record: Callable[[int, int, str], Awaitable[int]] | None = None,
+        ahead: bool | None = None,
     ) -> None:
+        """Prepara el cog; el dibujo por defecto es `ChickenScene`.
+
+        Args:
+            ahead: Si las carreteras pintan por adelantado el GIF del próximo paso
+                (`ChickenView.prepare`). Por defecto, solo con el dibujo de verdad.
+        """
         self.bot = bot
         self.economy = economy
         self.casino_channel_ids = casino_channel_ids
         # `secrets` usa el azar del sistema operativo: no se puede predecir.
         self.rng = rng or secrets.SystemRandom()
-        self.renderer = renderer or ChickenRenderer()
+        self.ahead = renderer is None if ahead is None else ahead
+        self.renderer = renderer or ChickenScene()
         # Carreteras abiertas: para cerrar sus partidas si el bot se apaga.
         self.views: set[ChickenView] = set()
         # Dificultad y autocobro por (servidor, miembro); se pierden al reiniciar.
@@ -852,17 +979,6 @@ class Chicken(commands.Cog, name="Pollo"):
         # de los logros y luego se lleva en memoria.
         self._records: dict[tuple[int, int, str], int] = {}
         self._load_record = load_record
-        self._warm_task: asyncio.Task[None] | None = None
-
-    async def cog_load(self) -> None:
-        """Pinta en segundo plano el fondo de la dificultad por defecto.
-
-        Es lo más lento de la primera imagen; así `/pollo` responde enseguida
-        sin tener que aplazar la respuesta. Las otras se pintan al usarlas.
-        """
-        self._warm_task = asyncio.create_task(
-            asyncio.to_thread(self.renderer.warm, DIFFICULTY_BY_KEY[DEFAULT_DIFFICULTY])
-        )
 
     async def record(self, guild_id: int, user_id: int, difficulty: str) -> int:
         """Récord de carriles de un miembro en una dificultad (0 si no se sabe)."""
@@ -901,6 +1017,7 @@ class Chicken(commands.Cog, name="Pollo"):
                 logger.exception("No se pudo cerrar una partida del Pollo al apagar")
             view.stop()
         self.views.clear()
+        await self.renderer.close()
 
     async def shout(self, game: ChickenGame, user: discord.abc.User, channel: object) -> None:
         """Anuncia en el canal los cobros enormes y las metas, para que se vea."""
@@ -978,7 +1095,7 @@ class Chicken(commands.Cog, name="Pollo"):
             await send_error(error)
             return
         assert view.game is not None
-        png = await asyncio.to_thread(self.renderer.board, view.game, seed=view.seed)
+        png = await self.renderer.board(view.game, seed=view.seed)
         view.rebuild()
         view.message = await send(
             embed=view.embed(),
@@ -986,6 +1103,7 @@ class Chicken(commands.Cog, name="Pollo"):
             view=view,
         )
         self.views.add(view)
+        view.prepare()
 
     @app_commands.command(
         name="pollo",
