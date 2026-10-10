@@ -317,6 +317,8 @@ async def test_la_moneda_apunta_sus_logros_con_el_bot_real(tmp_path: Path) -> No
             return_value=moneda.Media(gif=b"GIF", png=b"PNG", seconds=0.0)
         )
         cog.renderer.board = AsyncMock(return_value=b"PNG")
+        # Con un dibujo falso, pintar por adelantado gastaría el azar de guion.
+        cog.ahead = False
         cog.rng = Scripted(Outcome.CRUZ, Outcome.CARA)  # pide cara, sale cruz
         owner = MagicMock(spec=discord.Member)
         owner.id = OWNER_ID

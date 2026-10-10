@@ -522,7 +522,8 @@ def encode(frames: list[Image.Image]) -> Media:
     durations = [FRAME_MS] * (len(frames) - 1) + [FINAL_FRAME_MS]
     gif = local_palette_gif(frames, durations)
     png = io.BytesIO()
-    frames[-1].save(png, format="PNG", optimize=True)
+    # `optimize=True` tarda ~230 ms para ahorrar ~5 % (126 KB frente a 120).
+    frames[-1].save(png, format="PNG", compress_level=6)
     return Media(gif=gif, png=png.getvalue(), seconds=FRAME_MS * (len(frames) - 1) / 1000)
 
 
