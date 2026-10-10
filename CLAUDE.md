@@ -199,7 +199,9 @@ el GIF. Por orden de ganancia:
 
 Cuándo Node no acelera: en el autobús, pintar una mano baja solo de 1,35 a 1,31
 s, porque lo caro es montar sus dos GIF (acierto y fallo) en Python. Ahí se gana
-memoria, no tiempo. Antes de prometer velocidad, medir qué tramo pesa.
+memoria, no tiempo. En cambio, la carrera de caballos (130 fotogramas enteros)
+bajó de 5,6 a 3,6 s: cuanto más PNG mandaba Chromium, más se gana. Antes de
+prometer velocidad, medir qué tramo pesa.
 
 Escenas que no siguen `setup`/`renderFrames` o que guardan estado entre
 fotogramas (el polvo de los caballos) usan `NodeScene.sequence`: varias llamadas

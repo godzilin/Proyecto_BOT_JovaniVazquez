@@ -1222,7 +1222,8 @@ class Horses(commands.Cog, name="Caballos"):
         self.bot = bot
         self.economy = economy
         self.repository = repository
-        # Dibuja con Chromium y, si no hay, con Pillow (ver `bot.services.horses_scene`).
+        # La carrera con Node, la parrilla y el boleto con Chromium y, si no, Pillow
+        # (ver `bot.services.horses_scene`).
         self.renderer = renderer or SceneRenderer()
         self.casino_channel_ids = casino_channel_ids
         # `secrets` usa el azar del sistema operativo: no se puede predecir.

@@ -500,6 +500,7 @@ class SceneRenderer:
         durations = [FRAME_MS] * (len(frames) - 1) + [FINAL_FRAME_MS]
         gif = local_palette_gif(frames, durations)
         png = io.BytesIO()
-        frames[-1].save(png, format="PNG", optimize=True)
+        # `optimize=True` tarda ~230 ms para ahorrar ~5 %.
+        frames[-1].save(png, format="PNG", compress_level=6)
         seconds = FRAME_MS * (len(frames) - 1) / 1000
         return Media(gif=gif, png=png.getvalue(), seconds=seconds)
