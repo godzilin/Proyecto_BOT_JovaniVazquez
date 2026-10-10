@@ -790,8 +790,11 @@ De dónde sale cada cambio:
 Los administradores lo configuran con `cambios` (`/cambios` o `.cambios`):
 sin argumentos enseña la configuración; `activar` o `desactivar` lo
 encienden o apagan; `detallado` o `resumen` eligen el formato; un `#canal`
-fija dónde se publica, y `defecto` vuelve a `#chat-general` (o al canal del
-sistema si no existe). Los avisos viejos con el botón 📜 Leído contestan que
+o un hilo (también un post de foro) fija dónde se publica, y `defecto` vuelve
+a `#chat-general` (o al canal del sistema si no existe). Un hilo archivado
+vale: Discord no lo tiene en la caché del bot, así que se pide a la API, y al
+publicar se desarchiva solo. En `.cambios` el hilo se nombra con su mención o
+su ID; uno privado necesita que el bot esté dentro. Los avisos viejos con el botón 📜 Leído contestan que
 el botón ya no hace nada.
 
 **Si la música deja de funcionar** antes de la reconstrucción semanal, casi

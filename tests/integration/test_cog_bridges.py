@@ -574,14 +574,14 @@ async def test_cambios_configura_el_aviso_que_publica_el_despliegue_con_el_bot_r
         guild = MagicMock(spec=discord.Guild)
         guild.id = GUILD_ID
         guild.text_channels = [general, elegido]
-        guild.get_channel = lambda channel_id: elegido if channel_id == 77 else None
+        guild.get_channel_or_thread = lambda channel_id: elegido if channel_id == 77 else None
         responder = MagicMock()
         responder.guild = guild
         responder.send = AsyncMock()
         responder.send_error = AsyncMock()
         admin = client.get_cog("Admin")
 
-        await admin._cambios_impl(responder, "resumen", elegido)
+        await admin._cambios_impl(responder, "resumen", 77)
 
         responder.send_error.assert_not_awaited()
         deploy = client.get_cog("Despliegue")

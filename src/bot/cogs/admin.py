@@ -24,6 +24,7 @@ quién la pidió.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable
 from datetime import timedelta
 
@@ -31,7 +32,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.cogs.deploy import news_channel
+from bot.cogs.deploy import can_post, news_channel, resolve_target
 from bot.repositories.news import NewsSettings
 from bot.repositories.welcome import WelcomeSettings
 from bot.services.levels import MAX_XP_COOLDOWN_SECONDS, MIN_XP_COOLDOWN_SECONDS
@@ -79,9 +80,30 @@ NIVELES_USAGE = (
 NEWS_ACTIONS = ("activar", "desactivar", "detallado", "resumen", "defecto")
 CAMBIOS_USAGE = (
     "Uso: `.cambios` (estado), `.cambios activar`, `.cambios desactivar`, "
-    "`.cambios detallado`, `.cambios resumen`, `.cambios #canal` o `.cambios defecto` "
+    "`.cambios detallado`, `.cambios resumen`, `.cambios #canal` (o un hilo) o `.cambios defecto` "
     "(vuelve a #chat-general)."
 )
+
+
+# Mención de canal (`<#123>`) o ID suelto, para los hilos que la caché no conoce.
+CHANNEL_REFERENCE = re.compile(r"<#(\d+)>|(\d{15,20})")
+
+
+async def _channel_or_thread_id(ctx: commands.Context, arg: str) -> int | None:
+    """ID del canal de texto o hilo que nombra `arg`; `None` si no parece ninguno.
+
+    Los hilos archivados no están en la caché y los conversores no los
+    encuentran por nombre; por mención o ID valen igual y se comprueban luego
+    contra Discord (`resolve_target`).
+    """
+    for converter in (commands.TextChannelConverter(), commands.ThreadConverter()):
+        try:
+            return (await converter.convert(ctx, arg)).id
+        except commands.BadArgument:
+            continue
+    match = CHANNEL_REFERENCE.fullmatch(arg)
+    return int(match[1] or match[2]) if match else None
+
 
 PurgeableChannel = discord.TextChannel | discord.Thread | discord.VoiceChannel
 
@@ -815,7 +837,7 @@ class Admin(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
         accion="Qué cambiar; sin acción solo enseña la configuración.",
-        canal="Canal donde publicar el aviso.",
+        canal="Canal o hilo donde publicar el aviso.",
     )
     @app_commands.choices(
         accion=[
@@ -830,37 +852,37 @@ class Admin(commands.Cog):
         self,
         interaction: discord.Interaction,
         accion: app_commands.Choice[str] | None = None,
-        canal: discord.TextChannel | None = None,
+        # Un hilo llega tal cual (`AppCommandThread`): si está archivado no está en la
+        # caché y pedir un `discord.Thread` haría fallar el comando antes de empezar.
+        canal: discord.TextChannel | app_commands.AppCommandThread | None = None,
     ) -> None:
         """Cambia dónde y cómo se publican las novedades tras cada despliegue (solo a ti)."""
         action = accion.value if accion is not None else None
-        await self._cambios_impl(InteractionResponder(interaction), action, canal)
+        channel_id = canal.id if canal is not None else None
+        await self._cambios_impl(InteractionResponder(interaction), action, channel_id)
 
     @commands.command(name="cambios")
     async def cambios_text(self, ctx: commands.Context, *args: str) -> None:
-        """Versión de texto; acepta en cualquier orden una acción y un #canal."""
+        """Versión de texto; acepta en cualquier orden una acción y un #canal o hilo."""
         action: str | None = None
-        channel: discord.TextChannel | None = None
+        channel_id: int | None = None
         for arg in args:
             word = arg.lower()
             if word in NEWS_ACTIONS and action is None:
                 action = word
                 continue
-            try:
-                converted = await commands.TextChannelConverter().convert(ctx, arg)
-            except commands.BadArgument:
-                converted = None
-            if converted is None or channel is not None:
+            converted = await _channel_or_thread_id(ctx, arg)
+            if converted is None or channel_id is not None:
                 await ctx.send(CAMBIOS_USAGE)
                 return
-            channel = converted
-        await self._cambios_impl(ContextResponder(ctx), action, channel)
+            channel_id = converted
+        await self._cambios_impl(ContextResponder(ctx), action, channel_id)
 
     async def _cambios_impl(
         self,
         responder: CommandResponder,
         action: str | None,
-        channel: discord.TextChannel | None,
+        channel_id: int | None,
     ) -> None:
         """Guarda lo que haya cambiado y responde con la configuración del aviso.
 
@@ -872,15 +894,18 @@ class Admin(commands.Cog):
         if guild is None or repository is None:
             await responder.send_error("El aviso de novedades no está disponible ahora mismo.")
             return
-        if action == "defecto" and channel is not None:
+        if action == "defecto" and channel_id is not None:
             await responder.send_error("Elige un canal o «defecto», no las dos cosas.")
             return
+        if channel_id is not None and await resolve_target(guild, channel_id) is None:
+            await responder.send_error(
+                "No encuentro ese canal o hilo, o no es de texto. Si es un hilo privado, "
+                "añádeme a él primero."
+            )
+            return
         current: NewsSettings = await repository.settings(guild.id)
-        channel_id = current.channel_id
-        if channel is not None:
-            channel_id = channel.id
-        elif action == "defecto":
-            channel_id = None
+        if channel_id is None:
+            channel_id = None if action == "defecto" else current.channel_id
         updated = NewsSettings(
             enabled={"activar": True, "desactivar": False}.get(action or "", current.enabled),
             channel_id=channel_id,
@@ -889,7 +914,7 @@ class Admin(commands.Cog):
         if updated != current:
             await repository.save_settings(guild.id, updated)
 
-        target = news_channel(guild, updated)
+        target = await news_channel(guild, updated)
         lines = [
             "✅ Aviso de novedades actualizado." if updated != current else "📜 Aviso de novedades."
         ]
@@ -902,9 +927,11 @@ class Admin(commands.Cog):
                 else "resumen (solo la lista de cambios)."
             )
         )
+        if updated.channel_id is not None and (target is None or target.id != updated.channel_id):
+            lines.append("⚠️ El canal elegido ya no existe o no lo veo; uso el de por defecto.")
         lines.append(f"Canal: {target.mention if target else '⚠️ ninguno (crea #chat-general)'}")
-        if target is not None and not target.permissions_for(guild.me).send_messages:
-            lines.append("⚠️ No puedo escribir en ese canal; revisa mis permisos.")
+        if target is not None and not can_post(target, guild.me):
+            lines.append("⚠️ No puedo escribir ahí; revisa mis permisos.")
         await responder.send(
             "\n".join(lines), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
         )

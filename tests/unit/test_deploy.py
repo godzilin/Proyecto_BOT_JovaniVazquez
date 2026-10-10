@@ -395,7 +395,7 @@ async def test_el_aviso_va_al_canal_elegido(tmp_path: Path) -> None:
     guild, general = _guild_with_channel()
     elegido = MagicMock(spec=discord.TextChannel)
     elegido.send = AsyncMock()
-    guild.get_channel = lambda channel_id: elegido if channel_id == 77 else None
+    guild.get_channel_or_thread = lambda channel_id: elegido if channel_id == 77 else None
     cog = make_cog(tmp_path, _bot_with(guild, NewsSettings(channel_id=77)))
     buzon = tmp_path / "buzon"
     buzon.mkdir()
@@ -405,6 +405,41 @@ async def test_el_aviso_va_al_canal_elegido(tmp_path: Path) -> None:
 
     general.send.assert_not_awaited()
     elegido.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_el_aviso_va_a_un_hilo_archivado(tmp_path: Path) -> None:
+    """Los hilos archivados no están en la caché: el bot los pide a Discord."""
+    guild, general = _guild_with_channel()
+    hilo = MagicMock(spec=discord.Thread)
+    hilo.send = AsyncMock()
+    guild.get_channel_or_thread = lambda channel_id: None
+    guild.fetch_channel = AsyncMock(return_value=hilo)
+    cog = make_cog(tmp_path, _bot_with(guild, NewsSettings(channel_id=88)))
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
+
+    await cog.announce_news()
+
+    guild.fetch_channel.assert_awaited_once_with(88)
+    general.send.assert_not_awaited()
+    hilo.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_si_el_hilo_ya_no_existe_vuelve_a_chat_general(tmp_path: Path) -> None:
+    guild, general = _guild_with_channel()
+    guild.get_channel_or_thread = lambda channel_id: None
+    guild.fetch_channel = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
+    cog = make_cog(tmp_path, _bot_with(guild, NewsSettings(channel_id=88)))
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
+
+    await cog.announce_news()
+
+    general.send.assert_awaited_once()
 
 
 @pytest.mark.asyncio
