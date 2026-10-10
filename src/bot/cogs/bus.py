@@ -500,9 +500,12 @@ class BusView(ui.View):
     async def _show(
         self, editor: Callable[..., Awaitable[Any]], media: Media, *, waiting: str
     ) -> None:
-        """Enseña el GIF de la carta y después el PNG con el estado nuevo."""
+        """Enseña el GIF de la carta y después el PNG con el estado nuevo.
+
+        Durante el GIF los botones siguen apagados con las etiquetas de antes de
+        jugar (`play` los apaga): reconstruirlos delataría si se ha acertado.
+        """
         if media.gif is not None:
-            self.rebuild(busy=True)
             await editor(
                 # Color neutro: el del final delataría el resultado antes del GIF.
                 embed=self.embed(image=GIF_NAME, text=waiting, color=COLOR_IDLE),
@@ -516,6 +519,32 @@ class BusView(ui.View):
             attachments=[discord.File(io.BytesIO(media.png), filename=PNG_NAME)],
             view=self,
         )
+
+    async def _wait_reveal(
+        self, hand: int, editor: Callable[..., Awaitable[Any]], waiting: str
+    ) -> Reveal:
+        """La animación de la mano, tapando la espera si aún se está dibujando.
+
+        Los botones se apagan ya, sin reconstruirlos. Si el GIF no está listo, la
+        mesa enseña la jugada mientras tanto: si no, tras el clic no cambia nada y
+        parece que el botón no responde.
+        """
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+        self.prepare(hand)
+        task = self._reveals[hand]
+        if task.done():
+            return await task
+
+        async def show_waiting() -> None:
+            try:
+                await editor(embed=self.embed(text=waiting, color=COLOR_IDLE), view=self)
+            except discord.HTTPException:
+                logger.warning("No se pudo apagar la mesa del autobús", exc_info=True)
+
+        _, reveal = await asyncio.gather(show_waiting(), task)
+        return reveal
 
     async def play(
         self,
@@ -568,7 +597,7 @@ class BusView(ui.View):
                     self.note = None
                 if interaction is not None:
                     self._last_interaction = interaction
-            reveal = await self.reveal(hand.value)
+            reveal = await self._wait_reveal(hand.value, editor, waiting)
             if not game.playing:
                 self.new_deck()
             await self._show(editor, reveal.win if guess.won else reveal.lose, waiting=waiting)

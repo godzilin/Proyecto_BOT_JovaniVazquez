@@ -25,6 +25,8 @@ SIX = ("falcon", "manual", "paguita", "gofio", "fango", "uco")
 module_loop = pytest.mark.asyncio(loop_scope="module")
 #: Chromium del entorno de desarrollo, si lo hay (en Docker lo instala Playwright).
 LOCAL_CHROMIUM = Path("/opt/pw-browsers/chromium")
+#: Un Node que no existe: la carrera se pinta con Chromium o con Pillow, no con Node.
+NO_NODE = "/no/existe/node"
 
 
 def card_of(**kw) -> RaceCard:  # noqa: ANN003
@@ -94,7 +96,7 @@ def test_la_clasificacion_respeta_el_orden_de_llegada() -> None:
 
 
 async def test_sin_navegador_dibuja_con_pillow() -> None:
-    renderer = SceneRenderer(executable_path="/no/existe/chromium")
+    renderer = SceneRenderer(executable_path="/no/existe/chromium", node=NO_NODE)
     media = await renderer.race(card_of(), photo_result())
     assert renderer.disabled
     assert Image.open(io.BytesIO(media.gif)).format == "GIF"
@@ -115,7 +117,7 @@ async def browser() -> SceneRenderer:
     que reutiliza la pestaña como hace en producción entre carreras.
     """
     path = str(LOCAL_CHROMIUM) if LOCAL_CHROMIUM.exists() else None
-    renderer = SceneRenderer(executable_path=path)
+    renderer = SceneRenderer(executable_path=path, node=NO_NODE)
     card = card_of()
     odds = h.estimate(card, np.random.default_rng(1), trials=2_000)
     png = await renderer.card(card, odds, {})
