@@ -8,11 +8,12 @@ el script termina, este cog publica el resultado en el canal donde se pidió,
 lo haga el bot viejo (si no hubo reinicio) o el nuevo.
 
 Novedades: cada vez que el NAS despliega commits nuevos (de noche o por
-`reinicio`), deja la lista de PR en el buzón y este cog la publica en
-`#chat-general` (o en el canal del sistema) con un botón 📜 Leído. Quien lo
-pulsa suma logros (❤️ Social): leerse unas novedades y ser el primero en
-hacerlo. Solo cuenta el aviso más reciente publicado desde el último arranque;
-así nadie cobra dos veces el mismo aviso tras un reinicio.
+`reinicio`), deja la lista de PR en el buzón. Este cog pide a GitHub la
+descripción de cada uno (`bot.services.changelog`) y publica el aviso en cada
+servidor: la lista de cambios con su enlace y autor y, en modo detallado, una
+ficha por PR con su descripción, como en GitHub. Canal, detalle y si se
+publica o no se configuran con `cambios` (cog `Admin`). El aviso es
+informativo: sin botones, logros ni bromas.
 
 `reinicio` no tiene logros: es una utilidad interna de dos personas (excepción
 de la Biblia, sección "Logros"). No sale en `ayuda`.
@@ -25,18 +26,21 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from bot.cogs import achievements as logros
-from bot.cogs import pets as mascotas
-from bot.cogs import renta
-from bot.services.achievements import StatDelta
-from bot.services.deploy import DeployRequest, DeployResult, Mailbox, news_lines
-from bot.services.pets import Event, Moment
-from bot.utils.cogs import find_cog
-from bot.utils.interactions import ack, edit
+from bot.repositories.news import NewsSettings
+from bot.services.changelog import (
+    Fetch,
+    NewsEntry,
+    NewsItem,
+    fetch_pulls,
+    github_fetcher,
+    parse_news,
+)
+from bot.services.deploy import DeployRequest, DeployResult, Mailbox
 from bot.utils.responder import CommandResponder, ContextResponder, InteractionResponder
 
 logger = logging.getLogger(__name__)
@@ -49,9 +53,16 @@ POLL_SECONDS = 15
 
 NEWS_CHANNEL_NAME = "chat-general"
 NEWS_COLOR = discord.Color.from_rgb(200, 160, 60)
-#: Estadísticas de logros del botón 📜 Leído.
-NEWS_READ_STAT = "news_read"
-NEWS_FIRST_STAT = "news_first"
+NEWS_TITLE = "📜 Novedades del bot"
+#: Cambios que se enseñan en un aviso; el resto se resume en "y N más".
+NEWS_LIMIT = 12
+#: Largo máximo de cada línea de la lista, para que quepa en un embed.
+NEWS_LINE_CHARS = 160
+#: Largo máximo de la descripción de un PR en su ficha (un embed admite 4.096).
+DETAIL_CHARS = 3_000
+#: Límites de Discord por mensaje: 10 embeds y 6.000 caracteres entre todos.
+EMBEDS_PER_MESSAGE = 10
+CHARS_PER_MESSAGE = 6_000
 
 
 def result_message(result: DeployResult) -> str:
@@ -63,42 +74,111 @@ def result_message(result: DeployResult) -> str:
     return f"❌ {who}El reinicio no ha salido, sigo con la versión de antes. {summary}"
 
 
-def news_embed(items: list[str]) -> discord.Embed:
-    """Aviso público con los PR que trae la versión recién desplegada."""
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _summary_line(entry: NewsEntry) -> str:
+    """Una línea de la lista, como «What's Changed» de GitHub: título, PR y autor."""
+    text = f"• {_clip(entry.item.headline, NEWS_LINE_CHARS)}"
+    pull = entry.pull
+    if pull is None:
+        return text
+    text += f" · [#{pull.number}]({pull.url})"
+    if pull.author:
+        text += f" · {pull.author}"
+    return text
+
+
+def news_summary(entries: list[NewsEntry], limit: int = NEWS_LIMIT) -> discord.Embed:
+    """Primer embed del aviso: la lista de cambios desplegados."""
+    lines = [_summary_line(entry) for entry in entries[:limit]]
+    if len(entries) > limit:
+        lines.append(f"…y {len(entries) - limit} más.")
+    header = "Cambios incluidos en la versión que acaba de desplegarse:"
     return discord.Embed(
-        title="📜 Novedades del bot",
-        description="\n".join(
-            [
-                "Recién salido del horno (y del Consejo de Ministros):",
-                "",
-                *news_lines(items),
-            ]
-        ),
+        title=NEWS_TITLE, description="\n".join([header, "", *lines]), color=NEWS_COLOR
+    )
+
+
+def _cut_body(body: str, url: str) -> str:
+    """Recorta la descripción por un salto de línea y enlaza al resto."""
+    if len(body) <= DETAIL_CHARS:
+        return body
+    more = f"\n\n[Sigue en GitHub]({url})"
+    cut = body[: DETAIL_CHARS - len(more) - 1]
+    newline = cut.rfind("\n")
+    if newline > len(cut) // 2:
+        cut = cut[:newline]
+    return cut.rstrip() + "\n…" + more
+
+
+def news_detail(entry: NewsEntry) -> discord.Embed | None:
+    """Ficha de un PR con su descripción; `None` si GitHub no lo encontró."""
+    pull = entry.pull
+    if pull is None:
+        return None
+    if pull.body:
+        description = _cut_body(pull.body, pull.url)
+    elif entry.item.commits:
+        description = "\n".join(f"• {commit}" for commit in entry.item.commits)
+    else:
+        description = "Sin descripción."
+    embed = discord.Embed(
+        title=_clip(entry.item.headline, 256),
+        url=pull.url,
+        description=description,
         color=NEWS_COLOR,
-    ).set_footer(text="Pulsa 📜 Leído si te lo has leído entero. Hacienda toma nota.")
+        timestamp=pull.merged_at,
+    )
+    if pull.author:
+        embed.set_author(name=pull.author, url=pull.author_url, icon_url=pull.author_avatar)
+    return embed.set_footer(text=f"{pull.repo} · PR #{pull.number}")
 
 
-class NewsReadButton(
+def news_messages(entries: list[NewsEntry], *, detailed: bool) -> list[list[discord.Embed]]:
+    """Embeds del aviso repartidos en mensajes que caben en los límites de Discord."""
+    embeds = [news_summary(entries)]
+    if detailed:
+        embeds += [e for entry in entries[:NEWS_LIMIT] if (e := news_detail(entry)) is not None]
+    messages: list[list[discord.Embed]] = []
+    size = 0
+    for embed in embeds:
+        if (
+            not messages
+            or len(messages[-1]) == EMBEDS_PER_MESSAGE
+            or (size + len(embed) > CHARS_PER_MESSAGE)
+        ):
+            messages.append([])
+            size = 0
+        messages[-1].append(embed)
+        size += len(embed)
+    return messages
+
+
+def news_channel(guild: discord.Guild, settings: NewsSettings) -> discord.TextChannel | None:
+    """Canal del aviso: el elegido con `cambios`, si no `#chat-general` o el del sistema."""
+    if settings.channel_id is not None:
+        channel = guild.get_channel(settings.channel_id)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+    return discord.utils.get(guild.text_channels, name=NEWS_CHANNEL_NAME) or guild.system_channel
+
+
+class OldNewsButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"novedades:leido:(?P<edition>\d+)",
 ):
-    """Botón 📜 Leído del aviso de novedades.
+    """Botón 📜 Leído que llevaban los avisos de novedades antiguos.
 
-    Es un `DynamicItem` para que los avisos viejos sigan respondiendo tras un
-    reinicio (con un "ya está derogado") en vez de dar "interacción fallida".
-    `edition` es la marca de tiempo del aviso: solo cuenta el último.
+    Los avisos nuevos no tienen botón, pero los ya publicados siguen en los
+    canales; sin esto, pulsarlos daría «Esta interacción ha fallado».
     """
 
     def __init__(self, edition: int) -> None:
         super().__init__(
-            discord.ui.Button(
-                label="Leído",
-                emoji="📜",
-                style=discord.ButtonStyle.secondary,
-                custom_id=f"novedades:leido:{edition}",
-            )
+            discord.ui.Button(label="Leído", emoji="📜", custom_id=f"novedades:leido:{edition}")
         )
-        self.edition = edition
 
     @classmethod
     async def from_custom_id(
@@ -107,13 +187,14 @@ class NewsReadButton(
         item: discord.ui.Button,
         match: re.Match[str],
         /,
-    ) -> NewsReadButton:
+    ) -> OldNewsButton:
         return cls(int(match["edition"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        cog = find_cog(interaction.client, Deploy)  # type: ignore[arg-type]
-        if cog is not None:
-            await cog.read_news(interaction, self.edition)
+        # Solo memoria: se contesta directamente.
+        await interaction.response.send_message(
+            "Este botón ya no hace nada. Las novedades se publican sin él.", ephemeral=True
+        )
 
 
 class Deploy(commands.Cog, name="Despliegue"):
@@ -125,16 +206,16 @@ class Deploy(commands.Cog, name="Despliegue"):
         mailbox: Mailbox | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        fetch: Fetch | None = None,
     ) -> None:
         self.bot = bot
         self.mailbox = mailbox or Mailbox()
         self._clock = clock or (lambda: datetime.now(UTC))
-        #: Último aviso de novedades por servidor: su edición y quién lo ha leído.
-        #: En memoria: tras un reinicio los avisos anteriores ya no cuentan.
-        self._news: dict[int, tuple[int, set[int]]] = {}
+        #: Cómo se piden los PR; sin él, a la API de GitHub (las pruebas lo cambian).
+        self._fetch = fetch
 
     async def cog_load(self) -> None:
-        self.bot.add_dynamic_items(NewsReadButton)
+        self.bot.add_dynamic_items(OldNewsButton)
         self._poll.start()
 
     async def cog_unload(self) -> None:
@@ -221,69 +302,52 @@ class Deploy(commands.Cog, name="Despliegue"):
     async def announce_news(self) -> bool:
         """Publica en cada servidor las novedades que haya dejado el NAS.
 
+        GitHub se consulta una vez por aviso, no por servidor.
+
         Returns:
             Si había novedades (aunque no se hayan podido publicar en todos).
         """
-        items = self.mailbox.take_news()
-        if items is None:
+        lines = self.mailbox.take_news()
+        if lines is None:
             return False
-        logger.info("Novedades desplegadas: %s", items)
-        edition = int(self._clock().timestamp())
+        items = parse_news(lines)
+        logger.info("Novedades desplegadas: %s", [item.headline for item in items])
+        entries = await self._with_pulls(items)
         for guild in self.bot.guilds:
-            channel = (
-                discord.utils.get(guild.text_channels, name=NEWS_CHANNEL_NAME)
-                or guild.system_channel
-            )
+            settings = await self._settings(guild.id)
+            channel = news_channel(guild, settings) if settings.enabled else None
             if channel is None:
                 continue
-            view = discord.ui.View(timeout=None)
-            view.add_item(NewsReadButton(edition))
             try:
-                await channel.send(embed=news_embed(items), view=view)
+                for embeds in news_messages(entries, detailed=settings.detailed):
+                    await channel.send(embeds=embeds)
             except discord.HTTPException:
                 logger.exception("No se pudieron publicar las novedades en %s", guild.id)
-                continue
-            self._news[guild.id] = (edition, set())
         return True
 
-    async def read_news(self, interaction: discord.Interaction, edition: int) -> None:
-        """Respuesta (solo visible para quien pulsa) al botón 📜 Leído.
+    async def _with_pulls(self, items: list[NewsItem]) -> list[NewsEntry]:
+        if self._fetch is not None:
+            return await fetch_pulls(items, self._fetch)
+        async with aiohttp.ClientSession() as session:
+            return await fetch_pulls(items, github_fetcher(session))
 
-        Cuenta para los logros una vez por persona y aviso, y solo en el aviso
-        más reciente desde el último arranque.
-        """
-        guild = interaction.guild
-        if guild is None:
-            return
-        # La mascota puede aparecer y eso se guarda: se acepta el clic antes.
-        await ack(interaction, new_message=True)
-        current = self._news.get(guild.id)
-        if current is None or current[0] != edition:
-            await edit(
-                interaction, content="📜 Estas novedades ya están derogadas. Busca las últimas."
-            )
-            return
-        readers = current[1]
-        user = interaction.user
-        if user.id in readers:
-            await edit(interaction, content="Ya te lo habías leído. Ni el BOE se lee dos veces.")
-            return
-        first = not readers
-        readers.add(user.id)
-        text = (
-            "🥇 Primero en leérselo. Ni la UCO se entera tan rápido."
-            if first
-            else "📜 Leído y conforme. Queda constancia en el registro."
-        )
-        if pet := await mascotas.cameo(self.bot, guild.id, user.id, Moment(Event.NEWS)):
-            text = f"{text}\n{pet}"
-        await edit(interaction, content=text)
-        delta = StatDelta(add={NEWS_READ_STAT: 1})
-        if first:
-            delta.add[NEWS_FIRST_STAT] = 1
-        await logros.track(self.bot, guild.id, user, interaction.channel, delta)
-        # Los logros se pagan: gancho de la Renta (ver Biblia.txt, sección 4).
-        await renta.remind(self.bot, interaction)
+    async def _settings(self, guild_id: int) -> NewsSettings:
+        repository = getattr(self.bot, "news", None)
+        if repository is None:
+            return NewsSettings()
+        try:
+            return await repository.settings(guild_id)
+        except Exception:
+            # Mejor el aviso con los ajustes de serie que ninguno.
+            logger.exception("No se pudieron leer los ajustes de novedades de %s", guild_id)
+            return NewsSettings()
+
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Borra los ajustes del aviso del servidor que el bot abandona."""
+        repository = getattr(self.bot, "news", None)
+        if repository is not None:
+            await repository.delete_guild_data(guild.id)
 
     @tasks.loop(seconds=POLL_SECONDS)
     async def _poll(self) -> None:

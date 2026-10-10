@@ -156,9 +156,10 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
 
 ## Títulos y descripciones de PR
 
-El título de cada PR acaba en Discord: al desplegar, `actualizar.sh` publica los
-títulos de los PR nuevos como «📜 Novedades del bot» (README, «Novedades»). Lo leen
-los miembros del servidor, no programadores.
+El título y la descripción de cada PR acaban en Discord: al desplegar, el bot publica
+los PR nuevos como «📜 Novedades del bot», con la lista de títulos y, en modo
+detallado, la descripción de cada uno (README, «Novedades»). Lo leen los miembros del
+servidor, no programadores.
 
 - **Título:** qué cambia para quien usa el bot, en español y sin jerga, con la forma
   «Funcionalidad: qué cambia» y el comando entre comillas invertidas si lo hay. 70
@@ -177,7 +178,10 @@ los miembros del servidor, no programadores.
   ni «Merge main».
 - **Asuntos de commit** en español y legibles: si un PR queda con el título
   automático, el aviso usa los asuntos de sus commits.
-- **Descripción** (no sale en Discord, es para quien revisa): qué cambia y por qué,
-  en párrafos cortos; cómo se ha probado; y lo que hay que vigilar al desplegar
-  (logros retroactivos que se cobran de golpe, cambios de cifras de la economía,
-  pasos a mano en el NAS). Sin listas de archivos tocados: eso ya lo enseña el diff.
+- **Descripción** (sale en Discord en el aviso detallado y la lee también quien
+  revisa): primero qué cambia para quien usa el bot, en párrafos cortos; luego por
+  qué, cómo se ha probado y lo que hay que vigilar al desplegar (logros retroactivos
+  que se cobran de golpe, cambios de cifras de la economía, pasos a mano en el NAS).
+  Sin listas de archivos tocados: eso ya lo enseña el diff. Nada que no deba leer el
+  servidor (rutas del NAS con datos, IDs privados). La firma de Claude Code se quita
+  sola al publicarla.

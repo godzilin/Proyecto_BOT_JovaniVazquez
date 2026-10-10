@@ -434,16 +434,6 @@ async def press_todo(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
-async def press_news(client: BotClient, owner: MagicMock) -> Click:
-    deploy = client.get_cog("Despliegue")
-    deploy._news[GUILD_ID] = (123, set())
-
-    async def click(interaction: MagicMock) -> None:
-        await deploy.read_news(interaction, 123)
-
-    return click
-
-
 def perfil_view(client: BotClient, owner: MagicMock):  # noqa: ANN201
     module = module_of(client, "Perfil")
     return module.PerfilView(
@@ -500,7 +490,6 @@ CASES: dict[str, Press] = {
     "perfil: abrir la mochila": press_perfil_backpack,
     "renta: presentar": press_renta,
     "lista: tachar": press_todo,
-    "novedades: leído": press_news,
 }
 
 

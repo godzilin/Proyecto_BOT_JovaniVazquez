@@ -55,8 +55,11 @@
 # aporta una línea con el título del PR. Los PR que juntan el main del fork
 # (rama `main`) se saltan si hay otros PR dentro, que ya cuentan lo mismo con
 # más detalle. Si un título es el que GitHub inventa con el nombre de la rama
-# ("Claude/adoring tesla ybmnco"), se usan los asuntos de sus commits. El bot
-# lee el archivo, lo publica y lo borra (bot/services/deploy.py).
+# ("Claude/adoring tesla ybmnco"), se usan los asuntos de sus commits. Cada
+# línea son cuatro campos separados por tabuladores: `#número`, `dueño/rama`
+# de origen, `titulo` o `commit`, y el texto. Con el número y la rama, el bot
+# pide a GitHub la descripción del PR. El bot lee el archivo, lo publica y lo
+# borra (bot/services/deploy.py).
 #
 # Variables opcionales: RAMA (main), ESPERA_ARRANQUE (90), DIAS_RECONSTRUIR (7),
 # REPO (el de godzilin), GIT_EN_DOCKER=1 para usar alpine/git aunque haya git.
@@ -273,31 +276,35 @@ volver_atras() {
 # Escribe en la salida una línea por PR fusionado entre $1 y $2 (ver
 # "Novedades" arriba). Usa el `git` de main().
 listar_novedades() {
-    local merge asunto rama titulo auto
+    local merge asunto numero dueno rama titulo auto pr
     local -a propios=() paquetes=()
     while IFS=$'\t' read -r merge asunto; do
-        [[ "$asunto" =~ ^Merge\ pull\ request\ \#[0-9]+\ from\ [^/]+/(.+)$ ]] || continue
-        rama="${BASH_REMATCH[1]}"
+        [[ "$asunto" =~ ^Merge\ pull\ request\ \#([0-9]+)\ from\ ([^/]+)/(.+)$ ]] || continue
+        numero="${BASH_REMATCH[1]}"
+        dueno="${BASH_REMATCH[2]}"
+        rama="${BASH_REMATCH[3]}"
+        pr="#$numero"$'\t'"$dueno/$rama"
         # El título del PR es la primera línea no vacía del cuerpo del merge.
         titulo="$("${git[@]}" log -1 --format=%b "$merge" | sed -n '/[^[:space:]]/{p;q;}')"
         auto="${rama//[-_]/ }"
         if [[ -z "$titulo" || "${titulo,,}" == "${auto,,}" ]]; then
             # Título de relleno: lo que cuentan sus commits, sin los merges.
             while IFS= read -r titulo; do
-                [[ -n "$titulo" ]] && propios+=("$titulo")
+                [[ -n "$titulo" ]] && propios+=("$pr"$'\tcommit\t'"$titulo")
             done < <("${git[@]}" log --no-merges --reverse --format=%s "$merge^1..$merge^2")
             continue
         fi
         if [[ "$rama" == main ]]; then
-            paquetes+=("$titulo")
+            paquetes+=("$pr"$'\ttitulo\t'"$titulo")
         else
-            propios+=("$titulo")
+            propios+=("$pr"$'\ttitulo\t'"$titulo")
         fi
     done < <("${git[@]}" log --merges --reverse --format=$'%H\t%s' "$1..$2")
     if ((${#propios[@]} == 0)); then
         propios=("${paquetes[@]}")
     fi
-    ((${#propios[@]})) && printf '%s\n' "${propios[@]}" | awk '!visto[$0]++'
+    # Un mismo texto sale una vez aunque llegue por dos PR (el del fork y el suyo).
+    ((${#propios[@]})) && printf '%s\n' "${propios[@]}" | awk -F'\t' '!visto[$4]++'
     return 0
 }
 
@@ -312,7 +319,7 @@ apuntar_novedades() {
     chmod 666 "$archivo.tmp" 2>/dev/null || true
     mv -f "$archivo.tmp" "$archivo"
     echo "Novedades para Discord:"
-    sed 's/^/  - /' <<<"$lista"
+    cut -f1,4 <<<"$lista" | sed 's/^/  - /'
 }
 
 # Deja en el buzón el resultado para que el bot lo publique en Discord.

@@ -60,7 +60,6 @@ class Event(StrEnum):
     LOTTERY_LOSE = "lottery_lose"
     BIZUM = "bizum"
     BIRTHDAY = "birthday"
-    NEWS = "news"
     BEER = "beer"
     PROFILE = "profile"
 
@@ -491,10 +490,6 @@ GENERIC_LINES: dict[Event, tuple[str, ...]] = {
     Event.BIZUM: ("{pet} pregunta si el Bizum era para comprarle algo.",),
     Event.BIRTHDAY: ("{pet} te canta el cumpleaños a su manera: {sound}.",),
     Event.MONEY: ("{pet} cuenta tus yapdólares con la pata.",),
-    Event.NEWS: (
-        "{pet} se sienta encima de las novedades para que no las leas sin su permiso.",
-        "{pet} olisquea el changelog y aprueba la mitad, como el Congreso.",
-    ),
     Event.BEER: (
         "{pet} te mira beber y apunta otro sorbo en su libreta.",
         "{pet} brinda contigo a su manera: {sound}.",

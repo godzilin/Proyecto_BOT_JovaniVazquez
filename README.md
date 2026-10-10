@@ -78,7 +78,7 @@ python -m bot
   | 🔔 Entradas | `entrada [archivo] [volumen] [borrar]` |
   | 🗼 Diversión | `babel <texto \| @miembros #canales>` · `hongkong` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
-  | 🛡️ Admin | `abrir` · `apodo` · `banear` · `bienv` · `borrar` · `callar` · `catalogo` · `cerrar` · `decir` · `echar` · `hablar` · `indultar` · `lento` · `niveles` · `rol` · `tajo` |
+  | 🛡️ Admin | `abrir` · `apodo` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `hablar` · `indultar` · `lento` · `niveles` · `rol` · `tajo` |
 
   La ayuda cabe en un solo embed: categorías con los nombres en orden
   alfabético, sin descripciones. La categoría Admin solo la ve quien es
@@ -760,25 +760,39 @@ pasa nada, falta la línea de `--solicitud` en el crontab.
 Cada vez que `actualizar.sh` despliega commits nuevos (de noche o con
 `reinicio`) y el bot nuevo pasa la comprobación de arranque, el script apunta
 en `.despliegue/buzon/novedades.txt` los PR fusionados desde el despliegue
-anterior, uno por línea. El bot lo mira cada 15 s, lo publica en
-`#chat-general` (o en el canal del sistema) como «📜 Novedades del bot» y lo
-borra. Si el bot nuevo se cae y se vuelve atrás, no se anuncia nada.
+anterior, uno por línea, con su número y su rama de origen. El bot lo mira
+cada 15 s, pide a GitHub la descripción de cada PR, lo publica como
+«📜 Novedades del bot» y lo borra. Si el bot nuevo se cae y se vuelve atrás,
+no se anuncia nada.
 
-De dónde sale cada línea:
+El aviso es como la página de un PR en GitHub, sin botones ni bromas:
+
+- Primero, la lista de cambios: título, enlace al PR y autor.
+- En modo detallado (el de serie), una ficha por PR con su descripción,
+  autor y fecha. Las descripciones largas se cortan con un enlace a GitHub.
+  Por eso la descripción de un PR acaba en Discord tal cual (ver «Títulos y
+  descripciones de PR» en `CLAUDE.md`).
+- Se enseñan 12 cambios como mucho; el resto queda en «…y N más».
+
+De dónde sale cada cambio:
 
 - Cada `Merge pull request` entre los dos commits aporta el título de su PR.
-  Por eso los títulos tienen que entenderse sin abrir GitHub (ver «Títulos y
-  descripciones de PR» en `CLAUDE.md`).
 - Los PR que traen entero el `main` del fork (rama `main`) se saltan si dentro
   hay otros PR, que ya cuentan lo mismo con más detalle.
 - Si el título es el que GitHub pone solo con el nombre de la rama
   («Claude/adoring tesla ybmnco»), salen los asuntos de sus commits.
 - Los commits subidos directamente a `main`, sin PR, no salen.
-- Se enseñan 12 como mucho; el resto queda en «…y N más».
+- El número de PR no dice de qué repositorio es (los PR del fork llegan
+  dentro de `main`). El bot lo busca en el de godzilin y en el fork, y vale el
+  que sale de la misma rama. Usa la API pública de GitHub sin token (60
+  peticiones por hora); si no responde, el aviso sale solo con los títulos.
 
-El aviso lleva un botón 📜 Leído. Pulsarlo da los logros *Leído y conforme* y,
-al primero del servidor, *Más rápido que el BOE* (❤️ Social). Solo cuenta el
-último aviso publicado desde que arrancó el bot y una vez por persona.
+Los administradores lo configuran con `cambios` (`/cambios` o `.cambios`):
+sin argumentos enseña la configuración; `activar` o `desactivar` lo
+encienden o apagan; `detallado` o `resumen` eligen el formato; un `#canal`
+fija dónde se publica, y `defecto` vuelve a `#chat-general` (o al canal del
+sistema si no existe). Los avisos viejos con el botón 📜 Leído contestan que
+el botón ya no hace nada.
 
 **Si la música deja de funcionar** antes de la reconstrucción semanal, casi
 siempre es que `yt-dlp` se ha quedado anticuado (YouTube cambia a menudo).

@@ -364,9 +364,15 @@ def _fusionar_pr(origin: Path, numero: int, rama: str, titulo: str, *commits: st
     _merge_pr(origin, numero, rama, titulo)
 
 
-def _novedades(entorno: dict) -> list[str] | None:
+def _lineas_novedades(entorno: dict) -> list[str] | None:
     archivo = entorno["clon"] / ".despliegue/buzon/novedades.txt"
     return archivo.read_text().splitlines() if archivo.exists() else None
+
+
+def _novedades(entorno: dict) -> list[str] | None:
+    """Solo el texto de cada línea (el cuarto campo)."""
+    lineas = _lineas_novedades(entorno)
+    return None if lineas is None else [linea.split("\t")[3] for linea in lineas]
 
 
 def test_despliegue_deja_los_titulos_de_los_pr_para_el_bot(entorno):
@@ -379,7 +385,11 @@ def test_despliegue_deja_los_titulos_de_los_pr_para_el_bot(entorno):
     resultado = _ejecutar(entorno)
 
     assert resultado.returncode == 0
-    assert _novedades(entorno) == ["Pollo: carriles más rápidos", "Mascotas"]
+    # Número y rama de cada PR van delante para que el bot busque su descripción.
+    assert _lineas_novedades(entorno) == [
+        "#1\tyeyo/pollo\ttitulo\tPollo: carriles más rápidos",
+        "#2\tyeyo/claude/adoring-tesla-x1\tcommit\tMascotas",
+    ]
 
 
 def test_el_pr_que_junta_el_fork_cede_ante_los_pr_que_trae(entorno):

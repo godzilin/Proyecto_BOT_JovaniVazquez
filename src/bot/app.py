@@ -25,6 +25,7 @@ from bot.repositories.hold_win import HoldWinRepository
 from bot.repositories.horses import HorseRepository
 from bot.repositories.lottery import LotteryRepository
 from bot.repositories.message_stats import MessageStatsRepository
+from bot.repositories.news import NewsRepository
 from bot.repositories.pets import PetRepository
 from bot.repositories.porras import PorraRepository
 from bot.repositories.shop import ShopRepository
@@ -122,6 +123,8 @@ class BotClient(commands.Bot):
         self.birthdays = BirthdayRepository(database_path)
         self.achievements = AchievementRepository(database_path)
         self.welcome = WelcomeRepository(database_path)
+        # Dónde y cómo se publica el aviso de novedades de cada despliegue (`cambios`).
+        self.news = NewsRepository(database_path)
         # Catálogo e inventario de la tienda; el dinero de cada compra pasa por `economy`.
         self.shop = ShopRepository(database_path)
         # Estado de las mascotas (`mascota`); quién tiene cada una lo dice la tienda.
@@ -170,6 +173,7 @@ class BotClient(commands.Bot):
         await self.birthdays.initialize()
         await self.achievements.initialize()
         await self.welcome.initialize()
+        await self.news.initialize()
         await self.shop.initialize()
         await self.pets.initialize()
         await self.lottery.initialize()

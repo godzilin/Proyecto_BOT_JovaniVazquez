@@ -591,6 +591,7 @@ Todos funcionan con `/` y con `.`, con el mismo nombre:
 | `catalogo` | Abre la trastienda (en `/`, solo la ves tú; en `.`, queda en el canal pero solo la toca quien la abrió). Botones ➕ Rol (eliges el rol y rellenas nombre, precio, duración del alquiler o vacío para siempre, y descripción), ➕ Potenciador (multiplicador y duración) y ➕ Coleccionable (existencias), y 📦 Reponer surtido (vuelve a poner a la venta los artículos de serie retirados, sin duplicar los que sigan en el catálogo aunque estén ocultos). ✏️ Editar abre la ficha de cada artículo: datos, 📦 límites (existencias, máximo por persona, nivel mínimo), 🏷️ rebaja (porcentaje hasta el 90 % y duración), tipo de IGIC, ocultar/mostrar y retirar (con confirmación; lo vendido se queda en las mochilas). El nombre puede empezar por un emoji, que pasa a ser el icono. Rechaza roles por encima del del bot, gestionados por integraciones o con permisos de moderación o administración. Ver sección 6 ter.7 bis. |
 | `tajo [canal] [todos]` | Canales donde se puede usar `pala`. Un canal lo añade o, si ya estaba, lo quita; `todos` (en `.tajo`, también `cualquiera`) vuelve a permitirla en cualquier canal. Sin argumentos enseña los actuales. Responde solo a ti en `/`. Ver sección 6 ter.7 quater. |
 | `niveles [acción] [canal] [segundos]` | Sin argumentos, enseña el estado de los niveles. Acciones: `importar` (lee el historial y, al acabar la primera vez, enciende los niveles), `activar`, `desactivar` (no borra XP) y `mismo` (avisos donde se sube). Un canal fija dónde se anuncian las subidas; unos segundos (10–3600), el enfriamiento del XP por mensaje. En `.niveles` van en cualquier orden. Ver sección 4.0. |
+| `cambios [acción] [canal]` | Configura el aviso de novedades de cada despliegue. Sin argumentos, enseña la configuración. Acciones: `activar`, `desactivar`, `detallado` (lista y una ficha por PR con su descripción, el de serie), `resumen` (solo la lista) y `defecto` (vuelve a `#chat-general`). Un canal fija dónde se publica. En `.cambios` van en cualquier orden. |
 
 `reinicio` va aparte: no es de administración sino de mantenimiento, y solo
 lo pueden usar dos IDs (Yeyo y Dani, en `DEPLOYERS` de `bot.cogs.deploy`),
@@ -604,15 +605,15 @@ respuesta en 30 minutos se da por perdida. Detalle en el README («Reiniciar
 desde Discord»).
 
 **Novedades.** Tras cada despliegue con commits nuevos (el de las 5:00 o
-`reinicio`) que arranque bien, el bot publica en `#chat-general` (o en el canal
-del sistema) «📜 Novedades del bot»: los títulos de los PR fusionados desde el
-despliegue anterior, 12 como mucho y «…y N más». `actualizar.sh` saca la lista
-de los commits `Merge pull request` y la deja en el buzón (`novedades.txt`).
-El botón 📜 Leído da los logros de ❤️ Social *Leído y conforme* (común) y *Más
-rápido que el BOE* (raro, al primero del servidor en pulsarlo); cuenta una vez
-por persona y solo en el último aviso desde que arrancó el bot, para que nadie
-cobre dos veces el mismo tras un reinicio. La mascota activa comenta la
-lectura. Detalle en el README («Novedades»).
+`reinicio`) que arranque bien, el bot publica «📜 Novedades del bot»: la lista
+de PR fusionados desde el despliegue anterior, con enlace y autor, y en modo
+detallado una ficha por PR con su descripción de GitHub, autor y fecha. Salen
+12 cambios como mucho y «…y N más». `actualizar.sh` saca la lista de los
+commits `Merge pull request` y la deja en el buzón (`novedades.txt`); el bot
+pide a GitHub la descripción de cada PR y, si no responde, publica solo los
+títulos. El aviso es informativo: sin botones, logros, mascota ni bromas. Se
+configura con `cambios` (sección 6 quater). Detalle en el README
+(«Novedades»).
 
 ### 6 quater.2. Autorización y seguridad
 
