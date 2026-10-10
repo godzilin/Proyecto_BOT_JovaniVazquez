@@ -7,6 +7,7 @@ tienen sus propias pruebas), el margen del GIF a cero y el azar de guion de
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -42,7 +43,7 @@ from bot.services.craps import (
     milestone,
     odds_profit,
 )
-from bot.services.craps_render import OPENING_REST, Media
+from bot.services.craps_render import OPENING_REST, Media, Table
 from bot.services.economy import STARTING_BALANCE, EconomyService, format_amount
 from bot.services.taxes import gambling_day_tax
 
@@ -563,7 +564,7 @@ async def test_cada_boton_contesta_una_sola_vez_y_antes_de_editar(tmp_path: Path
     first.response.defer.assert_awaited_once()  # cualquier segunda respuesta lanzaría error
     first.response.edit_message.assert_not_awaited()
     assert events[0] == "response.defer"
-    assert events.count("edit_original_response") == 2  # GIF y PNG
+    assert events.count("edit_original_response") == 3  # apagar, GIF y PNG
     events.clear()
     odds = make_interaction(events=events)
     await view._odds_one(odds)
@@ -587,7 +588,10 @@ async def test_el_gif_es_neutro_y_luego_viene_el_png_sin_destripar(tmp_path: Pat
     interaction.edit_original_response.side_effect = capture
     await view._pass(interaction)
 
-    gif_call, png_call = interaction.edit_original_response.await_args_list
+    wait_call, gif_call, png_call = interaction.edit_original_response.await_args_list
+    # Antes del GIF, la mesa apaga los botones y enseña la jugada sin adjuntos nuevos.
+    assert "attachments" not in wait_call.kwargs
+    assert wait_call.kwargs["embed"].description == gif_call.kwargs["embed"].description
     assert gif_call.kwargs["attachments"][0].filename == "dados.gif"
     assert png_call.kwargs["attachments"][0].filename == "dados.png"
     waiting = gif_call.kwargs["embed"]
@@ -596,8 +600,8 @@ async def test_el_gif_es_neutro_y_luego_viene_el_png_sin_destripar(tmp_path: Pat
     assert "tirada de salida" in (waiting.description or "")
     for hint in ("natural", "Sale", "+", "-100", "Punto"):
         assert hint not in (waiting.description or "")
-    # Durante el GIF todo está apagado; después, vuelven los botones.
-    assert all(states[0]) and not any(states[1])
+    # Mientras se pinta y durante el GIF todo está apagado; después, vuelven los botones.
+    assert all(states[0]) and all(states[1]) and not any(states[2])
     assert "natural" in (png_call.kwargs["embed"].description or "")
 
 
@@ -886,10 +890,11 @@ async def test_dados_500_pase_tira_directamente(tmp_path: Path) -> None:
     cog.renderer.throw.assert_awaited_once()
     message = send.return_value
     # La mesa se abrió con los botones apagados y luego se editó con el GIF y el PNG.
-    assert [call.kwargs["attachments"][0].filename for call in message.edit.await_args_list] == [
-        "dados.gif",
-        "dados.png",
-    ]
+    assert [
+        call.kwargs["attachments"][0].filename
+        for call in message.edit.await_args_list
+        if "attachments" in call.kwargs
+    ] == ["dados.gif", "dados.png"]
 
 
 async def test_dados_con_apuesta_sin_saldo_para_ella_avisa(tmp_path: Path) -> None:
@@ -1118,6 +1123,7 @@ async def test_al_terminar_se_apuntan_los_logros_y_la_jugada_despues_de_enseñar
         "response.defer",
         "edit_original_response",
         "edit_original_response",
+        "edit_original_response",
         "logros",
         "apuestas",
     ]
@@ -1133,3 +1139,125 @@ async def test_una_salida_que_pone_el_punto_todavia_no_apunta_logros(
     view, _ = await open_table(cog)
     await press(view, "_pass")
     casino_play.assert_not_awaited()
+
+
+# -- GIF por adelantado ----------------------------------------------------------------
+
+
+class RecordingRenderer:
+    """Dibujo falso que apunta cada GIF pedido: las tiradas de la mano y la apuesta."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[tuple[int, int]], Bet, int, int]] = []
+        self.gate: asyncio.Event | None = None
+
+    async def throw(self, table: Table, *, seed: int) -> Media:
+        if self.gate is not None:
+            await self.gate.wait()
+        game = table.game
+        assert game is not None
+        dice = [roll.dice for roll, _bet in table.history]
+        self.calls.append((dice, game.bet, game.odds, seed))
+        gif = f"GIF{len(self.calls)}".encode()
+        return Media(gif=gif, png=b"PNG", seconds=0.0, rest=OPENING_REST)
+
+    async def board(self, table: Table, rest: object) -> bytes:
+        return b"PNG"
+
+    async def close(self) -> None:
+        return None
+
+
+async def ahead_cog(tmp_path: Path, *rolls: tuple[int, int]) -> tuple[Craps, RecordingRenderer]:
+    repository = EconomyRepository(tmp_path / "bot.db", starting_balance=STARTING_BALANCE)
+    await repository.initialize()
+    renderer = RecordingRenderer()
+    cog = Craps(
+        MagicMock(),
+        economy=EconomyService(repository),
+        rng=Scripted(*rolls, NOTHING, NOTHING, NOTHING),
+        renderer=renderer,  # type: ignore[arg-type]
+        ahead=True,
+    )
+    return cog, renderer
+
+
+async def settle_painting(view: CrapsView) -> None:
+    """Espera a que la mesa acabe de pintar por adelantado."""
+    while view._painting is not None and not view._painting.done():
+        await asyncio.sleep(0)
+
+
+def gif_bytes(interaction: MagicMock) -> bytes:
+    """El GIF que se subió con la interacción (la edición con un `.gif`)."""
+    for call in interaction.edit_original_response.await_args_list:
+        files = call.kwargs.get("attachments") or []
+        if files and files[0].filename == "dados.gif":
+            return files[0].fp.read()
+    raise AssertionError("no se subió ningún GIF")
+
+
+async def test_al_abrir_la_mesa_se_pintan_ya_pase_y_no_pase(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, SIX)
+    view, _ = await open_table(cog)
+    await settle_painting(view)
+    # Antes de pulsar: la misma salida (el 6) con Pase y con No pase, sin cobrar nada.
+    assert [(call[0], call[1]) for call in renderer.calls] == [
+        ([SIX], PASS),
+        ([SIX], Bet.DONT),
+    ]
+    assert await balance(cog) == STARTING_BALANCE
+
+    interaction = await press(view, "_dont")
+    # Sube el GIF pintado con No pase, sin dibujar otro ni pasar por «apagar».
+    assert gif_bytes(interaction) == b"GIF2"
+    assert interaction.edit_original_response.await_count == 2
+    assert played(view).bet is Bet.DONT and played(view).point == 6
+
+
+async def test_con_el_punto_se_pinta_la_tirada_siguiente_y_es_la_que_sale(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, SIX, SIX_MADE)
+    view, _ = await open_table(cog)
+    await press(view, "_pass")
+    await settle_painting(view)
+    painted = renderer.calls[-1]
+    # Con el punto puesto solo hay un botón que tira: un solo GIF, el del 6 y luego el 4-2.
+    assert painted[0] == [SIX, SIX_MADE]
+    calls = len(renderer.calls)
+    interaction = await press(view, "_roll")
+    assert gif_bytes(interaction) == f"GIF{calls}".encode()
+    assert played(view).status is Status.WON
+    assert [roll.dice for roll in played(view).rolls] == painted[0]
+
+
+async def test_poner_odds_vuelve_a_pintar_con_las_fichas_nuevas(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, SIX, SIX_MADE)
+    view, _ = await open_table(cog)
+    await press(view, "_pass")
+    await settle_painting(view)
+    assert renderer.calls[-1][2] == 0
+    await press(view, "_odds_one")
+    await settle_painting(view)
+    # El GIF de la próxima tirada ya lleva las Odds, y es el que sale al tirar.
+    assert renderer.calls[-1][2] == 100
+    calls = len(renderer.calls)
+    interaction = await press(view, "_roll")
+    assert gif_bytes(interaction) == f"GIF{calls}".encode()
+
+
+async def test_si_no_ha_acabado_de_pintarse_la_mesa_se_apaga_y_se_espera(tmp_path: Path) -> None:
+    cog, renderer = await ahead_cog(tmp_path, NATURAL)
+    renderer.gate = asyncio.Event()
+    view, _ = await open_table(cog)
+    interaction = make_interaction()
+    task = asyncio.create_task(view._pass(interaction))
+    while not interaction.edit_original_response.await_count:
+        await asyncio.sleep(0)
+    assert "attachments" not in interaction.edit_original_response.await_args.kwargs
+    # Apagados con las etiquetas de antes de tirar: siguen siendo Pase y No pase.
+    assert all(button.disabled for button in view.children if isinstance(button, ui.Button))
+    assert labels(view)[0].startswith(PASS.emoji)
+    renderer.gate.set()
+    await task
+    assert interaction.edit_original_response.await_count == 3
+    assert gif_bytes(interaction) == b"GIF1"

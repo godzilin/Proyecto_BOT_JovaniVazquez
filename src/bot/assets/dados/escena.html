@@ -1,7 +1,8 @@
 <!doctype html>
 <!--
-Escena de los dados (craps), dibujada con canvas en un Chromium sin ventana
-(ver bot/services/craps_scene.py).
+Escena de los dados (craps), dibujada con canvas. La pinta Node con Skia
+(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver
+bot/services/craps_scene.py).
 
 No decide nada: Python le pasa dónde está cada cosa en cada fotograma, ya
 en píxeles de pantalla (bot/services/craps_render.py, throw_states y
@@ -11,8 +12,9 @@ está resuelta. Aquí solo se pinta. Funciones que llama Python:
 
 - loadFonts()           espera a las fuentes (canvas no las carga solo).
 - setup(meta)           las filas del tapete y de la pared en perspectiva.
-- renderFrames(states)  dibuja los fotogramas y devuelve, de cada uno, el PNG
-                        (data URL) del recuadro que ha cambiado y dónde va.
+- renderFrames(states)  dibuja los fotogramas y devuelve, de cada uno, el
+                        recuadro que ha cambiado (PNG en Chromium, píxeles
+                        crudos en Node) y dónde va.
 
 El tapete se pinta visto desde arriba (en unidades de mesa) y se pasa a la
 cámara fila a fila con las filas de `meta.floor`: cada fila de la pantalla
@@ -521,8 +523,12 @@ function snapshot(full) {
   out.width = w; out.height = h;
   octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
   octx.drawImage(big, x0 * S, y0 * S, w * S, h * S, 0, 0, w, h);
-  return { x: x0, y: y0, u: out.toDataURL("image/png") };
+  return { x: x0, y: y0, u: window.exportFrame(out) };
 }
+
+// En Chromium cada recuadro va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
 
 window.loadFonts = async () => {
   await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);

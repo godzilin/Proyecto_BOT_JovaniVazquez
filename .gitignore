@@ -31,3 +31,6 @@ dist/
 
 # Dependencias de Node de las escenas (package.json)
 node_modules/
+
+# Copias de trabajo de los subagentes
+.claude/worktrees/
