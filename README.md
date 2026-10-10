@@ -316,8 +316,7 @@ python -m bot
   apuesta (empate si tú también lo tienes). Seguro con un as de la banca:
   cuesta media apuesta y paga 2:1 si tiene blackjack. Blackjack paga 3:2,
   doblar con dos cartas (también tras separar), separar una vez; sin
-  rendición. La apuesta inicial es de 5.000 Y$ como mucho (`all` y ×2 se
-  quedan ahí). Jugando bien y sin seguro, el juego devuelve ≈ 99,7 % de lo
+  rendición ni tope de apuesta. Jugando bien y sin seguro, el juego devuelve ≈ 99,7 % de lo
   apostado; el seguro, ≈ 92 % de lo que se mete en él. La apuesta se cobra al repartir (y al doblar, separar o asegurar) y
   el premio se paga al acabar. Si la mesa caduca o el bot se apaga con una
   mano a medias, se planta y se paga.

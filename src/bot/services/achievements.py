@@ -45,7 +45,6 @@ from bot.services.bizum import MAX_DAILY as BIZUM_MAX_DAILY
 from bot.services.bizum import MAX_OPERATION as BIZUM_MAX_OPERATION
 from bot.services.bizum import MIN_AMOUNT as BIZUM_MIN_AMOUNT
 from bot.services.blackjack import (
-    MAX_STAKE,
     BlackjackGame,
     Result,
     hand_total,
@@ -1943,12 +1942,12 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Paga el seguro, la banca no tiene blackjack y encima te pasas.", C, True),
     ])  # fmt: skip
     a += _tiers("blackjack", "bj_max_stake", [
-        (1, "bj_tope", "Hasta aquí llega la mesa",
-         "Juega una mano con la apuesta máxima.", C),
-        (100, "bj_tope_100", "Techo de gasto de la mesa",
-         "Juega 100 manos con la apuesta máxima.", R),
+        (1, "bj_tope", "Aquí ya no hay techo",
+         "Juega una mano de 5.000 Y$ o más.", C),
+        (100, "bj_tope_100", "Techo de gasto, ¿qué techo?",
+         "Juega 100 manos de 5.000 Y$ o más.", R),
         (1_000, "bj_tope_1k", "Regla de gasto de Bruselas",
-         "Juega 1.000 manos con la apuesta máxima.", R),
+         "Juega 1.000 manos de 5.000 Y$ o más.", R),
     ])  # fmt: skip
 
     # 💰 Casino ---------------------------------------------------------------------------
@@ -8083,6 +8082,11 @@ def roulette_stats(
     return delta
 
 
+#: Mano «de las gordas» para los logros de `bj_max_stake` (50 tiradas). Era el
+#: tope de la mesa hasta que el blackjack dejó de favorecer al jugador.
+BJ_HIGH_STAKE = 5_000
+
+
 def blackjack_stats(game: BlackjackGame) -> StatDelta:
     """Contadores de una mano de blackjack ya pagada (sin lo común del casino)."""
     delta = StatDelta(add={"bj_hands": 1})
@@ -8117,7 +8121,7 @@ def blackjack_stats(game: BlackjackGame) -> StatDelta:
             bump("bj_insurance_wasted")
             if all(h.busted for h in game.hands):
                 bump("bj_insured_bust")
-    if game.stake >= MAX_STAKE:
+    if game.stake >= BJ_HIGH_STAKE:
         bump("bj_max_stake")
     if any(h.result is Result.LOSE and h.total == 20 and dealer_total == 21 for h in game.hands):
         bump("bj_bad_beat")

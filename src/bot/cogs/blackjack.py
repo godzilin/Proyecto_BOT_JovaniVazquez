@@ -35,7 +35,6 @@ from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import blackjack_stats, casino_stats
 from bot.services.blackjack import (
     INSURANCE_PAYS,
-    MAX_STAKE,
     Action,
     BlackjackGame,
     Card,
@@ -72,9 +71,7 @@ COLOR_WIN = discord.Color.from_rgb(255, 196, 0)
 COLOR_LOSS = discord.Color.from_rgb(80, 84, 92)
 COLOR_PUSH = discord.Color.from_rgb(120, 140, 160)
 
-RULES_FOOTER = (
-    f"Blackjack paga 3:2 · seguro 2:1 · la banca se planta en 17 · máx. {format_amount(MAX_STAKE)}"
-)
+RULES_FOOTER = "Blackjack paga 3:2 · seguro 2:1 · la banca se planta en 17"
 
 BLACKJACK_LINES = ("🂡 ¡BLACKJACK!", "💥 ¡BLACKJACK!", "🔥 ¡BLACKJACK!")
 WIN_LINES = ("¡Ganas", "¡Le ganas a la banca!", "¡Cobras", "¡Toma ya!")
@@ -623,7 +620,7 @@ class BlackjackTable(discord.ui.View):
     async def _double_stake(self, interaction: discord.Interaction) -> None:
         await ack(interaction)
         balance = await self.balance()
-        self.stake = max(1, min(self.stake * 2, balance, MAX_STAKE))
+        self.stake = max(1, min(self.stake * 2, balance))
         await self._refresh(interaction, balance)
 
     async def _all_in(self, interaction: discord.Interaction) -> None:
@@ -632,7 +629,7 @@ class BlackjackTable(discord.ui.View):
         if balance == 0:
             await notify(interaction, insufficient_text(0))
             return
-        self.stake = min(balance, MAX_STAKE)
+        self.stake = balance
         await self._refresh(interaction, balance)
 
     async def _deal_again(self, interaction: discord.Interaction) -> None:
@@ -719,7 +716,6 @@ class Blackjack(commands.Cog):
         except ValueError as error:
             await send_error(str(error))
             return
-        stake = min(stake, MAX_STAKE)
         if stake > balance:
             await send_error(insufficient_text(balance))
             return

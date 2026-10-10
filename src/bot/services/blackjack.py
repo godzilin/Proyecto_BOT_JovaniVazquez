@@ -5,7 +5,7 @@ partida dice cuánto hay que cobrar antes de cada acción (`extra_stake`) y
 cuánto devolver al terminar (`total_return`), y el cog lo mueve a través de
 la economía.
 
-Reglas (las habituales de un casino, salvo el tope de apuesta):
+Reglas (las habituales de un casino):
 
 - Zapato de 6 barajas, barajado de nuevo en cada mano (no se pueden contar
   cartas).
@@ -21,7 +21,7 @@ Reglas (las habituales de un casino, salvo el tope de apuesta):
 - Separar una vez dos cartas del mismo valor. Los ases separados reciben
   una carta cada uno y no cuentan como blackjack si suman 21.
 - Sin rendición.
-- Apuesta inicial de `MAX_STAKE` como mucho.
+- Sin tope de apuesta: lo había mientras el juego favorecía al jugador.
 
 Con estrategia básica (sin seguro) el juego devuelve ≈ 99,7 % de lo apostado.
 El seguro devuelve ≈ 92 % de lo que se mete en él: la banca solo tiene
@@ -42,9 +42,6 @@ DECKS = 6
 SUITS = ("♠", "♥", "♦", "♣")
 RANK_LABELS = {1: "A", 11: "J", 12: "Q", 13: "K"}
 DEALER_STANDS_ON = 17
-#: Apuesta inicial máxima por mano (50 tiradas). Doblar y separar pueden
-#: llevar lo que hay en juego hasta el doble o el cuádruple.
-MAX_STAKE = 5_000
 #: El seguro paga 2:1: se devuelve lo asegurado más el doble.
 INSURANCE_PAYS = 2
 

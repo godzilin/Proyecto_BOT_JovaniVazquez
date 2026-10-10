@@ -29,6 +29,7 @@ from bot.services.achievements import (
     APUESTAS_PAGES,
     APUESTAS_PERIODS,
     AVAILABLE,
+    BJ_HIGH_STAKE,
     BUS_WIN_PREFIX,
     BY_ID,
     CASINO_GROUP,
@@ -79,7 +80,7 @@ from bot.services.achievements import (
 )
 from bot.services.autoplay import StopReason
 from bot.services.beernight import Reason as BeerReason
-from bot.services.blackjack import MAX_STAKE, BlackjackGame, Card, Hand
+from bot.services.blackjack import BlackjackGame, Card, Hand
 from bot.services.bus import Pick as BusPick
 from bot.services.chicken import DIFFICULTIES as CHICKEN_DIFFICULTIES
 from bot.services.economy import STARTING_BALANCE, STATE_ACCOUNT_ID, EconomyService, IncomeResult
@@ -651,10 +652,10 @@ def test_blackjack_seguro_perdido_y_siniestro_total() -> None:
     assert bust.add["bj_insured_bust"] == 1
 
 
-def test_blackjack_apuesta_maxima() -> None:
+def test_blackjack_mano_de_5000_o_mas() -> None:
     game = settled_game([[10, 9]], [10, 8])
     assert "bj_max_stake" not in blackjack_stats(game).add
-    game.stake = MAX_STAKE
+    game.stake = BJ_HIGH_STAKE
     assert blackjack_stats(game).add["bj_max_stake"] == 1
 
 
