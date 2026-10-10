@@ -1,27 +1,36 @@
-"""Dibujo de las carreras con un navegador: canvas y HTML/CSS en Chromium sin ventana.
+"""Dibujo de las carreras: la carrera con Node y la parrilla y el boleto con Chromium.
 
 Discord no ejecuta JavaScript en los mensajes, así que el JavaScript corre
-aquí, en el bot: la escena vive en `assets/caballos/escena.html` y Chromium
-(Playwright) la pinta. De ahí salen la parrilla y el boleto (capturas de
-HTML con CSS) y los fotogramas de la carrera (canvas), con los que este
-módulo monta el GIF. Así hay degradados, sombras, desenfoque, sedas con su
-dibujo y caballos con el galope articulado, cosas que con Pillow a mano
-quedaban pobres.
+aquí, en el bot: la escena vive en `assets/caballos/escena.html`. Tiene dos
+mitades que se pintan de forma distinta:
+
+- **La carrera** (los fotogramas y el podio) es solo canvas 2D y la pinta
+  Node con Skia (`bot.services.node_scene`), sin navegador y con los
+  fotogramas en RGBA crudo. Guarda estado de un fotograma al siguiente (el
+  polvo de los cascos), así que va en un solo proceso y en orden
+  (`NodeScene.sequence`). Si no hay Node, la pinta Chromium.
+- **La parrilla y el boleto** son HTML/CSS con capturas de pantalla: esos
+  siguen en Chromium (Playwright) y no tienen otro camino que Pillow.
+
+De ahí salen los fotogramas con los que este módulo monta el GIF. Así hay
+degradados, sombras, desenfoque, sedas con su dibujo y caballos con el galope
+articulado, cosas que con Pillow a mano quedaban pobres.
 
 Python sigue decidiendo todo: dónde está cada caballo en cada fotograma, el
 ritmo, la cámara lenta del foto-finish y la lluvia salen de
 `bot.services.horses_render` (`frame_times`, `screen_positions`), que es la
 misma cuenta que usa el dibujo con Pillow. La escena solo pinta.
 
-**Si no hay navegador, se usa Pillow.** Si Chromium no está instalado o
-falla al arrancar o al pintar, se avisa una vez en el log y cada imagen sale
-de `HorseRenderer`. El juego nunca se queda sin imagen por el navegador.
+**Si falla un pintor, se pasa al siguiente:** Node, Chromium y, al final,
+Pillow. El primer fallo de cada uno se avisa una vez en el log y desde
+entonces se salta. El juego nunca se queda sin imagen.
 
-Coste: Chromium arranca en ~1-2 s la primera vez y ocupa ~150-250 MB de
-memoria mientras está abierto, así que se cierra solo tras `IDLE_SECONDS`
-sin carreras. Una carrera son ~130-170 fotogramas en ~1-2 s de navegador más
-~1-2 s de montar el GIF (en un hilo, fuera del event loop). Solo hay una
-pestaña y una carrera se pinta detrás de otra.
+Coste: una carrera son ~130-170 fotogramas. Node arranca en ~0,4 s y ocupa
+~90 MB; el GIF se monta después en un hilo, fuera del event loop. Chromium
+arranca en ~1-2 s la primera vez y ocupa ~150-250 MB mientras está abierto
+(ahora solo para la parrilla y el boleto, o si Node falla); ambos se cierran
+solos tras `IDLE_SECONDS` sin uso. Solo hay una pestaña y un proceso de Node,
+y una carrera se pinta detrás de otra.
 """
 
 from __future__ import annotations
@@ -63,6 +72,7 @@ from bot.services.horses_render import (
     rain_start,
     screen_positions,
 )
+from bot.services.node_scene import NodeScene
 from bot.utils.gif import local_palette_gif
 
 logger = logging.getLogger(__name__)
@@ -132,12 +142,13 @@ def _segment(result: RaceResult, index: int, t: float) -> int:
 
 
 class SceneRenderer:
-    """Dibuja las carreras en Chromium y, si no puede, con Pillow (`fallback`).
+    """Pinta la carrera con Node y la parrilla y el boleto con Chromium; el plan B es Pillow.
 
     Args:
-        fallback: El dibujo de Pillow, para cuando no hay navegador.
+        fallback: El dibujo de Pillow, para cuando no hay Node ni navegador.
         executable_path: Chromium concreto (si no, el que instaló Playwright).
         idle_seconds: Cuánto se deja abierto el navegador sin usarlo.
+        node: Node concreto (si no, el del PATH).
     """
 
     def __init__(
@@ -146,6 +157,7 @@ class SceneRenderer:
         *,
         executable_path: str | None = None,
         idle_seconds: float = IDLE_SECONDS,
+        node: str | None = None,
     ) -> None:
         self.fallback = fallback or HorseRenderer()
         self.executable_path = executable_path
@@ -155,7 +167,12 @@ class SceneRenderer:
         self._page: Any = None
         self._lock = asyncio.Lock()
         self._idle: asyncio.TimerHandle | None = None
-        #: Tras un fallo al arrancar no se reintenta en cada carrera: se usa Pillow.
+        #: Pinta la carrera sin navegador; tiene su propio `disabled`.
+        self.painter = NodeScene(
+            SCENE, name="El pintor de las carreras", node=node, idle_seconds=idle_seconds
+        )
+        #: Si Chromium falló (para la parrilla, el boleto y la carrera sin Node):
+        #: no se reintenta en cada carrera, se usa Pillow.
         self.disabled = False
 
     # -- Navegador -----------------------------------------------------------------------
@@ -188,7 +205,8 @@ class SceneRenderer:
         self._idle = loop.call_later(self.idle_seconds, lambda: asyncio.ensure_future(self.close()))
 
     async def close(self) -> None:
-        """Cierra el navegador (al apagar el bot o tras un rato sin carreras)."""
+        """Cierra Node y el navegador (al apagar el bot o tras un rato sin carreras)."""
+        await self.painter.close()
         async with self._lock:
             if self._idle is not None:
                 self._idle.cancel()
@@ -443,6 +461,18 @@ class SceneRenderer:
         podium = self.podium_data(card, result, odds, states)
         meta = self.race_meta(card)
 
+        calls: list[tuple[str, list[Any]]] = [("setupRace", [meta])]
+        calls += [
+            ("renderFrames", [states[start : start + BATCH]])
+            for start in range(0, len(states), BATCH)
+        ]
+        calls.append(("renderPodium", [podium]))
+        parts = await self.painter.sequence(calls)
+        if parts is not None:
+            # La primera llamada (setupRace) no devuelve imágenes.
+            frames = [patch["image"] for part in parts for patch in part]
+            return await asyncio.to_thread(self._encode, frames)
+
         async def work(page: Any) -> list[str]:
             await page.evaluate("m => setupRace(m)", meta)
             urls: list[str] = []
@@ -454,14 +484,19 @@ class SceneRenderer:
         urls = await self._with_page(work)
         if urls is None:
             return await asyncio.to_thread(self.fallback.race, card, result)
-        return await asyncio.to_thread(self._encode, urls)
+        return await asyncio.to_thread(lambda: self._encode(self._decode(urls)))
 
     @staticmethod
-    def _encode(urls: list[str]) -> Media:
-        frames = [
+    def _decode(urls: list[str]) -> list[Image.Image]:
+        """Los data URL de PNG de Chromium, abiertos como imágenes."""
+        return [
             Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGB")
             for url in urls
         ]
+
+    @staticmethod
+    def _encode(frames: list[Image.Image]) -> Media:
+        """El GIF (todos menos el último, que es el podio) y el PNG de la llegada."""
         durations = [FRAME_MS] * (len(frames) - 1) + [FINAL_FRAME_MS]
         gif = local_palette_gif(frames, durations)
         png = io.BytesIO()

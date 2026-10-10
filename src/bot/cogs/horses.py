@@ -18,9 +18,10 @@ Cada carrera pasa por tres momentos en el mismo mensaje:
    esperar al reloj.
    `.caballo 500 3` apuesta 500 a ganador al 3; `.caballo 500 3-5` a la gemela;
    `.caballo 500 3-5-1` al trío; `.caballo 500 3 colocado` a colocado.
-2. **Carrera**: el GIF con los caballos galopando. Se dibuja con canvas y
-   HTML/CSS en un Chromium sin ventana (`bot.services.horses_scene`) y, si no
-   hay navegador, con Pillow (`bot.services.horses_render`).
+2. **Carrera**: el GIF con los caballos galopando. Se dibuja con canvas en
+   Node, sin navegador (`bot.services.horses_scene`); si no hay Node, en
+   Chromium y, si tampoco, con Pillow (`bot.services.horses_render`). La
+   parrilla y el boleto son HTML/CSS y los captura Chromium.
 3. **Llegada**: el podio, la narración, quién cobra y quién no, y lo que se te
    escapó si fallaste por poco. Botón 🏇 **Otra carrera**.
 

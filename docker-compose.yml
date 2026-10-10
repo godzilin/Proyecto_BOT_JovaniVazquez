@@ -19,10 +19,11 @@ services:
       # Buzón con actualizar.sh para el comando `reinicio` (ver
       # src/bot/services/deploy.py). Lo crea el script con permisos de escritura.
       - ./.despliegue/buzon:/app/.despliegue/buzon
-    # Los límites evitan que un fallo acapare el NAS. La memoria se la llevan los
-    # Chromium de los caballos (ver bot/services/browser_scene.py): unos
-    # 170 MB, que se cierran tras 10 min sin uso. La moneda, los dados, la
-    # ruleta y el autobús ya no usan Chromium: los pintan dos procesos de Node
+    # Los límites evitan que un fallo acapare el NAS. La memoria se la llevan el
+    # Chromium de la parrilla y el boleto de los caballos (ver
+    # bot/services/horses_scene.py): unos 170 MB, que se cierra tras 10 min sin
+    # uso. La moneda, los dados, la ruleta, el autobús y la carrera de los
+    # caballos ya no usan Chromium: los pintan procesos de Node
     # (bot/services/node_scene.py) de ~90 MB cada uno. Con el bot (~300 MB) y
     # todos abiertos se rondan los 1,4 GB; con 768 MB el sistema mataba
     # procesos. CPU: 3,5 de los 4 hilos del NAS, para que las dos pestañas y
