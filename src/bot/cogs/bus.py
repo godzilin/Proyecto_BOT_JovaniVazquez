@@ -1,6 +1,6 @@
-"""Autobús (Ride the Bus): `autobus`, cuatro cartas, cuatro preguntas y cobrar a tiempo.
+"""Autobús (Ride the Bus): `guagua`, cuatro cartas, cuatro preguntas y cobrar a tiempo.
 
-Cada jugador abre su propia mesa, que solo él toca. `autobus 500` deja la
+Cada jugador abre su propia mesa, que solo él toca. `guagua 500` deja la
 apuesta en 500 Y$ y espera a la primera elección: 🔴 **Rojo** o ⚫ **Negro**
 cobran la apuesta y descubren la primera carta. Luego vienen ⬆️ mayor /
 ⬇️ menor / 🟰 igual, ↔️ dentro / 🔀 fuera / 🎯 poste y el palo. Tras cada
@@ -389,7 +389,7 @@ class BusView(ui.View):
         if data.get("custom_id") == f"{GAME}:table":
             return True
         await interaction.response.send_message(
-            f"Este autobús es de {self.owner.display_name}. Sube al tuyo con `autobus`.",
+            f"Este autobús es de {self.owner.display_name}. Sube a la tuya con `guagua`.",
             ephemeral=True,
         )
         return False
@@ -746,9 +746,9 @@ class Bus(commands.Cog, name="Autobús"):
         except discord.HTTPException:
             logger.debug("No se pudo anunciar una partida del autobús", exc_info=True)
 
-    # -- autobus ----------------------------------------------------------------------
+    # -- guagua -----------------------------------------------------------------------
 
-    async def _autobus_impl(
+    async def _guagua_impl(
         self,
         *,
         guild: discord.Guild | None,
@@ -758,7 +758,7 @@ class Bus(commands.Cog, name="Autobús"):
         send: Callable[..., Awaitable[discord.Message]],
         send_error: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Lógica compartida de `/autobus` y `.autobus`: abre la mesa."""
+        """Lógica compartida de `/guagua` y `.guagua`: abre la mesa."""
         if guild is None:
             await send_error("El autobús solo se juega dentro de un servidor.")
             return
@@ -792,12 +792,12 @@ class Bus(commands.Cog, name="Autobús"):
         self.views.add(view)
 
     @app_commands.command(
-        name="autobus",
+        name="guagua",
         description="Autobús (Ride the Bus): cuatro cartas, cuatro preguntas. Cobra a tiempo.",
     )
     @app_commands.describe(cantidad="Apuesta: 500, 2k, all… (por defecto 100)")
     @app_commands.guild_only()
-    async def autobus(self, interaction: discord.Interaction, cantidad: str | None = None) -> None:
+    async def guagua(self, interaction: discord.Interaction, cantidad: str | None = None) -> None:
         """Abre una mesa del Autobús.
 
         Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. La
@@ -809,7 +809,7 @@ class Bus(commands.Cog, name="Autobús"):
             await interaction.response.send_message(**kwargs)
             return await interaction.original_response()
 
-        await self._autobus_impl(
+        await self._guagua_impl(
             guild=interaction.guild,
             channel=interaction.channel,
             user=interaction.user,
@@ -818,16 +818,16 @@ class Bus(commands.Cog, name="Autobús"):
             send_error=responder.send_error,
         )
 
-    @commands.command(name="autobus")
+    @commands.command(name="guagua")
     @commands.guild_only()
-    async def autobus_text(self, ctx: commands.Context, cantidad: str | None = None) -> None:
-        """Versión de texto: `.autobus` o `.autobus 500`."""
+    async def guagua_text(self, ctx: commands.Context, cantidad: str | None = None) -> None:
+        """Versión de texto: `.guagua` o `.guagua 500`."""
         responder = ContextResponder(ctx)
 
         async def send(**kwargs: Any) -> discord.Message:
             return await ctx.send(**kwargs)
 
-        await self._autobus_impl(
+        await self._guagua_impl(
             guild=ctx.guild,
             channel=ctx.channel,
             user=ctx.author,

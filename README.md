@@ -74,7 +74,7 @@ python -m bot
   | 🍻 Beernight | `beernight [sonido] [archivo]` |
   | 🛍️ Tienda | `mascota [miembro]` · `tienda` |
   | 🪏 Trabajo | `pala` |
-  | 🎰 Casino | `apuestas [miembro]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `imv` · `hacienda [miembro]` · `renta` · `ruleta [cantidad] [apuesta]` · `blackjack [cantidad]` (atajo `.bj`) · `cohete [cantidad] [auto]` · `minas [cantidad] [minas]` · `pollo [cantidad] [dificultad] [autocobro]` · `moneda [cantidad] [lado]` · `autobus [cantidad]` · `dados [cantidad] [apuesta]` · `pachinko [cantidad]` · `caballo [cantidad] [caballos] [tipo]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `loteria` · `saldo [miembro]` · `tragas [cantidad]` · `volcan [cantidad]` |
+  | 🎰 Casino | `apuestas [miembro]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `imv` · `hacienda [miembro]` · `renta` · `ruleta [cantidad] [apuesta]` · `blackjack [cantidad]` (atajo `.bj`) · `cohete [cantidad] [auto]` · `minas [cantidad] [minas]` · `pollo [cantidad] [dificultad] [autocobro]` · `moneda [cantidad] [lado]` · `guagua [cantidad]` · `dados [cantidad] [apuesta]` · `pachinko [cantidad]` · `caballo [cantidad] [caballos] [tipo]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `loteria` · `saldo [miembro]` · `tragas [cantidad]` · `volcan [cantidad]` |
   | 🔔 Entradas | `entrada [archivo] [volumen] [borrar]` |
   | 🗼 Diversión | `babel <texto \| @miembros #canales>` · `hongkong` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
@@ -400,7 +400,7 @@ python -m bot
   ventana, como los caballos (la moneda bimetálica gira, rebota
   y se asienta, o se tambalea y se queda de pie), con Pillow si no hay
   navegador. Al cobrar dice cómo habría caído la siguiente.
-- **Autobús** (`/autobus`, `.autobus [cantidad]`): Ride the Bus. Cuatro
+- **Autobús** (`/guagua`, `.guagua [cantidad]`): Ride the Bus. Cuatro
   cartas y cuatro preguntas: rojo o negro; mayor, menor o igual; dentro, fuera
   o poste; y el palo. Tras cada acierto cobras o sigues, y quien acierta las
   cuatro puede jugárselo a la vuelta (doble o nada). Cada botón enseña su
@@ -834,7 +834,7 @@ src/bot/
 │   ├── mines.py         # Minas: tablero de 5×5 con botones (componentes v2)
 │   ├── chicken.py       # Pollo: carretera con botones, GIF por paso y autocobro
 │   ├── coin.py          # moneda: cara o cruz con botones, doble o nada y canto
-│   ├── bus.py           # autobus: Ride the Bus con botones, cobro y precarga de los GIF
+│   ├── bus.py           # guagua: Ride the Bus con botones, cobro y precarga de los GIF
 │   ├── craps.py         # dados: craps con Pase, No pase, punto, Odds y la mano
 │   ├── pachinko.py      # Pachinko con botones, Ráfaga, Auto y turbo
 │   ├── horses.py        # caballo: carrera por canal, parrilla, boletos y Gran Premio
