@@ -20,6 +20,7 @@ la raíz; en Docker, en `NODE_PATH`).
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import shutil
@@ -28,7 +29,7 @@ from typing import Any
 
 from PIL import Image
 
-from bot.services.browser_scene import BATCH, IDLE_SECONDS, TABS, Patch
+from bot.services.browser_scene import BATCH, IDLE_SECONDS, TABS, Patch, png_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,15 @@ RUNNER = Path(__file__).resolve().parent.parent / "assets" / "escena_node.cjs"
 PROCS = TABS
 #: Lo que puede tardar Node en arrancar y cargar la escena.
 START_TIMEOUT = 15.0
+
+
+def patch_png(patch: Patch) -> bytes:
+    """El PNG de un recuadro, venga de Chromium (ya en PNG, `u`) o de Node (`image`)."""
+    if "image" not in patch:
+        return png_bytes(patch)
+    buffer = io.BytesIO()
+    patch["image"].save(buffer, format="PNG", compress_level=6)
+    return buffer.getvalue()
 
 
 class NodeSceneError(RuntimeError):
@@ -98,9 +108,13 @@ class _Process:
             patches.append({"x": x, "y": y, "image": image})
         return header, patches
 
-    async def close(self) -> None:
+    def kill(self) -> None:
+        """Mata el proceso sin esperarlo (al cortar un dibujo a medias)."""
         if self.alive:
             self.proc.kill()
+
+    async def close(self) -> None:
+        self.kill()
         await self.proc.wait()
 
 
@@ -210,6 +224,14 @@ class NodeScene:
         async with self._lock:
             try:
                 result = await work(await self._open(count))
+            except asyncio.CancelledError:
+                # Cortado a mitad de una petición, el proceso puede tener píxeles
+                # sin leer en la tubería y la siguiente leería basura. Se cierran
+                # (el siguiente dibujo los arranca de nuevo, ~0,35 s) y no se apaga.
+                procs, self._procs = self._procs, []
+                for proc in procs:
+                    proc.kill()
+                raise
             except Exception:
                 logger.warning("%s no está disponible; se usa el plan B", self.name, exc_info=True)
                 self.disabled = True

@@ -23,14 +23,13 @@ Coste de un lanzamiento: ~50-80 fotogramas en ~0,5-1 s de navegador y
 from __future__ import annotations
 
 import asyncio
-import io
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from bot.services import browser_scene
-from bot.services.browser_scene import BrowserScene, Patch, png_bytes
+from bot.services.browser_scene import BrowserScene
 from bot.services.coin import CoinGame, Outcome, Side
 from bot.services.coin_render import (
     CoinRenderer,
@@ -42,7 +41,7 @@ from bot.services.coin_render import (
     meta_state,
     toss_states,
 )
-from bot.services.node_scene import NodeScene
+from bot.services.node_scene import NodeScene, patch_png
 
 SCENE = Path(__file__).resolve().parent.parent / "assets" / "moneda" / "escena.html"
 
@@ -50,15 +49,6 @@ SCENE = Path(__file__).resolve().parent.parent / "assets" / "moneda" / "escena.h
 def assemble(patches: list[dict[str, Any]]) -> list[Image.Image]:
     """Fotogramas enteros a partir de los recuadros de la escena (`browser_scene.assemble`)."""
     return browser_scene.assemble(patches, (W, H))
-
-
-def patch_png(patch: Patch) -> bytes:
-    """El PNG de un recuadro, venga de Chromium (ya en PNG) o de Node (imagen abierta)."""
-    if "image" not in patch:
-        return png_bytes(patch)
-    buffer = io.BytesIO()
-    patch["image"].save(buffer, format="PNG")
-    return buffer.getvalue()
 
 
 class CoinScene:

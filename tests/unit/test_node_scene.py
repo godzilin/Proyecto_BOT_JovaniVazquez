@@ -168,3 +168,22 @@ async def test_node_y_chromium_pintan_lo_mismo(painter: NodeScene) -> None:
     )
     for x, y in zip(a, b, strict=True):
         assert sum(ImageStat.Stat(ImageChops.difference(x, y)).mean) / 3 < 4
+
+
+@needs_node
+@module_loop
+async def test_cortar_un_dibujo_a_medias_no_estropea_el_siguiente() -> None:
+    """Cancelado con píxeles aún en la tubería, el pintor se reinicia en vez de leer basura."""
+    scene = NodeScene(SCENE, name="prueba")
+    game = lost_game()
+    meta, states = meta_state(game.stake), toss_states(game, start=Side.CARA, seed=2)
+    task = asyncio.create_task(scene.render(meta, states))
+    await asyncio.sleep(0.15)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not scene.disabled
+    patches = await scene.render(meta, states)
+    assert patches is not None and len(patches) == len(states)
+    assert not scene.disabled
+    await scene.close()
