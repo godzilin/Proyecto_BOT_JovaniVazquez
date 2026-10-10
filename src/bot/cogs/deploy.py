@@ -12,7 +12,8 @@ Novedades: cada vez que el NAS despliega commits nuevos (de noche o por
 descripción de cada uno (`bot.services.changelog`) y publica el aviso en cada
 servidor: la lista de cambios con su enlace y autor y, en modo detallado, una
 ficha por PR con su descripción, como en GitHub. Canal, detalle y si se
-publica o no se configuran con `cambios` (cog `Admin`). El aviso es
+publica o no se configuran con `cambios` (cog `Admin`); el canal
+puede ser un hilo. El aviso es
 informativo: sin botones, logros ni bromas.
 
 `reinicio` no tiene logros: es una utilidad interna de dos personas (excepción
@@ -156,13 +157,47 @@ def news_messages(entries: list[NewsEntry], *, detailed: bool) -> list[list[disc
     return messages
 
 
-def news_channel(guild: discord.Guild, settings: NewsSettings) -> discord.TextChannel | None:
-    """Canal del aviso: el elegido con `cambios`, si no `#chat-general` o el del sistema."""
+#: Dónde se puede publicar el aviso: un canal de texto o un hilo (también un post de foro).
+NewsTarget = discord.TextChannel | discord.Thread
+
+
+async def resolve_target(guild: discord.Guild, channel_id: int) -> NewsTarget | None:
+    """El canal de texto o hilo con ese ID, aunque el hilo esté archivado.
+
+    Discord no guarda los hilos archivados en la caché del bot: si no está,
+    se pide a la API. `None` si no existe, el bot no lo ve o no es un sitio
+    donde se pueda publicar (un canal de voz, un foro entero).
+    """
+    channel = guild.get_channel_or_thread(channel_id)
+    if channel is None:
+        try:
+            channel = await guild.fetch_channel(channel_id)
+        except discord.HTTPException:
+            return None
+    return channel if isinstance(channel, NewsTarget) else None
+
+
+async def news_channel(guild: discord.Guild, settings: NewsSettings) -> NewsTarget | None:
+    """Canal del aviso: el elegido con `cambios`, si no `#chat-general` o el del sistema.
+
+    Si el elegido es un hilo archivado, al escribir en él Discord lo desarchiva
+    solo. Si se ha borrado o el bot ya no lo ve, se vuelve al canal de serie.
+    """
     if settings.channel_id is not None:
-        channel = guild.get_channel(settings.channel_id)
-        if isinstance(channel, discord.TextChannel):
+        channel = await resolve_target(guild, settings.channel_id)
+        if channel is not None:
             return channel
     return discord.utils.get(guild.text_channels, name=NEWS_CHANNEL_NAME) or guild.system_channel
+
+
+def can_post(channel: NewsTarget, me: discord.Member) -> bool:
+    """Si el bot puede escribir ahí: en un hilo cuenta el permiso de hilos, no el de mensajes."""
+    permissions = channel.permissions_for(me)
+    if isinstance(channel, discord.Thread):
+        if channel.locked and not permissions.manage_threads:
+            return False
+        return permissions.send_messages_in_threads
+    return permissions.send_messages
 
 
 class OldNewsButton(
@@ -315,7 +350,7 @@ class Deploy(commands.Cog, name="Despliegue"):
         entries = await self._with_pulls(items)
         for guild in self.bot.guilds:
             settings = await self._settings(guild.id)
-            channel = news_channel(guild, settings) if settings.enabled else None
+            channel = await news_channel(guild, settings) if settings.enabled else None
             if channel is None:
                 continue
             try:

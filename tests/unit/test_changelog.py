@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import discord
 import pytest
 
-from bot.cogs.admin import Admin
+from bot.cogs.admin import CHANNEL_REFERENCE, Admin
 from bot.repositories.news import NewsRepository, NewsSettings
 from bot.services.changelog import REPOS, NewsItem, clean_body, find_pull, parse_news
 
@@ -111,14 +111,31 @@ def _admin_with_repository(tmp_path: Path) -> tuple[Admin, NewsRepository]:
     return Admin(bot), repository
 
 
-def _responder() -> SimpleNamespace:
+def _thread(channel_id: int, *, can_write: bool = True) -> MagicMock:
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = channel_id
+    thread.mention = f"<#{channel_id}>"
+    thread.locked = False
+    thread.permissions_for.return_value = discord.Permissions(send_messages_in_threads=can_write)
+    return thread
+
+
+def _responder(*, cached: dict | None = None, api: dict | None = None) -> SimpleNamespace:
+    """Servidor con `#chat-general`, lo que tiene en caché y lo que da la API."""
     general = MagicMock(spec=discord.TextChannel)
     general.name = "chat-general"
     general.mention = "#chat-general"
     guild = MagicMock(spec=discord.Guild)
     guild.id = 1
     guild.text_channels = [general]
-    guild.get_channel = lambda channel_id: None
+    guild.get_channel_or_thread = lambda channel_id: (cached or {}).get(channel_id)
+
+    async def fetch_channel(channel_id: int) -> object:
+        if channel_id not in (api or {}):
+            raise discord.NotFound(MagicMock(status=404), "Unknown Channel")
+        return api[channel_id]
+
+    guild.fetch_channel = fetch_channel
     return SimpleNamespace(guild=guild, send=AsyncMock(), send_error=AsyncMock())
 
 
@@ -141,14 +158,55 @@ async def test_cambios_apaga_y_pasa_a_resumen(tmp_path: Path) -> None:
     await repository.initialize()
     canal = MagicMock(spec=discord.TextChannel)
     canal.id = 9
+    responder = _responder(cached={9: canal})
 
-    await admin._cambios_impl(_responder(), "desactivar", canal)
-    await admin._cambios_impl(_responder(), "resumen", None)
+    await admin._cambios_impl(responder, "desactivar", 9)
+    await admin._cambios_impl(responder, "resumen", None)
 
+    responder.send_error.assert_not_awaited()
     assert await repository.settings(1) == NewsSettings(enabled=False, channel_id=9, detailed=False)
 
     await admin._cambios_impl(_responder(), "defecto", None)
     assert (await repository.settings(1)).channel_id is None
+
+
+@pytest.mark.asyncio
+async def test_cambios_acepta_un_hilo_archivado(tmp_path: Path) -> None:
+    """Un hilo archivado no está en la caché: se pide a Discord y vale igual."""
+    admin, repository = _admin_with_repository(tmp_path)
+    await repository.initialize()
+    hilo = _thread(55)
+    responder = _responder(api={55: hilo})
+
+    await admin._cambios_impl(responder, None, 55)
+
+    responder.send_error.assert_not_awaited()
+    assert (await repository.settings(1)).channel_id == 55
+    text = responder.send.await_args.args[0]
+    assert "Canal: <#55>" in text and "No puedo escribir" not in text
+
+
+@pytest.mark.asyncio
+async def test_cambios_avisa_si_no_puede_escribir_en_el_hilo(tmp_path: Path) -> None:
+    admin, repository = _admin_with_repository(tmp_path)
+    await repository.initialize()
+    responder = _responder(cached={55: _thread(55, can_write=False)})
+
+    await admin._cambios_impl(responder, None, 55)
+
+    assert "No puedo escribir ahí" in responder.send.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_cambios_rechaza_un_canal_que_no_existe(tmp_path: Path) -> None:
+    admin, repository = _admin_with_repository(tmp_path)
+    await repository.initialize()
+    responder = _responder()
+
+    await admin._cambios_impl(responder, None, 404)
+
+    responder.send_error.assert_awaited_once()
+    assert await repository.settings(1) == NewsSettings()
 
 
 @pytest.mark.asyncio
@@ -157,7 +215,28 @@ async def test_cambios_no_acepta_canal_y_defecto_a_la_vez(tmp_path: Path) -> Non
     await repository.initialize()
     responder = _responder()
 
-    await admin._cambios_impl(responder, "defecto", MagicMock(spec=discord.TextChannel))
+    await admin._cambios_impl(responder, "defecto", 9)
 
     responder.send_error.assert_awaited_once()
     assert await repository.settings(1) == NewsSettings()
+
+
+def test_el_slash_acepta_hilos_aunque_no_esten_en_la_cache() -> None:
+    """La opción `canal` ofrece hilos y no exige que el bot los tenga en memoria."""
+    (canal,) = [p for p in Admin.cambios.parameters if p.name == "canal"]
+
+    assert discord.ChannelType.public_thread in canal.channel_types
+    assert discord.ChannelType.private_thread in canal.channel_types
+    assert discord.ChannelType.text in canal.channel_types
+
+
+@pytest.mark.parametrize(
+    ("arg", "expected"),
+    [("<#123456789012345678>", 123456789012345678), ("123456789012345678", 123456789012345678)],
+)
+def test_cambios_de_texto_reconoce_hilos_por_mencion_o_id(arg: str, expected: int) -> None:
+    """Un hilo archivado no lo encuentran los conversores; su mención o ID sí valen."""
+    match = CHANNEL_REFERENCE.fullmatch(arg)
+
+    assert match is not None and int(match[1] or match[2]) == expected
+    assert CHANNEL_REFERENCE.fullmatch("anuncios") is None
