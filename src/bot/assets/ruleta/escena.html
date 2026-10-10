@@ -1,7 +1,8 @@
 <!doctype html>
 <!--
-Escena de la ruleta americana, dibujada con canvas en un Chromium sin ventana
-(ver bot/services/roulette_scene.py).
+Escena de la ruleta americana, dibujada con canvas. La pinta Node con Skia
+(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver
+bot/services/roulette_scene.py).
 
 No decide nada: Python le pasa en cada fotograma el ángulo de la rueda, la
 bola, los rayos, el cartel del crupier, las casillas resaltadas, el cartel del
@@ -10,8 +11,9 @@ La tirada ya está resuelta. Aquí solo se pinta. Funciones que llama Python:
 
 - loadFonts()           espera a las fuentes (canvas no las carga solo).
 - setup(meta)           dibuja una vez el fondo, el cuenco y la textura de la rueda.
-- renderFrames(states)  dibuja los fotogramas y devuelve, de cada uno, el PNG
-                        (data URL) del recuadro que ha cambiado y dónde va.
+- renderFrames(states)  dibuja los fotogramas y devuelve, de cada uno, el
+                        recuadro que ha cambiado (PNG en Chromium, píxeles
+                        crudos en Node) y dónde va.
 
 La rueda se pinta vista desde arriba (un canvas cuadrado) y se estira a una
 elipse al copiarla (perspectiva: el círculo se aplasta en vertical un 0,58).
@@ -943,7 +945,7 @@ function snapshot(region) {
   out.width = w; out.height = h;
   octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "low";
   octx.drawImage(big, x0 * S, y0 * S, w * S, h * S, 0, 0, w, h);
-  return { x: x0, y: y0, u: out.toDataURL("image/png") };
+  return { x: x0, y: y0, u: window.exportFrame(out) };
 }
 
 function frame(st, forceFull) {
@@ -958,6 +960,10 @@ function frame(st, forceFull) {
   PREV = box; PREV_SIG = sig; HAVE_FRAME = true;
   return snapshot(region);
 }
+
+// En Chromium cada recuadro va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
 
 window.loadFonts = async () => {
   await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);

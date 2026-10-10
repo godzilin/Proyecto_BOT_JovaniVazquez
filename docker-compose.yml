@@ -20,12 +20,12 @@ services:
       # src/bot/services/deploy.py). Lo crea el script con permisos de escritura.
       - ./.despliegue/buzon:/app/.despliegue/buzon
     # Los límites evitan que un fallo acapare el NAS. La memoria se la llevan los
-    # Chromium de los juegos (ver bot/services/browser_scene.py): la ruleta con
-    # sus dos pestañas ocupa ~370 MB, el autobús otros ~370 MB (también dibuja
-    # con dos pestañas) y los caballos unos 170 MB, que se cierran tras 10 min
-    # sin uso. La moneda y los dados ya no usan Chromium: los pintan dos
-    # procesos de Node (bot/services/node_scene.py) de ~90 MB cada uno. Con el bot (~300 MB) y todos
-    # abiertos se rondan los 1,6 GB; con 768 MB el sistema mataba
+    # Chromium de los juegos (ver bot/services/browser_scene.py): el autobús
+    # ocupa ~370 MB (dibuja con dos pestañas) y los caballos unos 170 MB, que
+    # se cierran tras 10 min sin uso. La moneda, los dados y la ruleta ya no
+    # usan Chromium: los pintan dos procesos de Node
+    # (bot/services/node_scene.py) de ~90 MB cada uno. Con el bot (~300 MB) y
+    # todos abiertos se rondan los 1,4 GB; con 768 MB el sistema mataba
     # procesos. CPU: 3,5 de los 4 hilos del NAS, para que las dos pestañas y
     # los hilos que montan el GIF trabajen a la vez y quede medio hilo al NAS.
     mem_limit: 2g
