@@ -1912,15 +1912,35 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10, "dealer_five", "La banca se lo curra",
          "Que la banca robe 5 cartas o más 10 veces.", R),
     ])  # fmt: skip
+    # Hasta que llegó el seguro, el blackjack de la banca era empate y esto lo
+    # contaba. Ahora cuenta los seguros cobrados: menos de uno de cada 40
+    # manos aunque se asegure siempre, de ahí las metas más bajas. Rarezas de
+    # `docs/auditoria_logros.py` (un jugador que asegura una vez de cada cuatro).
     a += _tiers("blackjack", "bj_dealer_bj_saved", [
         (1, "bj_rescate", "Rescate de Bankia",
-         "La banca saca blackjack y te devuelve la apuesta.", C),
-        (25, "bj_rescate_25", "El FROB te quiere",
-         "Que la banca te perdone su blackjack 25 veces.", R),
-        (250, "bj_rescate_250", "Demasiado grande para caer",
-         "Que la banca te perdone su blackjack 250 veces.", E),
-        (1_000, "bj_rescate_1k", "Rescatado con dinero de todos",
-         "Que la banca te perdone su blackjack 1.000 veces.", L),
+         "Cobra el seguro: la banca tenía blackjack.", C),
+        (10, "bj_rescate_25", "El FROB te quiere",
+         "Cobra el seguro 10 veces.", E),
+        (50, "bj_rescate_250", "Demasiado grande para caer",
+         "Cobra el seguro 50 veces.", L),
+        (200, "bj_rescate_1k", "Rescatado con dinero de todos",
+         "Cobra el seguro 200 veces.", M),
+    ])  # fmt: skip
+    a += _tiers("blackjack", "bj_insured", [
+        (1, "bj_seguro", "Seguro a todo riesgo",
+         "Paga el seguro cuando la banca enseña un as.", C),
+        (25, "bj_seguro_25", "Cliente de la Mutua",
+         "Paga el seguro 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("blackjack", "bj_insurance_wasted", [
+        (1, "bj_letra_pequena", "La letra pequeña",
+         "Paga el seguro y que la banca no tenga blackjack.", C),
+        (25, "bj_franquicia", "Con franquicia de la cuantía total",
+         "Pierde el seguro 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("blackjack", "bj_insured_bust", [
+        (1, "bj_siniestro_total", "Parte amistoso con la banca",
+         "Paga el seguro, la banca no tiene blackjack y encima te pasas.", C, True),
     ])  # fmt: skip
     a += _tiers("blackjack", "bj_max_stake", [
         (1, "bj_tope", "Hasta aquí llega la mesa",
@@ -8089,8 +8109,14 @@ def blackjack_stats(game: BlackjackGame) -> StatDelta:
         bump("bj_dealer_busts")
     if is_blackjack(game.dealer):
         bump("bj_dealer_naturals")
-        if not game.hands[0].natural:
+    if game.insurance:
+        bump("bj_insured")
+        if game.insurance_paid:
             bump("bj_dealer_bj_saved")
+        else:
+            bump("bj_insurance_wasted")
+            if all(h.busted for h in game.hands):
+                bump("bj_insured_bust")
     if game.stake >= MAX_STAKE:
         bump("bj_max_stake")
     if any(h.result is Result.LOSE and h.total == 20 and dealer_total == 21 for h in game.hands):

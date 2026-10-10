@@ -307,16 +307,18 @@ python -m bot
   de antes.
 - **Blackjack** (`/blackjack`, `.blackjack` o `.bj`): reparte al momento con la apuesta indicada
   (`.bj 500`, `.bj all`) y se juega con botones: 🃏 Pedir, ✋ Plantarse,
-  ⏫ Doblar y ✂️ Separar. Al terminar, 🃏 Repartir juega otra mano en el mismo
+  ⏫ Doblar y ✂️ Separar. Si la banca enseña un as, antes salen 🛡️ Seguro y
+  Sin seguro. Al terminar, 🃏 Repartir juega otra mano en el mismo
   mensaje y ½ / ×2 / 💰 All-in cambian la apuesta. La mesa es una imagen
   (tapete y cartas, ~5-10 KB por paso) y la banca roba carta a carta en
   pantalla. Reglas: 6 barajas rebarajadas en cada mano, la banca se planta
-  en 17 (también blando) y mira si tiene blackjack; si lo tiene, la mano es
-  empate y recuperas la apuesta. Blackjack paga 3:2, doblar con dos cartas
-  (también tras separar), separar una vez; sin seguro ni rendición. La
-  apuesta inicial es de 5.000 Y$ como mucho (`all` y ×2 se quedan ahí):
-  con el empate ante el blackjack de la banca, jugar bien deja un 3,6 % a
-  favor del jugador y el tope impide exprimirlo con un all-in. La apuesta se cobra al repartir (y al doblar o separar) y
+  en 17 (también blando) y mira si tiene blackjack; si lo tiene, pierdes la
+  apuesta (empate si tú también lo tienes). Seguro con un as de la banca:
+  cuesta media apuesta y paga 2:1 si tiene blackjack. Blackjack paga 3:2,
+  doblar con dos cartas (también tras separar), separar una vez; sin
+  rendición. La apuesta inicial es de 5.000 Y$ como mucho (`all` y ×2 se
+  quedan ahí). Jugando bien y sin seguro, el juego devuelve ≈ 99,7 % de lo
+  apostado; el seguro, ≈ 92 % de lo que se mete en él. La apuesta se cobra al repartir (y al doblar, separar o asegurar) y
   el premio se paga al acabar. Si la mesa caduca o el bot se apaga con una
   mano a medias, se planta y se paga.
 - **Tragaperras** (`/tragas`, `.tragas [cantidad]`): una máquina de 3 rodillos

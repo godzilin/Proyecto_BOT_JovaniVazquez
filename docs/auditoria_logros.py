@@ -509,6 +509,9 @@ def _jugar_blackjack(j: Jugador) -> StatDelta:
     rng = j.rng
     game = bj.BlackjackGame(APUESTA, shoe=bj.new_shoe(rng.shuffle))
     game.deal()
+    if game.insurance_pending:
+        # Un jugador normal no sabe que el seguro sale caro: lo toma a veces.
+        game.decide_insurance(rng.random() < 0.25)
     while game.player_turn:
         hand = game.current
         up = game.dealer[0].value

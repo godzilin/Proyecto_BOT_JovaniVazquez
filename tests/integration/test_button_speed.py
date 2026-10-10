@@ -32,6 +32,7 @@ from render_fakes import use_fake_drawings
 
 import bot.repositories.sqlite as sqlite_module
 from bot.app import INITIAL_EXTENSIONS, BotClient
+from bot.services.blackjack import BlackjackGame, Card
 from bot.services.coin import Outcome, Side
 from bot.services.craps import Bet
 from bot.services.todo import Priority
@@ -359,6 +360,21 @@ async def press_blackjack(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+async def press_blackjack_insurance(client: BotClient, owner: MagicMock) -> Click:
+    table = module_of(client, "Blackjack").BlackjackTable(
+        client.get_cog("Blackjack"), guild_id=GUILD_ID, owner=owner, stake=2
+    )
+    # Banca con un as a la vista: la mano espera a que se decida el seguro.
+    shoe = [Card(rank, 0) for rank in (13, 10, 1, 10)]
+    table.game = BlackjackGame(stake=2, shoe=shoe)
+    table.game.deal()
+
+    async def click(interaction: MagicMock) -> None:
+        await table.insure(interaction, take=True)
+
+    return click
+
+
 async def press_pala_hire(client: BotClient, owner: MagicMock) -> Click:
     panel = module_of(client, "Trabajo").PalaPanel(
         client.get_cog("Trabajo"), guild_id=GUILD_ID, owner=owner
@@ -475,6 +491,7 @@ CASES: dict[str, Press] = {
     "dados: odds al máximo": press_dice_odds_max,
     "ruleta: apostar": press_roulette,
     "blackjack: repartir": press_blackjack,
+    "blackjack: seguro": press_blackjack_insurance,
     "pala: elegir curro": press_pala_hire,
     "tienda: comprar": press_checkout,
     "apuestas: cambiar de página": press_casino_stats,

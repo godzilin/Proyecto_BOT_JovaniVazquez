@@ -181,7 +181,7 @@ PRODUCED_STATS = {
     "roulette_streak_max", "roulette_repeat_pocket",
     "bj_hands", "bj_wins", "bj_naturals", "bj_double_wins", "bj_splits", "bj_split_sweeps",
     "bj_busts", "bj_pushes", "bj_21_multi", "bj_dealer_busts", "bj_dealer_naturals",
-    "bj_dealer_bj_saved", "bj_max_stake",
+    "bj_dealer_bj_saved", "bj_max_stake", "bj_insured", "bj_insurance_wasted", "bj_insured_bust",
     "bj_bad_beat", "bj_kamikaze", "bj_cards_max",
     "casino_wagered", "casino_win_max", "casino_loss_max", "casino_all_in",
     "casino_all_in_wins", "casino_broke", "casino_bet_666", "casino_bet_42",
@@ -617,12 +617,38 @@ def test_blackjack_natural() -> None:
     assert delta.add["bj_wins"] == 1
 
 
-def test_blackjack_de_la_banca_cuenta_como_rescate_y_no_si_tambien_tienes_blackjack() -> None:
-    rescued = blackjack_stats(settled_game([[10, 9]], [1, 13]))
-    assert rescued.add["bj_dealer_bj_saved"] == 1
-    assert rescued.add["bj_pushes"] == 1
+def test_blackjack_de_la_banca_sin_seguro_se_pierde_y_no_cuenta_como_rescate() -> None:
+    lost = blackjack_stats(settled_game([[10, 9]], [1, 13]))
+    assert lost.add["bj_dealer_naturals"] == 1
+    assert "bj_dealer_bj_saved" not in lost.add
+    assert "bj_pushes" not in lost.add
     both = blackjack_stats(settled_game([[1, 12]], [1, 13]))
-    assert "bj_dealer_bj_saved" not in both.add
+    assert both.add["bj_pushes"] == 1
+
+
+def insured_game(hand: list[int], dealer: list[int]) -> BlackjackGame:
+    game = BlackjackGame(stake=100, shoe=[])
+    game.hands = [Hand([card(r) for r in hand], 100, done=True)]
+    game.dealer = [card(r) for r in dealer]
+    game.insurance = 50
+    game.hole_revealed = True
+    game.settle()
+    return game
+
+
+def test_blackjack_seguro_cobrado_es_el_rescate() -> None:
+    delta = blackjack_stats(insured_game([10, 9], [1, 13]))
+    assert delta.add["bj_insured"] == 1
+    assert delta.add["bj_dealer_bj_saved"] == 1
+    assert "bj_insurance_wasted" not in delta.add
+
+
+def test_blackjack_seguro_perdido_y_siniestro_total() -> None:
+    wasted = blackjack_stats(insured_game([10, 9], [1, 7]))
+    assert wasted.add["bj_insurance_wasted"] == 1
+    assert "bj_insured_bust" not in wasted.add
+    bust = blackjack_stats(insured_game([10, 6, 9], [1, 7]))
+    assert bust.add["bj_insured_bust"] == 1
 
 
 def test_blackjack_apuesta_maxima() -> None:
