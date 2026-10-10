@@ -272,8 +272,11 @@ async def test_el_pollo_apunta_sus_logros_con_el_bot_real(tmp_path: Path) -> Non
         pollo.REVEAL_MARGIN_SECONDS = 0
         cog = client.get_cog("Pollo")
         cog.renderer = MagicMock()
-        cog.renderer.hops.return_value = pollo.Media(gif=b"GIF", png=b"PNG", seconds=0.0)
-        cog.renderer.board.return_value = b"PNG"
+        cog.renderer.hops = AsyncMock(return_value=pollo.Media(gif=b"GIF", png=b"PNG", seconds=0.0))
+        cog.renderer.board = AsyncMock(return_value=b"PNG")
+        cog.renderer.close = AsyncMock()
+        # Con un dibujo falso, pintar por adelantado contaría dibujos de más.
+        cog.ahead = False
         owner = MagicMock(spec=discord.Member)
         owner.id = OWNER_ID
         owner.display_name = "Diego"
