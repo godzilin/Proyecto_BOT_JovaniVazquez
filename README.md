@@ -388,7 +388,10 @@ python -m bot
   encienden unos faros (la espera, más larga cuanto más hay en juego, es la
   tensión) y después un PNG. 🎯 Autocobro cruza solo hasta el multiplicador
   elegido en un único GIF. Al cobrar dice dónde estaba el coche («quedaban 4
-  carriles libres»). Devuelve el 99 % de media.
+  carriles libres»). Se pinta con canvas al estilo de las demás mesas (en
+  Node con Skia, sin navegador; Chromium y Pillow quedan de reserva) y el
+  siguiente paso se pinta antes de pulsar, así que el GIF sale al momento.
+  Devuelve el 99 % de media.
 - **Cara o cruz** (`/moneda`, `.moneda [cantidad] [lado]`): doble o nada.
   Eliges 👑 cara (la corona) o ✈️ cruz (el Falcon) con los botones y se
   lanza; si aciertas, lo que hay en juego se dobla y decides si cobras o te
@@ -902,7 +905,8 @@ src/bot/
 │   ├── crash_render.py  # Gráfica PNG de cada ronda de Crash
 │   ├── mines.py         # Multiplicadores exactos y partida de Minas
 │   ├── chicken.py       # Pollo: dificultades, multiplicadores y carril del atropello
-│   ├── chicken_render.py # GIF y PNG de la carretera, el pollo y los coches
+│   ├── chicken_render.py # Línea de tiempo del Pollo y dibujo de reserva con Pillow
+│   ├── chicken_scene.py # Pollo con canvas en Node o Chromium (assets/pollo/escena.html)
 │   ├── coin.py          # Cara o cruz: lanzamientos, canto, racha y doble o nada
 │   ├── coin_render.py   # Vuelo de la moneda, lo que se ve en cada fotograma y dibujo con Pillow
 │   ├── coin_scene.py    # Cara o cruz con canvas en Node o Chromium (assets/moneda/escena.html)

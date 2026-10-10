@@ -1,5 +1,9 @@
 """Dibujo del Pollo: la carretera, el pollo y los coches, en GIF y PNG.
 
+Ahora es la reserva de Pillow (cuando no hay Node ni Chromium) y la fuente de
+la línea de tiempo (`timeline`, `resting_scene`, `start_scene`) que también
+pinta `chicken_scene` con canvas.
+
 Vista cenital de una carretera genérica: acera a la izquierda, carriles de
 asfalto con una alcantarilla en cada uno que lleva su multiplicador, y la meta
 a la derecha. El pollo cruza de izquierda a derecha y los coches bajan por
