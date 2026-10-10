@@ -14,8 +14,14 @@ casa (ver `bot.services.coin`).
 Cada lanzamiento es un GIF: la moneda sube girando, cae, rebota y se asienta
 (o se tambalea y se queda de pie). El vuelo dura más cuanto más hay en
 juego. Después el bot cambia el GIF por un PNG con el resultado y vuelve a
-activar los botones. El dibujo lo hace Chromium con canvas
-(`bot.services.coin_scene`) y, si no hay navegador, Pillow.
+activar los botones. El dibujo lo hace Node con canvas
+(`bot.services.coin_scene`), con Chromium o Pillow de reserva.
+
+Para que el clic se note al instante, la mesa pinta por adelantado los dos GIF
+posibles de la siguiente tirada (pidiendo cara y pidiendo cruz). Se puede
+porque el resultado se sortea antes de pulsar (`CoinGame.upcoming`; el de la
+primera tirada lo sortea la mesa, `_opening`) y no se enseña hasta lanzar. Al
+pulsar solo queda subir el GIF.
 
 Al cobrar, el texto dice cómo habría caído la siguiente («🔮 la siguiente
 habría salido cruz»), que es lo que hace volver a jugar.
@@ -40,6 +46,7 @@ import random
 import secrets
 import time
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -62,6 +69,7 @@ from bot.services.coin import (
     milestone,
     multiplier,
     parse_side,
+    toss,
     win_chance,
 )
 from bot.services.coin_render import Media
@@ -148,6 +156,13 @@ class CoinView(ui.View):
         self._busy = False
         self._lock = asyncio.Lock()
         self._last_interaction: discord.Interaction | None = None
+        #: Primer lanzamiento de la próxima partida, sorteado por adelantado.
+        self._opening: Outcome | None = None
+        #: Semilla del vuelo de la próxima tirada, sorteada por adelantado.
+        self._seed: int | None = None
+        #: GIF pintados por adelantado: para qué estado valen y uno por lado pedido.
+        self._plan: tuple[tuple[Any, ...], dict[Side, asyncio.Future[Media | None]]] | None = None
+        self._painting: asyncio.Task[None] | None = None
 
     # -- Texto ------------------------------------------------------------------------
 
@@ -346,6 +361,88 @@ class CoinView(ui.View):
             game.cash_out()
             await self._settle(game)
 
+    # -- GIF por adelantado -------------------------------------------------------------
+
+    def _plan_key(self) -> tuple[Any, ...]:
+        """Lo que decide el GIF de la próxima tirada, salvo el lado que se pida."""
+        game = self.game
+        if game is not None and game.playing:
+            return (id(game), len(game.flips), game.upcoming, self.resting_side(), self._seed)
+        return (None, self.stake, self._opening, self.resting_side(), self._seed)
+
+    def _predict(self, pick: Side) -> CoinGame:
+        """La partida tal como quedará si se pide `pick` (sobre una copia)."""
+        game = self.game
+        if game is not None and game.playing:
+            future = deepcopy(game)
+        else:
+            assert self._opening is not None
+            future = CoinGame.new(self.stake, self.cog.rng, upcoming=self._opening)
+        # El siguiente sorteo de la copia no se dibuja: vale cualquier azar.
+        future.flip(pick, random.Random(0))
+        if future.playing and future.maxed:
+            future.cash_out()
+        return future
+
+    def prepare(self) -> None:
+        """Pinta en segundo plano los GIF de la próxima tirada, si no lo están ya.
+
+        Se llama en cuanto sale el GIF de una tirada (la siguiente moneda ya está
+        sorteada, así que se pinta mientras se ve esta), al cobrar, al abrir la
+        mesa y al cambiar la apuesta. Los dos
+        lados se pintan uno detrás de otro (primero el último que se pidió) y
+        nunca se cancelan a medias, porque el pintor no admite cortar un dibujo:
+        si mientras tanto la mesa cambia, el que aún no ha empezado no se pinta.
+        """
+        if not self.cog.ahead or self.is_finished():
+            return
+        game = self.game
+        if (game is None or not game.playing) and self._opening is None:
+            self._opening = toss(self.cog.rng)
+        if self._seed is None:
+            self._seed = self.cog.rng.randrange(1, 2**31)
+        key = self._plan_key()
+        if self._plan is not None and self._plan[0] == key:
+            return
+        loop = asyncio.get_running_loop()
+        last = game.last.pick if game is not None and game.last is not None else Side.CARA
+        order = [last, last.other]
+        futures: dict[Side, asyncio.Future[Media | None]] = {
+            side: loop.create_future() for side in order
+        }
+        self._plan = (key, futures)
+        previous = self._painting
+        self._painting = asyncio.create_task(self._paint_ahead(key, order, futures, previous))
+
+    async def _paint_ahead(
+        self,
+        key: tuple[Any, ...],
+        order: list[Side],
+        futures: dict[Side, asyncio.Future[Media | None]],
+        previous: asyncio.Task[None] | None,
+    ) -> None:
+        # Un plan detrás de otro: así un plan viejo nunca hace esperar dos dibujos.
+        if previous is not None:
+            await asyncio.gather(previous, return_exceptions=True)
+        for pick in order:
+            media: Media | None = None
+            if self._plan_key() == key and not self.is_finished():
+                try:
+                    media = await self.cog.renderer.toss(
+                        self._predict(pick), start=key[3], seed=key[4]
+                    )
+                except Exception:
+                    logger.warning("No se pudo pintar por adelantado la moneda", exc_info=True)
+            if not futures[pick].done():
+                futures[pick].set_result(media)
+
+    def _take_plan(self, pick: Side) -> asyncio.Future[Media | None] | None:
+        """El GIF por adelantado de pedir `pick`, si vale para la mesa tal como está."""
+        plan, self._plan = self._plan, None
+        if plan is None or plan[0] != self._plan_key():
+            return None
+        return plan[1].get(pick)
+
     # -- Dinero y partida -------------------------------------------------------------
 
     async def _start(self) -> str | None:
@@ -363,7 +460,8 @@ class CoinView(ui.View):
         self.balance = settlement.balance
         # Para las porras: una partida empezada antes del cierre no cuenta.
         self.started_at = time.time()
-        self.game = CoinGame.new(self.stake, self.cog.rng)
+        self.game = CoinGame.new(self.stake, self.cog.rng, upcoming=self._opening)
+        self._opening = None
         self.note = None
         return None
 
@@ -432,6 +530,8 @@ class CoinView(ui.View):
         *,
         start: Side,
         waiting: str,
+        seed: int,
+        ready: asyncio.Future[Media | None] | None = None,
     ) -> None:
         """Enseña el GIF del lanzamiento y después el PNG con el resultado.
 
@@ -440,6 +540,9 @@ class CoinView(ui.View):
         no responde. Los botones se apagan sin reconstruirlos, con las etiquetas
         de antes de lanzar, porque las nuevas (×8 o la apuesta) delatarían el
         resultado.
+
+        Si el GIF ya estaba pintado por adelantado (`ready`), va directo, sin ese
+        paso intermedio: una ida y vuelta menos a Discord.
         """
         game = self.game
         assert game is not None
@@ -453,17 +556,25 @@ class CoinView(ui.View):
             except discord.HTTPException:
                 logger.warning("No se pudo apagar la mesa de la moneda", exc_info=True)
 
+        async def paint() -> Media:
+            media = await ready if ready is not None else None
+            if media is None:
+                media = await self.cog.renderer.toss(game, start=start, seed=seed)
+            return media
+
         media: Media
-        _, media = await asyncio.gather(
-            show_waiting(),
-            self.cog.renderer.toss(game, start=start, seed=self.cog.rng.randrange(1, 2**31)),
-        )
+        if ready is not None and ready.done() and ready.result() is not None:
+            media = await paint()
+        else:
+            _, media = await asyncio.gather(show_waiting(), paint())
         await editor(
             # Color neutro: el del final delataría el resultado antes del GIF.
             embed=self.embed(image=GIF_NAME, text=waiting, color=COLOR_IDLE),
             attachments=[discord.File(io.BytesIO(media.gif), filename=GIF_NAME)],
             view=self,
         )
+        # La siguiente moneda ya está sorteada: se pinta mientras se ve esta.
+        self.prepare()
         await asyncio.sleep(media.seconds + REVEAL_MARGIN_SECONDS)
         self.rebuild()
         await editor(
@@ -495,6 +606,7 @@ class CoinView(ui.View):
         game: CoinGame | None = None
         try:
             async with self._lock:
+                ready = self._take_plan(pick)
                 if self.game is None or not self.game.playing:
                     if error := await self._start():
                         return error
@@ -502,6 +614,8 @@ class CoinView(ui.View):
                 assert game is not None
                 start = self.resting_side()
                 waiting = self.flying_text(pick)
+                seed = self._seed if self._seed is not None else self.cog.rng.randrange(1, 2**31)
+                self._seed = None
                 try:
                     game.flip(pick, self.cog.rng)
                 except CoinError:
@@ -517,7 +631,7 @@ class CoinView(ui.View):
                     self.note = None
                 if interaction is not None:
                     self._last_interaction = interaction
-            await self._show_toss(editor, start=start, waiting=waiting)
+            await self._show_toss(editor, start=start, waiting=waiting, seed=seed, ready=ready)
         except discord.HTTPException:
             logger.warning("No se pudo enseñar un lanzamiento de la moneda", exc_info=True)
         finally:
@@ -561,6 +675,7 @@ class CoinView(ui.View):
                 settlement = await self._settle(game)
                 self._last_interaction = interaction
             await self._board(interaction)
+            self.prepare()
         finally:
             self._busy = False
         await self._after_game(interaction, game, settlement)
@@ -586,6 +701,7 @@ class CoinView(ui.View):
         self._last_interaction = interaction
         self.rebuild()
         await edit(interaction, embed=self.embed(), view=self)
+        self.prepare()
 
     async def _halve(self, interaction: discord.Interaction) -> None:
         await ack(interaction)
@@ -626,12 +742,21 @@ class Coin(commands.Cog, name="Moneda"):
         casino_channel_ids: frozenset[int] = frozenset(),
         rng: random.Random | None = None,
         renderer: CoinScene | None = None,
+        ahead: bool | None = None,
     ) -> None:
+        """Prepara el cog; el dibujo por defecto es `CoinScene`.
+
+        Args:
+            ahead: Si las mesas pintan por adelantado el GIF de la próxima tirada
+                (`CoinView.prepare`). Por defecto, solo con el dibujo de verdad: con
+                un `renderer` de prueba, cada dibujo de más se contaría como jugada.
+        """
         self.bot = bot
         self.economy = economy
         self.casino_channel_ids = casino_channel_ids
         # `secrets` usa el azar del sistema operativo: no se puede predecir.
         self.rng = rng or secrets.SystemRandom()
+        self.ahead = renderer is None if ahead is None else ahead
         self.renderer = renderer or CoinScene()
         # Mesas abiertas: para cobrar sus rachas si el bot se apaga.
         self.views: set[CoinView] = set()
@@ -714,7 +839,9 @@ class Coin(commands.Cog, name="Moneda"):
             embed=view.embed(), file=discord.File(io.BytesIO(png), filename=PNG_NAME), view=view
         )
         self.views.add(view)
-        if pick is not None:
+        if pick is None:
+            view.prepare()
+        else:
             message = view.message
 
             async def editor(**kwargs: Any) -> None:
