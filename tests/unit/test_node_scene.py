@@ -187,3 +187,20 @@ async def test_cortar_un_dibujo_a_medias_no_estropea_el_siguiente() -> None:
     assert patches is not None and len(patches) == len(states)
     assert not scene.disabled
     await scene.close()
+
+
+@needs_node
+@module_loop
+async def test_una_serie_de_llamadas_devuelve_las_imagenes_de_cada_una() -> None:
+    """`sequence` sirve a escenas con otras funciones: aquí, setup y luego fotogramas."""
+    scene = NodeScene(SCENE, name="prueba")
+    game = lost_game()
+    states = toss_states(game, start=Side.CARA, seed=3)[:4]
+    results = await scene.sequence(
+        [("setup", [meta_state(game.stake)]), ("renderFrames", [states, 0])]
+    )
+    assert results is not None
+    setup, frames = results
+    assert setup == [] and len(frames) == 4
+    assert frames[0]["image"].size == (W, H)
+    await scene.close()

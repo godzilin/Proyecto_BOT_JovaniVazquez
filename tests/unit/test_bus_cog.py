@@ -325,3 +325,47 @@ async def test_al_apagar_cobra_y_cierra_el_navegador(tmp_path: Path) -> None:
     await cog.cog_unload()
     assert view.game is not None and view.game.status is Status.CASHED
     cog.renderer.close.assert_awaited_once()
+
+
+# -- Que el clic se note ----------------------------------------------------------------
+
+
+async def test_si_la_mano_aun_se_dibuja_la_mesa_se_apaga_ya_y_sin_destripar(
+    tmp_path: Path,
+) -> None:
+    """Con el GIF aún a medias, el clic se nota al momento y los botones no dicen nada.
+
+    Antes la mesa seguía igual hasta tener el GIF (parecía que el botón no
+    respondía) y luego reconstruía los botones, que ya decían si se había acertado.
+    """
+    cog = await make_cog(tmp_path)
+    view, _ = await open_table(cog)
+    await press(view, Pick.RED)
+    release = asyncio.Event()
+    ready = cog.renderer.reveal.return_value
+
+    async def slow_reveal(*args: object, **kwargs: object) -> Reveal:
+        await release.wait()
+        return ready
+
+    cog.renderer.reveal.side_effect = slow_reveal
+    view.cancel_reveals()  # la segunda mano ya pintada se tira: se dibujará lenta
+    before = labels(view)
+    interaction = make_interaction()
+    task = asyncio.create_task(view._pick(interaction, Pick.LOWER))
+
+    async def first_edit() -> None:
+        while not interaction.edit_original_response.await_count:
+            await asyncio.sleep(0)
+
+    # Sin tapar la espera no llega ninguna edición hasta tener el GIF.
+    await asyncio.wait_for(first_edit(), 1)
+    first = interaction.edit_original_response.await_args.kwargs
+    assert "attachments" not in first
+    assert first["embed"].color == COLOR_IDLE
+    # Apagados y con las etiquetas de antes de jugar.
+    assert labels(view) == before
+    assert all(b.disabled for b in view.children if isinstance(b, ui.Button))
+    release.set()
+    await task
+    assert interaction.edit_original_response.await_count == 3

@@ -1,5 +1,7 @@
 """Pruebas de bot.services.bus_scene: el Autobús dibujado con Chromium y su plan B con Pillow.
 
+Siempre con `node=NO_NODE`, para no pasar por Node (eso va en `test_bus_node.py`).
+
 Las que necesitan Chromium se saltan si no hay navegador en la máquina; las del
 plan B con Pillow no lo necesitan (apuntan a un ejecutable que no existe).
 """
@@ -24,6 +26,8 @@ from bot.services.bus_scene import SCENE, BusScene, assemble
 module_loop = pytest.mark.asyncio(loop_scope="module")
 #: Chromium del entorno de desarrollo, si lo hay (en Docker lo instala Playwright).
 LOCAL_CHROMIUM = Path("/opt/pw-browsers/chromium")
+#: Un Node que no existe: la escena salta a Chromium o a Pillow.
+NO_NODE = "/no/existe/node"
 
 #: Las cinco cartas de la partida: rey de corazones, 5 de picas, 9 de diamantes, as de
 #: tréboles y reina de corazones (hay rojas y negras, figuras y números).
@@ -38,7 +42,7 @@ def test_la_escena_existe_y_trae_sus_funciones() -> None:
 
 
 async def test_sin_navegador_dibuja_con_pillow_y_se_queda_desactivado() -> None:
-    scene = BusScene(executable_path="/no/existe/chromium")
+    scene = BusScene(executable_path="/no/existe/chromium", node=NO_NODE)
     assert not scene.disabled
 
     png = await scene.board(Board(active=0))
@@ -58,7 +62,7 @@ async def test_sin_navegador_dibuja_con_pillow_y_se_queda_desactivado() -> None:
 
 
 async def test_el_plan_b_dibuja_la_mesa_al_cobrar_con_la_carta_fantasma() -> None:
-    scene = BusScene(executable_path="/no/existe/chromium")
+    scene = BusScene(executable_path="/no/existe/chromium", node=NO_NODE)
     cash = Board(
         cards=CARDS[:3],
         results=(True, True, True),
@@ -87,7 +91,7 @@ async def test_el_plan_b_usa_el_dibujo_de_reserva_que_se_le_da() -> None:
             return "REVEAL-DE-RESERVA"
 
     fallback = Fallback()
-    scene = BusScene(fallback, executable_path="/no/existe/chromium")  # type: ignore[arg-type]
+    scene = BusScene(fallback, executable_path="/no/existe/chromium", node=NO_NODE)  # type: ignore[arg-type]
     assert await scene.board(Board()) == b"PNG-DE-RESERVA"
     assert await scene.reveal(CARDS, 1, seed=1) == "REVEAL-DE-RESERVA"
     assert fallback.calls == ["board", "reveal"]
@@ -98,7 +102,7 @@ async def test_el_plan_b_usa_el_dibujo_de_reserva_que_se_le_da() -> None:
 async def browser() -> BusScene:
     """Un solo Chromium para las pruebas con navegador del módulo."""
     path = str(LOCAL_CHROMIUM) if LOCAL_CHROMIUM.exists() else None
-    scene = BusScene(executable_path=path)
+    scene = BusScene(executable_path=path, node=NO_NODE)
     await scene.board(Board())
     if scene.disabled:
         await scene.close()

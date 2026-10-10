@@ -218,6 +218,24 @@ class NodeScene:
 
         return await self._run(len(chunks), work)
 
+    async def sequence(self, calls: list[tuple[str, list[Any]]]) -> list[list[Patch]] | None:
+        """Hace `calls` (función de la escena y argumentos) en orden en un solo proceso.
+
+        Para las escenas que no siguen `setup`/`renderFrames` o que guardan estado
+        de un fotograma al siguiente (el polvo de los caballos), y no se pueden
+        repartir entre procesos. Devuelve, por llamada, las imágenes que devolvió
+        (vacío si no devolvió ninguna); `None` si no hay Node.
+        """
+
+        async def work(procs: list[_Process]) -> list[list[Patch]]:
+            results = []
+            for function, args in calls:
+                _, patches = await procs[0].call({"call": function, "args": args})
+                results.append(patches)
+            return results
+
+        return await self._run(1, work)
+
     async def _run(self, count: int, work: Any) -> Any:
         if self.disabled:
             return None

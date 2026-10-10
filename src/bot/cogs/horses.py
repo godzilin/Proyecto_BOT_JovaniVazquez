@@ -18,9 +18,10 @@ Cada carrera pasa por tres momentos en el mismo mensaje:
    esperar al reloj.
    `.caballo 500 3` apuesta 500 a ganador al 3; `.caballo 500 3-5` a la gemela;
    `.caballo 500 3-5-1` al trío; `.caballo 500 3 colocado` a colocado.
-2. **Carrera**: el GIF con los caballos galopando. Se dibuja con canvas y
-   HTML/CSS en un Chromium sin ventana (`bot.services.horses_scene`) y, si no
-   hay navegador, con Pillow (`bot.services.horses_render`).
+2. **Carrera**: el GIF con los caballos galopando. Se dibuja con canvas en
+   Node, sin navegador (`bot.services.horses_scene`); si no hay Node, en
+   Chromium y, si tampoco, con Pillow (`bot.services.horses_render`). La
+   parrilla y el boleto son HTML/CSS y los captura Chromium.
 3. **Llegada**: el podio, la narración, quién cobra y quién no, y lo que se te
    escapó si fallaste por poco. Botón 🏇 **Otra carrera**.
 
@@ -579,6 +580,19 @@ class Race:
         ready = self.meta.last_grand_prix + self.cog.grand_prix_cooldown
         return f"Bote de **{pot}** · el próximo sale a partir de <t:{math.ceil(ready)}:t>."
 
+    def closing_embed(self) -> discord.Embed:
+        """Apuestas cerradas mientras se acaba de dibujar la carrera: la parrilla, sin botones."""
+        embed = discord.Embed(
+            title=f"🔔 Cajones cerrados · {self.card.name}",
+            description="Los caballos entran en los cajones… Ya no se admiten boletos.",
+            color=COLOR_RUNNING,
+        )
+        embed.add_field(
+            name=f"Boletos ({len(self.tickets)})", value=self.tickets_block(), inline=False
+        )
+        embed.set_image(url=f"attachment://{CARD_PNG}")
+        return embed
+
     def running_embed(self) -> discord.Embed:
         """La carrera en marcha: el GIF y los boletos, sin destripar nada."""
         embed = discord.Embed(
@@ -916,6 +930,10 @@ class Race:
         media: Media | None = None
         result: RaceResult | None = None
         if self.prepared is not None:
+            if not self.prepared.done():
+                # Si todos están listos antes de que acabe el dibujo, que se note ya:
+                # se cierran las apuestas a la vez que se termina de pintar.
+                await self._close_bets()
             try:
                 result, media = await self.prepared
             except Exception:
@@ -944,6 +962,12 @@ class Race:
         await self.announce(pot_winners, pot)
         await self.personal_results()
         await self.track(pot_winners)
+
+    async def _close_bets(self) -> None:
+        """Quita los botones de la parrilla y dice que salen, sin esperar al dibujo."""
+        if self._edit_task is not None and not self._edit_task.done():
+            await asyncio.gather(self._edit_task, return_exceptions=True)
+        self._edit_task = asyncio.create_task(self.edit(embed=self.closing_embed(), view=None))
 
     async def pay(self, result: RaceResult) -> tuple[list[Ticket], int]:
         """Paga cada boleto (0 si falla) y el bote, y apunta la carrera en el establo.
@@ -1198,7 +1222,8 @@ class Horses(commands.Cog, name="Caballos"):
         self.bot = bot
         self.economy = economy
         self.repository = repository
-        # Dibuja con Chromium y, si no hay, con Pillow (ver `bot.services.horses_scene`).
+        # La carrera con Node, la parrilla y el boleto con Chromium y, si no, Pillow
+        # (ver `bot.services.horses_scene`).
         self.renderer = renderer or SceneRenderer()
         self.casino_channel_ids = casino_channel_ids
         # `secrets` usa el azar del sistema operativo: no se puede predecir.

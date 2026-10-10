@@ -406,7 +406,8 @@ python -m bot
   cuatro puede jugárselo a la vuelta (doble o nada). Cada botón enseña su
   multiplicador y su probabilidad, y 📋 Tabla la tabla de pagos fija: cobres
   donde cobres, devuelve el 99 %. La guagua avanza de parada en parada en un
-  GIF dibujado con canvas en Chromium; las cartas se sortean antes de jugar y
+  GIF dibujado con canvas en Node con Skia, sin navegador (si no hay Node, en
+  Chromium y, si tampoco, con Pillow); las cartas se sortean antes de jugar y
   la animación de la mano siguiente se dibuja mientras piensas.
 - **Dados** (`/dados`, `.dados [cantidad] [apuesta]`): craps de casino. Eliges
   ✅ Pase o 🚫 No pase y tiras la salida: con Pase, el 7 y el 11 ganan y el 2,
@@ -430,11 +431,15 @@ python -m bot
   ganador y colocado devuelven el 95 %, gemela el 92 % y trío el 90 %. En la
   parrilla (2 minutos como mucho) se apuesta con 🎟️ Apostar (panel privado) o de
   un toque con 🐶 Lo de Sanxe, 🐑 Con el pueblo o 🎲 Al azar; `.caballo 500 3-5-1`
-  va al trío. Si todos los que han apostado pulsan ✅ Listo, salen sin esperar. La carrera es un GIF dibujado con canvas en un Chromium sin
-  ventana (grada, sedas, galope, polvo, lluvia, rótulos de la tele) con
+  va al trío. Si todos los que han apostado pulsan ✅ Listo, salen sin
+  esperar. La carrera es un GIF dibujado con canvas en Node con Skia, sin
+  navegador (grada, sedas, galope, polvo, lluvia, rótulos de la tele) con
   foto-finish a cámara lenta si llegan pegados; se dibuja mientras se
-  apuesta, así que sale en cuanto se cierra la parrilla. Cada 8 carreras (y 4 h) sale el Gran Premio con un bote para quien
-  acierte el ganador, que crece si nadie acierta. Tributa como el resto del
+  apuesta, así que sale en cuanto se cierra la parrilla. Si no hay Node, la
+  pinta Chromium y, si tampoco, Pillow; la parrilla y el boleto, que son
+  HTML/CSS, siempre los captura Chromium. Cada 8 carreras (y 4 h) sale el
+  Gran Premio con un bote para quien acierte el ganador, que crece si nadie
+  acierta. Tributa como el resto del
   casino.
 - **Pachinko** (`/pachinko`, `.pachinko [cantidad] [mapa]`): una máquina
   japonesa propia con botones. Cada 🎯 Lanzar cobra la apuesta y suelta 10
@@ -670,14 +675,14 @@ El bot corre bien en cualquier equipo x86_64 con Docker, por ejemplo un NAS
 UGREEN DXP2800 (Intel N100): consume poca CPU y memoria y no necesita abrir
 puertos, porque solo hace conexiones salientes a Discord y a las fuentes de
 audio. La imagen incluye `ffmpeg` y `libopus`, y un Chromium sin ventana
-(Playwright, unos 300 MB más) con el que se dibujan las carreras de caballos,
-el autobús y, si falla Node, cara o cruz, los dados y la ruleta. Cada juego
-abre el suyo: mientras se usa ocupa unos 150-250 MB de memoria (el doble o el
-triple si coinciden varios juegos) y se cierra solo tras 10 minutos sin uso;
-si no estuviera, el bot dibuja con Pillow.
-Cara o cruz, los dados y la ruleta ya no usan Chromium: los pinta Node con
-`@napi-rs/canvas` (Skia, el mismo motor de dibujo), con dos procesos de unos
-90 MB que arrancan en menos de medio segundo.
+(Playwright, unos 300 MB más) con el que se dibujan la parrilla y el boleto
+de los caballos y, si falla Node, el resto de juegos. Los caballos abren el
+suyo: mientras se usa ocupa unos 150-250 MB de memoria y se cierra solo tras
+10 minutos sin uso; si no estuviera, el bot dibuja con Pillow.
+Cara o cruz, los dados, la ruleta, el autobús y la carrera de los caballos
+ya no usan Chromium: los pinta Node con `@napi-rs/canvas` (Skia, el mismo
+motor de dibujo), con procesos de unos 90 MB que arrancan en menos de medio
+segundo.
 
 1. Lleva el proyecto al NAS (`git clone` por SSH, o copia la carpeta).
 2. Crea el archivo de configuración y pon tu token:
@@ -903,7 +908,7 @@ src/bot/
 │   ├── coin_scene.py    # Cara o cruz con canvas en Node o Chromium (assets/moneda/escena.html)
 │   ├── bus.py           # Autobús: cartas, probabilidades exactas y pagos al 99 %
 │   ├── bus_render.py    # Autobús: lo que se ve en cada fotograma y dibujo con Pillow
-│   ├── bus_scene.py     # Autobús con canvas en Chromium (assets/autobus/escena.html)
+│   ├── bus_scene.py     # Autobús con canvas en Node o Chromium (assets/autobus/escena.html)
 │   ├── craps.py         # Dados: salida, punto, Odds a la probabilidad exacta y la mano
 │   ├── craps_render.py  # Física de la tirada, cámara, dados en 3D y dibujo con Pillow
 │   ├── craps_scene.py   # Dados con canvas en Node o Chromium (assets/dados/escena.html)
@@ -915,7 +920,7 @@ src/bot/
 │   ├── pachinko_motion.py # Movimiento de una tanda: las bolas chocan y cada una acaba en su bolsillo
 │   ├── horses.py        # Establo, simulación por tramos, cuotas, boletos y Gran Premio
 │   ├── horses_render.py # Dibujo con Pillow (plan B) y ritmo de los fotogramas
-│   ├── horses_scene.py  # Dibujo con Chromium: parrilla, carrera y boleto en JS/HTML
+│   ├── horses_scene.py  # Caballos: carrera en Node, parrilla y boleto en Chromium
 │   ├── porras.py        # Propuestas, tope del bote y reparto mutuo de las porras
 │   ├── deploy.py        # Buzón con actualizar.sh para el comando reinicio
 │   ├── moderation.py    # Duraciones, IDs y jerarquía de roles de los comandos de admin
