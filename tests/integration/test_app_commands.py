@@ -78,6 +78,7 @@ ADMIN_COMMANDS = {
     "apodo",
     "rol",
     "niveles",
+    "cambios",
     "catalogo",
     "tajo",
 }

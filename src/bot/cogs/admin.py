@@ -2,7 +2,7 @@
 
 Comandos (todos con `/` y con `.`, mismo nombre; `tajo` elige dónde se usa `pala`):
 `purge`, `mute`, `unmute`, `kick`, `ban`, `unban`, `lock`, `unlock`,
-`slow`, `say`, `nick`, `role`, `bienv`, `niveles`, `catalogo`, `tajo`.
+`slow`, `say`, `nick`, `role`, `bienv`, `niveles`, `cambios`, `catalogo`, `tajo`.
 
 Autorización: solo miembros con el permiso **Administrador** del servidor.
 Se comprueba en el servidor en cada invocación (`cog_check` para `.` e
@@ -31,6 +31,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from bot.cogs.deploy import news_channel
+from bot.repositories.news import NewsSettings
 from bot.repositories.welcome import WelcomeSettings
 from bot.services.levels import MAX_XP_COOLDOWN_SECONDS, MIN_XP_COOLDOWN_SECONDS
 from bot.services.moderation import (
@@ -71,6 +73,14 @@ NIVELES_USAGE = (
     "Uso: `.niveles` (estado), `.niveles importar`, `.niveles activar`, "
     "`.niveles desactivar`, `.niveles #canal`, `.niveles mismo` o `.niveles <segundos>` "
     f"({MIN_XP_COOLDOWN_SECONDS}–{MAX_XP_COOLDOWN_SECONDS})."
+)
+
+# Acciones de `cambios`: encender o apagar el aviso, su detalle y volver al canal de serie.
+NEWS_ACTIONS = ("activar", "desactivar", "detallado", "resumen", "defecto")
+CAMBIOS_USAGE = (
+    "Uso: `.cambios` (estado), `.cambios activar`, `.cambios desactivar`, "
+    "`.cambios detallado`, `.cambios resumen`, `.cambios #canal` o `.cambios defecto` "
+    "(vuelve a #chat-general)."
 )
 
 PurgeableChannel = discord.TextChannel | discord.Thread | discord.VoiceChannel
@@ -797,6 +807,107 @@ class Admin(commands.Cog):
             await responder.finish(text, allowed_mentions=mentions)
         else:
             await responder.send(text, ephemeral=True, allowed_mentions=mentions)
+
+    # --- cambios ----------------------------------------------------------
+
+    @app_commands.command(name="cambios", description="Configura el aviso de novedades del bot.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        accion="Qué cambiar; sin acción solo enseña la configuración.",
+        canal="Canal donde publicar el aviso.",
+    )
+    @app_commands.choices(
+        accion=[
+            app_commands.Choice(name="Publicar el aviso", value="activar"),
+            app_commands.Choice(name="No publicar el aviso", value="desactivar"),
+            app_commands.Choice(name="Detallado: lista y ficha de cada cambio", value="detallado"),
+            app_commands.Choice(name="Resumen: solo la lista de cambios", value="resumen"),
+            app_commands.Choice(name="Volver al canal por defecto", value="defecto"),
+        ]
+    )
+    async def cambios(
+        self,
+        interaction: discord.Interaction,
+        accion: app_commands.Choice[str] | None = None,
+        canal: discord.TextChannel | None = None,
+    ) -> None:
+        """Cambia dónde y cómo se publican las novedades tras cada despliegue (solo a ti)."""
+        action = accion.value if accion is not None else None
+        await self._cambios_impl(InteractionResponder(interaction), action, canal)
+
+    @commands.command(name="cambios")
+    async def cambios_text(self, ctx: commands.Context, *args: str) -> None:
+        """Versión de texto; acepta en cualquier orden una acción y un #canal."""
+        action: str | None = None
+        channel: discord.TextChannel | None = None
+        for arg in args:
+            word = arg.lower()
+            if word in NEWS_ACTIONS and action is None:
+                action = word
+                continue
+            try:
+                converted = await commands.TextChannelConverter().convert(ctx, arg)
+            except commands.BadArgument:
+                converted = None
+            if converted is None or channel is not None:
+                await ctx.send(CAMBIOS_USAGE)
+                return
+            channel = converted
+        await self._cambios_impl(ContextResponder(ctx), action, channel)
+
+    async def _cambios_impl(
+        self,
+        responder: CommandResponder,
+        action: str | None,
+        channel: discord.TextChannel | None,
+    ) -> None:
+        """Guarda lo que haya cambiado y responde con la configuración del aviso.
+
+        Sin argumentos solo la enseña. Los ajustes viven en `bot.news`
+        (`NewsRepository`) y los lee el cog `Despliegue` al publicar.
+        """
+        guild = responder.guild
+        repository = getattr(self.bot, "news", None)
+        if guild is None or repository is None:
+            await responder.send_error("El aviso de novedades no está disponible ahora mismo.")
+            return
+        if action == "defecto" and channel is not None:
+            await responder.send_error("Elige un canal o «defecto», no las dos cosas.")
+            return
+        current: NewsSettings = await repository.settings(guild.id)
+        channel_id = current.channel_id
+        if channel is not None:
+            channel_id = channel.id
+        elif action == "defecto":
+            channel_id = None
+        updated = NewsSettings(
+            enabled={"activar": True, "desactivar": False}.get(action or "", current.enabled),
+            channel_id=channel_id,
+            detailed={"detallado": True, "resumen": False}.get(action or "", current.detailed),
+        )
+        if updated != current:
+            await repository.save_settings(guild.id, updated)
+
+        target = news_channel(guild, updated)
+        lines = [
+            "✅ Aviso de novedades actualizado." if updated != current else "📜 Aviso de novedades."
+        ]
+        lines.append(f"Estado: {'se publica' if updated.enabled else 'no se publica'}.")
+        lines.append(
+            "Formato: "
+            + (
+                "detallado (lista de cambios y una ficha por PR con su descripción)."
+                if updated.detailed
+                else "resumen (solo la lista de cambios)."
+            )
+        )
+        lines.append(f"Canal: {target.mention if target else '⚠️ ninguno (crea #chat-general)'}")
+        if target is not None and not target.permissions_for(guild.me).send_messages:
+            lines.append("⚠️ No puedo escribir en ese canal; revisa mis permisos.")
+        await responder.send(
+            "\n".join(lines), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
+        )
 
     # --- tajo -------------------------------------------------------------
 

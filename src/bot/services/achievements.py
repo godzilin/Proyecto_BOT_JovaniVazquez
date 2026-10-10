@@ -1364,15 +1364,6 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("social", "msg_sanxe", [
         (1, "sanxe", "Invocación", "Nombra a Perro Sanxe en el chat.", C, True),
     ])  # fmt: skip
-    # Botón 📜 Leído del aviso de novedades (cogs/deploy.py).
-    a += _tiers("social", "news_read", [
-        (1, "news_read", "Leído y conforme",
-         "Pulsa 📜 Leído en un aviso de novedades del bot. Más de lo que hace un diputado.", C),
-    ])  # fmt: skip
-    a += _tiers("social", "news_first", [
-        (1, "news_first", "Más rápido que el BOE",
-         "Sé el primero del servidor en leerte unas novedades del bot.", R),
-    ])  # fmt: skip
 
     a += _tiers("social", "reactions_given", [
         (25_000, "react_25k", "Pulgar de acero", "Reacciona a 25.000 mensajes.", M),

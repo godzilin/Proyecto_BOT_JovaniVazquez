@@ -1,5 +1,6 @@
 """Pruebas del comando `reinicio` y del aviso de novedades: el buzón
-(bot.services.deploy) y el cog."""
+(bot.services.deploy) y el cog. Lo que se pide a GitHub está en
+`test_changelog.py`."""
 
 from __future__ import annotations
 
@@ -12,18 +13,21 @@ import discord
 import pytest
 from interaction_fakes import fake_interaction
 
-from bot.cogs import deploy as deploy_cog
 from bot.cogs.deploy import (
+    CHARS_PER_MESSAGE,
     DEPLOYERS,
-    NEWS_FIRST_STAT,
-    NEWS_READ_STAT,
+    DETAIL_CHARS,
+    EMBEDS_PER_MESSAGE,
+    NEWS_LIMIT,
     Deploy,
-    news_embed,
+    OldNewsButton,
+    news_messages,
     result_message,
 )
+from bot.repositories.news import NewsSettings
+from bot.services.changelog import NewsEntry, NewsItem, PullRequest
 from bot.services.deploy import (
     NEWS_FILE,
-    NEWS_LIMIT,
     REQUEST_FILE,
     RESULT_FILE,
     RUNNING_FILE,
@@ -31,7 +35,6 @@ from bot.services.deploy import (
     DeployRequest,
     DeployResult,
     Mailbox,
-    news_lines,
 )
 from bot.utils.responder import CommandResponder
 
@@ -66,8 +69,13 @@ class FakeResponder(CommandResponder):
         raise AssertionError("reinicio no usa progreso")
 
 
-def make_cog(tmp_path: Path, bot: object | None = None) -> Deploy:
-    return Deploy(bot or MagicMock(), Mailbox(tmp_path / "buzon"), clock=lambda: NOW)
+def make_cog(tmp_path: Path, bot: object | None = None, fetch: object | None = None) -> Deploy:
+    return Deploy(
+        bot or MagicMock(),
+        Mailbox(tmp_path / "buzon"),
+        clock=lambda: NOW,
+        fetch=fetch or AsyncMock(return_value=None),
+    )
 
 
 # -- Buzón -------------------------------------------------------------------------------
@@ -234,14 +242,79 @@ def test_un_archivo_de_novedades_vacio_no_se_publica(tmp_path: Path) -> None:
     assert Mailbox(tmp_path).take_news() is None
 
 
-def test_muchas_novedades_se_resumen_y_caben_en_un_embed() -> None:
-    items = [f"PR {n} " + "x" * 500 for n in range(NEWS_LIMIT + 5)]
+def _pull(number: int, body: str = "Descripción del cambio.") -> PullRequest:
+    return PullRequest(
+        repo="godzilin/Proyecto_BOT_JovaniVazquez",
+        number=number,
+        url=f"https://github.com/godzilin/Proyecto_BOT_JovaniVazquez/pull/{number}",
+        body=body,
+        author="Yeyo-Yeyex",
+        author_url="https://github.com/Yeyo-Yeyex",
+        author_avatar=None,
+        merged_at=NOW,
+    )
 
-    lines = news_lines(items)
 
-    assert len(lines) == NEWS_LIMIT + 1
-    assert lines[-1] == "…y 5 más."
-    assert len(news_embed(items).description or "") <= 4096
+def _entry(number: int, body: str = "Descripción del cambio.") -> NewsEntry:
+    return NewsEntry(NewsItem(f"Cambio {number}", number, "yeyo/rama"), _pull(number, body))
+
+
+def test_el_resumen_lista_cada_cambio_con_su_pr_y_su_autor() -> None:
+    entries = [_entry(5), NewsEntry(NewsItem("Sin PR conocido"))]
+
+    (embeds,) = news_messages(entries, detailed=False)
+
+    assert len(embeds) == 1
+    description = embeds[0].description or ""
+    assert "• Cambio 5 · [#5](https://github.com/godzilin/Proyecto_BOT_JovaniVazquez/pull/5)" in (
+        description
+    )
+    assert "Yeyo-Yeyex" in description
+    assert "• Sin PR conocido" in description
+
+
+def test_el_detallado_añade_una_ficha_por_pr_con_su_descripcion() -> None:
+    entries = [_entry(5, "**Qué cambia.** Todo."), NewsEntry(NewsItem("Sin PR conocido"))]
+
+    (embeds,) = news_messages(entries, detailed=True)
+
+    assert len(embeds) == 2, "el cambio sin PR solo sale en la lista"
+    ficha = embeds[1]
+    assert ficha.title == "Cambio 5"
+    assert ficha.url == _pull(5).url
+    assert ficha.description == "**Qué cambia.** Todo."
+    assert ficha.author.name == "Yeyo-Yeyex"
+
+
+def test_el_aviso_es_serio() -> None:
+    embeds = news_messages([_entry(5)], detailed=True)[0]
+    texto = " ".join(f"{e.title} {e.description} {e.footer.text or ''}".lower() for e in embeds)
+
+    for broma in ("leído", "hacienda", "consejo de ministros", "boe"):
+        assert broma not in texto
+
+
+def test_una_descripcion_larga_se_corta_y_enlaza_a_github() -> None:
+    body = "\n".join(f"Línea {n} " + "x" * 80 for n in range(200))
+
+    ficha = news_messages([_entry(5, body)], detailed=True)[0][1]
+
+    assert len(ficha.description or "") <= DETAIL_CHARS
+    assert (ficha.description or "").endswith(f"[Sigue en GitHub]({_pull(5).url})")
+
+
+def test_muchos_cambios_se_reparten_en_mensajes_que_caben_en_discord() -> None:
+    body = "x" * DETAIL_CHARS
+    entries = [_entry(n, body) for n in range(NEWS_LIMIT + 5)]
+
+    messages = news_messages(entries, detailed=True)
+
+    assert sum(len(embeds) for embeds in messages) == 1 + NEWS_LIMIT
+    for embeds in messages:
+        assert len(embeds) <= EMBEDS_PER_MESSAGE
+        assert sum(len(e) for e in embeds) <= CHARS_PER_MESSAGE
+        assert all(len(e.description or "") <= 4096 for e in embeds)
+    assert (messages[0][0].description or "").endswith("…y 5 más.")
 
 
 def _guild_with_channel(guild_id: int = 1) -> tuple[MagicMock, MagicMock]:
@@ -254,73 +327,90 @@ def _guild_with_channel(guild_id: int = 1) -> tuple[MagicMock, MagicMock]:
     return guild, channel
 
 
-def _interaction(guild_id: int, user_id: int) -> MagicMock:
-    interaction = fake_interaction(SimpleNamespace(id=user_id, bot=False))
-    interaction.guild = SimpleNamespace(id=guild_id)
-    return interaction
-
-
-async def _publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Deploy, list, int]:
-    """Cog con unas novedades ya publicadas; devuelve los logros apuntados y la edición."""
-    guild, channel = _guild_with_channel()
+def _bot_with(guild: MagicMock, settings: NewsSettings | None = None) -> MagicMock:
     bot = MagicMock()
     bot.guilds = [guild]
-    cog = make_cog(tmp_path, bot)
+    bot.news = None
+    if settings is not None:
+        bot.news = SimpleNamespace(settings=AsyncMock(return_value=settings))
+    return bot
+
+
+@pytest.mark.asyncio
+async def test_publica_las_novedades_con_lo_que_cuenta_github(tmp_path: Path) -> None:
+    guild, channel = _guild_with_channel()
+    fetch = AsyncMock(
+        return_value={
+            "number": 5,
+            "html_url": "https://github.com/godzilin/Proyecto_BOT_JovaniVazquez/pull/5",
+            "body": "Los caballos corren de verdad.",
+            "user": {"login": "Yeyo-Yeyex"},
+            "head": {"label": "yeyo:caballos"},
+            "merged_at": "2026-10-06T21:00:00Z",
+        }
+    )
+    cog = make_cog(tmp_path, _bot_with(guild), fetch)
     buzon = tmp_path / "buzon"
     buzon.mkdir()
-    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
-    tracked: list = []
-
-    async def fake_track(bot, guild_id, user, channel, delta) -> None:  # noqa: ANN001
-        tracked.append((user.id, delta.add))
-
-    monkeypatch.setattr(deploy_cog.logros, "track", fake_track)
-    monkeypatch.setattr(deploy_cog.mascotas, "cameo", AsyncMock(return_value=None))
-    monkeypatch.setattr(deploy_cog.renta, "remind", AsyncMock())
+    (buzon / NEWS_FILE).write_text("#5\tyeyo/caballos\ttitulo\tCarreras de caballos\n")
 
     assert await cog.announce_news() is True
 
-    embed = channel.send.await_args.kwargs["embed"]
-    assert "Carreras de caballos" in embed.description
-    button = channel.send.await_args.kwargs["view"].children[0]
-    edition = int(button.custom_id.rsplit(":", 1)[1])
+    embeds = channel.send.await_args.kwargs["embeds"]
+    assert "Carreras de caballos" in (embeds[0].description or "")
+    assert embeds[1].description == "Los caballos corren de verdad."
+    assert "view" not in channel.send.await_args.kwargs, "el aviso ya no lleva botón"
     assert await cog.announce_news() is False
-    return cog, tracked, edition
 
 
 @pytest.mark.asyncio
-async def test_leer_las_novedades_da_logros_y_el_primero_se_lleva_el_suyo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    cog, tracked, edition = await _publish(tmp_path, monkeypatch)
+async def test_sin_github_sale_la_lista_de_titulos(tmp_path: Path) -> None:
+    guild, channel = _guild_with_channel()
+    cog = make_cog(tmp_path, _bot_with(guild))
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
 
-    await cog.read_news(_interaction(1, YEYO), edition)
-    await cog.read_news(_interaction(1, DANI), edition)
+    await cog.announce_news()
 
-    assert tracked == [
-        (YEYO, {NEWS_READ_STAT: 1, NEWS_FIRST_STAT: 1}),
-        (DANI, {NEWS_READ_STAT: 1}),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_leerlas_dos_veces_no_cuenta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cog, tracked, edition = await _publish(tmp_path, monkeypatch)
-    await cog.read_news(_interaction(1, YEYO), edition)
-    again = _interaction(1, YEYO)
-
-    await cog.read_news(again, edition)
-
-    assert len(tracked) == 1
-    assert "Ya te lo habías leído" in again.edit_original_response.await_args.kwargs["content"]
+    (embed,) = channel.send.await_args.kwargs["embeds"]
+    assert "• Carreras de caballos" in (embed.description or "")
 
 
 @pytest.mark.asyncio
-async def test_un_aviso_viejo_ya_no_cuenta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cog, tracked, edition = await _publish(tmp_path, monkeypatch)
-    old = _interaction(1, YEYO)
+async def test_un_servidor_con_el_aviso_apagado_no_lo_recibe(tmp_path: Path) -> None:
+    guild, channel = _guild_with_channel()
+    cog = make_cog(tmp_path, _bot_with(guild, NewsSettings(enabled=False)))
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
 
-    await cog.read_news(old, edition - 1)
+    assert await cog.announce_news() is True
 
-    assert tracked == []
-    assert "derogadas" in old.edit_original_response.await_args.kwargs["content"]
+    channel.send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_el_aviso_va_al_canal_elegido(tmp_path: Path) -> None:
+    guild, general = _guild_with_channel()
+    elegido = MagicMock(spec=discord.TextChannel)
+    elegido.send = AsyncMock()
+    guild.get_channel = lambda channel_id: elegido if channel_id == 77 else None
+    cog = make_cog(tmp_path, _bot_with(guild, NewsSettings(channel_id=77)))
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / NEWS_FILE).write_text("Carreras de caballos\n")
+
+    await cog.announce_news()
+
+    general.send.assert_not_awaited()
+    elegido.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_el_boton_leido_de_los_avisos_viejos_contesta_sin_fallar() -> None:
+    interaction = fake_interaction(SimpleNamespace(id=YEYO, bot=False))
+
+    await OldNewsButton(123).callback(interaction)
+
+    assert interaction.response.is_done()

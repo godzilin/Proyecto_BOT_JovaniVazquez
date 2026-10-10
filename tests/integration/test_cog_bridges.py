@@ -557,28 +557,47 @@ async def test_la_lista_apunta_sus_logros_con_el_bot_real(tmp_path: Path) -> Non
         await client.close()
 
 
-async def test_leer_las_novedades_apunta_sus_logros_con_el_bot_real(tmp_path: Path) -> None:
-    """El botón 📜 Leído busca su cog y llega a los logros con todo cargado."""
+async def test_cambios_configura_el_aviso_que_publica_el_despliegue_con_el_bot_real(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`cambios` (cog Admin) guarda los ajustes y el cog Despliegue los usa al publicar."""
     client = await load_bot(tmp_path)
+    await client.news.initialize()
     try:
+        elegido = MagicMock(spec=discord.TextChannel)
+        elegido.id = 77
+        elegido.send = AsyncMock()
+        elegido.mention = "#anuncios"
+        general = MagicMock(spec=discord.TextChannel)
+        general.name = "chat-general"
+        general.send = AsyncMock()
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_ID
+        guild.text_channels = [general, elegido]
+        guild.get_channel = lambda channel_id: elegido if channel_id == 77 else None
+        responder = MagicMock()
+        responder.guild = guild
+        responder.send = AsyncMock()
+        responder.send_error = AsyncMock()
+        admin = client.get_cog("Admin")
+
+        await admin._cambios_impl(responder, "resumen", elegido)
+
+        responder.send_error.assert_not_awaited()
         deploy = client.get_cog("Despliegue")
-        deploy._news[GUILD_ID] = (123, set())
-        owner = MagicMock(spec=discord.Member)
-        owner.id = OWNER_ID
-        owner.bot = False
-        interaction = fake_interaction()
-        interaction.client = client
-        interaction.guild = MagicMock(id=GUILD_ID)
-        interaction.user = owner
-        interaction.channel = MagicMock(spec=discord.TextChannel)
-        interaction.channel.send = AsyncMock()
-        button = importer("Despliegue", client).NewsReadButton(123)
+        buzon = tmp_path / "buzon"
+        buzon.mkdir()
+        (buzon / "novedades.txt").write_text("#5\tyeyo/pollo\ttitulo\tPollo más rápido\n")
+        deploy.mailbox = importer("Despliegue", client).Mailbox(buzon)
+        deploy._fetch = AsyncMock(return_value=None)
+        monkeypatch.setattr(type(client), "guilds", property(lambda self: [guild]))
 
-        await button.callback(interaction)
+        assert await deploy.announce_news() is True
 
-        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
-        assert profile.stats["news_read"] == 1
-        assert {"news_read", "news_first"} <= set(profile.unlocked)
+        general.send.assert_not_awaited()
+        embeds = elegido.send.await_args.kwargs["embeds"]
+        assert len(embeds) == 1, "en resumen no van fichas"
+        assert "Pollo más rápido" in embeds[0].description
     finally:
         await client.close()
 
