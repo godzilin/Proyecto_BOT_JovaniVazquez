@@ -142,9 +142,11 @@ ruleta, que pasó de 4-7 s a ~2 s por tirada:
   puede sortear por adelantado sin enseñarlo (la moneda: `CoinGame.upcoming`),
   la mesa pinta en segundo plano los GIF posibles (uno por botón) mientras se ve
   el GIF actual, y al pulsar solo queda subirlo (`CoinView.prepare`). En la
-  moneda, del clic al GIF pasó de ~1,1 s de dibujo a 0. Los dibujos por
-  adelantado no se cancelan a medias (el pintor de Node no admite cortar uno):
-  van de uno en uno y cada uno comprueba antes de empezar si sigue valiendo.
+  moneda, del clic al GIF pasó de ~1,1 s de dibujo a 0; en los dados, de ~0,9 s
+  a 0 (`CrapsView.prepare`). Los dibujos por adelantado no se cancelan a medias:
+  van de uno en uno y cada uno comprueba antes de empezar si sigue valiendo. Si
+  aun así se corta uno, `NodeScene` mata sus procesos y los arranca de nuevo en
+  el siguiente dibujo (~0,35 s), porque quedarían píxeles sin leer en la tubería.
 
 ## Acelerar un juego: receta de la moneda
 
@@ -160,7 +162,10 @@ el GIF. Por orden de ganancia:
    respuesta suele ser que no cambia nada en pantalla, no que el bot se pare.
 2. **Pintar antes del clic** («Rendimiento en el NAS»). Es la que convierte ~1 s de
    espera en 0. Hace falta que el resultado se pueda sortear antes sin enseñarlo y
-   pocos botones distintos (en la moneda, dos GIF por tirada). Se empieza en
+   pocos botones distintos (en la moneda, dos GIF por tirada; en los dados, uno
+   con el punto puesto y dos en la salida). Todo lo que cambie lo que se ve antes
+   de tirar (las Odds de los dados, la apuesta) entra en la clave del plan
+   (`_plan_key`) y lo vuelve a pintar. Se empieza en
    cuanto sale el GIF actual, no al enseñar el resultado: si no, quien pulsa rápido
    sigue esperando. Con un `renderer` de prueba se apaga (`ahead=False`), y las
    pruebas de integración que cambian el dibujo por un doble también
