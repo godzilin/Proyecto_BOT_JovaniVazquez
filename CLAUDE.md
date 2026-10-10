@@ -197,6 +197,16 @@ el GIF. Por orden de ganancia:
    lo que cuesta de verdad. Con la moneda: el PNG final tardaba 227 ms con
    `optimize=True` y 34 con `compress_level=6`.
 
+Cuándo Node no acelera: en el autobús, pintar una mano baja solo de 1,35 a 1,31
+s, porque lo caro es montar sus dos GIF (acierto y fallo) en Python. Ahí se gana
+memoria, no tiempo. Antes de prometer velocidad, medir qué tramo pesa.
+
+Escenas que no siguen `setup`/`renderFrames` o que guardan estado entre
+fotogramas (el polvo de los caballos) usan `NodeScene.sequence`: varias llamadas
+en orden y en un solo proceso. Cualquier función de la escena puede devolver
+imágenes de `exportFrame`. Lo que sea HTML con CSS (la parrilla y el boleto de
+los caballos, capturas de pantalla) se queda en Chromium.
+
 Lo que no compensó, para no repetirlo:
 
 - **PNG o GIF con menos colores.** La PNG de 256 colores pesa la cuarta parte,
