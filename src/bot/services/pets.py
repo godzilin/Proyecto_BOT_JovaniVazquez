@@ -69,6 +69,8 @@ class Event(StrEnum):
     HOME = "home"
     #: El cierre de un turno en tu negocio de `pala` (el ánimo sale de la nota del turno).
     BUSINESS = "business"
+    #: Mirar la ficha de Jovani (`jovani`).
+    JOVANI = "jovani"
 
 
 class Mood(StrEnum):
@@ -597,6 +599,12 @@ GENERIC_LINES: dict[Event, tuple[str, ...]] = {
         "{pet} no bebe, pero te juzga en silencio.",
         "{pet} se acerca a olisquear el vaso y vuelve con cara de «¿otra vez?».",
         "{pet} te cita a Aznar: «¿Y quién te ha dicho a ti las copas que puedo beber?».",
+    ),
+    Event.JOVANI: (
+        "{pet} mira la ficha de Jovani y no entiende por qué no sale en el banner.",
+        "{pet} se fija en el look de hoy y da su aprobación.",
+        "{pet} lee las cifras del bot con mucha atención.",
+        "{pet} quiere saber quién le hace los estados a Jovani.",
     ),
     Event.PROFILE: (
         "{pet} se asoma a tu perfil y busca su foto. No sale. Se ofende.",

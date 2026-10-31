@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -136,6 +136,7 @@ from bot.services.achievements import (
     housing_sale_stats,
     housing_streets_stats,
     is_laugh,
+    jovani_stats,
     menu_entries,
     message_stats,
     meta_stats,
@@ -154,6 +155,7 @@ from bot.services.achievements import (
     with_derived,
 )
 from bot.services.allatu import TABLES
+from bot.services.aspecto import BUILTIN_LOOKS
 from bot.services.autoplay import StopReason
 from bot.services.backgammon import LEVELS as BACKGAMMON_LEVELS
 from bot.services.beernight import Reason as BeerReason
@@ -291,6 +293,12 @@ PRODUCED_STATS = {
     "welcomes_given", "welcomes_fast",
     # Lista de tareas (cogs/todo.py)
     "todo_added", "todo_done", "todo_edited", "todo_demoted",
+    # 🎤 Jovani (`jovani_stats` y `with_derived`)
+    "jovani_days", "jovani_looks", "jovani_1337", "jovani_midnight", "jovani_friday13",
+    *(f"jovani_look_{key}" for key in (
+        "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",
+        "canarias", "halloween", "navidad", "aniversario",
+    )),
     # Beernight (cogs/beernight.py): beber, cerrar la noche y los botones de cada uno
     *(stat for reason in BeerReason
       for stat in (*beernight_drink_stats(reason.value, 1, forgiven=1).add,
@@ -2393,3 +2401,36 @@ def test_el_pozo_cuenta_lo_que_se_queda_cerca_y_lo_de_cada_tirada() -> None:
     assert stats(215)["picar_near_dragon"] == 1
     assert stats(30, payout=666)["picar_paid_666"] == 1
     assert near["picar_ldw"] == 1 and "picar_ldw" not in inside
+
+
+def test_jovani_cuenta_el_dia_y_el_look_y_no_se_suma_dos_veces_el_mismo_dia() -> None:
+    when = datetime(2026, 6, 10, 12, tzinfo=UTC)
+    delta = jovani_stats("casino", when=when)
+    assert delta.add == {"jovani_day_20260610": 1, "jovani_look_casino": 1}
+    stats = {"jovani_day_20260610": 3, "jovani_look_casino": 2, "jovani_look_pijama": 1}
+    derived = with_derived(stats)
+    assert derived["jovani_days"] == 1
+    assert derived["jovani_looks"] == 2
+
+
+def test_jovani_sin_look_automatico_solo_cuenta_el_dia() -> None:
+    delta = jovani_stats(None, when=datetime(2026, 6, 10, 12, tzinfo=UTC))
+    assert list(delta.add) == ["jovani_day_20260610"]
+
+
+@pytest.mark.parametrize(
+    ("when", "stat"),
+    [
+        (datetime(2026, 6, 10, 13, 37, tzinfo=UTC), "jovani_1337"),
+        (datetime(2026, 6, 10, 0, 0, tzinfo=UTC), "jovani_midnight"),
+        (datetime(2026, 11, 13, 12, 0, tzinfo=UTC), "jovani_friday13"),
+    ],
+)
+def test_las_fechas_de_jovani_tienen_su_contador(when: datetime, stat: str) -> None:
+    assert jovani_stats(None, when=when).add[stat] == 1
+
+
+def test_la_coleccion_de_jovani_pide_todos_los_looks_de_serie() -> None:
+    assert BY_ID["jovani_looks_12"].conditions == (("jovani_looks", len(BUILTIN_LOOKS)),)
+    looks = {key for a in AVAILABLE for key, _ in a.conditions if key.startswith("jovani_look_")}
+    assert looks == {f"jovani_look_{look.key}" for look in BUILTIN_LOOKS if look.key != "normal"}

@@ -424,6 +424,23 @@ class CasinoStatsRepository:
             for row in rows
         )
 
+    async def house_net(self, guild_id: int, since_day: str) -> int:
+        """Lo que ha ganado la casa desde un día (negativo si ha perdido).
+
+        Args:
+            since_day: Primer día que cuenta, en hora canaria (`AAAA-MM-DD`).
+        """
+        return await self._run(self._house_net_sync, guild_id, since_day)
+
+    def _house_net_sync(self, guild_id: int, since_day: str) -> int:
+        with self._connect() as connection:
+            (net,) = connection.execute(
+                "SELECT COALESCE(SUM(stake - payout), 0) FROM casino_plays "
+                "WHERE guild_id = ? AND day >= ?",
+                (guild_id, since_day),
+            ).fetchone()
+        return int(net)
+
     async def delete_guild_data(self, guild_id: int) -> None:
         """Borra las jugadas de un servidor cuando el bot sale de él."""
         await self._run(self._delete_guild_data_sync, guild_id)

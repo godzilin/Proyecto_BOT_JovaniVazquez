@@ -209,6 +209,17 @@ class AchievementRepository:
             ).fetchone()[0]
             return [(int(r["user_id"]), r["achievement_id"]) for r in rows], int(members)
 
+    async def unlock_count(self, guild_id: int) -> int:
+        """Logros desbloqueados en el servidor, contando los de todos los miembros."""
+        return await self._run(self._unlock_count_sync, guild_id)
+
+    def _unlock_count_sync(self, guild_id: int) -> int:
+        with self._connect() as connection:
+            (count,) = connection.execute(
+                "SELECT COUNT(*) FROM achievement_unlocks WHERE guild_id = ?", (guild_id,)
+            ).fetchone()
+        return int(count)
+
     async def delete_guild_data(self, guild_id: int) -> None:
         """Borra los logros del servidor (el bot ha salido de él)."""
         await self._run(self._delete_guild_data_sync, guild_id)

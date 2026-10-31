@@ -77,10 +77,10 @@ python -m bot
   | 🏦 Dinero | `banco [mostrador]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `hacienda [miembro]` · `imv` · `patrimonio [miembro]` · `renta` · `saldo [miembro]` |
   | 🛍️ Tienda | `mascota [miembro]` · `pieles [miembro] [imagen]` · `rastro` · `tienda` · `trueque <objeto> <miembro> <a cambio> [dinero]` · `vender <objeto> <precio> [comprador]` |
   | 🎵 Música | `cola` · `parar` · `pausar` · `poner <consulta>` · `quitar <posicion>` · `saltar` · `seguir` · `vaciar` · `volumen <1-200>` |
-  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [volumen] [borrar]` · `hongkong` · `lista [tarea] [prioridad alta\|media\|baja]` |
+  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
   | ⚙️ General | `ayuda` · `latencia` |
-  | 🛡️ Admin | `abrir` · `admin` · `apodo` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
+  | 🛡️ Admin | `abrir` · `admin` · `apodo` · `aspecto` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
 
   La ayuda es un menú desplegable, como el de `perfil`: una portada con las
   categorías y una página por categoría con cada comando y lo que hace (la
@@ -1252,6 +1252,20 @@ docker run --rm -v bot-jovani-vazquez-data:/data -v "$PWD":/backup alpine \
   tar czf /backup/bot-data.tgz -C /data .
 ```
 La cola de música está en memoria y se pierde al reiniciar el contenedor.
+
+### Aspecto de Jovani: `aspecto`
+
+Jovani cambia su perfil de cada servidor según lo que pase (detalle en
+FUNCIONALIDADES, sección 6 octies). No hace falta configurar nada ni dar permisos:
+al desplegar empieza con los banners dibujados y la bio, y el avatar sigue siendo el
+global hasta que un administrador suba uno con `aspecto`. Las imágenes se guardan en
+`.data/aspecto/`, en el mismo volumen que la base de datos.
+
+Discord no publica cuántas veces se puede cambiar un avatar, así que el bot lo cambia
+poco (30 minutos como mínimo entre looks automáticos) y, si Discord pide esperar, para
+hasta que pase la espera. Si rechaza una pieza, las demás se aplican. Lo uno y lo otro
+sale en «Último aviso» del panel de `aspecto`. Para dejarlo como estaba: `aspecto
+accion:Apagar`, que quita el perfil del servidor y vuelve al global.
 
 ### Telemetría interna: `informe`
 

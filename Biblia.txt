@@ -97,6 +97,8 @@ La estructura es una guía, no una obligación de crear carpetas vacías desde e
 - Excepción, el patrimonio: `patrimonio` (`/patrimonio` y `.patrimonio`) enseña sola la sección 🏰 Patrimonio de `perfil` (el mismo `patrimonio_embed`), aunque pase de 8 caracteres y repita una sección, porque es el nombre del impuesto y lo pidió así el proyecto. Sin alias ni subcomandos: el miembro es una opción.
 - Excepción, la beernight: `beernight` pasa de 8 caracteres y no está en español porque es el nombre del evento del servidor y lo pidió así el proyecto. No tiene alias ni subcomandos: todo va en su panel, y subir un audio son dos opciones del mismo comando.
 - Excepción, `robuso` (administración): se llama como el miembro del que apunta si está en Hong Kong o en Madrid, para los logros de su categoría secreta; como `hongkong`, es un nombre propio y no hay palabra española mejor.
+- Excepción, `jovani`: es un nombre propio, como `hongkong` o `robuso`: la ficha del bot. Sus datos solo son totales del servidor (`bot.services.aspecto.facts`), nunca quién ha hecho qué.
+- El perfil del bot (cog `Aspecto`) va por servidor y nunca toca el global. Un look nuevo es una fila en `BUILTIN_LOOKS` con un sitio en `automatic_look`, y sube la meta de `jovani_looks_12`. Los límites de cambiar el perfil no se escriben como si fueran de Discord, que no los publica: `MIN_PROFILE_SECONDS` es una decisión del proyecto y lo que manda Discord se respeta con `blocked_until`.
 - Excepción, el backgammon: se llama `backgammon` (`/backgammon` y `.backgammon`), aunque pase de 8 caracteres, porque en España el juego se llama así y lo pidió así el proyecto. Sin alias ni subcomandos: retar a alguien es una opción del mismo comando.
 
 ### Servicios

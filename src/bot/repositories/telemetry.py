@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -308,6 +308,52 @@ class TelemetryRepository:
                     "ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id",
                     (guild_id, channel_id),
                 )
+
+    async def usage_counts(
+        self,
+        guild_id: int,
+        kinds: Sequence[str],
+        *,
+        since_day: str | None = None,
+        until_day: str | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """Eventos por tipo y nombre entre dos días, ambos incluidos.
+
+        Como en el informe, suma también los contadores del servidor 0 (dibujos,
+        música y arranques, que no son de ningún servidor).
+
+        Args:
+            kinds: Tipos de evento que se quieren.
+            since_day: Primer día (`AAAA-MM-DD`), o `None` para todo lo guardado.
+            until_day: Último día, o `None` para llegar hasta hoy.
+
+        Returns:
+            `{tipo: {nombre: eventos}}`, sin los tipos que no tengan nada.
+        """
+        return await self._run(
+            self._usage_counts_sync, guild_id, tuple(kinds), since_day, until_day
+        )
+
+    def _usage_counts_sync(
+        self,
+        guild_id: int,
+        kinds: tuple[str, ...],
+        since_day: str | None,
+        until_day: str | None,
+    ) -> dict[str, dict[str, int]]:
+        if not self._ready:
+            self._initialize_sync()
+        marks = ", ".join("?" for _ in kinds)
+        counts: dict[str, dict[str, int]] = {}
+        with closing(self._connect()) as connection:
+            for row in connection.execute(
+                "SELECT kind, name, SUM(events) AS events FROM telemetry_counts "
+                f"WHERE guild_id IN (?, 0) AND kind IN ({marks}) AND day >= ? AND day <= ? "
+                "GROUP BY kind, name",
+                (guild_id, *kinds, since_day or "", until_day or "9999-12-31"),
+            ):
+                counts.setdefault(row["kind"], {})[row["name"]] = int(row["events"])
+        return counts
 
     async def report_data(self, *, guild_id: int, since_day: str, since_ts: float) -> ReportData:
         """Agrega en SQL lo que necesita `build_report` para un servidor desde `since_day`."""

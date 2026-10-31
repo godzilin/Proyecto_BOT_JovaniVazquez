@@ -491,3 +491,27 @@ def test_report_data_cuenta_las_muestras_de_cada_dia(tmp_path: Path) -> None:
 
     (system,) = asyncio.run(scenario()).system
     assert system["samples"] == 2
+
+
+async def test_usage_counts_filtra_por_tipo_dias_y_servidor(tmp_path: Path) -> None:
+    repository = TelemetryRepository(tmp_path / "t.sqlite3")
+    await repository.initialize()
+    with repository._connect() as connection:
+        connection.executemany(
+            "INSERT INTO telemetry_counts (day, hour, guild_id, kind, name, events) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("2026-01-01", 1, 7, "slash", "tragas", 2),
+                ("2026-01-01", 2, 7, "slash", "tragas", 3),
+                ("2026-01-02", -1, 7, "slash", "ruleta", 1),
+                ("2026-01-03", 1, 0, "arranque", "9.0.0", 4),
+                ("2026-01-01", 1, 8, "slash", "ajeno", 9),
+                ("2026-01-01", 1, 7, "button", "x", 9),
+            ],
+        )
+    everything = await repository.usage_counts(7, ("slash", "arranque"))
+    assert everything == {"slash": {"tragas": 5, "ruleta": 1}, "arranque": {"9.0.0": 4}}
+    window = await repository.usage_counts(
+        7, ("slash", "arranque"), since_day="2026-01-02", until_day="2026-01-02"
+    )
+    assert window == {"slash": {"ruleta": 1}}

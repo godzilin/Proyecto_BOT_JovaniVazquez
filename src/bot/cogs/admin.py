@@ -2,7 +2,7 @@
 
 Comandos (todos con `/` y con `.`, mismo nombre; `tajo` elige dónde se usa `pala`):
 `purge`, `mute`, `unmute`, `kick`, `ban`, `unban`, `lock`, `unlock`,
-`slow`, `say`, `nick`, `role`, `bienv`, `niveles`, `cambios`, `catalogo`, `tajo`,
+`slow`, `say`, `nick`, `role`, `bienv`, `aspecto`, `niveles`, `cambios`, `catalogo`, `tajo`,
 `informe` (descarga la telemetría interna, ver `bot.cogs.telemetry`), `robuso` (si
 Robuso está en Hong Kong o en Madrid, para sus logros: ver `bot.cogs.robuso`),
 `bloquear`, `crear`, `dinero`, `repicar` (solo con `.`: vuelve a jugar una tirada del
@@ -80,6 +80,7 @@ from discord.ui.view import BaseView, ViewStore
 
 from bot.cogs import moderation as historial
 from bot.cogs import robuso as robuso_logros
+from bot.cogs.aspecto import ACTIONS, Aspecto
 from bot.cogs.deploy import DEPLOYERS, Deploy, can_post, news_channel, resolve_target
 from bot.cogs.errors import BLOCKED_ERROR, CLOSING_CLICK, RESTART_CLICK, RESTART_ERROR
 from bot.cogs.telemetry import Telemetry, report_inputs
@@ -1007,6 +1008,89 @@ class Admin(commands.Cog):
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
+
+    # --- aspecto ----------------------------------------------------------
+
+    @app_commands.command(name="aspecto", description="Configura los looks de Jovani.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        accion="Qué hacer; sin acción solo enseña el panel.",
+        look="Look sobre el que actuar.",
+        imagen="Imagen para el avatar o el banner; sin imagen se quita la que haya.",
+        texto="Nombre del look nuevo, bio o estado; admite {version} y {dato}.",
+        horas="Horas que dura un look fijado; sin horas, hasta quitarlo.",
+    )
+    @app_commands.choices(
+        accion=[app_commands.Choice(name=name, value=key) for key, name in ACTIONS.items()]
+    )
+    async def aspecto(
+        self,
+        interaction: discord.Interaction,
+        accion: str = "",
+        look: str = "",
+        imagen: discord.Attachment | None = None,
+        texto: app_commands.Range[str, 1, 200] = "",
+        horas: app_commands.Range[int, 1, 720] | None = None,
+    ) -> None:
+        """Cambia o fija los looks de Jovani y enseña cómo queda (solo a ti).
+
+        Efecto visible: el avatar, el banner, la bio y el estado del bot.
+        """
+        await self._aspecto_impl(
+            InteractionResponder(interaction), accion, look, imagen, texto, horas
+        )
+
+    @aspecto.autocomplete("look")
+    async def aspecto_look_options(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Propone los looks del servidor al escribir."""
+        cog = find_cog(self.bot, Aspecto)
+        if cog is None or interaction.guild_id is None:
+            return []
+        options = await cog.look_options(interaction.guild_id, current)
+        return [app_commands.Choice(name=name, value=key) for name, key in options]
+
+    @commands.command(name="aspecto")
+    async def aspecto_text(
+        self, ctx: commands.Context, accion: str = "", look: str = "", *, texto: str = ""
+    ) -> None:
+        """Versión de texto: `.aspecto`, `.aspecto fijar casino 6`, `.aspecto auto`,
+        `.aspecto crear Modo tortilla`, `.aspecto borrar tortilla`, `.aspecto bio casino
+        Texto`, `.aspecto estado casino Texto` y `.aspecto avatar casino` o `.aspecto banner
+        casino` con la imagen adjunta."""
+        accion = accion.lower()
+        image = next(
+            (a for a in ctx.message.attachments if (a.content_type or "").startswith("image/")),
+            None,
+        )
+        hours = None
+        if accion == "fijar" and texto.strip():
+            # Un texto que no es un número no puede acabar fijando el look para siempre.
+            if not texto.strip().isdecimal():
+                await ctx.send("⚠️ Las horas tienen que ser un número: `.aspecto fijar casino 6`.")
+                return
+            hours = int(texto)
+        if accion == "crear":
+            look, texto = "", f"{look} {texto}"
+        await self._aspecto_impl(ContextResponder(ctx), accion, look, image, texto, hours)
+
+    async def _aspecto_impl(
+        self,
+        responder: CommandResponder,
+        action: str,
+        look: str,
+        image: discord.Attachment | None,
+        text: str,
+        hours: int | None,
+    ) -> None:
+        """Pasa `aspecto` al cog que lleva los looks."""
+        cog = find_cog(self.bot, Aspecto)
+        if cog is None:
+            await responder.send_error("El aspecto no está disponible ahora mismo.")
+            return
+        await cog.manage(responder, action, look, image, text, hours)
 
     # --- niveles ----------------------------------------------------------
 

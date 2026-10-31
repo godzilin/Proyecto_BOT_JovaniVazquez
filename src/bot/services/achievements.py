@@ -359,6 +359,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("voice_chat", "📞 Escribir desde la llamada", group=_VG),
     Category("social", "❤️ Social"),
     Category("todo", "📝 Lista"),
+    Category("jovani", "🎤 Jovani"),
     Category("beernight", "🍻 Beernight"),
     Category("levels", "📈 Niveles"),
     # 🎰 Casino: una entrada del menú con una sección por juego. El menú de
@@ -536,6 +537,14 @@ REACT_KINDS_STAT = "react_kinds"
 VOICE_GAME_PREFIX = "voice_game_"
 VOICE_GAMES_STAT = "voice_games"
 VOICE_DAY_PREFIX = "voice_day_"
+#: Prefijo de cada día en que un miembro ha mirado `jovani` (`jovani_day_20261031`).
+JOVANI_DAY_PREFIX = "jovani_day_"
+#: Días distintos mirando `jovani`; se calcula en `with_derived`.
+JOVANI_DAYS_STAT = "jovani_days"
+#: Prefijo de cada look visto en `jovani` (`jovani_look_casino`).
+JOVANI_LOOK_PREFIX = "jovani_look_"
+#: Looks de serie distintos vistos; se calcula en `with_derived`.
+JOVANI_LOOKS_STAT = "jovani_looks"
 VOICE_STREAK_STAT = "voice_streak_max"
 VOICE_WITH_PREFIX = "voice_with_"
 VOICE_PEOPLE_STAT = "voice_people"
@@ -2528,6 +2537,55 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("todo", "todo_demoted", [
         (1, "todo_demote_1", "Ya si eso, mañana",
          "Pasa una tarea de prioridad alta a baja.", C, True),
+    ])  # fmt: skip
+
+    # 🎤 Jovani (cogs/aspecto.py: jovani_stats). Mirar la ficha se puede repetir a
+    # propósito, así que cuentan los días distintos; los looks fijados a mano no cuentan.
+    a += _tiers("jovani", JOVANI_DAYS_STAT, [
+        (1, "jovani_day_1", "¡Jota Uve! ¡Pre!", "Mira la ficha de Jovani con `jovani`.", C),
+        (7, "jovani_day_7", "Fan de primera fila", "Mira `jovani` 7 días distintos.", R),
+        (30, "jovani_day_30", "Presidente del club de fans", "Mira `jovani` 30 días distintos.", E),
+        (100, "jovani_day_100", "Groupie con carné", "Mira `jovani` 100 días distintos.", L),
+        (365, "jovani_day_365", "Tatuaje de Jovani en el gemelo",
+         "Mira `jovani` 365 días distintos.", M),
+    ])  # fmt: skip
+    a += _tiers("jovani", JOVANI_LOOKS_STAT, [
+        (2, "jovani_looks_2", "Cambio de vestuario", "Ve a Jovani con 2 looks distintos.", C),
+        (4, "jovani_looks_4", "Fondo de armario", "Ve a Jovani con 4 looks distintos.", R),
+        (6, "jovani_looks_6", "Asesor de imagen", "Ve a Jovani con 6 looks distintos.", E),
+        (9, "jovani_looks_9", "Primera fila en la Cibeles",
+         "Ve a Jovani con 9 looks distintos.", L),
+        (12, "jovani_looks_12", "Y así me lo tienes que soportar",
+         "Ve a Jovani con los 12 looks de serie.", M),
+    ])  # fmt: skip
+    for look_key, achievement_name, look_name, rarity, secret in (
+        ("pijama", "Insomnio con público", "en pijama", C, False),
+        ("hacienda", "Lunes al sol y a la sombra", "con el look de Hacienda", C, False),
+        ("casino", "Smoking de alquiler", "con el look de casino", C, False),
+        ("actualizado", "Olor a coche nuevo", "recién actualizado", R, False),
+        ("beernight", "Foto borrosa de la beernight", "con el look de beernight", R, False),
+        ("dragon", "Selfie con el matadragones", "con el look de matadragones", L, True),
+        ("carnaval", "Disfrazado de lo de siempre", "con el look de Carnaval", R, False),
+        ("canarias", "Gofio en la solapa", "con el look del Día de Canarias", R, False),
+        ("halloween", "Truco, trato y ficha", "con el look de Halloween", R, False),
+        ("navidad", "El cuñado de la foto", "con el look de Navidad", R, False),
+        ("aniversario", "Velas de más en la tarta", "con el look de aniversario", R, False),
+    ):
+        a.append(Achievement(
+            id=f"jovani_saw_{look_key}", name=achievement_name,
+            description=f"Mira `jovani` {look_name}.",
+            category="jovani", rarity=rarity,
+            conditions=((f"{JOVANI_LOOK_PREFIX}{look_key}", 1),), secret=secret,
+        ))  # fmt: skip
+    a += _tiers("jovani", "jovani_1337", [
+        (1, "jovani_1337", "Versión 13.37", "Mira `jovani` a las 13:37.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "jovani_midnight", [
+        (1, "jovani_midnight", "Cenicienta sin motora", "Mira `jovani` a medianoche.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "jovani_friday13", [
+        (1, "jovani_friday13", "Quisiera ser una mosca negra",
+         "Mira `jovani` un viernes 13.", C, True),
     ])  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
@@ -22136,6 +22194,8 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
         }
         & set(HOUSING_THEMES)
     )
+    full[JOVANI_DAYS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_DAY_PREFIX))
+    full[JOVANI_LOOKS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_LOOK_PREFIX))
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -23183,6 +23243,26 @@ def beernight_streak(days: Iterable[date]) -> int:
             break
         streak += 1
     return streak
+
+
+def jovani_stats(look_key: str | None, *, when: datetime) -> StatDelta:
+    """Lo que suma mirar la ficha de `jovani`.
+
+    Args:
+        look_key: Look de serie que lleva, si es automático; `None` si lo ha fijado
+            un administrador o es uno propio, para que no se pueda forzar.
+        when: Momento en hora canaria.
+    """
+    add = {f"{JOVANI_DAY_PREFIX}{when:%Y%m%d}": 1}
+    if look_key is not None:
+        add[f"{JOVANI_LOOK_PREFIX}{look_key}"] = 1
+    if (when.hour, when.minute) == (13, 37):
+        add["jovani_1337"] = 1
+    if (when.hour, when.minute) == (0, 0):
+        add["jovani_midnight"] = 1
+    if when.day == 13 and when.weekday() == 4:
+        add["jovani_friday13"] = 1
+    return StatDelta(add=add)
 
 
 def image_stats(effect: str, extension: str, *, subject_is_author: bool | None) -> StatDelta:

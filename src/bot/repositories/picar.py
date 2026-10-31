@@ -270,6 +270,17 @@ class PicarRepository:
             for row in rows
         }
 
+    async def dragons(self, guild_id: int) -> int:
+        """Dragones matados en el servidor."""
+        return await self._run(self._dragons_sync, guild_id)
+
+    def _dragons_sync(self, guild_id: int) -> int:
+        with self._connect() as connection:
+            (count,) = connection.execute(
+                "SELECT COUNT(*) FROM picar_plays WHERE guild_id = ? AND dragon = 1", (guild_id,)
+            ).fetchone()
+        return int(count)
+
     async def delete_guild_data(self, guild_id: int) -> None:
         """Borra todo lo guardado de un servidor (al salir el bot de él)."""
         await self._run(self._delete_guild_sync, guild_id)

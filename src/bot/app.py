@@ -23,6 +23,7 @@ from bot.cogs.deploy import Deploy
 from bot.repositories import sqlite
 from bot.repositories.achievements import AchievementRepository
 from bot.repositories.activity import ActivityRepository
+from bot.repositories.aspecto import AspectoRepository, LookImageStore
 from bot.repositories.backgammon import BackgammonRepository
 from bot.repositories.beernight import BeernightRepository
 from bot.repositories.beernight_sounds import BeernightSoundStore
@@ -126,6 +127,7 @@ INITIAL_EXTENSIONS: tuple[str, ...] = (
     "bot.cogs.robuso",
     "bot.cogs.perfil",
     "bot.cogs.fun",
+    "bot.cogs.aspecto",
     "bot.cogs.admin",
     "bot.cogs.moderation",
     "bot.cogs.deploy",
@@ -248,6 +250,9 @@ class BotClient(commands.Bot):
         # Panel `admin`: última actividad de cada miembro, sanciones y notas de moderador.
         self.last_seen = ActivityRepository(database_path)
         self.moderation = ModerationRepository(database_path)
+        # Looks de Jovani (`aspecto`, `jovani`) y sus imágenes, en el mismo volumen.
+        self.aspecto = AspectoRepository(database_path)
+        self.aspecto_images = LookImageStore(database_path.parent / "aspecto")
         self._keep_warm_task: asyncio.Task[None] | None = None
         self._checkpoint_task: asyncio.Task[None] | None = None
         super().__init__(
@@ -332,6 +337,7 @@ class BotClient(commands.Bot):
         await self.telemetry_repository.initialize()
         await self.last_seen.initialize()
         await self.moderation.initialize()
+        await self.aspecto.initialize()
 
         for extension in INITIAL_EXTENSIONS:
             await self.load_extension(extension)

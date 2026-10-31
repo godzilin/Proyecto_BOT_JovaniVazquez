@@ -76,6 +76,7 @@ EXPECTED_COMMANDS = {
     "perfil",
     "pala",
     "beernight",
+    "jovani",
 }
 
 # Comandos de administración (cog `Admin`): también con `/` y con `.`.
@@ -83,6 +84,7 @@ ADMIN_COMMANDS = {
     "borrar",
     "admin",
     "bienv",
+    "aspecto",
     "callar",
     "hablar",
     "echar",

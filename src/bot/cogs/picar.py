@@ -50,7 +50,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from bot.cogs import achievements as logros
-from bot.cogs import apuestas, renta
+from bot.cogs import apuestas, aspecto, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.picar import PicarRepository, PlayRecord
 from bot.services.achievements import casino_stats, picar_stats
@@ -637,6 +637,8 @@ class Picar(commands.Cog, name="Pico"):
             balance_after=dig.balance,
             tax=dig.settlement.tax_delta,
         )
+        if outcome.dragon:
+            aspecto.dragon_killed(self.bot, guild_id)
 
     async def shout(self, dig: Dig, user: discord.abc.User, channel: object) -> None:
         """Anuncia en el canal el dragón, el End y los premios enormes."""

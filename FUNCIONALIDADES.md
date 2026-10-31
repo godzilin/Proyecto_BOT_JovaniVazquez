@@ -1093,6 +1093,62 @@ La noche estrella del servidor: todos en la llamada, jugando a algo y bebiendo l
 - **Histórico:** ranking de siempre (sorbos, noches, veces MVP), chivatos, buleros y las últimas noches, con un desplegable para ver el resumen de cada una.
 - No mueve yapdollars. Logros (🍻 Beernight, 88): noches, anfitrión, sorbos, MVP, chivatazos, confirmaciones, confesiones, duelos, retos, repartos, mandamientos propios, audios, rachas de días seguidos, fechas (Juernes, Nochevieja, Día de Canarias, el Pino, Halloween, San Juan) y secretos. La mascota activa comenta cuando su dueño bebe.
 
+## 6 octies. Aspecto de Jovani: `jovani` y `aspecto`
+
+Jovani cambia de *look* según lo que pasa en el servidor. Un look es un conjunto de avatar, banner, bio y estados. Reglas en `bot.services.aspecto`.
+
+### 6 octies.1. Looks
+
+Cada 10 minutos se mira qué look toca. Si encajan varios, gana el primero de esta lista:
+
+1. El fijado a mano con `aspecto`.
+2. 🐉 Matadragones: 24 horas después de matar al dragón de `picar`.
+3. 🍻 Beernight: mientras haya una abierta.
+4. 🦺 Recién actualizado: 6 horas después de desplegar una versión nueva.
+5. Fiestas, a lo largo de todo el día: 🎂 aniversario del servidor (el día que se creó), 🎭 Carnaval (de Jueves Lardero a Domingo de Piñata), 🏝️ Día de Canarias (30 de mayo), 🎃 Halloween (31 de octubre) y 🎄 Navidad (del 20 de diciembre al 6 de enero).
+6. 🧾 Lunes de Hacienda: los lunes.
+7. 🎰 Noche de casino: viernes y sábados desde las 20:00.
+8. 🌙 Pijama: de 2:00 a 7:00.
+9. 🎤 De diario: el resto del tiempo.
+
+Las horas son canarias. Las claves de los looks de serie no se cambian nunca.
+
+### 6 octies.2. Perfil y estado
+
+- **Por servidor:** avatar, banner y bio son los del perfil del bot en ese servidor; el perfil global no se toca. Si un look no tiene avatar, se usa el de 🎤 De diario y, si tampoco lo tiene, el global.
+- **Banner:** el fondo del look (un degradado con sus colores o la imagen subida, con un velo oscuro) con el nombre del look, la versión y tres datos. El texto va a la derecha porque Discord pone el avatar sobre la esquina inferior izquierda.
+- **Bio:** la versión y un dato, con una frase del look. Se renueva cada día, igual que el banner, en la primera revisión desde las 6:00.
+- **Estado:** cada 10 minutos, la versión, un dato o una frase del look, por turnos. Discord solo admite un estado por bot: sale del servidor con más miembros.
+- **Límites:** entre dos cambios automáticos de look pasan al menos 30 minutos. Es una decisión del proyecto, porque Discord no publica su límite. Si Discord pide esperar, no se toca el perfil hasta que pase la espera, ni siquiera a petición de un administrador; si no dice cuánto, una hora.
+- **Fallos:** cada pieza va por separado. Si Discord rechaza una, las demás se aplican y el aviso sale en el panel de `aspecto`. El límite de 190 caracteres de la bio no sale de la documentación oficial de Discord.
+
+### 6 octies.3. `jovani`
+
+`jovani` (`/jovani` y `.jovani`) publica la ficha de Jovani: versión, look, cuánto lleva encendido y las cifras del servidor (`Snapshot`), de hace 10 minutos como mucho. No se enseña quién ha hecho qué: solo totales.
+
+- 📅 Esta semana (los últimos 7 días): comandos, comandos mal escritos, comando más usado, dibujos, canciones y mensajes.
+- 🕰️ Desde siempre: comandos, dibujos, canciones, reinicios, logros desbloqueados y dragones matados. Salen de la telemetría, que borra sus contadores a los 400 días, así que cada día se acumula lo cerrado en `aspecto_totals`.
+- 💰 Dinero: lo que gana o pierde la casa esta semana y el saldo de la cuenta del Estado.
+
+Deja hablar a la mascota activa (`Event.JOVANI`). No mueve dinero.
+
+Logros (🎤 Jovani), 24: días distintos mirando la ficha (de 1 a 365), looks distintos vistos (de 2 a los 12), uno por cada look salvo el de diario y tres secretos de fecha (13:37, medianoche y viernes 13). Mirarla varias veces el mismo día no suma, y un look fijado a mano o propio no cuenta, para que no se consigan a golpe de `aspecto`.
+
+### 6 octies.4. `aspecto`
+
+Comando de administración (cog `Admin`): `/aspecto` con `accion`, `look`, `imagen`, `texto` y `horas`, y `.aspecto <accion> [look] [texto]`. Sin acción enseña el panel. Después de cada acción también, y solo a quien lo pide en `/`.
+
+- `fijar`: pone ya un look, durante `horas` (de 1 a 720) o hasta quitarlo.
+- `auto`: quita lo fijado.
+- `crear`: crea un look propio con el nombre de `texto` (32 caracteres como mucho, 20 looks por servidor). Solo sale si se fija.
+- `borrar`: borra un look propio y sus imágenes. Los de serie no se borran.
+- `avatar` y `banner`: cambian la imagen de un look, adjunta en el mensaje en `.aspecto`; sin imagen, la quitan. Se aceptan adjuntos de hasta 8 MB y se recortan al centro. El avatar conserva la animación de un GIF (hasta 300 fotogramas; si no es cuadrado, se recorta a 256 px y uno muy grande se rechaza). El banner usa su primer fotograma, porque lleva texto dibujado encima.
+- `bio` y `estado`: cambian el texto de un look, que admite `{version}` y `{dato}`; sin texto, vuelven los de serie. Una variable desconocida se rechaza.
+- `apagar`: quita avatar, banner y bio del servidor, de forma que se vea el perfil global, y deja de cambiarlos.
+- `encender`: vuelve a lo automático.
+
+Lo guardado se borra si el bot sale del servidor.
+
 ## 7. Persistencia y aislamiento por servidor
 
 El canal y el GIF de bienvenida se guardan por servidor en SQLite, igual que los datos del sistema de niveles.
