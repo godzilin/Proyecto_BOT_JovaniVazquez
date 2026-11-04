@@ -24,11 +24,11 @@ nueva se añade aquí y en la escena a la vez.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from bot.repositories.housing import Holding, Market, MemberDay, News
+from bot.repositories.housing import Holding, Market, News
 from bot.repositories.housing_finance import LOAN_BNPL, Deposit
 from bot.services import housing as rules
 from bot.services import loans as lending
@@ -755,14 +755,16 @@ def portfolio_state(
     user_id: int,
     name: str,
     cash: int,
-    week: MemberDay,
     news: list[News],
     names: dict[int, str],
     effort: float | None = None,
     today: date | None = None,
     page: int = 0,
 ) -> State:
-    """Lo que tiene un miembro: cada inmueble, lo cobrado en 7 días y las noticias.
+    """Lo que tiene un miembro: cada inmueble, lo que cobra esta noche y las noticias.
+
+    Lo de esta noche es la misma cifra que da `saldo` (`tonight_rent`): lo ya cobrado no
+    sale aquí, que con dos cifras de rentas no se sabía cuál era cuál.
 
     Las cifras de arriba (efectivo, ladrillo, deuda, candidatos) son de todo lo que tiene;
     la lista, solo de una página (`PORTFOLIO_PAGE` inmuebles).
@@ -821,6 +823,12 @@ def portfolio_state(
         )
     worth = sum(market.value(h) for h in market.of_member(user_id))
     worth += VPO_BY_KEY[unit].price if unit is not None else 0
+    # Lo que entra esta noche (la misma renta que da `saldo`) y lo que sale de ella.
+    tonight = _Night()
+    for holding in market.of_member(user_id):
+        tonight.add(market, holding, today)
+    if unit is not None:
+        tonight.add_vpo(market, unit)
     debt = sum(m.owed for m in market.mortgages_of(user_id)) + market.bank_debts.get(user_id, 0)
     home = market.homes.get(user_id)
     waiting = sum(1 for i in items if i.get("waiting"))
@@ -833,12 +841,6 @@ def portfolio_state(
         "items": items,
         "page": page + 1,
         "pages": pages,
-        "week": {
-            "rent": format_amount(week.rent),
-            "ibi": format_amount(week.ibi),
-            "costs": format_amount(week.costs),
-            "net": format_amount(week.rent - week.ibi - week.costs),
-        },
         "news": [news_line(n, names, market=market) for n in news[:6]],
         "empty": not items,
         "debt": format_amount(debt) if debt else "",
@@ -849,11 +851,18 @@ def portfolio_state(
         "living": _living(market, home, names, effort),
         "socimi": user_id in market.socimi,
         "waiting": waiting,
-        "footer": "Lo cobrado es antes del IRPF, que se retiene al cobrar",
+        "tonight": {
+            "rent": format_amount(tonight.rent),
+            "ibi": format_amount(tonight.ibi),
+            "costs": format_amount(tonight.costs),
+            "net": format_amount(tonight.net),
+            "loss": tonight.net < 0,
+        },
+        "footer": "Antes del IRPF, que se retiene al cobrar · Euríbor " + _pct(market.euribor, 2),
     }
     state["fallback"] = [
         f"Los pisos de {name}: {format_amount(worth)}",
-        f"Últimos 7 días: {state['week']['rent']} de renta, {state['week']['net']} netos",
+        f"Esta noche: {state['tonight']['rent']} de renta, {state['tonight']['net']} netos",
         *(f"{i['title']} ({i['shares']} %): {i['value']} · {i['status']}" for i in items),
         *([f"Página {page + 1} de {pages}"] if pages > 1 else []),
     ] if items else [f"{name} no tiene ningún piso. Generación inquilina."]  # fmt: skip
@@ -876,6 +885,71 @@ def tonight_rent(market: Market, holding: Holding) -> int:
         if (lease := market.leases.get(key)) is not None and lease.status == rules.RENTED
     )
     return rent * holding.shares // rules.SHARES
+
+
+@dataclass(slots=True)
+class _Night:
+    """Lo que un miembro cobra y paga esta noche por sus inmuebles, antes del IRPF.
+
+    Las mismas cuentas que el cierre (`HousingRepository._close_listing_in`): la renta de los
+    inquilinos al día (`tonight_rent`), el IBI del mes (con el recargo del piso vacío de un
+    gran tenedor), la comunidad, los seguros con su impuesto, el IGIC del vacacional y los
+    atrasos, que también salen de la renta. Los imprevistos de esta noche no se saben.
+    """
+
+    rent: int = 0
+    ibi: int = 0
+    costs: int = 0
+
+    @property
+    def net(self) -> int:
+        return self.rent - self.ibi - self.costs
+
+    def add(self, market: Market, holding: Holding, today: date | None) -> None:
+        self.rent += tonight_rent(market, holding)
+        ibi = costs = 0
+        for key in rent_keys(market, holding.listing):
+            listing, lease = market.listing(key), market.leases.get(key)
+            if listing is None or lease is None:
+                continue
+            month = rules.monthly_costs(listing)
+            month_ibi, home = month.ibi, month.insurance
+            boss = market.manager(key)
+            if (
+                today is not None and lease.status == rules.VACANT and lease.since is not None
+                and (today - lease.since).days >= rules.EMPTY_DAYS
+                and boss is not None and market.whole_homes(boss) >= rules.EMPTY_OWNER_HOMES
+            ):  # fmt: skip
+                month_ibi = round(month_ibi * rules.EMPTY_IBI_FACTOR)
+            if (
+                today is not None
+                and lease.home_claim_until is not None
+                and (lease.home_claim_until >= today)
+            ):
+                home = round(home * rules.HOME_CLAIM_SURCHARGE)
+            cover = rules.premium(listing, lease)
+            ips = round(home * rules.IPS_RATE) + round(cover * rules.IPS_RATE)
+            vacation = (
+                rules.vacation_igic(lease.rent)
+                if lease.level == rules.VACATION_LEVEL and lease.status == rules.RENTED
+                else 0
+            )
+            ibi += month_ibi
+            costs += month.community + home + cover + ips + vacation
+            # Los atrasos ya son solo de los dueños: se reparten entre ellos, como en `saldo`.
+            owners = market.shares_of(key)
+            self.ibi += rules.split(lease.arrears_ibi, owners).get(holding.user_id, 0)
+            self.costs += rules.split(lease.arrears - lease.arrears_ibi, owners).get(
+                holding.user_id, 0
+            )
+        self.ibi += ibi * holding.shares // rules.SHARES
+        self.costs += costs * holding.shares // rules.SHARES
+
+    def add_vpo(self, market: Market, unit: str) -> None:
+        spec, owner = VPO_BY_KEY[unit], market.vpo[unit]
+        month = rules.vpo_costs(spec.price, spec.community)
+        self.ibi += month.ibi + owner.arrears_ibi
+        self.costs += month.community + owner.arrears - owner.arrears_ibi
 
 
 def _mortgage_line(mortgages: list) -> str:
@@ -2263,7 +2337,8 @@ def pending_items(
         items.append(
             Pending(
                 Side.COLLECT, "rents", "🏘️",
-                f"Rentas de esta noche: {format_amount(rents)} brutas (antes de gastos e IRPF)",
+                f"Rentas de esta noche: {format_amount(rents)} brutas, de los inquilinos que "
+                "tienes al día (antes de gastos e IRPF)",
                 rents, tonight,
             )
         )  # fmt: skip
