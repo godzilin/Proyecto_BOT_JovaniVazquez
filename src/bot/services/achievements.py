@@ -200,6 +200,8 @@ from bot.services.slots import Kind as SlotKind
 from bot.services.slots import Spin
 from bot.services.slots import WinTier as SlotWinTier
 from bot.services.slots import pot_share as slots_pot_share
+from bot.services.sports import MAX_COMBO_PAYOUT as SPORTS_MAX_COMBO_PAYOUT
+from bot.services.sports import MAX_LEGS as SPORTS_MAX_LEGS
 from bot.services.sports import MAX_STAKE as SPORTS_MAX_STAKE
 from bot.services.sports import MIN_STAKE as SPORTS_MIN_STAKE
 from bot.services.sports import SPORTS
@@ -684,6 +686,8 @@ SPORTS_LONG_ODDS = 500
 SPORTS_SAFE_ODDS = 130
 #: Goles de diferencia de una goleada.
 SPORTS_ROUT = 4
+#: Combinadas: cuota total (en centésimas) que cuenta como «pelotazo» (×100).
+SPORTS_COMBO_HUGE_ODDS = 10_000
 
 _R = Rarity
 C, R, E, L, M = _R.COMMON, _R.RARE, _R.EPIC, _R.LEGENDARY, _R.MYTHIC
@@ -24307,6 +24311,99 @@ def _sports_side_stats(
         if not won and pick != "otro":
             want_home, want_away = (int(goals) for goals in pick.split("-"))
             bump("sports_exact_near", abs(want_home - home) + abs(want_away - away) == 1)
+
+
+def sports_combo_bet_stats(
+    *,
+    stake: int,
+    odds: int,
+    legs: int,
+    sports: set[str],
+    markets: set[str],
+    balance_before: int,
+) -> StatDelta:
+    """Lo que cuenta una combinada deportiva (`deportes`) al hacerla.
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota total en centésimas (`bot.services.sports.combo_odds`).
+        legs: Patas de la combinada.
+        sports: Competiciones de sus partidos.
+        markets: Mercados de sus patas (`bot.services.sports.COMBO_MARKETS`).
+        balance_before: Saldo antes de apostar.
+    """
+    add = {"sports_combos": 1, "sports_combo_staked": stake}
+
+    def bump(stat: str, condition: bool) -> None:
+        if condition:
+            add[stat] = 1
+
+    bump("sports_combo_full", legs >= SPORTS_MAX_LEGS)
+    bump("sports_combo_mixed", len(sports) > 1)
+    bump("sports_combo_all_markets", len(markets) >= 3)
+    bump("sports_combo_huge", odds >= SPORTS_COMBO_HUGE_ODDS)
+    bump("sports_combo_all_in", stake >= balance_before > 0)
+    bump("sports_combo_min", stake == SPORTS_MIN_STAKE)
+    bump("sports_combo_666", odds == 666)
+    bump("sports_combo_69", odds == 6_900)
+    peak = {"sports_combo_odds_max": odds, "sports_combo_legs_max": legs}
+    return StatDelta(add=add, peak=peak)
+
+
+def sports_combo_result_stats(
+    *,
+    stake: int,
+    odds: int,
+    payout: int,
+    legs: int,
+    won: int,
+    lost: int,
+    void: int,
+) -> StatDelta:
+    """Lo que cuenta una combinada deportiva resuelta (sin lo común del casino).
+
+    Una combinada se pierde en cuanto falla una pata, así que al perderla puede tener
+    patas sin jugar (`legs - won - lost - void`).
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota con la que se cobra (la de las patas acertadas; 0 si ha fallado).
+        payout: Lo cobrado, apuesta incluida (0 si falló).
+        legs: Patas de la combinada.
+        won: Patas acertadas.
+        lost: Patas falladas.
+        void: Patas anuladas.
+    """
+    add = {"sports_combos_settled": 1}
+    peak: dict[str, int] = {}
+    pending = legs - won - lost - void
+
+    def bump(stat: str, condition: bool) -> None:
+        if condition:
+            add[stat] = 1
+
+    if payout:
+        add["sports_combo_wins"] = 1
+        peak = {
+            "sports_combo_win_max": payout - stake,
+            "sports_combo_odds_won_max": odds,
+            "sports_combo_legs_won_max": won,
+        }
+        bump("sports_combo_capped", payout >= SPORTS_MAX_COMBO_PAYOUT)
+        bump("sports_combo_saved_by_void", void > 0)
+        bump("sports_combo_full_win", won >= SPORTS_MAX_LEGS)
+    else:
+        add["sports_combo_losses"] = 1
+        # La última pata en jugarse es la que falla, y todas las demás se acertaron.
+        bump("sports_combo_last_leg", lost == 1 and pending == 0 and won == legs - 1)
+        # Falla la primera en jugarse: quedaban todas las demás.
+        bump("sports_combo_first_leg", won == 0 and void == 0 and pending == legs - lost)
+    return StatDelta(add=add, peak=peak)
+
+
+def sports_combo_void_stats() -> StatDelta:
+    """Una combinada deportiva con todas sus patas anuladas y devuelta."""
+    return StatDelta(add={"sports_combo_refunds": 1})
 
 
 def sports_void_stats() -> StatDelta:

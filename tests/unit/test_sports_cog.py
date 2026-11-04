@@ -287,6 +287,7 @@ async def test_los_botones_de_la_portada_llevan_custom_id_fijo(tmp_path: Path) -
             f"deportes:liga:{LIGA}",
             f"deportes:liga:{CHAMPIONS}",
             "deportes:mis",
+            "deportes:combinada",
             *(f"deportes:ver:e{n}" for n in range(cog_module.LISTED)),
             "deportes:partido",
         ]
@@ -305,6 +306,7 @@ async def test_los_botones_de_la_ficha_llevan_custom_id_fijo(tmp_path: Path) -> 
             f"deportes:liga:{LIGA}",
             f"deportes:liga:{CHAMPIONS}",
             "deportes:mis",
+            "deportes:combinada",
             *(f"deportes:mercado:{market.value}" for market in Market),
             "deportes:apostar:1",
             "deportes:apostar:X",

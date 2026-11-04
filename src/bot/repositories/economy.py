@@ -100,6 +100,10 @@ Modelo de datos:
 - `economy_sports_bets`: cada apuesta deportiva (quién, a qué partido, mercado y
   opción, a qué cuota y cuánto) y cómo acabó. Una por mercado, partido y persona, y lo
   de todos los mercados de un partido no pasa del tope que diga quien apuesta.
+- `economy_sports_combos` y `economy_sports_combo_legs`: cada combinada deportiva (quién,
+  cuánto, a qué cuota total y cómo acabó) y sus patas (partido, opción, cuota y cómo
+  acabó cada una). Su dinero espera en el mismo depósito que las sencillas, y lo apostado
+  en una combinada abierta cuenta en el tope de cada partido que toca.
 - `economy_gaming_tax`: el Impuesto sobre Actividades de Juego de cada porra
   (y, con `porra_id = 0`, la comisión de cada bote de la `timba`),
   a nombre de cada apostante (art. 48 de la Ley 13/2011), para `hacienda`.
@@ -777,6 +781,104 @@ class SportsBet:
     payout: int = 0
     settled_at: float | None = None
     market: str = "1x2"
+
+
+@dataclass(frozen=True, slots=True)
+class SportsLeg:
+    """Una pata de una combinada de `deportes`: un partido y una opción.
+
+    Attributes:
+        event_id: Id del partido en The Odds API.
+        sport: Competición (`bot.services.sports.SPORTS`).
+        home: Equipo de casa.
+        away: Equipo de fuera.
+        commence: Comienzo del partido (epoch).
+        market: Mercado de `pick` (`bot.services.sports.COMBO_MARKETS`).
+        pick: Opción apostada (`1`, `X`, `2`, `+2.5`, `si`…).
+        odds: Cuota de la pata fijada al apostar, en centésimas.
+        status: `open`, `won`, `lost` o `void` (`bot.services.sports.LegStatus`).
+    """
+
+    event_id: str
+    sport: str
+    home: str
+    away: str
+    commence: float
+    market: str
+    pick: str
+    odds: int
+    status: str = "open"
+
+
+@dataclass(frozen=True, slots=True)
+class SportsCombo:
+    """Una combinada de `deportes`: varias patas que se cobran solo si aciertan todas.
+
+    Attributes:
+        id: Id de la fila (0 antes de guardarla).
+        channel_id: Canal donde se apostó: ahí sale el resultado.
+        stake: Lo apostado.
+        odds: Cuota total fijada al apostar (`bot.services.sports.combo_odds`).
+        created_at: Cuándo se apostó (epoch).
+        legs: Las patas, en el orden en que se eligieron.
+        status: `open`, `won`, `lost` o `void` (anulada y devuelta).
+        payout: Lo cobrado, apuesta incluida (lo devuelto si se anuló; 0 si falló).
+        settled_at: Cuándo se resolvió (epoch), o `None`.
+    """
+
+    id: int
+    guild_id: int
+    user_id: int
+    channel_id: int
+    stake: int
+    odds: int
+    created_at: float
+    legs: tuple[SportsLeg, ...]
+    status: str = "open"
+    payout: int = 0
+    settled_at: float | None = None
+
+    @property
+    def commence(self) -> float:
+        """Cuándo empieza el primer partido."""
+        return min(leg.commence for leg in self.legs)
+
+    @property
+    def ends(self) -> float:
+        """Cuándo empieza el último partido (hacia esa hora se sabe todo)."""
+        return max(leg.commence for leg in self.legs)
+
+
+def _sports_leg(row: sqlite3.Row) -> SportsLeg:
+    """Una fila de `economy_sports_combo_legs` como `SportsLeg`."""
+    return SportsLeg(
+        event_id=str(row["event_id"]),
+        sport=str(row["sport"]),
+        home=str(row["home"]),
+        away=str(row["away"]),
+        commence=float(row["commence"]),
+        market=str(row["market"]),
+        pick=str(row["pick"]),
+        odds=int(row["odds"]),
+        status=str(row["status"]),
+    )
+
+
+def _sports_combo(row: sqlite3.Row, legs: Sequence[SportsLeg]) -> SportsCombo:
+    """Una fila de `economy_sports_combos` y sus patas como `SportsCombo`."""
+    return SportsCombo(
+        id=int(row["id"]),
+        guild_id=int(row["guild_id"]),
+        user_id=int(row["user_id"]),
+        channel_id=int(row["channel_id"]),
+        stake=int(row["stake"]),
+        odds=int(row["odds"]),
+        created_at=float(row["created_at"]),
+        legs=tuple(legs),
+        status=str(row["status"]),
+        payout=int(row["payout"]),
+        settled_at=None if row["settled_at"] is None else float(row["settled_at"]),
+    )
 
 
 def _sports_bet(row: sqlite3.Row) -> SportsBet:
@@ -1586,6 +1688,44 @@ class EconomyRepository:
 
                 CREATE INDEX IF NOT EXISTS economy_sports_bets_open
                     ON economy_sports_bets (status, commence);
+
+                CREATE TABLE IF NOT EXISTS economy_sports_combos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    odds INTEGER NOT NULL CHECK (odds > 100),
+                    stake INTEGER NOT NULL CHECK (stake > 0),
+                    created_at REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    payout INTEGER NOT NULL DEFAULT 0,
+                    settled_at REAL
+                );
+
+                CREATE INDEX IF NOT EXISTS economy_sports_combos_open
+                    ON economy_sports_combos (status);
+
+                CREATE INDEX IF NOT EXISTS economy_sports_combos_user
+                    ON economy_sports_combos (guild_id, user_id);
+
+                CREATE TABLE IF NOT EXISTS economy_sports_combo_legs (
+                    combo_id INTEGER NOT NULL REFERENCES economy_sports_combos (id),
+                    position INTEGER NOT NULL,
+                    event_id TEXT NOT NULL,
+                    sport TEXT NOT NULL,
+                    home TEXT NOT NULL,
+                    away TEXT NOT NULL,
+                    commence REAL NOT NULL,
+                    market TEXT NOT NULL,
+                    pick TEXT NOT NULL,
+                    odds INTEGER NOT NULL CHECK (odds > 100),
+                    status TEXT NOT NULL DEFAULT 'open',
+                    PRIMARY KEY (combo_id, position),
+                    UNIQUE (combo_id, event_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS economy_sports_combo_legs_event
+                    ON economy_sports_combo_legs (event_id);
 
                 CREATE TABLE IF NOT EXISTS economy_gaming_tax (
                     guild_id INTEGER NOT NULL,
@@ -3368,6 +3508,7 @@ class EconomyRepository:
             if any(row["market"] == bet.market for row in rows):
                 raise SportsBetTakenError
             staked = sum(int(row["stake"]) for row in rows)
+            staked += self._combo_staked_in(connection, bet.guild_id, bet.user_id, bet.event_id)
             if cap is not None and staked + bet.stake > cap:
                 raise SportsStakeCapError(max(0, cap - staked))
             balance = self._apply_in_transaction(
@@ -3586,6 +3727,415 @@ class EconomyRepository:
         finally:
             connection.close()
         return [_sports_bet(row) for row in rows]
+
+    # -- Combinadas deportivas -------------------------------------------------------
+
+    @staticmethod
+    def _single_staked_in(
+        connection: sqlite3.Connection, guild_id: int, user_id: int, event_id: str
+    ) -> int:
+        """Lo apostado en sencillas a un partido."""
+        row = connection.execute(
+            """
+            SELECT COALESCE(SUM(stake), 0) FROM economy_sports_bets
+            WHERE guild_id = ? AND user_id = ? AND event_id = ?
+            """,
+            (guild_id, user_id, event_id),
+        ).fetchone()
+        return int(row[0])
+
+    @staticmethod
+    def _combo_staked_in(
+        connection: sqlite3.Connection, guild_id: int, user_id: int, event_id: str
+    ) -> int:
+        """Lo apostado en combinadas abiertas que tocan un partido (entero en cada uno).
+
+        Las ya perdidas no cuentan: una pata fallada en otro partido deja este sin riesgo.
+        """
+        row = connection.execute(
+            """
+            SELECT COALESCE(SUM(c.stake), 0) FROM economy_sports_combos AS c
+            JOIN economy_sports_combo_legs AS l ON l.combo_id = c.id
+            WHERE c.guild_id = ? AND c.user_id = ? AND c.status = 'open' AND l.event_id = ?
+            """,
+            (guild_id, user_id, event_id),
+        ).fetchone()
+        return int(row[0])
+
+    async def sports_staked(
+        self, guild_id: int, user_id: int, event_ids: Sequence[str]
+    ) -> dict[str, int]:
+        """Lo que alguien lleva apostado a cada partido, sencillas y combinadas abiertas."""
+        return await self._run(self._sports_staked_sync, guild_id, user_id, tuple(event_ids))
+
+    def _sports_staked_sync(
+        self, guild_id: int, user_id: int, event_ids: tuple[str, ...]
+    ) -> dict[str, int]:
+        connection = self._connect()
+        try:
+            return {
+                event_id: self._single_staked_in(connection, guild_id, user_id, event_id)
+                + self._combo_staked_in(connection, guild_id, user_id, event_id)
+                for event_id in event_ids
+            }
+        finally:
+            connection.close()
+
+    async def sports_combo_bet(
+        self, combo: SportsCombo, *, game: str, cap: int | None = None
+    ) -> tuple[SportsCombo, int]:
+        """Cobra una combinada y la deja en el depósito de las deportivas, todo atómico.
+
+        Como `sports_bet`: el dinero sale ya del monedero pero no entra en el día del
+        casino hasta que se resuelve.
+
+        Args:
+            combo: La combinada sin guardar (`id` 0), con sus patas.
+            game: Prefijo de los motivos del libro (`deportes:deposito`).
+            cap: Lo más que se puede apostar a cada partido, sumando sencillas y
+                combinadas (`None`, sin tope). Lo de la combinada cuenta entero en cada uno.
+
+        Returns:
+            La combinada guardada, con su `id`, y el saldo de quien apuesta.
+
+        Raises:
+            SportsStakeCapError: Pasaría el tope de algún partido (`room`, lo que cabe en
+                el más cargado). No se cobra nada.
+            InsufficientFundsError: No le llega.
+        """
+        return await self._run(self._sports_combo_bet_sync, combo, game, cap)
+
+    def _sports_combo_bet_sync(
+        self, combo: SportsCombo, game: str, cap: int | None
+    ) -> tuple[SportsCombo, int]:
+        events = [leg.event_id for leg in combo.legs]
+        if (
+            combo.stake <= 0
+            or combo.odds <= 100
+            or len(combo.legs) < 2
+            or len(set(events)) != len(events)
+            or any(leg.odds <= 100 for leg in combo.legs)
+        ):
+            raise ValueError("Combinada deportiva inválida.")
+        with self._transaction() as connection:
+            if cap is not None:
+                staked = max(
+                    self._single_staked_in(connection, combo.guild_id, combo.user_id, event)
+                    + self._combo_staked_in(connection, combo.guild_id, combo.user_id, event)
+                    for event in events
+                )
+                if staked + combo.stake > cap:
+                    raise SportsStakeCapError(max(0, cap - staked))
+            balance = self._apply_in_transaction(
+                connection,
+                combo.guild_id,
+                combo.user_id,
+                (LedgerEntry(-combo.stake, f"{game}:deposito"),),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO economy_wallets (guild_id, user_id, balance)
+                VALUES (?, ?, 0)
+                """,
+                (combo.guild_id, SPORTS_ACCOUNT_ID),
+            )
+            self._apply_in_transaction(
+                connection,
+                combo.guild_id,
+                SPORTS_ACCOUNT_ID,
+                (LedgerEntry(combo.stake, f"{game}:deposito"),),
+            )
+            cursor = connection.execute(
+                """
+                INSERT INTO economy_sports_combos
+                    (guild_id, user_id, channel_id, odds, stake, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    combo.guild_id,
+                    combo.user_id,
+                    combo.channel_id,
+                    combo.odds,
+                    combo.stake,
+                    combo.created_at,
+                ),
+            )
+            combo_id = int(cursor.lastrowid or 0)
+            connection.executemany(
+                """
+                INSERT INTO economy_sports_combo_legs
+                    (combo_id, position, event_id, sport, home, away, commence, market,
+                     pick, odds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        combo_id,
+                        position,
+                        leg.event_id,
+                        leg.sport,
+                        leg.home,
+                        leg.away,
+                        leg.commence,
+                        leg.market,
+                        leg.pick,
+                        leg.odds,
+                    )
+                    for position, leg in enumerate(combo.legs)
+                ],
+            )
+            legs = tuple(replace(leg, status="open") for leg in combo.legs)
+            return replace(combo, id=combo_id, status="open", legs=legs), balance
+
+    async def mark_sports_legs(
+        self, guild_id: int, combo_id: int, statuses: dict[str, str]
+    ) -> SportsCombo | None:
+        """Apunta cómo han quedado algunas patas de una combinada que sigue abierta.
+
+        No mueve dinero: sirve para que 🎟️ Mis apuestas enseñe por dónde va.
+
+        Args:
+            statuses: Estado nuevo de cada pata, por partido.
+
+        Returns:
+            La combinada con sus patas al día, o `None` si ya estaba resuelta.
+        """
+        return await self._run(self._mark_sports_legs_sync, guild_id, combo_id, statuses)
+
+    def _mark_sports_legs_sync(
+        self, guild_id: int, combo_id: int, statuses: dict[str, str]
+    ) -> SportsCombo | None:
+        with self._transaction() as connection:
+            if self._open_sports_combo_in(connection, guild_id, combo_id) is None:
+                return None
+            self._mark_legs_in(connection, combo_id, statuses)
+            return self._open_sports_combo_in(connection, guild_id, combo_id)
+
+    async def settle_sports_combo(
+        self,
+        guild_id: int,
+        combo_id: int,
+        *,
+        statuses: dict[str, str],
+        payout: int,
+        game: str,
+        day: str,
+        now: float,
+        day_tax: Callable[[int], int],
+    ) -> tuple[SportsCombo, BetSettlement] | None:
+        """Resuelve una combinada: apunta sus patas, vacía su depósito y paga, todo atómico.
+
+        Igual que `settle_sports_bet`: lo apostado vuelve del depósito y se juega en el
+        día de hoy junto al premio, así el día del casino ve la ganancia neta.
+
+        Args:
+            statuses: Estado de las patas que acaban de resolverse, por partido.
+            payout: Lo que cobra, apuesta incluida; 0 si ha fallado.
+
+        Returns:
+            La combinada resuelta y lo que ha movido en su día del casino, o `None` si ya
+            estaba resuelta (no se mueve nada).
+
+        Raises:
+            BalanceLimitError: Si el premio pasaría el saldo máximo. No se mueve nada.
+        """
+        return await self._run(
+            self._settle_sports_combo_sync,
+            guild_id,
+            combo_id,
+            statuses,
+            payout,
+            game,
+            day,
+            now,
+            day_tax,
+        )
+
+    def _settle_sports_combo_sync(
+        self,
+        guild_id: int,
+        combo_id: int,
+        statuses: dict[str, str],
+        payout: int,
+        game: str,
+        day: str,
+        now: float,
+        day_tax: Callable[[int], int],
+    ) -> tuple[SportsCombo, BetSettlement] | None:
+        if payout < 0:
+            raise ValueError("El premio no puede ser negativo.")
+        with self._transaction() as connection:
+            combo = self._open_sports_combo_in(connection, guild_id, combo_id)
+            if combo is None:
+                return None
+            self._apply_in_transaction(
+                connection,
+                guild_id,
+                SPORTS_ACCOUNT_ID,
+                (LedgerEntry(-combo.stake, f"{game}:deposito"),),
+            )
+            # Como en las sencillas: el depósito vuelve fuera del día del casino y la
+            # apuesta y el premio se juegan dentro.
+            self._apply_in_transaction(
+                connection,
+                guild_id,
+                combo.user_id,
+                (LedgerEntry(combo.stake, f"{game}:deposito"),),
+            )
+            entries = [LedgerEntry(-combo.stake, f"{game}:apuesta")]
+            if payout:
+                entries.append(LedgerEntry(payout, f"{game}:premio"))
+            result = self._settle_gamble_in(
+                connection,
+                guild_id,
+                combo.user_id,
+                entries,
+                day=day,
+                now=now,
+                adjust_tax=True,
+                day_tax=day_tax,
+            )
+            status = "won" if payout else "lost"
+            self._mark_legs_in(connection, combo_id, statuses)
+            self._close_sports_combo_in(connection, guild_id, combo_id, status, payout, now)
+            closed = self._sports_combo_in(connection, guild_id, combo_id)
+            assert closed is not None
+            return closed, result
+
+    async def void_sports_combo(
+        self, guild_id: int, combo_id: int, *, statuses: dict[str, str], game: str, now: float
+    ) -> tuple[SportsCombo, int] | None:
+        """Anula una combinada (todas sus patas anuladas) y devuelve lo apostado.
+
+        Returns:
+            La combinada anulada y el saldo de su dueño, o `None` si ya estaba resuelta.
+        """
+        return await self._run(
+            self._void_sports_combo_sync, guild_id, combo_id, statuses, game, now
+        )
+
+    def _void_sports_combo_sync(
+        self, guild_id: int, combo_id: int, statuses: dict[str, str], game: str, now: float
+    ) -> tuple[SportsCombo, int] | None:
+        with self._transaction() as connection:
+            combo = self._open_sports_combo_in(connection, guild_id, combo_id)
+            if combo is None:
+                return None
+            self._apply_in_transaction(
+                connection,
+                guild_id,
+                SPORTS_ACCOUNT_ID,
+                (LedgerEntry(-combo.stake, f"{game}:deposito"),),
+            )
+            # Dinero propio que vuelve: ni casino ni embargo, como `void_sports_bet`.
+            balance = self._apply_in_transaction(
+                connection,
+                guild_id,
+                combo.user_id,
+                (LedgerEntry(combo.stake, f"{game}:devolucion"),),
+            )
+            self._mark_legs_in(connection, combo_id, statuses)
+            self._close_sports_combo_in(connection, guild_id, combo_id, "void", combo.stake, now)
+            closed = self._sports_combo_in(connection, guild_id, combo_id)
+            assert closed is not None
+            return closed, balance
+
+    @staticmethod
+    def _mark_legs_in(
+        connection: sqlite3.Connection, combo_id: int, statuses: dict[str, str]
+    ) -> None:
+        connection.executemany(
+            """
+            UPDATE economy_sports_combo_legs SET status = ?
+            WHERE combo_id = ? AND event_id = ?
+            """,
+            [(status, combo_id, event_id) for event_id, status in statuses.items()],
+        )
+
+    @staticmethod
+    def _close_sports_combo_in(
+        connection: sqlite3.Connection,
+        guild_id: int,
+        combo_id: int,
+        status: str,
+        payout: int,
+        now: float,
+    ) -> None:
+        connection.execute(
+            """
+            UPDATE economy_sports_combos SET status = ?, payout = ?, settled_at = ?
+            WHERE guild_id = ? AND id = ?
+            """,
+            (status, payout, now, guild_id, combo_id),
+        )
+
+    @staticmethod
+    def _combos_with_legs(
+        connection: sqlite3.Connection, rows: Sequence[sqlite3.Row]
+    ) -> list[SportsCombo]:
+        """Las combinadas de `rows` con sus patas, en el mismo orden."""
+        if not rows:
+            return []
+        ids = [int(row["id"]) for row in rows]
+        marks = ", ".join("?" for _ in ids)
+        legs: dict[int, list[SportsLeg]] = {combo_id: [] for combo_id in ids}
+        for leg in connection.execute(
+            f"""
+            SELECT * FROM economy_sports_combo_legs
+            WHERE combo_id IN ({marks}) ORDER BY combo_id, position
+            """,  # noqa: S608 - solo marcas `?`, los ids van como parámetros
+            ids,
+        ).fetchall():
+            legs[int(leg["combo_id"])].append(_sports_leg(leg))
+        return [_sports_combo(row, legs[int(row["id"])]) for row in rows]
+
+    def _sports_combo_in(
+        self, connection: sqlite3.Connection, guild_id: int, combo_id: int
+    ) -> SportsCombo | None:
+        row = connection.execute(
+            "SELECT * FROM economy_sports_combos WHERE guild_id = ? AND id = ?",
+            (guild_id, combo_id),
+        ).fetchone()
+        return self._combos_with_legs(connection, [row])[0] if row is not None else None
+
+    def _open_sports_combo_in(
+        self, connection: sqlite3.Connection, guild_id: int, combo_id: int
+    ) -> SportsCombo | None:
+        combo = self._sports_combo_in(connection, guild_id, combo_id)
+        return combo if combo is not None and combo.status == "open" else None
+
+    async def open_sports_combos(self) -> list[SportsCombo]:
+        """Las combinadas sin resolver de todos los servidores, con sus patas."""
+        return await self._run(self._open_sports_combos_sync)
+
+    def _open_sports_combos_sync(self) -> list[SportsCombo]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM economy_sports_combos WHERE status = 'open' ORDER BY id"
+            ).fetchall()
+            return self._combos_with_legs(connection, rows)
+        finally:
+            connection.close()
+
+    async def sports_combos(self, guild_id: int, user_id: int, *, limit: int) -> list[SportsCombo]:
+        """Las combinadas de alguien: las abiertas y luego las últimas resueltas."""
+        return await self._run(self._sports_combos_sync, guild_id, user_id, limit)
+
+    def _sports_combos_sync(self, guild_id: int, user_id: int, limit: int) -> list[SportsCombo]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM economy_sports_combos WHERE guild_id = ? AND user_id = ?
+                ORDER BY status = 'open' DESC, COALESCE(settled_at, created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (guild_id, user_id, limit),
+            ).fetchall()
+            return self._combos_with_legs(connection, rows)
+        finally:
+            connection.close()
 
     async def sports_bets(self, guild_id: int, user_id: int, *, limit: int) -> list[SportsBet]:
         """Las apuestas deportivas de alguien: las abiertas y luego las últimas resueltas."""
@@ -7680,6 +8230,15 @@ class EconomyRepository:
 
     def _delete_guild_data_sync(self, guild_id: int) -> None:
         with self._transaction() as connection:
+            # Las patas no llevan servidor: se borran por su combinada, antes que ella.
+            connection.execute(
+                """
+                DELETE FROM economy_sports_combo_legs WHERE combo_id IN (
+                    SELECT id FROM economy_sports_combos WHERE guild_id = ?
+                )
+                """,
+                (guild_id,),
+            )
             for table in (
                 "economy_wallets",
                 "economy_ledger",
@@ -7712,6 +8271,7 @@ class EconomyRepository:
                 "economy_porra_bets",
                 "economy_porra_settled",
                 "economy_sports_bets",
+                "economy_sports_combos",
                 "economy_gaming_tax",
                 "economy_market_tax",
                 "economy_housing_tax",
