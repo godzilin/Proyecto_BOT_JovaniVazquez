@@ -22640,12 +22640,16 @@ def newly_unlocked(stats: Mapping[str, int], unlocked: Iterable[str]) -> list[st
         new += found
 
 
-def progress(achievement: Achievement, stats: Mapping[str, int]) -> tuple[int, int]:
+def progress(
+    achievement: Achievement, stats: Mapping[str, int], *, derived: bool = False
+) -> tuple[int, int]:
     """`(actual, meta)` de la estadística principal, con el actual sin pasarse.
 
-    Para los de Coleccionista, `stats` ya trae `meta_stats` (ver el cog).
+    Para los de Coleccionista, `stats` ya trae `meta_stats` (ver el cog). Con
+    `derived=True`, `stats` ya pasó por `with_derived`: quien repasa muchos logros la
+    calcula una vez. Calcularla en cada uno paraba el bucle segundos con el resumen.
     """
-    full = with_derived(stats)
+    full = stats if derived else with_derived(stats)
     return min(full.get(achievement.stat, 0), achievement.goal), achievement.goal
 
 

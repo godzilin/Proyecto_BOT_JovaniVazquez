@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.39.2 · 2026-11-04
+
+- Perfil y pala: mirar los logros ya no congela los botones del bot
+
 ### 9.39.1 · 2026-11-04
 
 - Negocios: esperar a la imagen ya no echa clientes ni da malas reseñas
