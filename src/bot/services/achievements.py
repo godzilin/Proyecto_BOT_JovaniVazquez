@@ -8850,6 +8850,23 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Usa el botón 👥 Candidatos para ir a donde esperan.", C),
         (50, "pisos_shortcut_50", "Pase el siguiente", "Usa el botón 👥 Candidatos 50 veces.", R),
     ])  # fmt: skip
+    # Las páginas de 🔑 Mis pisos (10 inmuebles en cada una, ◀ ▶ para el resto)
+    a += _tiers("pisos", "pisos_pages_turned", [
+        (1, "pisos_pages_1", "Elige tu propia aventura",
+         "Pasa de página en 🔑 Mis pisos.", C),
+        (100, "pisos_pages_100", "El ¡Hola! de la peluquería",
+         "Pasa de página en 🔑 Mis pisos 100 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("pisos", "pisos_portfolio_pages", [
+        (2, "pisos_pages_of_2", "Continuará…",
+         "Ten más de 10 inmuebles: 🔑 Mis pisos ocupa 2 páginas.", R),
+        (3, "pisos_pages_of_3", "El Libro Gordo de Petete",
+         "Ten más de 20 inmuebles: 🔑 Mis pisos ocupa 3 páginas.", E),
+        (5, "pisos_pages_of_5", "Páginas Amarillas",
+         "Ten más de 40 inmuebles: 🔑 Mis pisos ocupa 5 páginas.", E),
+        (10, "pisos_pages_of_10", "Los Episodios Nacionales",
+         "Ten más de 90 inmuebles: 🔑 Mis pisos ocupa 10 páginas.", L),
+    ])  # fmt: skip
     a += _tiers("pisos", "pisos_rooms_rushed", [
         (1, "pisos_rushed_1", "Billy sin estrenar",
          "Junta las habitaciones antes de que terminen de amueblarse.", C, True),
@@ -26932,18 +26949,21 @@ def housing_panel_stats(
     level: str | None = None,
     squatters: bool = False,
     building: str | None = None,
+    pages: int = 0,
 ) -> StatDelta:
     """Estadísticas de usar el panel de `pisos`.
 
     Args:
         screen: `abrir` (el comando), `renta` (cambiar la renta que se pide),
-            `desahucio` (pedirlo), `atajo` (el botón 👥 Candidatos) o una pantalla (solo
-            cuenta `candidatos`, `calles` y `edificio`).
+            `desahucio` (pedirlo), `atajo` (el botón 👥 Candidatos), `pagina` (◀ ▶ en
+            🔑 Mis pisos) o una pantalla (solo cuenta `candidatos`, `calles` y `edificio`).
         level: La renta elegida, con `renta`.
         squatters: Si el desahucio es de okupas.
         building: La clave del edificio que se ve, con `edificio`.
+        pages: Las páginas que ocupa 🔑 Mis pisos al verla (`cartera` o `pagina`).
     """
     add: dict[str, int] = {}
+    peak = {"pisos_portfolio_pages": pages} if pages else {}
     if screen == "abrir":
         add["pisos_opened"] = 1
     elif screen == "renta":
@@ -26958,11 +26978,13 @@ def housing_panel_stats(
         add["pisos_candidates_seen"] = 1
     elif screen == "atajo":
         add["pisos_shortcut"] = 1
+    elif screen == "pagina":
+        add["pisos_pages_turned"] = 1
     elif screen == "calles":
         add["pisos_streets_opened"] = 1
     elif screen == "edificio" and building:
         add[f"{PISOS_BUILDING_PREFIX}{building}"] = 1
-    return StatDelta(add=add)
+    return StatDelta(add=add, peak=peak)
 
 
 def _unit_kind(key: str) -> str:
