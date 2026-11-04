@@ -84,6 +84,7 @@ La estructura es una guía, no una obligación de crear carpetas vacías desde e
 - Validar entradas, permisos y contexto en el límite del comando. Comprobar los permisos requeridos también en Discord cuando corresponda.
 - Responder a las interacciones dentro de los plazos de Discord (3 segundos); diferir la respuesta antes de trabajo que pueda tardar. En botones, menús y formularios: `ack(interaction)` de `bot.utils.interactions` antes de tocar la base de datos, dibujar, llamar a la API de Discord o esperar un candado, y después `edit`/`notify`. Solo lo que cambia memoria contesta directamente. Los botones que se rehacen en cada jugada llevan `custom_id` fijo, para que el rescate de clics del cog `Errors` encuentre su sustituto. Reglas completas en «Botones rápidos» de CLAUDE.md; `tests/integration/test_button_speed.py` lo comprueba con el bot real.
 - Dar respuestas de error claras y seguras. No mostrar trazas, tokens ni datos internos a usuarios.
+- Comandos limitados a unos canales (la pala con `tajo`, el casino con `garito`): el aviso sale de `bot.utils.channels.wrong_channel` y solo dice dónde está («🎰 Los dados están en #casino»), sin regañar. Con `/` es privado; con `.` se borra solo con el comando (`ContextResponder.send_error` o `send_notice`). Un canal permitido vale también para sus hilos.
 - Registrar listeners con moderación: evitar trabajo repetido por cada evento y evitar respuestas o efectos duplicados.
 - Ayuda: `/ayuda` es un menú desplegable, como el de `perfil`: una portada con las categorías y una página por categoría con cada comando en orden alfabético y su descripción de slash command (sin argumentos). Las categorías salen de `HELP_CATEGORIES` (por cog) y `COMMAND_CATEGORIES` (por comando, cuando un cog mezcla temas) en `bot.cogs.general`; un comando nuevo entra en una existente afín antes que en una nueva de un solo comando. Los efectos de imagen van en bloque, solo por nombre, en la página de Imagen.
 - Comandos de administración (cog `Admin`): solo para miembros con el permiso Administrador, comprobado en el servidor en cada uso (`cog_check` e `interaction_check`), no solo con `default_permissions`. La categoría Admin de la ayuda solo se muestra a administradores.
@@ -484,7 +485,7 @@ El proyecto podrá requerir estas variables a medida que se implementen sus func
 | `DISCORD_TOKEN` | Autenticación del bot | Obligatoria para ejecutar; secreta y nunca versionada |
 | `LOG_LEVEL` | Nivel de logs | Opcional, con un valor por defecto seguro y documentado |
 | `DATABASE_URL` | Conexión a datos | Añadir solo si se incorpora persistencia |
-| `CASINO_CHANNEL_IDS` | Canales donde se permiten los juegos del casino | Opcional; IDs separados por comas, vacío = cualquier canal |
+| `CASINO_CHANNEL_IDS` | Canales de partida del casino, hasta que un administrador elige otros con `garito` (se guardan por servidor y mandan sobre la variable) | Opcional; IDs separados por comas, vacío = cualquier canal |
 | `ODDS_API_KEY` | Clave de The Odds API para las apuestas deportivas (`deportes`) | Opcional y secreta; vacía = `deportes` avisa de que no está configurado |
 
 No introducir valores de configuración sin uso. Documentar cualquier nueva variable en `.env.example` y en el README.

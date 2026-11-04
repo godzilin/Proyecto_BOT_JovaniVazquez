@@ -245,7 +245,7 @@ async def test_la_pala_solo_se_coge_en_los_canales_del_tajo(tmp_path: Path) -> N
     panel, errors = await open_panel(cog, channel_id=6)
     assert panel is None
     errors.assert_awaited_once()
-    assert "<#5>" in errors.await_args.args[0]
+    assert errors.await_args.args[0] == "🪏 La pala está en <#5>."
     panel, errors = await open_panel(cog, channel_id=5)
     assert panel is not None
     errors.assert_not_awaited()
