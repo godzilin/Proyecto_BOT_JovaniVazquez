@@ -420,6 +420,45 @@ def ticket_state(bet: SportsBet, player: str) -> dict[str, Any]:
     }
 
 
+def combo_ticket_state(combo: SportsCombo, player: str) -> dict[str, Any]:
+    """El boleto de una combinada para la escena (`sports_scene`), todo ya en texto.
+
+    Cada pata lleva su competición, sus equipos (con sus colores), la hora, el mercado, la
+    opción y su cuota; el talón, la cuota total, lo apostado y lo que se cobraría.
+    """
+    leagues = {leg.sport for leg in combo.legs}
+    legs = []
+    for leg in combo.legs:
+        sport = SPORT_BY_KEY.get(leg.sport)
+        market = market_of(leg.pick) or Market.RESULT
+        local = datetime.fromtimestamp(leg.commence, TIMEZONE)
+        legs.append(
+            {
+                "league": sport.name if sport else leg.sport,
+                "accent": str(league_color(leg.sport)),
+                "home": team_style(leg.home),
+                "away": team_style(leg.away),
+                "kickoff": f"{short_date(leg.commence)} · {local:%H:%M}",
+                "market": market.label,
+                "pick": pick_text(leg.pick, leg.home, leg.away),
+                "odds": odds_text(leg.odds),
+            }
+        )
+    prize = combo_payout(combo.stake, combo.odds)
+    return {
+        "kind": "combinada",
+        # Una sola competición: su color; mezcladas, el verde del panel.
+        "accent": str(league_color(next(iter(leagues)))) if len(leagues) == 1 else str(COLOR),
+        "legs": legs,
+        "odds": odds_text(combo.odds),
+        "stake": format_amount(combo.stake),
+        "payout": format_amount(prize),
+        "capped": prize < payout(combo.stake, combo.odds),
+        "player": player,
+        "serial": f"Nº C{combo.id:05d}",
+    }
+
+
 def final_state(resolved: list[Resolved]) -> dict[str, Any] | None:
     """El marcador final para la escena, o `None` si el partido se anuló."""
     first, score = resolved[0].bet, resolved[0].score
