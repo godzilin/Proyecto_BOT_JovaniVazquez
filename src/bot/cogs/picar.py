@@ -29,8 +29,8 @@ los botones. Logros, estadísticas, Renta y anuncio van después, para no destri
 **Calibración.** Al cargar, el cog comprueba en un hilo que `calibracion.json` vale para
 esta física y estos precios (`picar.check`). Si no, el pozo no abre y el log dice por qué.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales. Permisos del bot
-en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -54,6 +54,7 @@ from bot.cogs import apuestas, aspecto, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.picar import PicarRepository, PlayRecord
 from bot.services.achievements import casino_stats, picar_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -433,7 +434,7 @@ class Picar(commands.Cog, name="Pico"):
         repository: PicarRepository,
         scene: PicarScene | None = None,
         calibration: Calibration | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
     ) -> None:
         self.bot = bot
         self.economy = economy
@@ -771,8 +772,8 @@ class Picar(commands.Cog, name="Pico"):
     async def picar(self, interaction: discord.Interaction) -> None:
         """Abre un pozo con un botón por pico.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Las tiradas
-        mueven yapdollars a través de la economía del bot.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Las tiradas mueven yapdollars a través de la economía del bot.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -831,6 +832,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             repository=bot.picar,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

@@ -38,9 +38,8 @@ Dinero (`EconomyService`):
   destruye (es el margen de la casa, no un impuesto). Si el bot se apaga a mitad
   de un duelo, se devuelve lo apostado.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -67,6 +66,7 @@ from bot.cogs import pets as mascotas
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.enraya import EnrayaRepository, GameRecord
 from bot.services.achievements import StatDelta, casino_stats, enraya_bet_stats, enraya_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1843,7 +1843,7 @@ class Enraya(commands.Cog, name="Enraya"):
         *,
         economy: EconomyService,
         repository: EnrayaRepository,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: EnrayaScene | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -2120,8 +2120,8 @@ class Enraya(commands.Cog, name="Enraya"):
     ) -> None:
         """Abre tu mesa contra Jovani o reta a alguien.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. En un
-        duelo con apuesta se cobra a los dos al aceptar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. En un duelo con apuesta se cobra a los dos al aceptar.
         """
         responder = InteractionResponder(interaction)
 
@@ -2177,6 +2177,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             repository=bot.enraya,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

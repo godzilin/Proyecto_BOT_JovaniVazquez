@@ -50,9 +50,9 @@ El calor de la máquina (`bot.services.slots.next_heat`) se guarda por
 miembro en la base de datos (`SlotsRepository`) y se enfría un punto cada diez
 minutos sin jugar (`decayed_heat`): si te vas, lo pierdes.
 
-Si `CASINO_CHANNEL_IDS` está configurado, la máquina solo se abre en esos
-canales. Permisos que necesita el bot en el canal: enviar mensajes, insertar
-enlaces (embeds) y adjuntar archivos.
+La máquina solo se abre en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos que necesita el bot en el canal: enviar mensajes,
+insertar enlaces (embeds) y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -95,6 +95,7 @@ from bot.services.autoplay import (
     SpinResult,
     StopReason,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     EconomyService,
@@ -1873,7 +1874,7 @@ class Slots(commands.Cog, name="Tragaperras"):
         economy: EconomyService,
         renderer: SlotsScene | None = None,
         machine: SlotMachine | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         repository: SlotsRepository | None = None,
         clock: Callable[[], float] = time.time,
         coin: Callable[[], bool] | None = None,
@@ -2324,8 +2325,8 @@ class Slots(commands.Cog, name="Tragaperras"):
     ) -> None:
         """Abre una tragaperras con botones: la clásica o una de Botes.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Las
-        tiradas mueven yapdollars a través de la economía del bot.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Las tiradas mueven yapdollars a través de la economía del bot.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -2371,7 +2372,7 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
         Slots(
             bot,
             economy=bot.economy,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
             repository=bot.slots_repository,
         )
     )

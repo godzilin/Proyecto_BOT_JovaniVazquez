@@ -31,8 +31,9 @@ porra se pueden montar porras de hasta `MAX_PLAYS_NOTEBOOK` jugadas.
 Si el bot se apaga de forma ordenada, las porras sin terminar se anulan y se
 devuelve todo; si se cae, se hace lo mismo al volver (`recover`).
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se montan en esos canales.
-Permisos del bot en el canal: enviar mensajes e insertar enlaces.
+Solo se montan en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos del bot en el canal: enviar mensajes e insertar
+enlaces.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ from bot.services.achievements import (
     porra_snoop_stats,
     porra_subject_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.casino_stats import Play
 from bot.services.economy import (
     CURRENCY_EMOJI,
@@ -440,7 +442,7 @@ class Porras(commands.Cog):
         economy: EconomyService,
         repository: PorraRepository,
         *,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ) -> None:
@@ -1311,6 +1313,4 @@ async def observe(bot: commands.Bot, guild_id: int, user_id: int, play: Play) ->
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía y el repositorio de porras del bot."""
-    await bot.add_cog(
-        Porras(bot, bot.economy, bot.porras, casino_channel_ids=bot.casino_channel_ids)
-    )
+    await bot.add_cog(Porras(bot, bot.economy, bot.porras, casino_channel_ids=bot.casino_channels))

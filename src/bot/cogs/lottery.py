@@ -80,6 +80,7 @@ from bot.services.achievements import (
     lottery_prize_stats,
     scratch_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     CURRENCY_EMOJI,
     EconomyService,
@@ -124,6 +125,7 @@ from bot.services.pending import Pending, Side
 from bot.services.pets import Event, Moment
 from bot.services.taxes import LOTTERY_EXEMPT, TAX_COLLECTOR
 from bot.services.telemetry import TimedLock
+from bot.utils.channels import send_notice
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, edit
 
@@ -784,7 +786,7 @@ class Loteria(commands.Cog):
         economy: EconomyService,
         repository: LotteryRepository,
         *,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         clock: Callable[[], float] = time.time,
         rng: random.Random | None = None,
         scene: LotteryScene | None = None,
@@ -1702,7 +1704,7 @@ class Loteria(commands.Cog):
         """Versión de texto: el panel es público y cada uno juega en el suyo."""
         assert ctx.guild is not None  # guild_only
         if error := casino_channel_error(self.casino_channel_ids, ctx.channel, "La lotería"):
-            await ctx.send(error)
+            await send_notice(ctx, error)
             return
         panel = await self.open_panel(ctx.guild, ctx.author)
         panel.message = await ctx.send(
@@ -1743,5 +1745,5 @@ async def pending(bot: commands.Bot, guild_id: int, user_id: int) -> list[Pendin
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía y las loterías del bot."""
     await bot.add_cog(
-        Loteria(bot, bot.economy, bot.lottery, casino_channel_ids=bot.casino_channel_ids)
+        Loteria(bot, bot.economy, bot.lottery, casino_channel_ids=bot.casino_channels)
     )

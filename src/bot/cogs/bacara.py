@@ -41,10 +41,9 @@ diaria del casino y en la renta semanal. La comisión del 5 % de la Banca no es
 un impuesto: es el margen de la casa, como el cero de la ruleta, y no va al
 Estado. Si el bot se apaga con las apuestas abiertas, se devuelve lo apostado.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar
-archivos y añadir reacciones (para confirmar `.bacara 500 banca`). No necesita
-intents especiales.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar archivos y
+añadir reacciones (para confirmar `.bacara 500 banca`). No necesita intents especiales.
 """
 
 from __future__ import annotations
@@ -85,6 +84,7 @@ from bot.services.bacara import (
 )
 from bot.services.bacara_render import WIN_TITLES, Header, Media
 from bot.services.bacara_scene import BacaraScene
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1053,7 +1053,7 @@ class Bacara(commands.Cog, name="Bacará"):
         *,
         economy: EconomyService,
         renderer: BacaraScene | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: Any = None,
         wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
@@ -1270,8 +1270,8 @@ class Bacara(commands.Cog, name="Bacará"):
     ) -> None:
         """Abre la mesa del canal, la baja al final o apuesta en ella.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        cada ficha al ponerla y paga al repartir.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra cada ficha al ponerla y paga al repartir.
         """
         # Abrir la mesa dibuja la imagen y publica el mensaje: puede pasar de 3 s.
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1325,4 +1325,4 @@ class Bacara(commands.Cog, name="Bacará"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Bacara(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Bacara(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

@@ -65,9 +65,9 @@ del anterior y la precarga aún no está lista, se espera lo que le falte: en el
 peor caso, lo mismo que sin ella. El coste en CPU es el mismo; solo cambia
 cuándo se paga. Los números son de un portátil y varían con el equipo.
 
-Si `CASINO_CHANNEL_IDS` está configurado, la máquina solo se abre en esos
-canales. Permisos que necesita el bot en el canal: enviar mensajes, insertar
-enlaces (embeds) y adjuntar archivos.
+La máquina solo se abre en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos que necesita el bot en el canal: enviar mensajes,
+insertar enlaces (embeds) y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -104,6 +104,7 @@ from bot.services.autoplay import (
     SpinResult,
     StopReason,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1284,7 +1285,7 @@ class Pachinko(commands.Cog, name="Pachinko"):
         economy: EconomyService,
         renderer: PachinkoRenderer | None = None,
         machine: PachinkoMachine | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         preload: bool = True,
     ) -> None:
         self.bot = bot
@@ -1548,8 +1549,8 @@ class Pachinko(commands.Cog, name="Pachinko"):
     ) -> None:
         """Abre una máquina de pachinko con botones.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Las
-        tandas mueven yapdollars a través de la economía del bot.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Las tandas mueven yapdollars a través de la economía del bot.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -1598,4 +1599,4 @@ class Pachinko(commands.Cog, name="Pachinko"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Pachinko(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Pachinko(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

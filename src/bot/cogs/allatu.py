@@ -44,8 +44,8 @@ tocarlo) o el bot se apaga de forma ordenada con una partida a medias, se acepta
 la oferta en juego (o la que tocaría en ese momento); si aún no se había elegido
 caja, se devuelve la apuesta.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes y adjuntar archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -89,6 +89,7 @@ from bot.services.allatu import (
     tier,
 )
 from bot.services.allatu_scene import AllatuScene, Media
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1397,7 +1398,7 @@ class Allatu(commands.Cog, name="Allá tú"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         load_stats: Callable[[int, int], Awaitable[dict[str, int]]] | None = None,
         renderer: AllatuScene | None = None,
@@ -1599,8 +1600,8 @@ class Allatu(commands.Cog, name="Allá tú"):
     ) -> None:
         """Abre un plató de Allá tú y empieza la partida.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        la apuesta al empezar y paga al acabar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al empezar y paga al acabar.
         """
         responder = InteractionResponder(interaction)
         try:
@@ -1665,7 +1666,7 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
         Allatu(
             bot,
             economy=bot.economy,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
             load_stats=load_stats,
         )
     )
