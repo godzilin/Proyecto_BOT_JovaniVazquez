@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import math
 
+from bot.services.achievements import CATALOG
 from bot.services.sports import (
     COMBO_MARKETS,
     MAX_COMBO_PAYOUT,
@@ -83,3 +84,19 @@ def test_una_pata_anulada_cuenta_como_uno() -> None:
 
 def test_todas_anuladas_se_devuelve() -> None:
     assert combo_outcome([(VOID, 200), (VOID, 150)]) == (VOID, 0)
+
+
+COMBO_STATS = (
+    "sports_combos", "sports_combo_staked", "sports_combo_full", "sports_combo_mixed",
+    "sports_combo_all_markets", "sports_combo_huge", "sports_combo_all_in", "sports_combo_min",
+    "sports_combo_666", "sports_combo_69", "sports_combos_settled", "sports_combo_wins",
+    "sports_combo_losses", "sports_combo_capped", "sports_combo_saved_by_void",
+    "sports_combo_full_win", "sports_combo_last_leg", "sports_combo_first_leg",
+    "sports_combo_refunds", "sports_combo_odds_max", "sports_combo_legs_max",
+    "sports_combo_win_max", "sports_combo_odds_won_max", "sports_combo_legs_won_max",
+)  # fmt: skip
+
+
+def test_cada_estadistica_de_combinadas_tiene_algun_logro() -> None:
+    used = {stat for a in CATALOG for stat, _goal in a.conditions}
+    assert [stat for stat in COMBO_STATS if stat not in used] == []
