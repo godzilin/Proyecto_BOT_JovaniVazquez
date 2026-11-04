@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.37.0 · 2026-11-04
+
+- Deportes: apuestas combinadas en `deportes`, de 2 a 5 partidos con la cuota multiplicada y su boleto dibujado
+- Logros: 30 nuevos de las combinadas en ⚽ Deportes
+
 ### 9.36.0 · 2026-11-04
 
 - Pisos: 🔑 Mis pisos pasa de página con ◀ ▶ cuando tienes más de 10 inmuebles

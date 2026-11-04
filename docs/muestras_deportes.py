@@ -178,12 +178,12 @@ def samples() -> dict[str, dict[str, Any]]:
         ),
         "combinada_tope": _combinada(
             [
-                _leg("Real Madrid", "Barcelona", odds="×12,40"),
-                _leg("Atlético Madrid", "Sevilla", pick="X (empate)", odds="×9,80"),
-                _leg("Villarreal", "Betis", pick="2 (Betis)", odds="×8,30"),
+                _leg("Real Madrid", "Barcelona", odds="×3,40"),
+                _leg("Atlético Madrid", "Sevilla", pick="X (empate)", odds="×2,80"),
+                _leg("Villarreal", "Betis", pick="2 (Betis)", odds="×2,68"),
             ],
-            odds="×1.008,6",
-            stake="2.500.000 Y$",
+            odds="×25,51",
+            stake="50.000 Y$",
             payout="1.000.000 Y$",
             capped=True,
             player="Ángel 🎰🔥 ☆",

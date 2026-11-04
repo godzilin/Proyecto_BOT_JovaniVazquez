@@ -291,7 +291,7 @@ function comboLeg(leg, x, y, w, h, k) {
   const tx = x + 18 + cw * 2 + 22, rw = 96;
   const tw = x + w - 14 - rw - tx;
   const l1 = cy - h * 0.14, l2 = cy + h * 0.26;
-  const names = `${clean(leg.home.name)} - ${clean(leg.away.name)}`;
+  const names = `${clean(leg.home.name)} – ${clean(leg.away.name)}`;
   fitText(names, tx, l1 + 5 * k, tw, Math.round(17 * k), 10, MONT, "#ffffff", "left", "700");
   const ph = Math.round(17 * k);
   const pw = pill(clean(leg.league).toUpperCase(), tx, l2 - ph / 2 - 3, ph, col, lum(col) > 0.6 ? "#0b0f1a" : "#ffffff", Math.round(10 * k));

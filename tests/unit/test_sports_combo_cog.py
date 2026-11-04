@@ -317,6 +317,32 @@ async def test_apostar_una_combinada_cobra_y_confirma_con_sus_patas(
     assert stats.peak["sports_combo_odds_max"] == 758
 
 
+async def test_la_combinada_lleva_su_boleto_dibujado_con_una_fila_por_partido(
+    tmp_path: Path,
+) -> None:
+    cog, _ = await combo_cog(tmp_path)
+
+    interaction, combo = await bet_combo(cog, ("e0", "1"), ("e1", "2"))
+
+    [state] = cog.scene.states
+    assert state["kind"] == "combinada"
+    assert [leg["pick"] for leg in state["legs"]] == ["1 (Real Madrid)", "2 (Barcelona)"]
+    assert (state["odds"], state["serial"]) == ("×7,58", f"Nº C{combo.id:05d}")
+    assert interaction.followup.send.await_args.kwargs["file"].filename == "combinada.png"
+
+
+async def test_si_no_se_puede_dibujar_la_combinada_sale_en_texto(tmp_path: Path) -> None:
+    cog, _ = await combo_cog(tmp_path)
+    cog.scene.still = AsyncMock(return_value=None)
+
+    interaction, _ = await bet_combo(cog, ("e0", "1"), ("e1", "2"))
+
+    assert "file" not in interaction.followup.send.await_args.kwargs
+    assert "combinada de **2 partidos**" in texts(
+        interaction.followup.send.await_args.kwargs["view"]
+    )
+
+
 async def test_apostar_desde_el_panel_vacia_su_boleto(tmp_path: Path) -> None:
     cog, _ = await combo_cog(tmp_path)
     view = await combining(cog)

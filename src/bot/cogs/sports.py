@@ -20,7 +20,8 @@ Champions):
   solo toca memoria (`SportsView.legs`). Su página enseña las patas, la cuota total
   (`combo_odds`) y lo que se cobraría (con el tope `MAX_COMBO_PAYOUT`), y «Apostar
   combinada» abre el formulario. Lo apostado cuenta entero en el tope de cada partido.
-- Al apostar llega, en privado, el boleto dibujado (`bot.services.sports_scene`); al
+- Al apostar llega, en privado, el boleto dibujado (`bot.services.sports_scene`; el de una
+  combinada, con una fila por partido); al
   acabar el partido, el marcador final dibujado sale en el canal donde se apostó, con
   quién cobra y quién no. Si no se puede dibujar, los dos salen en texto.
 
@@ -1612,7 +1613,15 @@ class Deportes(commands.Cog):
         # Apostar es un resultado con dinero: la mascota activa puede opinar.
         if hint := await renta.hint(self.bot, guild_id, user.id, Moment()):
             lines.append(hint)
-        await notify(interaction, view=card("\n".join(lines), color=COLOR))
+        png = await self._draw(combo_ticket_state(combo, user.display_name))
+        if png is None:
+            await notify(interaction, view=card("\n".join(lines), color=COLOR))
+        else:
+            await notify(
+                interaction,
+                view=card("\n".join(lines), color=COLOR, image=COMBO_PNG),
+                file=discord.File(io.BytesIO(png), filename=COMBO_PNG),
+            )
         # Apostar es gastar: gancho de la Renta (ver Biblia.txt, sección 4).
         await renta.remind(self.bot, interaction)
         await logros.track(
