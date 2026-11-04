@@ -7,6 +7,9 @@ su paciencia: si se agota, se va (`TurnGame.expire`). El turno acaba al vaciarse
 a los `TURN_SECONDS`. `TurnGame.summary` junta lo que ha pasado; el dinero lo mueve
 `bot.services.negocio`.
 
+Los relojes se paran mientras el jugador espera la pantalla nueva (`TurnGame.shown`): el
+cliente y el cierre del turno no cuentan lo que tarda Discord en enseñarle a quién atiende.
+
 Los tres juegos, que piden cosas distintas de los de la `pala` (allí la nota mueve un
 sueldo; aquí la nota es el negocio):
 
@@ -41,8 +44,11 @@ from bot.services.business import (
 )
 from bot.services.business_catalog import FAULTS, GREETINGS, Product, Sector
 
-#: Lo que dura un turno como mucho.
+#: Lo que dura un turno como mucho (sin las esperas a la pantalla, `TurnGame.shown`).
 TURN_SECONDS = 150
+#: Lo más que para los relojes una sola espera a la pantalla (un mensaje que se atasca en
+#: Discord no alarga el turno sin fin).
+PAUSE_MAX = 5.0
 #: Atender en menos de esta parte de la paciencia es rápido (propina); en más de
 #: `SLOW_SHARE`, lento.
 FAST_SHARE = 0.4
@@ -305,6 +311,9 @@ class TurnGame:
         self.index = 0
         #: Cambia con cada cliente y cada paso del taller: los clics de antes no cuentan.
         self.round = 0
+        #: Cuándo empezó la ronda de ahora y la última ronda que ya paró los relojes.
+        self.round_since = now
+        self.paused_round = -1
         self.since = now
         self.outcomes: list[Outcome] = []
         #: Lo que ha pasado con la última pulsación, para enseñarlo.
@@ -372,6 +381,22 @@ class TurnGame:
     def finished(self, now: float) -> bool:
         """Si el turno ha acabado (sin cola o sin tiempo)."""
         return self.current is None or now >= self.deadline
+
+    def shown(self, round_index: int, at: float) -> float:
+        """La pantalla de la ronda `round_index` llegó al jugador en `at`: para los relojes.
+
+        Desde que empieza una ronda (otro cliente o el presupuesto del taller) hasta que el
+        jugador la ve, sus botones aún no están: ese rato, hasta `PAUSE_MAX`, se suma a la
+        paciencia del cliente y al cierre del turno. Cada ronda para los relojes una vez;
+        si ya hay otra ronda, no hace nada. Devuelve los segundos que los ha parado.
+        """
+        if self.current is None or round_index != self.round or self.paused_round == self.round:
+            return 0.0
+        self.paused_round = self.round
+        lost = max(0.0, min(PAUSE_MAX, at - self.round_since))
+        self.since += lost
+        self.deadline += lost
+        return lost
 
     def expire(self, now: float) -> bool:
         """Despide al cliente de ahora si se le acabó la paciencia. `True` si se fue."""
@@ -560,6 +585,7 @@ class TurnGame:
                     return
                 self.diagnosis, self.step = arg, "presupuesto"
                 self.round += 1
+                self.round_since = now
                 self.last = ""
             return
         if verb != "q" or not arg.isdigit() or not 0 <= int(arg) < len(QUOTES):
@@ -603,7 +629,7 @@ class TurnGame:
         self.outcomes.append(outcome)
         self.index += 1
         self.round += 1
-        self.since = now
+        self.round_since = self.since = now
         self.tray, self.given, self.accused, self.extra = [], [], False, 0
         self.step, self.diagnosis = "diagnostico", None
         if (client := self.current) is not None:

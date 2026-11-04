@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -35,6 +36,7 @@ from bot.cogs.business import (
     Negocio,
     NegocioPanel,
     parse_game_id,
+    pressed_at,
 )
 from bot.cogs.work import PalaPanel, Work
 from bot.repositories.business import BusinessRepository
@@ -432,6 +434,64 @@ async def test_un_clic_con_el_panel_subiendo_otra_imagen_se_acepta_sin_esperar(
     assert interaction.response.is_done()
     panel._render_lock.release()
     await pressed
+
+
+def order_actions(panel: NegocioPanel) -> list[str]:
+    """Los clics que sirven bien la mesa del cliente de ahora (cafetería)."""
+    assert panel.turn is not None
+    client = panel.turn.game.current
+    assert client is not None
+    return [f"p:{k}" for k, n in client.order.items() for _ in range(n)] + ["serve"]
+
+
+async def test_un_clic_que_salio_a_tiempo_cuenta_aunque_llegue_tarde(tmp_path: Path) -> None:
+    _work_cog, business_cog, panel = await opened_business(tmp_path)
+    await button(panel, "🔑 Abrir").callback(click())
+    assert panel.turn is not None
+    game = panel.turn.game
+    deadline = game.client_deadline
+    # Los clics llegan medio segundo después de la paciencia, pero se pulsaron antes.
+    business_cog.service._clock = lambda: deadline + 0.5  # type: ignore[method-assign]
+    sent = datetime.fromtimestamp(deadline - 0.2, UTC)
+    for action in order_actions(panel):
+        interaction = click()
+        interaction.created_at = sent
+        await panel.game_click(interaction, game.round, action)
+    assert game.outcomes[0].result == "ok"
+
+
+def test_la_hora_del_clic_no_se_va_mas_alla_del_margen() -> None:
+    interaction = click()
+    interaction.created_at = datetime.fromtimestamp(900.0, UTC)  # reloj de Discord muy atrás
+    assert pressed_at(interaction, 1_000.0) == 999.0
+    interaction.created_at = datetime.fromtimestamp(1_005.0, UTC)  # o adelantado
+    assert pressed_at(interaction, 1_000.0) == 1_000.0
+    assert pressed_at(click(), 1_000.0) == 1_000.0  # sin hora de Discord, la de llegada
+
+
+async def test_lo_que_tarda_en_subir_el_cliente_no_gasta_su_paciencia(tmp_path: Path) -> None:
+    _work_cog, business_cog, panel = await opened_business(tmp_path)
+    clock = [business_cog.service.now()]
+    business_cog.service._clock = lambda: clock[0]  # type: ignore[method-assign]
+    await button(panel, "🔑 Abrir").callback(click())
+    assert panel.turn is not None
+    game = panel.turn.game
+    *items, last = order_actions(panel)
+    for action in items:
+        await panel.game_click(click(), game.round, action)
+    served = click()
+    respond = served.response.edit_message.side_effect
+
+    async def slow_upload(*args: object, **kwargs: object) -> None:
+        await respond(*args, **kwargs)
+        clock[0] += 3.0  # Discord tarda 3 s en enseñar al siguiente cliente
+
+    served.response.edit_message.side_effect = slow_upload
+    await panel.game_click(served, game.round, last)
+    assert len(game.outcomes) == 1
+    # Su paciencia empieza cuando se ve, no cuando se sirvió al anterior.
+    assert game.since == pytest.approx(clock[0])
+    assert game.client_deadline == pytest.approx(clock[0] + game.patience)
 
 
 async def test_mientras_atiendes_tu_negocio_no_se_ficha_en_la_pala(tmp_path: Path) -> None:

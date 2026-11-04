@@ -14,7 +14,9 @@ debajo, que también sirve de reserva si no hay Node ni Chromium. Pantallas:
   vista sino `Negocio.on_interaction`, por su `custom_id` (`negocio:<panel>:<ronda>:<acción>`),
   como el minijuego de `pala`: así no se pierde ningún clic al redibujar. La imagen del
   siguiente cliente se pinta mientras se atiende al de ahora, y una tarea despide al
-  cliente al que se le acaba la paciencia.
+  cliente al que se le acaba la paciencia. Un clic cuenta a la hora en que se pulsó
+  (`pressed_at`), y lo que tarda en llegar la pantalla nueva no gasta paciencia ni turno
+  (`TurnGame.shown`).
 - **Tique** del turno, con la nómina del negocio: caja, IRPF a cuenta y embargo.
 - **Fase 3:** 🏢 **Sociedad**: constituir la sociedad limitada (con su capital) y, con ella,
   aportar, prestarle, recuperar el préstamo, cobrar sueldo de administrador y repartir
@@ -59,6 +61,7 @@ import random
 import sqlite3
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import discord
@@ -170,7 +173,8 @@ CACHE_SIZE = 48
 #: Prefijo de los `custom_id` de los botones del minijuego.
 GAME_PREFIX = "negocio:"
 #: Segundos de margen tras la paciencia de un cliente antes de despedirlo (lo que tarda
-#: Discord en llevar un clic que salió a tiempo).
+#: Discord en llevar un clic que salió a tiempo). Un clic cuenta a la hora en que se
+#: pulsó (`pressed_at`), con este margen como mucho.
 GRACE_SECONDS = 1.0
 COLOR = discord.Color.from_rgb(31, 181, 173)
 COLOR_GAME = discord.Color.from_rgb(88, 101, 242)
@@ -244,6 +248,19 @@ def parse_game_id(custom_id: str) -> tuple[int, int, str] | None:
     if not token.isdigit() or not round_text.isdigit() or not action:
         return None
     return int(token), int(round_text), action
+
+
+def pressed_at(interaction: discord.Interaction, now: float) -> float:
+    """Cuándo pulsó el jugador: la hora de Discord, entre `now - GRACE_SECONDS` y `now`.
+
+    Un clic que salió a tiempo puede llegar tarde (la red, el bucle ocupado): cuenta cuando
+    se pulsó y no cuando llegó. El margen evita que un reloj del NAS desfasado regale o
+    quite segundos.
+    """
+    created = getattr(interaction, "created_at", None)
+    if not isinstance(created, datetime):
+        return now
+    return max(now - GRACE_SECONDS, min(now, created.timestamp()))
 
 
 def state_key(state: dict[str, Any]) -> str:
@@ -2063,6 +2080,8 @@ class NegocioPanel(ui.LayoutView):
         if reload:
             await self.refresh()
         state = self.scene_state()
+        game = self.turn.game if self.screen == TURNO and self.turn is not None else None
+        round_index = game.round if game is not None else -1
         png = await self.cog.painter.paint(state) if state is not None else None
         key = state_key(state) if (state is not None and png is not None) else ""
         self.rebuild(has_image=png is not None)
@@ -2071,7 +2090,9 @@ class NegocioPanel(ui.LayoutView):
             kwargs["attachments"] = (
                 [discord.File(io.BytesIO(png), filename=PNG_NAME)] if png is not None else []
             )
-        await self._edit(interaction, **kwargs)
+        if await self._edit(interaction, **kwargs) and game is not None:
+            # Mientras subía, el jugador no tenía los botones: no le cuenta a la paciencia.
+            game.shown(round_index, self.service.now())
         self._shown = key
         self._prefetch()
 
@@ -2081,7 +2102,8 @@ class NegocioPanel(ui.LayoutView):
         if states:
             self.cog.painter.prefetch(states, still=lambda: self._where() == here)
 
-    async def _edit(self, interaction: discord.Interaction | None, **kwargs: Any) -> None:
+    async def _edit(self, interaction: discord.Interaction | None, **kwargs: Any) -> bool:
+        """Pone `kwargs` en el mensaje del panel. `True` si Discord lo aceptó."""
         try:
             if interaction is not None:
                 await edit(interaction, **kwargs)
@@ -2089,8 +2111,12 @@ class NegocioPanel(ui.LayoutView):
                     self.message = interaction.message
             elif self.message is not None:
                 await self.message.edit(**kwargs)
+            else:
+                return False
         except discord.HTTPException:
             logger.debug("No se pudo editar el panel del negocio", exc_info=True)
+            return False
+        return True
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Solo el dueño toca su negocio. Los botones del minijuego van por el listener."""
@@ -3128,8 +3154,9 @@ class NegocioPanel(ui.LayoutView):
             return
         game = turn.game
         before = self._where()
-        game.press(action, self.service.now())
-        if game.finished(self.service.now()):
+        now = self.service.now()
+        game.press(action, pressed_at(interaction, now))
+        if game.finished(now):
             await self._finish(interaction)
             return
         self._ticket += 1

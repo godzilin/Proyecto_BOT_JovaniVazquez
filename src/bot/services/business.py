@@ -681,8 +681,11 @@ def review_of(outcome: Any, rng: random.Random) -> tuple[str, int, int] | None:
     """La reseña que deja un cliente (`(quién, estrellas, frase)`), o `None` si no deja.
 
     Las estrellas salen de su nota (`Outcome.score`, de 0 a 100) con un poco de azar; un
-    habitual es algo más generoso.
+    habitual es algo más generoso. Quien seguía en la cola al cerrar (`gone`) no llegó a
+    que le atendieran: no escribe, igual que no mueve la reputación.
     """
+    if outcome.result == "gone":
+        return None
     angry = not outcome.served
     if rng.random() >= (REVIEW_ANGRY_CHANCE if angry else REVIEW_CHANCE):
         return None

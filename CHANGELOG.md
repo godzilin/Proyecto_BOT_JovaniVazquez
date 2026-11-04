@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.38.1 · 2026-11-04
+
+- Negocios: esperar a la imagen ya no echa clientes ni da malas reseñas
+
 ### 9.38.0 · 2026-11-04
 
 - Deportes: apuestas combinadas en `deportes`, de 2 a 5 partidos con la cuota multiplicada y su boleto dibujado
