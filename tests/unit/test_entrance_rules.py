@@ -60,8 +60,8 @@ def test_los_precios_suben_y_cubren_cada_tramo() -> None:
     for prices in (SLOT_PRICES, LENGTH_PRICES):
         values = [prices[k] for k in sorted(prices)]
         assert values == sorted(values) and len(set(values)) == len(values)
-    # Ninguna mejora llega a 100.000 Y$, que pediría nivel mínimo en la tienda.
-    assert max(*SLOT_PRICES.values(), *LENGTH_PRICES.values(), EXIT_PRICE) < 100_000
+    # La más cara, la séptima ranura, se queda en 100.000 Y$.
+    assert max(*SLOT_PRICES.values(), *LENGTH_PRICES.values(), EXIT_PRICE) == 100_000
 
 
 def test_comprarlo_todo_en_orden_llega_al_maximo_y_se_para() -> None:

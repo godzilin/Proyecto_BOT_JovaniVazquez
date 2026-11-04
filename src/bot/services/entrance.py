@@ -38,24 +38,24 @@ TENTHS_STEP = 5
 
 #: Precio base (sin IGIC) de cada ranura de entrada, por su número. Una partida
 #: del casino son 100 Y$ y el IMV máximo, 1.500 al día: las siete juntas son
-#: unas 90 jornadas de IMV, un capricho caro a propósito.
+#: unas 185 jornadas de IMV, un capricho de lujo a propósito.
 SLOT_PRICES: dict[int, int] = {
-    2: 5_000,
-    3: 10_000,
-    4: 16_000,
-    5: 24_000,
-    6: 34_000,
-    7: 50_000,
+    2: 10_000,
+    3: 20_000,
+    4: 32_000,
+    5: 48_000,
+    6: 68_000,
+    7: 100_000,
 }
 #: Precio base de cada tramo de duración, por la duración que deja (en décimas).
 LENGTH_PRICES: dict[int, int] = {
-    35: 4_000,
-    40: 8_000,
-    45: 14_000,
-    50: 24_000,
+    35: 8_000,
+    40: 16_000,
+    45: 28_000,
+    50: 48_000,
 }
 #: Precio base de la ranura de salida.
-EXIT_PRICE = 20_000
+EXIT_PRICE = 40_000
 
 #: Lo que se guarda del audio subido, a partir del segundo elegido. Da margen
 #: para recortar otra vez o alargar el sonido al comprar más duración sin

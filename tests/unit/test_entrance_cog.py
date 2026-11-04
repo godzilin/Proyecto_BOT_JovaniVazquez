@@ -425,7 +425,7 @@ async def test_comprar_pide_confirmacion_y_luego_cobra(tmp_path: Path) -> None:
     second.response.defer.assert_awaited_once()
     second.edit_original_response.assert_awaited()
     assert cog.profile(GUILD_ID, USER_ID).slots == 2
-    assert "Comprad" in (panel.note or "") or "comprad" in (panel.note or "").lower()
+    assert "**Ranura 2**" in (panel.note or "") and "IGIC" in (panel.note or "")
 
 
 async def test_el_modo_cambia_en_memoria_y_se_guarda(tmp_path: Path) -> None:

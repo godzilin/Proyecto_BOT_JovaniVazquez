@@ -503,8 +503,8 @@ IMG_EFFECTS_STAT = "img_effects_tried"
 ENTRANCE_EFFECTS = ("eco", "catedral", "robot", "ardilla", "grave", "radio", "alreves")
 ENTRANCE_FX_KINDS_STAT = "entrance_fx_kinds"
 #: Lo que cuesta comprar todas las mejoras de `entrada`, sin IGIC (`services/entrance.py`):
-#: las seis ranuras extra (139.000), la duración de 3 a 5 s (50.000) y la salida (20.000).
-ENTRANCE_FULL_SPEND = 209_000
+#: las seis ranuras extra (278.000), la duración de 3 a 5 s (100.000) y la salida (40.000).
+ENTRANCE_FULL_SPEND = 418_000
 #: Discurso del logro de gasto en mejoras de `entrada`: el IGIC de las compras.
 ENTRANCE_IGIC_STORY = (
     "🏝️ **El 7 % que se queda Canarias.** Las mejoras de `entrada` llevan IGIC al tipo "
@@ -12851,20 +12851,20 @@ def _build_catalog() -> tuple[Achievement, ...]:
          ("entrance_bought_salida", 1)),
     ))  # fmt: skip
     a += _tiers("entrance", "entrance_spent", [
-        (10_000, "entrance_spent_10k", "Primera ronda de la noche",
-         "Gasta 10.000 Y$ en mejoras de `entrada`.", C),
-        (25_000, "entrance_spent_25k", "Barra libre de decibelios",
-         "Gasta 25.000 Y$ en mejoras de `entrada`.", R),
-        (60_000, "entrance_spent_60k", "Reservado vip",
-         "Gasta 60.000 Y$ en mejoras de `entrada`.", R),
+        (20_000, "entrance_spent_10k", "Primera ronda de la noche",
+         "Gasta 20.000 Y$ en mejoras de `entrada`.", C),
+        (50_000, "entrance_spent_25k", "Barra libre de decibelios",
+         "Gasta 50.000 Y$ en mejoras de `entrada`.", R),
+        (120_000, "entrance_spent_60k", "Reservado vip",
+         "Gasta 120.000 Y$ en mejoras de `entrada`.", R),
     ], unit="money")  # fmt: skip
     a.append(Achievement(
         id="entrance_spent_igic",
         name="El Cabildo agradece la fanfarria",
-        description="Gasta 100.000 Y$ en mejoras de `entrada`, sin contar el IGIC.",
+        description="Gasta 200.000 Y$ en mejoras de `entrada`, sin contar el IGIC.",
         category="entrance",
         rarity=E,
-        conditions=(("entrance_spent", 100_000),),
+        conditions=(("entrance_spent", 200_000),),
         unit="money",
         story=ENTRANCE_IGIC_STORY,
     ))  # fmt: skip
