@@ -356,6 +356,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("voice", "🎙️ Llamada", group=_VG),
     Category("voice_mic", "🎚️ Micro, cámara y AFK", group=_VG),
     Category("voice_moves", "🚪 Entradas y salidas", group=_VG),
+    Category("entrance", "🔔 Entradas", group=_VG),
     Category("music", "🎵 Música", group=_VG),
     Category("voice_games", "🎮 Jugando en llamada", group=_VG),
     Category("voice_chat", "📞 Escribir desde la llamada", group=_VG),
@@ -497,6 +498,21 @@ MESSAGES_TOTAL_STAT = "messages_total"
 IMG_EFFECT_PREFIX = "img_fx_"
 #: Estadística virtual: efectos de imagen distintos que ha usado el miembro.
 IMG_EFFECTS_STAT = "img_effects_tried"
+#: Efectos que se pueden guardar en un sonido de entrada (`entrance_fx_<efecto>`); los
+#: distintos que ha usado salen en `with_derived` como `entrance_fx_kinds`.
+ENTRANCE_EFFECTS = ("eco", "catedral", "robot", "ardilla", "grave", "radio", "alreves")
+ENTRANCE_FX_KINDS_STAT = "entrance_fx_kinds"
+#: Lo que cuesta comprar todas las mejoras de `entrada`, sin IGIC (`services/entrance.py`):
+#: las seis ranuras extra (278.000), la duración de 3 a 5 s (100.000) y la salida (40.000).
+ENTRANCE_FULL_SPEND = 418_000
+#: Discurso del logro de gasto en mejoras de `entrada`: el IGIC de las compras.
+ENTRANCE_IGIC_STORY = (
+    "🏝️ **El 7 % que se queda Canarias.** Las mejoras de `entrada` llevan IGIC al tipo "
+    "general, el 7 % (art. 51 de la Ley 4/2012 del Gobierno de Canarias), como casi todo "
+    "lo que se compra en las islas, donde no hay IVA. Cada ranura, cada medio segundo y "
+    "la salida traen su recargo encima del precio y el IGIC va a la cuenta del Estado. "
+    "Que suene tu entrada no sale gratis: la fanfarria también tributa."
+)
 #: Secciones de `perfil` vistas: un contador por sección con este prefijo
 #: (`perfil_seen_nivel`…) y el recuento de distintas, calculado en `with_derived`.
 PERFIL_SEEN_PREFIX = "perfil_seen_"
@@ -2261,12 +2277,12 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (25, "ghost_25", "Hola y adiós",
          "Entra y sal de voz en menos de 15 s, 25 veces.", R),
     ])  # fmt: skip
-    a += _tiers("voice_moves", "entrance_saved", [
+    a += _tiers("entrance", "entrance_saved", [
         (1, "entrance_1", "Entrada triunfal",
          "Guarda tu sonido de entrada con `entrada`.", C),
         (10, "entrance_10", "Indeciso", "Cambia tu sonido de entrada 10 veces.", R),
     ])  # fmt: skip
-    a += _tiers("voice_moves", "entrance_played", [
+    a += _tiers("entrance", "entrance_played", [
         (10, "entrance_play_10", "Entrada de torero en Las Ventas",
          "Que suene tu entrada 10 veces.", C),
         (20, "entrance_played_20", "Tu entrada, en bucle", "Que suene tu entrada 20 veces.", C),
@@ -2277,11 +2293,11 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (500, "entrance_played_500", "Entrada con fanfarria", "Que suene tu entrada 500 veces.", E),
         (1_000, "entrance_play_1k", "Himno nacional", "Que suene tu entrada 1.000 veces.", E),
     ])  # fmt: skip
-    a += _tiers("voice_moves", "entrance_volume_max", [
+    a += _tiers("entrance", "entrance_volume_max", [
         (200, "entrance_loud", "Entrada ensordecedora",
          "Pon tu sonido de entrada al 200 %.", R, True),
     ])  # fmt: skip
-    a += _tiers("voice_moves", "entrance_deleted", [
+    a += _tiers("entrance", "entrance_deleted", [
         (1, "entrance_gone", "Perfil bajo", "Borra tu sonido de entrada.", C, True),
     ])  # fmt: skip
 
@@ -12664,17 +12680,208 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (100, "ghost_100", "Casper de la llamada",
          "Entra en un canal de voz y vete en menos de 15 s, 100 veces.", E, True),
     ])  # fmt: skip
-    a += more("voice_moves", "entrance_saved", [
-        (20, "entrance_saved_20", "Entrada, versión 20",
+    a += more("entrance", "entrance_saved", [
+        (20, "entrance_saved_20", "Tomas falsas",
          "Guarda tu sonido de entrada 20 veces.", R),
         (50, "entrance_saved_50", "Nunca me decido",
          "Guarda tu sonido de entrada 50 veces.", E),
     ])  # fmt: skip
-    a += more("voice_moves", "entrance_played", [
+    a += more("entrance", "entrance_played", [
         (2_500, "entrance_played_2500", "Sintonía de telenovela",
          "Que suene tu entrada 2.500 veces.", L),
         (5_000, "entrance_played_5k", "Himno sin letra",
          "Que suene tu entrada 5.000 veces.", L),
+    ])  # fmt: skip
+    # 🔔 Entradas: ranuras, efectos, recorte, salida, modos, ranking y compras ------------
+    a += _tiers("entrance", "entrance_saved", [
+        (100, "entrance_saved_100", "Más versiones que Windows",
+         "Guarda tu sonido de entrada 100 veces.", L),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_deleted", [
+        (10, "entrance_gone_10", "Arrepentido de domingo",
+         "Borra tu sonido de entrada 10 veces.", R, True),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_panel", [
+        (1, "entrance_panel_1", "Llamar al timbre", "Abre el panel de `entrada`.", C),
+        (50, "entrance_panel_50", "Vecino de rellano",
+         "Abre el panel de `entrada` 50 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_trimmed", [
+        (1, "entrance_trim_1", "Director's cut",
+         "Sube un audio empezando en un segundo distinto del 0.", C),
+        (10, "entrance_trim_10", "Manostijeras",
+         "Sube un audio empezando en un segundo distinto del 0, 10 veces.", R),
+        (50, "entrance_trim_50", "Montador de Tarantino",
+         "Sube un audio empezando en un segundo distinto del 0, 50 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_adjusted", [
+        (1, "entrance_adjust_1", "Ajústate el cinturón",
+         "Guarda el formulario de ✏️ Ajustar de una ranura.", C),
+        (25, "entrance_adjust_25", "Chapa y pintura",
+         "Guarda el formulario de ✏️ Ajustar 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", ENTRANCE_FX_KINDS_STAT, [
+        (1, "entrance_fx_1", "Efecto mariposa",
+         "Guarda una ranura con un efecto de sonido.", C),
+        (3, "entrance_fx_3", "Tres efectos y un destino",
+         "Guarda ranuras con 3 efectos distintos.", C),
+        (5, "entrance_fx_5", "Pedalera de Hendrix",
+         "Guarda ranuras con 5 efectos distintos.", R),
+        (7, "entrance_fx_all", "Los siete magníficos",
+         "Guarda ranuras con los 7 efectos distintos.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_eco", [
+        (1, "entrance_fx_eco_1", "Ecos de sociedad", "Guarda una ranura con el efecto eco.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_catedral", [
+        (1, "entrance_fx_catedral_1", "Misa de doce",
+         "Guarda una ranura con el efecto catedral.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_robot", [
+        (1, "entrance_fx_robot_1", "Yo, robot", "Guarda una ranura con el efecto robot.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_ardilla", [
+        (1, "entrance_fx_ardilla_1", "Alvin y sus compinches",
+         "Guarda una ranura con el efecto ardilla.", C, True),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_grave", [
+        (1, "entrance_fx_grave_1", "Barítono de karaoke",
+         "Guarda una ranura con el efecto grave.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_radio", [
+        (1, "entrance_fx_radio_1", "Aquí, Radio Macuto",
+         "Guarda una ranura con el efecto radio vieja.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_fx_alreves", [
+        (1, "entrance_fx_alreves_1", "Mensaje satánico oculto",
+         "Guarda una ranura con el efecto al revés.", C, True),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_faded", [
+        (1, "entrance_faded_1", "Fundido a negro", "Activa el fundido de tu entrada.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_exit_saved", [
+        (1, "entrance_exit_saved_1", "Hasta la vista, baby",
+         "Guarda tu sonido de salida.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_exit_played", [
+        (1, "entrance_exit_1", "Mutis por el foro",
+         "Que suene tu sonido de salida al irte de voz.", C),
+        (25, "entrance_exit_25", "Salida de emergencia",
+         "Que suene tu sonido de salida 25 veces.", R),
+        (100, "entrance_exit_100", "Gira de despedida",
+         "Que suene tu sonido de salida 100 veces.", R),
+        (500, "entrance_exit_500", "Más despedidas que Camilo Sesto",
+         "Que suene tu sonido de salida 500 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_mode_fijo", [
+        (1, "entrance_mode_fijo_1", "Plantado en la puerta",
+         "Pon el modo fijo en tus entradas.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_mode_azar", [
+        (1, "entrance_mode_azar_1", "A lo loco", "Pon el modo azar en tus entradas.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_mode_turnos", [
+        (1, "entrance_mode_turnos_1", "Turno de guardia",
+         "Pon el modo turnos en tus entradas.", C),
+    ])  # fmt: skip
+    a.append(combo(
+        "entrance_modes_all", "Trilero de entradas",
+        "Pon los tres modos de reproducción: fijo, azar y turnos.",
+        "entrance", R,
+        (("entrance_mode_fijo", 1), ("entrance_mode_azar", 1), ("entrance_mode_turnos", 1)),
+    ))  # fmt: skip
+    a += _tiers("entrance", "entrance_ranking", [
+        (1, "entrance_ranking_1", "Top manta",
+         "Abre el ranking de entradas del servidor.", C),
+        (25, "entrance_ranking_25", "Forofo de la clasificación",
+         "Abre el ranking de entradas 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_listened", [
+        (1, "entrance_listened_1", "Portera de telenovela",
+         "Escucha la entrada de otro miembro desde el ranking.", C),
+        (10, "entrance_listened_10", "Cazatalentos de Operación Triunfo",
+         "Escucha 10 entradas de otros miembros desde el ranking.", R),
+        (50, "entrance_listened_50", "Radiofórmula con barra libre",
+         "Escucha 50 entradas de otros miembros desde el ranking.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_top1", [
+        (1, "entrance_top1", "Disco de platino",
+         "Que tu entrada sea la primera del ranking del servidor, con al menos 10 "
+         "reproducciones.", E),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_slots", [
+        (2, "entrance_slots_2", "Segunda residencia",
+         "Ten 2 ranuras de entrada, contando la gratuita.", C),
+        (4, "entrance_slots_4", "Cuatro estrellas",
+         "Ten 4 ranuras de entrada, contando la gratuita.", R),
+        (7, "entrance_slots_7", "Siete vidas de gato",
+         "Compra las 7 ranuras de entrada.", E),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_filled", [
+        (3, "entrance_filled_3", "Trío calavera",
+         "Ten 3 ranuras de entrada con sonido a la vez.", C),
+        (5, "entrance_filled_5", "Cinco lobitos tiene la loba",
+         "Ten 5 ranuras de entrada con sonido a la vez.", R),
+        (7, "entrance_filled_7", "Los siete pecados capitales",
+         "Ten las 7 ranuras de entrada con sonido a la vez.", E),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_bought_duracion", [
+        (1, "entrance_bought_len_1", "Tiempo añadido",
+         "Compra más duración para tus entradas.", C),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_tenths", [
+        (40, "entrance_tenths_40", "Prórroga",
+         "Alarga la duración máxima de tus entradas a 4 s.", R),
+        (50, "entrance_tenths_50", "El tamaño importa",
+         "Alarga la duración máxima de tus entradas a 5 s.", R, True),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_clip_ms_max", [
+        (4_950, "entrance_clip_5s", "Cinco segundos de gloria",
+         "Guarda un sonido de entrada que dure 5 segundos.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_bought_salida", [
+        (1, "entrance_bought_exit_1", "Puerta de atrás",
+         "Compra la ranura de salida.", C),
+    ])  # fmt: skip
+    a.append(combo(
+        "entrance_shopping", "Todo a cien",
+        "Compra una ranura, más duración y la salida.",
+        "entrance", R,
+        (("entrance_bought_ranura", 1), ("entrance_bought_duracion", 1),
+         ("entrance_bought_salida", 1)),
+    ))  # fmt: skip
+    a += _tiers("entrance", "entrance_spent", [
+        (20_000, "entrance_spent_10k", "Primera ronda de la noche",
+         "Gasta 20.000 Y$ en mejoras de `entrada`.", C),
+        (50_000, "entrance_spent_25k", "Barra libre de decibelios",
+         "Gasta 50.000 Y$ en mejoras de `entrada`.", R),
+        (120_000, "entrance_spent_60k", "Reservado vip",
+         "Gasta 120.000 Y$ en mejoras de `entrada`.", R),
+    ], unit="money")  # fmt: skip
+    a.append(Achievement(
+        id="entrance_spent_igic",
+        name="El Cabildo agradece la fanfarria",
+        description="Gasta 200.000 Y$ en mejoras de `entrada`, sin contar el IGIC.",
+        category="entrance",
+        rarity=E,
+        conditions=(("entrance_spent", 200_000),),
+        unit="money",
+        story=ENTRANCE_IGIC_STORY,
+    ))  # fmt: skip
+    a += _tiers("entrance", "entrance_spent", [
+        (ENTRANCE_FULL_SPEND, "entrance_spent_all", "Todo incluido, menos el IGIC",
+         f"Compra todas las mejoras de `entrada`: {_thousands(ENTRANCE_FULL_SPEND)} Y$ "
+         "sin contar el IGIC.", L),
+    ], unit="money")  # fmt: skip
+    a += _tiers("entrance", "entrance_played_dawn", [
+        (1, "entrance_dawn_1", "Entrada del sereno",
+         "Que suene tu entrada entre las 0:00 y las 6:00.", C, True),
+        (20, "entrance_dawn_20", "Murciélago de guardia",
+         "Que suene tu entrada 20 veces entre las 0:00 y las 6:00.", R),
+    ])  # fmt: skip
+    a += _tiers("entrance", "entrance_played_nye", [
+        (1, "entrance_nye_1", "Campanadas con banda sonora",
+         "Que suene tu entrada en Nochevieja.", R, True),
     ])  # fmt: skip
     a += more("music", "music_queued", [
         (750, "music_queued_750", "Disc jockey de feria", "Pon 750 canciones con `poner`.", E),
@@ -13142,7 +13349,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
               "convo", E, (("msg_first_of_day", 30), ("msg_morning", 1_000))),
         combo("x_dj_entrada", "Entrada triunfal con banda sonora",
               "Que tu entrada suene 100 veces y pon 50 canciones.",
-              "voice_moves", R, (("entrance_played", 100), ("music_queued", 50))),
+              "entrance", R, (("entrance_played", 100), ("music_queued", 50))),
     ]  # fmt: skip
 
     # Escalones intermedios cuyo siguiente escalón está en el bloque de abajo.
@@ -22199,6 +22406,7 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     `messages_total` suma los mensajes contados por los logros y los que ya
     tenía el miembro en el historial importado antes de que existieran.
     `img_effects_tried` cuenta los efectos de imagen distintos usados;
+    `entrance_fx_kinds`, los efectos distintos guardados en sonidos de entrada;
     `roulette_numbers_hit` y `roulette_hit_max`, los plenos por número;
     `slots_card_suits`, los palos distintos de la carta del doble o nada;
     `shop_use_kinds`, los objetos distintos usados de la tienda;
@@ -22213,6 +22421,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[MESSAGES_TOTAL_STAT] = full.get("messages", 0) + full.get("messages_imported", 0)
     full[IMG_EFFECTS_STAT] = sum(
         1 for stat, value in stats.items() if stat.startswith(IMG_EFFECT_PREFIX) and value > 0
+    )
+    full[ENTRANCE_FX_KINDS_STAT] = sum(
+        1 for effect in ENTRANCE_EFFECTS if stats.get(f"entrance_fx_{effect}", 0) > 0
     )
     hits = [
         value

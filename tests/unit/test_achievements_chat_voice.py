@@ -623,7 +623,9 @@ def test_chat_y_voz_son_grupos_con_secciones() -> None:
         "chat", "style", "laughs", "funny", "lengua", "convo", "time", "memes", "format",
         "topics", "personajes",
     } == chat  # fmt: skip
-    assert {"voice", "voice_mic", "voice_moves", "music", "voice_games", "voice_chat"} == voice
+    assert {
+        "voice", "voice_mic", "voice_moves", "entrance", "music", "voice_games", "voice_chat",
+    } == voice  # fmt: skip
     for group in (CHAT_GROUP, VOICE_GROUP):
         embed = group_embed(group.key, "Diego", Profile(stats={}, unlocked={}))
         assert embed.description is not None

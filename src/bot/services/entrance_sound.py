@@ -205,6 +205,80 @@ async def render_clip(source_path: Path, output_path: Path, volume_percent: int)
     )  # fmt: skip
 
 
+async def build_raw_source(
+    upload_path: Path, output_path: Path, *, start: float, seconds: float
+) -> None:
+    """Guarda `seconds` del adjunto a partir del segundo `start`, sin retocarlo.
+
+    Es la fuente de las ranuras de `entrada`: se recorta, se normaliza y se le
+    aplican efecto y volumen después, en `render_slot`, sobre el trozo que
+    suena. Normalizar el trozo y no la fuente entera hace que el 100 % suene
+    igual de fuerte aunque el audio original tenga partes flojas.
+
+    `-ss` delante de `-i` busca sin decodificar lo anterior: un audio largo
+    no cuesta más que uno corto.
+    """
+    await _run(
+        "ffmpeg", "-y", "-v", "error",
+        "-protocol_whitelist", "file",
+        "-ss", f"{start:.3f}",
+        "-i", str(upload_path),
+        "-map", "0:a:0", "-vn", "-sn", "-dn",
+        "-t", f"{seconds:.3f}",
+        *_opus_output_args(128),
+        str(output_path),
+    )  # fmt: skip
+
+
+def slot_filters(*, effect_filter: str, fade: bool, volume_percent: int) -> str:
+    """La cadena de filtros de una ranura: efecto, fundido, sonoridad y volumen.
+
+    El fundido de salida se hace dando la vuelta al audio (`areverse`), así no
+    hace falta saber cuánto dura. `loudnorm` va después del efecto para que el
+    eco o el robot no cambien lo fuerte que suena.
+    """
+    validate_volume(volume_percent)
+    parts = [effect_filter] if effect_filter else []
+    if fade:
+        parts.append("afade=t=in:d=0.15,areverse,afade=t=in:d=0.4,areverse")
+    parts.append(f"loudnorm=I={TARGET_LOUDNESS_LUFS}:TP=-1.5:LRA=11")
+    parts.append(f"volume={volume_percent / 100:.2f},alimiter=limit={LIMITER_CEILING}:level=false")
+    return ",".join(parts)
+
+
+async def render_slot(
+    source_path: Path,
+    output_path: Path,
+    *,
+    start_ms: int,
+    length_ms: int,
+    volume_percent: int,
+    effect_filter: str = "",
+    speed: float = 1.0,
+    fade: bool = False,
+) -> None:
+    """Genera el clip de una ranura desde su fuente, listo para mandarlo a Discord.
+
+    Args:
+        start_ms: Dónde empieza el trozo dentro de la fuente.
+        length_ms: Lo que debe durar el clip.
+        speed: Cuánto acelera el efecto: se toman `length_ms × speed` de la
+            fuente para que, acelerado o frenado, dure lo pedido.
+    """
+    span = length_ms * speed / 1000
+    await _run(
+        "ffmpeg", "-y", "-v", "error",
+        "-protocol_whitelist", "file",
+        "-ss", f"{start_ms / 1000:.3f}",
+        "-t", f"{span:.3f}",
+        "-i", str(source_path),
+        "-af", slot_filters(effect_filter=effect_filter, fade=fade, volume_percent=volume_percent),
+        "-t", f"{length_ms / 1000:.3f}",
+        *_opus_output_args(96),
+        str(output_path),
+    )  # fmt: skip
+
+
 def read_opus_packets(data: bytes) -> list[bytes]:
     """Extrae los paquetes de audio Opus de un archivo Ogg ya en memoria.
 

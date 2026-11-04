@@ -173,7 +173,7 @@ Es el art. 46.2 ET; en la escala de la `pala`, un año son 7 días (los trienios
   - el siguiente cliente se conoce de antemano (semilla del turno), así que su imagen se pinta mientras
     atiendes al de ahora;
   - los clics dentro de un cliente solo cambian el texto: contestan sin subir imagen.
-- **Relojes justos** (9.38.1, informe del 04/11/2026: subir la imagen de un cliente tarda 835 ms de media y más
+- **Relojes justos** (9.39.1, informe del 04/11/2026: subir la imagen de un cliente tarda 835 ms de media y más
   de 1 s una de cada ocho veces):
   - desde que empieza una ronda (cliente nuevo o presupuesto del taller) hasta que Discord acepta la imagen,
     el jugador no tiene botones: ese rato se suma a la paciencia del cliente y al cierre del turno
@@ -466,7 +466,7 @@ general:
 
 - **Quién escribe:** al acabar cada turno, un 25 % de los clientes atendidos y la mitad de los que se fueron
   sin atender (el enfadado escribe más). Quien seguía en la cola al cerrar (`gone`) no escribe: no llegó al
-  mostrador, igual que no mueve la reputación (9.38.1; antes dejaba una estrella la mitad de las veces y un
+  mostrador, igual que no mueve la reputación (9.39.1; antes dejaba una estrella la mitad de las veces y un
   local con mucha clientela salía castigado).
 - **Las estrellas** salen de la nota del cliente, con algo de azar, y un habitual es un poco más generoso.
 - **El azar es propio del turno** (la semilla es la del negocio y la hora del turno): no gasta el de las
