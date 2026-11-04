@@ -433,6 +433,29 @@ async def test_un_clic_de_una_ronda_ya_pasada_se_acepta_sin_contar(tmp_path: Pat
     await panel._finish(None)
 
 
+async def test_un_clic_con_el_panel_ocupado_se_acepta_antes_de_esperar(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path)
+    panel, _ = await open_panel(cog)
+    assert panel is not None
+    await panel._hire(make_interaction(), "obra")
+    await panel._clock_in(make_interaction())
+    assert panel.shift is not None
+    game = panel.shift.game
+    current = game.current
+    assert current is not None
+    # Otro clic (o el cierre) tiene el candado mientras habla con Discord.
+    await panel._render_lock.acquire()
+    click = make_interaction()
+    pressed = asyncio.create_task(panel.game_click(click, game.index, current.answer[0]))
+    await asyncio.sleep(0)
+    click.response.defer.assert_awaited_once()
+    panel._render_lock.release()
+    await pressed
+    assert game.index == 1 and game.correct == 1
+    click.edit_original_response.assert_awaited_once()  # y el panel se redibuja igual
+    await panel._finish(None)
+
+
 async def test_una_rafaga_en_la_memoria_cuenta_todas_las_pulsaciones(tmp_path: Path) -> None:
     """Clics seguidos con los botones de antes de redibujar: cuentan todos, en orden."""
     cog = await make_cog(tmp_path)

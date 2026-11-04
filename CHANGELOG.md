@@ -8,6 +8,14 @@ criterio.
 
 ## 9.x
 
+### 9.39.2 · 2026-11-04
+
+- Perfil y pala: mirar los logros ya no congela los botones del bot
+
+### 9.39.1 · 2026-11-04
+
+- Negocios: esperar a la imagen ya no echa clientes ni da malas reseñas
+
 ### 9.39.0 · 2026-11-04
 
 - Entradas: `entrada` abre un panel con hasta 7 sonidos de entrada, uno de salida, efectos, recorte, modos y ranking

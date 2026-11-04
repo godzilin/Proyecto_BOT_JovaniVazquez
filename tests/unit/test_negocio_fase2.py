@@ -150,6 +150,12 @@ def test_una_resena_sale_de_la_nota_del_cliente() -> None:
     assert review_of(happy, Seq(0.3)) is None  # el contento casi nunca escribe
 
 
+def test_quien_seguia_en_la_cola_al_cerrar_no_deja_resena() -> None:
+    # No llegó al mostrador: ni mueve la reputación ni escribe, aunque el azar diga que sí.
+    gone = Outcome(Client(seed=1, line="Hola"), "gone")
+    assert review_of(gone, Seq(0.0, 0.5, 0.0, 0.0)) is None
+
+
 # -- Mejoras y campañas -----------------------------------------------------------------
 
 

@@ -2319,6 +2319,10 @@ class PalaPanel(ui.LayoutView):
             return
         self._ticket += 1
         ticket = self._ticket
+        if self._render_lock.locked():
+            # Otro clic o el cierre del turno están editando el panel: se acepta ya, antes
+            # de esperar el candado (regla 1 de «Botones rápidos», como en el negocio).
+            await ack(interaction)
         async with self._render_lock:
             stale = ticket != self._ticket or self.shift is not shift
             if not stale:
