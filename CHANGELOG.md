@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.36.0 · 2026-11-04
+
+- Pisos: 🔑 Mis pisos pasa de página con ◀ ▶ cuando tienes más de 10 inmuebles
+- Logros: 6 nuevos en 🏠 Pisos (pasar de página y tener 2, 3, 5 y 10 páginas de inmuebles)
+
 ### 9.35.0 · 2026-10-31
 
 - Jovani: cambia de foto, banner, bio y estado según lo que pasa en el servidor

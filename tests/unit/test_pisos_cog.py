@@ -1309,3 +1309,74 @@ async def test_la_duracion_se_cambia_desde_gestionar(tmp_path: Path) -> None:
     await panel.refresh()
     await panel._pick_term(clicked(ana, [], values=["24"]))
     assert (await cog.service.market(GUILD)).leases["taco_bajo"].term == 24
+
+
+async def test_mis_pisos_pasa_de_pagina_con_flechas_y_el_desplegable_sigue_a_la_imagen(
+    tmp_path: Path,
+) -> None:
+    """Con más de 10 inmuebles, 🔑 Mis pisos va por páginas: ◀ ▶, la imagen y el menú."""
+    from bot.services import housing_view as view
+    from bot.services.housing_catalog import LISTINGS
+
+    cog, scene, _clock = await make(tmp_path)
+    ana = member(10, "Ana")
+    await cog.economy.repository.apply(GUILD, ana.id, [LedgerEntry(10**9, "prueba")])
+    for listing in LISTINGS[:23]:
+        await cog.service.buy(GUILD, ana.id, listing.key, 1)
+    panel = await open_panel(cog, ana, guild_with(ana))
+    events: list[str] = []
+    await panel._go_portfolio(clicked(ana, events))
+    keys = view.portfolio_keys(panel.market, ana.id)
+    assert len(keys) == 23
+
+    def buttons() -> dict[str, discord.ui.Button]:
+        return {
+            str(item.custom_id): item
+            for item in panel.children
+            if isinstance(item, discord.ui.Button)
+        }
+
+    def menu() -> list[str]:
+        pick = next(i for i in panel.children if getattr(i, "custom_id", "") == "pisos:mio")
+        return [option.value for option in pick.options]
+
+    assert buttons()["pisos:pagina:antes"].disabled
+    assert not buttons()["pisos:pagina:despues"].disabled
+    assert menu() == keys[:10]
+    # Se pinta por adelantado la página siguiente (no hay anterior).
+    await cog.painter._worker
+    pages = [(s["page"], s["pages"]) for s in scene.painted if s["screen"] == "cartera"]
+    assert (1, 3) in pages and (2, 3) in pages
+
+    events = []
+    interaction = clicked(ana, events)
+    await panel._page_next(interaction)
+    assert events[0] == "response.defer"  # contesta antes de leer la base de datos
+    assert panel.page == 1 and menu() == keys[10:20]
+    await panel._page_next(clicked(ana, []))
+    assert panel.page == 2 and menu() == keys[20:]
+    assert buttons()["pisos:pagina:despues"].disabled
+    # Un clic de más (un botón viejo) se queda en la última página.
+    await panel._page_next(clicked(ana, []))
+    assert panel.page == 2
+    await panel._page_back(clicked(ana, []))
+    assert panel.page == 1
+    # Ir a una ficha y volver a 🔑 Mis pisos deja la misma página.
+    await panel._pick_mine(clicked(ana, [], values=[keys[12]]))
+    assert panel.screen == FICHA
+    await panel._go_portfolio(clicked(ana, []))
+    assert panel.screen == CARTERA and panel.page == 1
+
+
+async def test_con_diez_inmuebles_o_menos_mis_pisos_no_lleva_flechas(tmp_path: Path) -> None:
+    from bot.services.housing_catalog import LISTINGS
+
+    cog, _scene, _clock = await make(tmp_path)
+    ana = member(10, "Ana")
+    await cog.economy.repository.apply(GUILD, ana.id, [LedgerEntry(10**9, "prueba")])
+    for listing in LISTINGS[:10]:
+        await cog.service.buy(GUILD, ana.id, listing.key, 1)
+    panel = await open_panel(cog, ana, guild_with(ana))
+    await panel._go_portfolio(clicked(ana, []))
+    ids = {getattr(item, "custom_id", "") for item in panel.children}
+    assert not {"pisos:pagina:antes", "pisos:pagina:despues"} & ids

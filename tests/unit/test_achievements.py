@@ -451,6 +451,7 @@ PRODUCED_STATS = {
     "pisos_silence",
     # 9.12.0 (plantas, habitaciones y el atajo de candidatos)
     "pisos_split_spent", "pisos_split_units", "pisos_shortcut", "pisos_rooms_rushed",
+    "pisos_pages_turned", "pisos_portfolio_pages",
     "pisos_split_mortgaged", "pisos_floor_sold", PISOS_ROOM_TENANTS_STAT,
     PISOS_TERMS_STAT, *(f"{PISOS_TERM_PREFIX}{n}" for n in (12, 24, 36, 48, 60)),
     "pisos_keys_offers", "pisos_keys_free_asks", "pisos_keys_refused", "pisos_keys_trench",
@@ -2059,6 +2060,22 @@ def test_pisos_cuenta_plantas_habitaciones_y_el_atajo() -> None:
     }  # fmt: skip
     assert new <= set(newly_unlocked(stats, ()))
     assert {a.category for a in CATALOG if a.id in new} == {"pisos"}
+
+
+def test_pisos_cuenta_las_paginas_de_mis_pisos() -> None:
+    turned = housing_panel_stats(screen="pagina", pages=3)
+    assert turned.add == {"pisos_pages_turned": 1}
+    assert turned.peak == {"pisos_portfolio_pages": 3}
+    seen = housing_panel_stats(screen="cartera", pages=2)
+    assert seen.add == {} and seen.peak == {"pisos_portfolio_pages": 2}
+    assert not housing_panel_stats(screen="mapa")
+    stats = with_derived({"pisos_pages_turned": 100, "pisos_portfolio_pages": 10})
+    new = {
+        "pisos_pages_1", "pisos_pages_100", "pisos_pages_of_2", "pisos_pages_of_3",
+        "pisos_pages_of_5", "pisos_pages_of_10",
+    }  # fmt: skip
+    assert new <= set(newly_unlocked(stats, ()))
+    assert "pisos_pages_of_3" not in newly_unlocked({"pisos_portfolio_pages": 2}, ())
 
 
 def test_pisos_cuenta_las_calles_y_lo_que_se_tiene_en_sus_edificios() -> None:
