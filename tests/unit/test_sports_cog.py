@@ -609,7 +609,7 @@ async def test_fuera_del_canal_del_casino_no_se_abre(tmp_path: Path) -> None:
 
     await cog.deportes.callback(cog, interaction)
 
-    assert "se juega en <#999>" in interaction.response.send_message.await_args.args[0]
+    assert "están en <#999>" in interaction.response.send_message.await_args.args[0]
 
 
 async def test_al_caducar_se_apagan_los_botones_y_los_desplegables(tmp_path: Path) -> None:

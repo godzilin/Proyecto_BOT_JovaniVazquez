@@ -100,6 +100,7 @@ ADMIN_COMMANDS = {
     "cambios",
     "catalogo",
     "tajo",
+    "garito",
     "robuso",
     "informe",
     "repicar",

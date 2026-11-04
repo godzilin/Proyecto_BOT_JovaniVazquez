@@ -53,8 +53,8 @@ bote solo devuelve una parte, y la retención del casino. Cifras en `bot.service
 servidor y un boleto por persona, así que nadie puede cubrir todos los
 caballos para quedarse el bote.
 
-Si el bot se apaga durante la parrilla, se devuelve lo apostado. Si
-`CASINO_CHANNEL_IDS` está configurado, solo se corre en esos canales.
+Si el bot se apaga durante la parrilla, se devuelve lo apostado. Solo se corre en los canales del
+casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`) y en sus hilos.
 
 Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar
 archivos y añadir reacciones (para confirmar `.caballo` sin escribir). No
@@ -86,6 +86,7 @@ from bot.cogs import apuestas, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.horses import HorseRepository, Meta
 from bot.services.achievements import casino_stats, horses_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1251,7 +1252,7 @@ class Horses(commands.Cog, name="Caballos"):
         economy: EconomyService,
         repository: HorseRepository,
         renderer: SceneRenderer | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: Any = None,
         wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
@@ -1519,9 +1520,9 @@ class Horses(commands.Cog, name="Caballos"):
     ) -> None:
         """Abre la carrera del canal o apuesta en la que esté en la parrilla.
 
-        Sin caballos, abre el panel privado de apuesta. Solo en los canales de
-        `CASINO_CHANNEL_IDS` si está configurado. Cobra la apuesta al hacer el
-        boleto y paga al salir los caballos.
+        Sin caballos, abre el panel privado de apuesta. Solo en los canales del casino que elige
+        `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`) y en sus hilos. Cobra la apuesta al hacer
+        el boleto y paga al salir los caballos.
         """
         # Preparar la carrera (cuotas e imagen) puede pasar de los 3 s de Discord.
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1600,6 +1601,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             repository=bot.horses,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

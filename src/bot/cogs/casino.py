@@ -40,8 +40,8 @@ botones ya llenan las cinco filas de Discord; el tapete se cambia en la mochila.
 `patrimonio.wealth_due`. El
 saldo de otro enseña lo mismo que si lo pidiera él (sin su mascota).
 
-Si `CASINO_CHANNEL_IDS` está configurado, la ruleta solo se abre en esos
-canales. Permisos que necesita el bot en el canal: enviar mensajes,
+La ruleta solo se abre en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos que necesita el bot en el canal: enviar mensajes,
 insertar enlaces (embeds) y adjuntar archivos (el GIF de la rueda).
 """
 
@@ -78,6 +78,7 @@ from bot.services.achievements import (
     saldo_peek_stats,
     saldo_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds, CasinoChannels, allowed_ids
 from bot.services.economy import (
     CURRENCY_EMOJI,
     CURRENCY_NAME,
@@ -120,6 +121,7 @@ from bot.services.roulette_scene import Media, RouletteScene
 from bot.services.tax_report import Snapshot, TaxBill, member_page, server_bill
 from bot.services.tax_report import bills as tax_bills
 from bot.services.taxes import TAX_COLLECTOR, WEALTH_MINIMUM
+from bot.utils.channels import ChannelNotice, wrong_channel
 from bot.utils.interactions import ack, edit, notify
 from bot.utils.responder import CommandResponder, ContextResponder, InteractionResponder
 
@@ -371,17 +373,18 @@ def insufficient_text(balance: int, needed: int | None = None) -> str:
 
 
 def casino_channel_error(
-    channel_ids: frozenset[int], channel: object, game: str = "El casino"
-) -> str | None:
-    """Mensaje de error si `channel` no es un canal de casino; `None` si vale.
+    channel_ids: CasinoChannelIds, channel: object, game: str = "El casino"
+) -> ChannelNotice | None:
+    """Aviso si `channel` no es un canal de casino («🎰 Los dados están en #casino»).
 
-    Lo comparten todos los juegos: con `CASINO_CHANNEL_IDS` vacío se puede
-    jugar en cualquier canal.
+    Lo comparten todos los juegos. `channel_ids` es el servicio del bot
+    (`bot.casino_channels`: lo que eligió `garito` en el servidor del canal o, si
+    no eligió nada, `CASINO_CHANNEL_IDS`) o un conjunto fijo en las pruebas. Sin
+    canales se juega en cualquiera; con canales, también en sus hilos.
     """
-    if not channel_ids or getattr(channel, "id", None) in channel_ids:
-        return None
-    allowed = " ".join(f"<#{cid}>" for cid in sorted(channel_ids))
-    return f"{game} se juega en {allowed}."
+    guild_id = getattr(getattr(channel, "guild", None), "id", None)
+    allowed = allowed_ids(channel_ids, guild_id if isinstance(guild_id, int) else None)
+    return wrong_channel(allowed, channel, game, "🎰")
 
 
 def parse_command_args(
@@ -1008,7 +1011,7 @@ class Casino(commands.Cog):
         economy: EconomyService,
         renderer: RouletteScene | None = None,
         wheel: Wheel | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         preload: bool = True,
     ) -> None:
         self.bot = bot
@@ -1209,8 +1212,8 @@ class Casino(commands.Cog):
     ) -> None:
         """Abre una mesa de ruleta con botones (o gira directamente con `apuesta`).
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado.
-        Mueve yapdollars del usuario a través de la economía del bot.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Mueve yapdollars del usuario a través de la economía del bot.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -1588,9 +1591,11 @@ class Casino(commands.Cog):
         """Borra la economía del servidor cuando el bot deja de pertenecer a él."""
         await self.economy.delete_guild_data(guild.id)
         self._history.pop(guild.id, None)
+        if isinstance(rules := getattr(self.bot, "casino_channels", None), CasinoChannels):
+            await rules.forget(guild.id)
         logger.info("Se eliminó la economía del servidor %s", guild.id)
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Casino(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Casino(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

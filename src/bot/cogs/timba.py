@@ -29,9 +29,9 @@ póker en modo timba: `PokerScene.timba`), con el bote, las comunitarias que se
 ven, las cartas boca abajo de cada uno, quién habla, el botón y la última acción
 de cada asiento. Las cartas solo se enseñan en el enfrentamiento.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar
-archivos y añadir reacciones (para confirmar `.poker timba`).
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar archivos y
+añadir reacciones (para confirmar `.poker timba`).
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ from bot.cogs import apuestas, renta
 from bot.cogs import shop as tienda
 from bot.cogs.casino import casino_channel_error
 from bot.services.achievements import casino_stats, timba_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1235,7 +1236,7 @@ class Timba(commands.Cog, name="Timba"):
         *,
         economy: EconomyService,
         renderer: PokerScene | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: Any = None,
         wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
@@ -1371,4 +1372,4 @@ class Timba(commands.Cog, name="Timba"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Timba(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Timba(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

@@ -51,6 +51,7 @@ from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import casino_stats, war_stats
 from bot.services.bacara_render import Media
 from bot.services.blackjack import Card, new_shoe
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     EconomyService,
@@ -851,7 +852,7 @@ class War(commands.Cog, name="Guerra"):
         economy: EconomyService,
         renderer: WarScene | None = None,
         shoe_factory: Callable[[], list[Card]] = new_shoe,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         ahead: bool | None = None,
     ) -> None:
         """Prepara el cog; el dibujo por defecto es `WarScene`.
@@ -950,8 +951,8 @@ class War(commands.Cog, name="Guerra"):
     async def guerra(self, interaction: discord.Interaction, cantidad: str | None = None) -> None:
         """Reparte una mano de la Guerra con botones para jugarla.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado.
-        Cobra la apuesta al repartir y paga al terminar la mano.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al repartir y paga al terminar la mano.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -988,4 +989,4 @@ class War(commands.Cog, name="Guerra"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(War(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(War(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

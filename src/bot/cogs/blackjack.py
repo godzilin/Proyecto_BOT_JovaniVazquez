@@ -72,6 +72,7 @@ from bot.services.blackjack import (
     true_count,
 )
 from bot.services.blackjack_scene import BlackjackScene, Media, Shoe
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     EconomyService,
@@ -1049,7 +1050,7 @@ class Blackjack(commands.Cog):
         economy: EconomyService,
         renderer: BlackjackScene | None = None,
         shoe_factory: Callable[[], list[Card]] = new_shoe,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         ahead: bool | None = None,
     ) -> None:
         """Prepara el cog; el dibujo por defecto es `BlackjackScene`.
@@ -1164,8 +1165,8 @@ class Blackjack(commands.Cog):
     ) -> None:
         """Reparte una mano de blackjack con botones para jugarla.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado.
-        Cobra la apuesta al repartir y paga al terminar la mano.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al repartir y paga al terminar la mano.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -1204,6 +1205,4 @@ class Blackjack(commands.Cog):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(
-        Blackjack(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids)
-    )
+    await bot.add_cog(Blackjack(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

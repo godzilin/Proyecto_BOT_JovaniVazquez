@@ -62,7 +62,9 @@ por botón llevan el aviso de la Renta. Alimenta los logros de 🪏 Trabajo y �
 Oficios.
 
 Canales: si un administrador elige canales con `tajo`, `pala` solo se abre
-en ellos. Permisos del bot: enviar mensajes en el canal.
+en ellos y en sus hilos. En otro canal dice dónde está (`bot.utils.channels`); con
+`.pala`, el aviso y el comando se borran solos. Permisos del bot: enviar mensajes en
+el canal (y gestionar mensajes, para borrar el `.pala` mal puesto).
 
 Funciones puente para `pisos`: el favor 👴 «Tus padres te avalan» (`parents_aval`,
 `spend_parents_aval` y `parents_lose_home`) y quién levanta la obra nueva de los lunes
@@ -180,6 +182,7 @@ from bot.services.work_catalog import (
 )
 from bot.services.work_games import GRACE_SECONDS
 from bot.services.work_tools import TOOL_KEYS
+from bot.utils.channels import wrong_channel
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, claim_custom_ids, edit, notify
 from bot.utils.responder import ContextResponder
@@ -2529,15 +2532,7 @@ class Work(commands.Cog, name="Trabajo"):
 
     async def channel_error(self, guild: discord.Guild, channel: object) -> str | None:
         """Mensaje si `pala` no se puede usar en este canal, o `None`."""
-        allowed = await self.service.channels(guild.id)
-        if not allowed:
-            return None
-        channel_id = getattr(channel, "id", None)
-        parent_id = getattr(channel, "parent_id", None)
-        if channel_id in allowed or parent_id in allowed:
-            return None
-        where = ", ".join(f"<#{c}>" for c in sorted(allowed))
-        return f"La pala se coge en {where}. Aquí se viene a hablar."
+        return wrong_channel(await self.service.channels(guild.id), channel, "La pala", "🪏")
 
     async def _open(
         self,

@@ -54,9 +54,9 @@ también, porque el gravamen especial del 20 % (disposición adicional 33ª) es
 solo para loterías del Estado, ONCE y Cruz Roja. El bonus no cobra apuesta: lo
 apostado ya se cobró en las tiradas que llenaron el maletín.
 
-Si `CASINO_CHANNEL_IDS` está configurado, las máquinas solo se abren en esos
-canales. Permisos del bot en el canal: enviar mensajes, insertar enlaces
-(embeds) y adjuntar archivos.
+Las máquinas solo se abren en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar
+enlaces (embeds) y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -83,6 +83,7 @@ from bot.services.achievements import (
     hold_win_bonus_stats,
     hold_win_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1543,7 +1544,7 @@ class HoldWin(commands.Cog, name="Botes"):
         repository: HoldWinRepository,
         renderer: HoldWinScene | None = None,
         rng: random.Random | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         ahead: bool | None = None,
     ) -> None:
         """Monta el cog.
@@ -1915,6 +1916,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             repository=bot.hold_win,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

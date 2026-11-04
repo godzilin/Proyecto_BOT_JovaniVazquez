@@ -1,9 +1,10 @@
 """Cog de administración: moderación y utilidades solo para administradores.
 
-Comandos (todos con `/` y con `.`, mismo nombre; `tajo` elige dónde se usa `pala`):
+Comandos (todos con `/` y con `.`, mismo nombre; `tajo` elige dónde se usa `pala` y
+`garito`, dónde se juega al casino):
 `purge`, `mute`, `unmute`, `kick`, `ban`, `unban`, `lock`, `unlock`,
 `slow`, `say`, `nick`, `role`, `bienv`, `aspecto`, `niveles`, `cambios`, `catalogo`, `tajo`,
-`informe` (descarga la telemetría interna, ver `bot.cogs.telemetry`), `robuso` (si
+`garito`, `informe` (descarga la telemetría interna, ver `bot.cogs.telemetry`), `robuso` (si
 Robuso está en Hong Kong o en Madrid, para sus logros: ver `bot.cogs.robuso`),
 `bloquear`, `crear`, `dinero`, `repicar` (solo con `.`: vuelve a jugar una tirada del
 pico para auditarla, sin mover dinero), `enchufe` y `amanece`.
@@ -100,6 +101,7 @@ from bot.services.pala import WorkError
 from bot.services.shop import Kind, ShopItem
 from bot.services.telemetry import LISTENER_ITEM, TelemetryService
 from bot.services.welcome import GifError, classify_gif
+from bot.utils.channels import mentions
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import notify
 from bot.utils.responder import CommandResponder, ContextResponder, InteractionResponder
@@ -120,7 +122,7 @@ AUDIT_REASON_LIMIT = 512
 MAX_NICK_LENGTH = 32
 # `say` puede mencionar usuarios, pero nunca @everyone, @here ni roles.
 SAY_MENTIONS = discord.AllowedMentions(everyone=False, roles=False, users=True)
-# Palabras que en `.tajo` permiten la pala en cualquier canal.
+# Palabras que en `.tajo` y `.garito` permiten la pala o el casino en cualquier canal.
 TAJO_ALL_WORDS = {"todos", "todas", "cualquiera", "quitar"}
 # Lo que acepta `.robuso`: dónde está, sin espacios ni mayúsculas.
 ROBUSO_PLACES = {"hongkong": True, "madrid": False}
@@ -1372,6 +1374,73 @@ class Admin(commands.Cog):
             if allowed
             else "Canales de la pala: cualquiera."
         )
+        await responder.send(
+            "\n".join(lines), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
+        )
+
+    # --- garito ------------------------------------------------------------
+
+    @app_commands.command(name="garito", description="Elige en qué canales se juega al casino.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        canal="Canal que añadir o quitar; sin canal, enseña los que hay.",
+        todos="Permitir el casino en cualquier canal (borra la lista).",
+    )
+    async def garito(
+        self,
+        interaction: discord.Interaction,
+        canal: discord.TextChannel | None = None,
+        todos: bool = False,
+    ) -> None:
+        """Añade o quita un canal del casino, o los quita todos (solo lo ves tú)."""
+        await self._garito_impl(InteractionResponder(interaction), canal, todos)
+
+    @commands.command(name="garito")
+    async def garito_text(self, ctx: commands.Context, *, arg: str = "") -> None:
+        """Versión de texto: `.garito`, `.garito #canal` o `.garito todos`."""
+        word = arg.strip().lower()
+        if word in TAJO_ALL_WORDS:
+            await self._garito_impl(ContextResponder(ctx), None, True)
+            return
+        channel: discord.TextChannel | None = None
+        if word:
+            try:
+                channel = await commands.TextChannelConverter().convert(ctx, arg.strip())
+            except commands.BadArgument:
+                await ctx.send("Uso: `.garito` (estado), `.garito #canal` o `.garito todos`.")
+                return
+        await self._garito_impl(ContextResponder(ctx), channel, False)
+
+    async def _garito_impl(
+        self,
+        responder: CommandResponder,
+        channel: discord.TextChannel | None,
+        clear: bool,
+    ) -> None:
+        """Cambia los canales del casino y responde con cómo quedan.
+
+        Mientras el servidor no elige ninguno, valen los de `CASINO_CHANNEL_IDS`. El
+        primer canal que se añade o se quita parte de esos.
+        """
+        guild = responder.guild
+        rules = getattr(self.bot, "casino_channels", None)
+        if guild is None or rules is None:
+            await responder.send_error("El casino no está disponible ahora mismo.")
+            return
+        lines: list[str] = []
+        if clear:
+            await rules.clear(guild.id)
+            lines.append("🎰 El casino se puede jugar en cualquier canal.")
+        elif channel is not None:
+            added, _ = await rules.toggle(guild.id, channel.id)
+            lines.append(f"🎰 {channel.mention} {'añadido al' if added else 'quitado del'} casino.")
+            if added and not channel.permissions_for(guild.me).send_messages:
+                lines.append("⚠️ No puedo escribir en ese canal; revisa mis permisos.")
+        allowed = rules.ids(guild.id)
+        lines.append(f"Canales del casino: {mentions(allowed) if allowed else 'cualquiera'}.")
+        if allowed and not rules.configured(guild.id):
+            lines.append("-# Son los de la configuración del bot hasta que elijas otros aquí.")
         await responder.send(
             "\n".join(lines), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
         )

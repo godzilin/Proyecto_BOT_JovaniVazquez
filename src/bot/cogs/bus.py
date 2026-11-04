@@ -27,9 +27,8 @@ cuando se ajusta el IRPF del día. Si la mesa caduca (3 min sin tocarla) o el
 bot se apaga de forma ordenada con una partida a medias, se cobra sola:
 nunca hay partida empezada sin un acierto.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -71,6 +70,7 @@ from bot.services.bus import (
 )
 from bot.services.bus_render import Banner, Board, Media, Reveal
 from bot.services.bus_scene import BusScene
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -780,7 +780,7 @@ class Bus(commands.Cog, name="Autobús"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: BusScene | None = None,
     ) -> None:
@@ -883,8 +883,8 @@ class Bus(commands.Cog, name="Autobús"):
     async def guagua(self, interaction: discord.Interaction, cantidad: str | None = None) -> None:
         """Abre una mesa del Autobús.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. La
-        apuesta se cobra al pedir la primera carta y se paga al cobrar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. La apuesta se cobra al pedir la primera carta y se paga al cobrar.
         """
         responder = InteractionResponder(interaction)
 
@@ -922,4 +922,4 @@ class Bus(commands.Cog, name="Autobús"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Bus(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Bus(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

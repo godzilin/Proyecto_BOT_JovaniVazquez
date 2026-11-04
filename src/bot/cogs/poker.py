@@ -51,9 +51,9 @@ IRPF (`pay_income`, art. 33.1 LIRPF). Si el bot se apaga con las apuestas
 abiertas, se devuelve lo apostado; si ya se estaba decidiendo, quien no había
 decidido se retira y la mano se paga.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar
-archivos y añadir reacciones (para confirmar `.poker 500`).
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar archivos y
+añadir reacciones (para confirmar `.poker 500`).
 """
 
 from __future__ import annotations
@@ -83,6 +83,7 @@ from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.cogs.timba import Timba
 from bot.repositories.poker import HandRecord, PokerRepository
 from bot.services.achievements import casino_stats, poker_club_stats, poker_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     EconomyService,
@@ -1306,7 +1307,7 @@ class Poker(commands.Cog, name="Póker"):
         economy: EconomyService,
         club: PokerRepository,
         renderer: PokerScene | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: Any = None,
         wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
@@ -1597,9 +1598,9 @@ class Poker(commands.Cog, name="Póker"):
     ) -> None:
         """Abre la mesa de póker del modo elegido en el canal (o la baja) y te sienta.
 
-        Sin `modo`, contesta en privado con un botón por modo (`ModePicker`), como
-        `/lista` con la prioridad. Solo en los canales de `CASINO_CHANNEL_IDS` si
-        está configurado.
+        Sin `modo`, contesta en privado con un botón por modo (`ModePicker`), como `/lista` con la
+        prioridad. Solo en los canales del casino que elige `garito` (sin elegir, los de
+        `CASINO_CHANNEL_IDS`) y en sus hilos.
         """
         if modo is None:
             picker = ModePicker(self, interaction.user, cantidad, prompt=interaction)
@@ -1672,6 +1673,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             club=bot.poker,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

@@ -8,10 +8,17 @@ criterio.
 
 ## 9.x
 
-### 9.37.0 · 2026-11-04
+### 9.38.0 · 2026-11-04
 
 - Deportes: apuestas combinadas en `deportes`, de 2 a 5 partidos con la cuota multiplicada y su boleto dibujado
 - Logros: 30 nuevos de las combinadas en ⚽ Deportes
+
+### 9.37.0 · 2026-11-04
+
+- Admin: `garito` elige desde Discord en qué canales se juega al casino, como `tajo` con la pala; sin elegir nada, siguen valiendo los de la configuración del bot
+- Casino y pala: el aviso de canal equivocado solo dice dónde está («🎰 Los dados están en #casino»), sin regañar
+- Casino y pala: con `.`, el aviso y el comando mal puesto se borran solos a los 20 segundos; con `/` sigue saliendo solo para ti
+- Casino: los juegos se abren también en los hilos de un canal del casino, como ya pasaba con la pala
 
 ### 9.36.0 · 2026-11-04
 
