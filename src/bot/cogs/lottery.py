@@ -124,6 +124,7 @@ from bot.services.pending import Pending, Side
 from bot.services.pets import Event, Moment
 from bot.services.taxes import LOTTERY_EXEMPT, TAX_COLLECTOR
 from bot.services.telemetry import TimedLock
+from bot.utils.channels import send_notice
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, edit
 
@@ -1702,7 +1703,7 @@ class Loteria(commands.Cog):
         """Versión de texto: el panel es público y cada uno juega en el suyo."""
         assert ctx.guild is not None  # guild_only
         if error := casino_channel_error(self.casino_channel_ids, ctx.channel, "La lotería"):
-            await ctx.send(error)
+            await send_notice(ctx, error)
             return
         panel = await self.open_panel(ctx.guild, ctx.author)
         panel.message = await ctx.send(

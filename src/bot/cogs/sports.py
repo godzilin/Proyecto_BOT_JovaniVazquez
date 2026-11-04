@@ -127,6 +127,7 @@ from bot.services.sports import (
 )
 from bot.services.sports_teams import team_style
 from bot.services.telemetry import TimedLock, report_event
+from bot.utils.channels import send_notice
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, edit, notify
 
@@ -1309,7 +1310,7 @@ class Deportes(commands.Cog):
         if error := casino_channel_error(
             self.casino_channel_ids, ctx.channel, "Las apuestas deportivas"
         ):
-            await ctx.send(error)
+            await send_notice(ctx, error)
             return
         view = self._view(ctx.author.id)
         view.message = await ctx.send(view=view)

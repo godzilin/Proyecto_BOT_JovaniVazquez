@@ -29,6 +29,7 @@ from bot.repositories.beernight import BeernightRepository
 from bot.repositories.beernight_sounds import BeernightSoundStore
 from bot.repositories.birthdays import BirthdayRepository
 from bot.repositories.business import BusinessRepository
+from bot.repositories.casino_settings import CasinoSettingsRepository
 from bot.repositories.casino_stats import CasinoStatsRepository
 from bot.repositories.economy import EconomyRepository
 from bot.repositories.enraya import EnrayaRepository
@@ -55,6 +56,7 @@ from bot.repositories.todo import TodoRepository
 from bot.repositories.welcome import WelcomeRepository
 from bot.repositories.work import WorkRepository
 from bot.services import node_scene
+from bot.services.casino_channels import CasinoChannels
 from bot.services.economy import IRPF_START, STARTING_BALANCE, EconomyService
 from bot.services.negocio import BusinessService
 from bot.services.pala import WorkService
@@ -180,7 +182,11 @@ class BotClient(commands.Bot):
                 irpf_start=IRPF_START.isoformat(),
             )
         )
-        self.casino_channel_ids = casino_channel_ids
+        # Canales del casino por servidor (`garito`); sin elegir, los de `CASINO_CHANNEL_IDS`.
+        # Los juegos lo consultan en memoria al abrirse (`casino_channel_error`).
+        self.casino_channels = CasinoChannels(
+            CasinoSettingsRepository(database_path), default=casino_channel_ids
+        )
         # Una fila por jugada terminada del casino, para `apuestas`. No mueve dinero.
         self.casino_stats = CasinoStatsRepository(database_path)
         self.birthdays = BirthdayRepository(database_path)
@@ -310,6 +316,8 @@ class BotClient(commands.Bot):
         await self.message_stats.recover_interrupted_imports()
         await self.economy.repository.initialize()
         await self.casino_stats.initialize()
+        await self.casino_channels.repository.initialize()
+        await self.casino_channels.load()
         await self.birthdays.initialize()
         await self.achievements.initialize()
         await self.welcome.initialize()

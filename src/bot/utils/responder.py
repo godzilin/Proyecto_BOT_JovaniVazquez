@@ -12,6 +12,10 @@ Biblia.txt, norma "No duplicar reglas entre comandos").
 
 Cada `send_error` cuenta un `rechazo` del comando en la telemetría interna: los
 comandos que más contestan con un error son los que confunden o fallan.
+
+Un aviso de canal (`bot.utils.channels.ChannelNotice`, «la pala está en…») sale con
+`/` en privado, como cualquier error; con `.`, se borra solo junto con el comando
+(`send_notice`), para que no quede a la vista de todo el canal.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ import discord
 from discord.ext import commands
 
 from bot.services.telemetry import report_event
+from bot.utils.channels import ChannelNotice, send_notice
 
 
 class CommandResponder(abc.ABC):
@@ -167,6 +172,9 @@ class ContextResponder(CommandResponder):
     async def send_error(self, content: str) -> None:
         command = self._ctx.command
         report_event("rechazo", command.qualified_name if command is not None else "?")
+        if isinstance(content, ChannelNotice):
+            await send_notice(self._ctx, content)
+            return
         await self._ctx.send(content)
 
     async def start_progress(

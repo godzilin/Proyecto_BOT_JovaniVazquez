@@ -82,9 +82,9 @@ class CasinoSettingsRepository:
             with connection:
                 connection.execute(
                     """
-                INSERT INTO casino_settings (guild_id, channel_ids) VALUES (?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET channel_ids = excluded.channel_ids
-                """,
+                    INSERT INTO casino_settings (guild_id, channel_ids) VALUES (?, ?)
+                    ON CONFLICT(guild_id) DO UPDATE SET channel_ids = excluded.channel_ids
+                    """,
                     (guild_id, json.dumps(sorted(channel_ids))),
                 )
         finally:
