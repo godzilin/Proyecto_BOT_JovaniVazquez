@@ -2980,6 +2980,61 @@ async def press_lottery_mine(client: BotClient, owner: MagicMock) -> Click:
     return await _lottery_button(client, owner, "inicio", "loteria:tab:mios")
 
 
+async def entrada_panel(client: BotClient, owner: MagicMock, *, sound: bool = False):  # noqa: ANN201
+    """El panel de `entrada` del dueño, con dinero y, si se pide, un sonido en la ranura 1."""
+    from bot.repositories.economy import LedgerEntry
+    from bot.services.entrance import Profile, Slot
+
+    await client.economy.repository.apply(GUILD_ID, OWNER_ID, [LedgerEntry(1_000_000, "test")])
+    cog = client.get_cog("Entrance")
+    if sound:
+        slot = Slot(1, "Bocina", 100, "normal", False, 0, 3000, 3000, 3000, "▁█▁")
+        cog._profiles[(GUILD_ID, OWNER_ID)] = Profile().with_sound(slot)
+    panel = module_of(client, "Entrance").EntrancePanel(cog, owner.guild, owner)
+    return cog, panel
+
+
+def entrada_button(panel, custom_id: str) -> discord.ui.Button:  # noqa: ANN001
+    return next(
+        c for c in panel.walk_children()
+        if isinstance(c, discord.ui.Button) and c.custom_id == custom_id
+    )  # fmt: skip
+
+
+async def press_entrada_buy(client: BotClient, owner: MagicMock) -> Click:
+    _cog, panel = await entrada_panel(client, owner)
+    panel.page, panel.confirm = "shop", "comprar:ranura"  # Ya pulsó una vez.
+    panel.rebuild()
+    button = entrada_button(panel, "entrada:comprar:ranura")
+
+    async def click(interaction: MagicMock) -> None:
+        await button.callback(interaction)
+
+    return click
+
+
+async def press_entrada_delete(client: BotClient, owner: MagicMock) -> Click:
+    _cog, panel = await entrada_panel(client, owner, sound=True)
+    panel.page, panel.slot, panel.confirm = "slot", 1, "borrar:1"
+    panel.rebuild()
+    button = entrada_button(panel, "entrada:borrar:1")
+
+    async def click(interaction: MagicMock) -> None:
+        await button.callback(interaction)
+
+    return click
+
+
+async def press_entrada_mode(client: BotClient, owner: MagicMock) -> Click:
+    _cog, panel = await entrada_panel(client, owner)
+    button = entrada_button(panel, "entrada:modo")
+
+    async def click(interaction: MagicMock) -> None:
+        await button.callback(interaction)
+
+    return click
+
+
 CASES: dict[str, Press] = {
     "tragaperras: tirar": press_slots,
     "tragaperras: ×2": press_slots_double,
@@ -3178,6 +3233,9 @@ CASES: dict[str, Press] = {
     "lotería: comprar apuestas": press_lottery_buy,
     "lotería: volver al cartel": press_lottery_tab,
     "lotería: mis boletos": press_lottery_mine,
+    "entrada: comprar una mejora": press_entrada_buy,
+    "entrada: borrar una ranura": press_entrada_delete,
+    "entrada: cambiar el modo": press_entrada_mode,
 }
 
 

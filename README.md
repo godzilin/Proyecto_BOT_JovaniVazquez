@@ -79,7 +79,7 @@ python -m bot
   | 🏦 Dinero | `banco [mostrador]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `hacienda [miembro]` · `imv` · `patrimonio [miembro]` · `renta` · `saldo [miembro]` |
   | 🛍️ Tienda | `mascota [miembro]` · `pieles [miembro] [imagen]` · `rastro` · `tienda` · `trueque <objeto> <miembro> <a cambio> [dinero]` · `vender <objeto> <precio> [comprador]` |
   | 🎵 Música | `cola` · `parar` · `pausar` · `poner <consulta>` · `quitar <posicion>` · `saltar` · `seguir` · `vaciar` · `volumen <1-200>` |
-  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` |
+  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [inicio] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
   | ⚙️ General | `ayuda` · `latencia` |
   | 🛡️ Admin | `abrir` · `admin` · `apodo` · `aspecto` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `garito` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
@@ -983,11 +983,15 @@ python -m bot
   servidor. El bot abandona el canal automáticamente si se queda sin oyentes
   humanos o tras 5 minutos de inactividad. Se conecta ensordecido para que
   Discord no le envíe el audio de los demás.
-- Sonidos de entrada: cada miembro sube con `entrada` un audio de hasta 3 s
-  que suena cuando entra a un canal de voz, con volumen ajustable (10-200 %).
+- Sonidos de entrada: `entrada` abre un panel con hasta 7 ranuras de sonido
+  que suenan al entrar a voz (la primera gratis, el resto se compran) y uno
+  de salida, que también se compra. Cada ranura tiene nombre, volumen
+  (10-200 %), efecto, fundido y recorte: se sube un audio largo y se elige
+  desde qué segundo empieza. Duran 3 s y se pueden ampliar hasta 5 s. Modos:
+  siempre la misma, al azar o por turnos, y un ranking con las que más suenan.
   El bot entra, lo reproduce y se va; no suena si el bot ya está poniendo
-  música. Los clips se guardan en `.data/entradas/` (mismo volumen Docker
-  que la base de datos).
+  música. Los audios se guardan en `.data/entradas/` (mismo volumen Docker
+  que la base de datos) y las fichas, en la base.
 - **Beernight** (`beernight`): la noche de llamada del servidor, para jugar a
   lo que sea y beber lo que cada uno tenga. El panel tiene unos cuantos
   mandamientos activos (154 de serie en siete familias, más los que proponga
