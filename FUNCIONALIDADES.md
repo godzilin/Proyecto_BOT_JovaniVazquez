@@ -223,26 +223,37 @@ Cuando un comando falla, el bot responde con un mensaje breve y seguro en lugar 
 
 ### 6 bis.1. Comportamiento
 
-- Cada miembro configura su sonido con `entrada` (`/entrada` o `.entrada`). Sin argumentos muestra su estado; `archivo` sube un audio; `volumen` lo ajusta (10-200 %); `borrar` lo elimina. En texto, el audio va adjunto al mensaje y el argumento es el volumen o `borrar`.
-- Al subirlo se responde con una vista previa del clip ya procesado (efímera en `/entrada`).
-- Cuando el miembro entra o se mueve a un canal de voz (salvo el canal AFK), el bot se conecta ensordecido, reproduce el clip y sale. Si entran varias personas seguidas, los sonidos se encolan (máximo 5 por servidor) y se reutiliza la conexión.
-- Si el bot ya está en voz por la música, el sonido de entrada no suena.
-- Cada persona dispara su sonido como mucho una vez cada 30 s (`COOLDOWN_SECONDS`).
+- `entrada` (`/entrada` o `.entrada`) sin nada abre el panel 🔔 Tus entradas (privado con `/`; con `.`, en el canal pero solo lo maneja quien lo abre). Cada ranura sale con su nombre, una onda en texto, la duración, el volumen, el efecto y las veces que ha sonado. Todo se hace desde el panel:
+  - **📤 Subir** abre un formulario con el archivo (audio o vídeo, hasta 8 MB), el nombre, desde qué segundo empieza, el efecto y el volumen (10-200 %). Un audio más largo que tu máximo ya no se rechaza: se queda el trozo que empieza donde digas y el panel avisa de cuánto se ha quedado.
+  - **Abrir** una ranura enseña su ficha con ▶ Escuchar (manda el clip en privado), ✏️ Ajustar (nombre, inicio, duración, efecto y volumen sin volver a subir nada), 🌫️ Fundido, ⭐ Usar esta, 📤 Cambiar audio y 🗑️ Borrar (pide un segundo clic).
+  - **Modo**: 📌 siempre la misma (la ⭐), 🎲 al azar (sin repetir la anterior) o 🔁 por turnos.
+  - **🛒 Mejoras** (cada compra pide un segundo clic): ranuras de la 2 a la 7 por 5.000, 10.000, 16.000, 24.000, 34.000 y 50.000 Y$; duración máxima de 3 s a 5 s en tramos de medio segundo por 4.000, 8.000, 14.000 y 24.000 Y$; y el 🚪 sonido de salida por 20.000 Y$. Precios sin IGIC (7 %, tipo general). Todo junto, 189.000 Y$ más IGIC.
+  - **🏆 Ranking**: las 10 entradas (y salidas) que más han sonado en el servidor, con un desplegable para escuchar cualquiera.
+- Atajos que siguen valiendo, siempre sobre la ranura activa: `archivo` sube un audio (con `inicio` eliges el segundo; con varias ranuras va a la primera vacía), `volumen` lo ajusta y `borrar` la vacía. En texto, el audio va adjunto y el argumento es el volumen o `borrar`.
+- **Efectos** (`bot.services.entrance.EFFECTS`): eco, catedral, robot, ardilla, grave, radio vieja y al revés. Se aplican una vez al guardar. La ardilla y el grave cambian la velocidad, así que se toma más o menos audio original para que el clip dure lo pedido.
+- Cuando el miembro entra o se mueve a un canal de voz (salvo el AFK), suena la ranura que toque según el modo. Si compró la salida y se va de voz, su salida suena en el canal que deja, solo si queda alguien que no sea un bot. Al moverse de canal suena la entrada, no la salida.
+- Si entran varias personas seguidas, los sonidos se encolan (5 por servidor y 15 s de sonido como mucho) y se reutiliza la conexión. Si el bot ya está en voz por la música, no suena.
+- Cada persona dispara su entrada como mucho una vez cada 30 s (`COOLDOWN_SECONDS`), y su salida, igual por separado.
+- Al guardar y al comprar habla la mascota activa. Las compras llevan la línea del IGIC, el aviso de la Renta y sus logros (sección 🔔 Entradas del grupo 🎙️ Voz).
 
 ### 6 bis.2. Límites, rendimiento y seguridad
 
-- Duración máxima: 3 s (`MAX_CLIP_SECONDS`, con 0,1 s de tolerancia por redondeo). Tamaño máximo del adjunto: 8 MB.
-- Todo el trabajo pesado se hace al subir: `ffmpeg` convierte el audio una vez a Ogg/Opus 48 kHz estéreo con paquetes de 20 ms, normaliza la sonoridad (-16 LUFS) y aplica el volumen con un limitador para que el 200 % no sature. Al reproducir no se lanza ningún proceso: `OpusPacketSource` entrega los paquetes Opus del archivo directamente a `discord.py`.
+- Duración del clip: 3 s de serie y hasta 5 s con mejoras. Del audio subido se guardan hasta 30 s a partir del segundo elegido (`SOURCE_SECONDS`), sin retocar, para recortar otra vez o alargar el sonido tras comprar más duración sin volver a subirlo.
+- Todo el trabajo pesado se hace al guardar: `ffmpeg` recorta, aplica efecto y fundido, normaliza la sonoridad del trozo (-16 LUFS) y aplica el volumen con un limitador para que el 200 % no sature, en Ogg/Opus 48 kHz estéreo con paquetes de 20 ms. Al reproducir no se lanza ningún proceso: `OpusPacketSource` entrega los paquetes del archivo directamente a `discord.py`.
+- Las fichas de todos (`entrance_profiles`: mejoras, modo y ranura activa; `entrance_slots`: una fila por ranura) se cargan en memoria al arrancar. Entrar a voz y navegar por el panel no consultan la base de datos; solo se lee del disco el clip que suena, y los 64 últimos se quedan ya troceados en memoria (unos 60 KB cada uno).
+- La onda del panel sale del tamaño de los paquetes Opus (a tasa variable, más bytes donde hay más sonido): no hace falta decodificar el audio. Es aproximada, para reconocer cada ranura de un vistazo.
+- Las mejoras se cobran con `EconomyService.purchase` y se apuntan en la misma transacción (`EntranceSoundStore.buy`), que vuelve a comprobar que la mejora sigue siendo la siguiente: dos clics desde dos paneles no cobran dos veces.
 - `ffmpeg` y `ffprobe` se ejecutan sin shell, con tiempo máximo y con `-protocol_whitelist file`, para que un adjunto manipulado no pueda hacerles abrir URLs.
-- Se guardan solo la fuente normalizada, el clip final y el volumen, en `.data/entradas/<servidor>/<miembro>.*`. `borrar` elimina los tres archivos. No se guarda el adjunto original ni su nombre.
+- Los audios van en `.data/entradas/<servidor>/<miembro>/<ranura>.ogg` y `<ranura>.source.ogg` (la ranura 0 es la salida). No se guarda el adjunto original ni su nombre. Al arrancar, el sonido de antes de las ranuras (`<miembro>.ogg`, su fuente y su `.json`) pasa solo a la ranura 1 con el nombre «Mi entrada» y su volumen.
 - Requiere los permisos **Conectar** y **Hablar** en los canales de voz; si faltan, o el canal está lleno, el sonido se omite.
 
 ### 6 bis.3. Criterios de aceptación
 
-- Un audio de más de 3 s o que no sea audio se rechaza con un mensaje claro y sin guardar nada.
-- Cambiar el volumen regenera el clip sin volver a subir el audio.
+- Lo que no es audio se rechaza antes de descargarlo. Empezar después del final del audio se explica sin guardar nada.
+- Cambiar volumen, efecto, recorte o fundido regenera el clip sin volver a subir el audio; cambiar solo el nombre no lo regenera.
 - Silenciarse, ensordecerse o emitir pantalla dentro del mismo canal no dispara el sonido.
 - El bot no interrumpe ni se cruza con la música.
+- Una compra sin dinero no cobra ni apunta nada, y lo cobrado cuadra en el libro: la base a la caja de la tienda y el IGIC al Estado.
 
 ## 6 ter. Economía y casino
 
@@ -1164,7 +1175,7 @@ Toda configuración de servidor debe estar asociada al ID de ese servidor. El bo
 3. **Niveles:** conversión de historial en XP, XP por mensajes nuevos, cooldown, `ranking`, la sección de nivel de `perfil` y configuración. (Implementado.)
 4. **Música:** reproducción y controles de cola con `yt-dlp` y `ffmpeg`. (Implementado.)
 5. **Imagen:** comando `magik` con seam carving y los 108 efectos de Dank Memer. (Implementado.)
-6. **Sonidos de entrada:** clip personal de hasta 3 s al entrar a voz. (Implementado.)
+6. **Sonidos de entrada:** hasta 7 sonidos al entrar a voz y uno al salir, de 3 a 5 s, con efectos, recorte, modos y ranking. (Implementado.)
 7. **Economía y casino:** yapdollars, `daily`, `saldo`, ruleta americana, blackjack, tragaperras, Crash, Minas, la Torre del dragón, la Guerra, Pollo, pachinko y carreras de caballos. (Implementado.) Siguientes juegos y usos de la moneda pendientes.
 8. **Diversión:** `babel`, traducción en cadena por 99 idiomas de frases, apodos y nombres de canal, y `hongkong`, la hora de Hong Kong. (Implementado.)
 9. **Logros:** 3.931 logros con premios en yapdollars, su sección en `perfil` y ranking. (Implementado.)

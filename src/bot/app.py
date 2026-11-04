@@ -243,9 +243,9 @@ class BotClient(commands.Bot):
             BusinessRepository(database_path), self.economy, self.work, housing=self.housing
         )
         self.work.business = self.negocio
-        # Los sonidos de entrada viven junto a la base de datos, en el mismo
-        # volumen persistente (`.data/entradas/`).
-        self.entrance_sounds = EntranceSoundStore(database_path.parent / "entradas")
+        # Los audios de las entradas viven junto a la base de datos, en el mismo
+        # volumen persistente (`.data/entradas/`); sus fichas, en la base.
+        self.entrance_sounds = EntranceSoundStore(database_path.parent / "entradas", database_path)
         # Histórico de la beernight (`beernight`) y sus audios, en el mismo volumen.
         self.beernight = BeernightRepository(database_path)
         self.beernight_sounds = BeernightSoundStore(database_path.parent / "beernight")
@@ -342,6 +342,7 @@ class BotClient(commands.Bot):
         await self.work.repository.initialize()
         await self.negocio.repository.initialize()
         await self.beernight.initialize()
+        await self.entrance_sounds.initialize()
         await self.telemetry_repository.initialize()
         await self.last_seen.initialize()
         await self.moderation.initialize()
