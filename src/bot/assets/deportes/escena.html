@@ -1,12 +1,12 @@
 <!doctype html>
 <!--
-Escena de `/deportes`, dibujada con canvas: el boleto de una apuesta (`kind: "boleto"`) y el marcador
+Escena de `/deportes`, dibujada con canvas: el boleto de una apuesta (`kind: "boleto"`), el de una combinada (`kind: "combinada"`) y el marcador
 final de un partido (`kind: "final"`). Las pinta Node con Skia (assets/escena_node.cjs) y, si no hay
 Node, un Chromium sin ventana (ver bot/services/sports_scene.py). Si no hay ninguno, el cog sale en
 texto.
 
 No decide nada: Python le pasa cada estado ya formateado y aquí solo se pinta (nada de calcular
-dinero). Los dos tipos miden 960 × 440. Funciones que llama Python:
+dinero). Los tres tipos miden 960 × 440. Funciones que llama Python:
 
 - loadFonts()                espera a las fuentes (canvas no las carga solo).
 - setup(meta)                sin estado entre imágenes: cada una se pinta entera.
@@ -277,6 +277,82 @@ function paintBoleto(st) {
   fitText(clean(st.player), R - 24, T + 350, sw - 100, 14, 10, SOFT, "rgba(255,255,255,0.6)", "right");
 }
 
+// -- Boleto de combinada ---------------------------------------------------------------------
+
+// Una pata: escudos pequeños, "Local - Visitante", competición, mercado y opción, hora y cuota.
+function comboLeg(leg, x, y, w, h, k) {
+  const col = leg.accent || "#3b6cff";
+  rr(x, y, w, h, 12); g.fillStyle = "rgba(0,0,0,0.30)"; g.fill();
+  g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.08)"; g.stroke();
+  rr(x, y + 8, 5, h - 16, 2.5); g.fillStyle = col; g.fill();
+  const cy = y + h / 2, cw = Math.min(34 * k, h - 14);
+  crest(leg.home, x + 18 + cw / 2, cy, cw);
+  crest(leg.away, x + 18 + cw * 1.5 + 6, cy, cw);
+  const tx = x + 18 + cw * 2 + 22, rw = 96;
+  const tw = x + w - 14 - rw - tx;
+  const l1 = cy - h * 0.14, l2 = cy + h * 0.26;
+  const names = `${clean(leg.home.name)} – ${clean(leg.away.name)}`;
+  fitText(names, tx, l1 + 5 * k, tw, Math.round(17 * k), 10, MONT, "#ffffff", "left", "700");
+  const ph = Math.round(17 * k);
+  const pw = pill(clean(leg.league).toUpperCase(), tx, l2 - ph / 2 - 3, ph, col, lum(col) > 0.6 ? "#0b0f1a" : "#ffffff", Math.round(10 * k));
+  const label = `${clean(leg.market)} · ${clean(leg.pick)}`;
+  fitText(label, tx + pw + 8, l2 + 1, tw - pw - 8, Math.round(14 * k), 9, BODY, "#dfe5f5");
+  const ox = x + w - 14;
+  fitText(clean(leg.odds), ox, cy - h * 0.04 + 2, rw, Math.round(24 * k), 13, MONT, GOLD, "right", "700");
+  fitText(clean(leg.kickoff), ox, cy + h * 0.26 + 1, rw, Math.round(11 * k), 8, SOFT, "rgba(255,255,255,0.6)", "right");
+}
+
+function paintCombinada(st) {
+  const accent = st.accent || "#3b6cff";
+  const legs = (st.legs || []).slice(0, 5);
+  backdrop(accent);
+  const L = 26, T = 20, R = W - 26, B = H - 20, NX = 686;
+  g.save(); g.shadowColor = "rgba(0,0,0,0.6)"; g.shadowBlur = 26; g.shadowOffsetY = 10;
+  ticketPath(L, T, R, B, NX, 15);
+  const paper = g.createLinearGradient(0, T, 0, B);
+  paper.addColorStop(0, "#232b44"); paper.addColorStop(1, "#141a2c");
+  g.fillStyle = paper; g.fill(); g.restore();
+  g.save(); ticketPath(L, T, R, B, NX, 15); g.clip();
+  const band = g.createLinearGradient(L, 0, R, 0);
+  band.addColorStop(0, mix(accent, "#000000", 0.25)); band.addColorStop(1, accent);
+  g.fillStyle = band; g.fillRect(L, T, R - L, 10);
+  const sheen = g.createLinearGradient(L, T, R, B);
+  sheen.addColorStop(0, "rgba(255,255,255,0.09)"); sheen.addColorStop(0.5, "rgba(255,255,255,0)"); sheen.addColorStop(1, "rgba(255,255,255,0.04)");
+  g.fillStyle = sheen; g.fillRect(L, T, R - L, B - T);
+  g.fillStyle = "rgba(0,0,0,0.22)"; g.fillRect(NX, T, R - NX, B - T);
+  g.restore();
+  g.save(); g.setLineDash([7, 7]); g.strokeStyle = "rgba(255,255,255,0.28)"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(NX, T + 22); g.lineTo(NX, B - 22); g.stroke(); g.restore();
+  g.save(); ticketPath(L, T, R, B, NX, 15); g.lineWidth = 2; g.strokeStyle = "rgba(255,255,255,0.14)"; g.stroke(); g.restore();
+
+  // Cabecera y patas.
+  const lx = L + 28, mw = NX - 24 - lx;
+  const hw = pill("COMBINADA", lx, T + 30, 32, accent, lum(accent) > 0.6 ? "#0b0f1a" : "#ffffff", 16);
+  text(`${legs.length} PARTIDOS`, lx + hw + 14, T + 52, 15, MONT, "#e9edf8", "left", "700");
+  text("ACIERTA TODOS", NX - 24, T + 52, 12, BODY, "rgba(255,255,255,0.5)", "right");
+  const top = T + 74, bottom = B - 20, gap = 6;
+  const rh = Math.min(100, (bottom - top - gap * (legs.length - 1)) / Math.max(1, legs.length));
+  const k = Math.min(1.35, Math.max(0.9, rh / 56));
+  let y = top + (bottom - top - (rh * legs.length + gap * (legs.length - 1))) / 2;
+  for (const leg of legs) { comboLeg(leg, lx, y, mw, rh, k); y += rh + gap; }
+
+  // Talón: cuota total, apostado y cobro.
+  const sx = NX + 24, sw = R - 24 - sx, scx = sx + sw / 2;
+  text("CUOTA TOTAL", scx, T + 56, 14, BODY, "rgba(255,255,255,0.55)", "center");
+  const o = fitSize(clean(st.odds), sw, 66, 28, MONT, "700");
+  g.save(); g.shadowColor = alpha(GOLD, 0.5); g.shadowBlur = 22;
+  text(clean(st.odds), scx, T + 70 + o * 0.78, o, MONT, GOLD, "center", "700"); g.restore();
+  g.fillStyle = "rgba(255,255,255,0.14)"; g.fillRect(sx, T + 148, sw, 1.5);
+  text("APOSTADO", sx, T + 178, 13, BODY, "rgba(255,255,255,0.55)");
+  fitText(clean(st.stake), sx, T + 208, sw, 28, 14, MONT, "#ffffff", "left", "700");
+  text("COBRARÍAS", sx, T + 240, 13, BODY, "rgba(255,255,255,0.55)");
+  if (st.capped) text("tope", sx + sw, T + 240, 13, BODY, alpha(GOLD, 0.85), "right");
+  fitText(clean(st.payout), sx, T + 272, sw, 30, 14, MONT, GREEN, "left", "700");
+  barcode(st.serial, sx, T + 292, sw, 34);
+  text(clean(st.serial), sx, T + 350, 14, BODY, "rgba(255,255,255,0.75)");
+  fitText(clean(st.player), R - 24, T + 350, sw - 100, 14, 10, SOFT, "rgba(255,255,255,0.6)", "right");
+}
+
 // -- Marcador final --------------------------------------------------------------------------
 
 function paintFinal(st) {
@@ -336,7 +412,7 @@ function paintFinal(st) {
 
 // -- Entrada ---------------------------------------------------------------------------------
 
-const KINDS = { boleto: paintBoleto, final: paintFinal };
+const KINDS = { boleto: paintBoleto, combinada: paintCombinada, final: paintFinal };
 
 function paintOne(st) {
   const draw = KINDS[st.kind];

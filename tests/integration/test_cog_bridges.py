@@ -3017,6 +3017,81 @@ async def test_resolver_una_apuesta_deportiva_llega_a_apuestas_y_a_los_logros_co
         await client.close()
 
 
+async def combo_on_matches(client: BotClient):  # noqa: ANN201
+    """Una combinada abierta de 100 Y$: 1 en `e1` (×1,85) y X en `e2` (×3,60)."""
+    from bot.repositories.economy import SportsCombo, SportsLeg
+
+    start = client.economy.now() + 3_600
+    legs = tuple(
+        SportsLeg(event, "soccer_spain_la_liga", home, away, start, "1x2", pick, odds)
+        for event, home, away, pick, odds in (
+            ("e1", "Real Madrid", "Barcelona", "1", 185),
+            ("e2", "Betis", "Sevilla", "X", 360),
+        )
+    )
+    ticket = SportsCombo(
+        id=0,
+        guild_id=GUILD_ID,
+        user_id=OWNER_ID,
+        channel_id=77,
+        stake=100,
+        odds=666,
+        created_at=client.economy.now(),
+        legs=legs,
+    )
+    combo, _ = await client.economy.sports_combo_bet(ticket, game="deportes")
+    return combo
+
+
+async def test_una_combinada_sale_en_saldo_y_al_resolverse_llega_a_apuestas_con_el_bot_real(
+    tmp_path: Path,
+) -> None:
+    """Los puentes de las combinadas (`saldo`, `apuestas`, logros) con los cogs de producción."""
+    from bot.services.sports import RESULT_DELAY, Match, Score
+
+    client = await load_bot(tmp_path)
+    try:
+        combo = await combo_on_matches(client)
+        mine = await client.get_cog("Casino")._pending(GUILD, OWNER_ID, 0)
+        [line] = [item for item in mine if item.kind == "sports_combo"]
+        assert (line.amount, line.when) == (100, combo.ends)
+
+        cog = client.get_cog("Deportes")
+        for leg in combo.legs:
+            match = Match(leg.event_id, leg.sport, leg.home, leg.away, leg.commence, {})
+            await client.sports.save_odds(leg.sport, [match], now=combo.created_at, remaining=None)
+        await client.sports.save_scores(
+            "soccer_spain_la_liga",
+            {"e1": Score(2, 1), "e2": Score(1, 1)},
+            now=combo.created_at,
+            remaining=None,
+        )
+        owner = MagicMock(spec=discord.Member)
+        owner.id = OWNER_ID
+        owner.bot = False
+        owner.display_name = "Diego"
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_member = MagicMock(return_value=owner)
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.send = AsyncMock()
+        client.get_guild = MagicMock(return_value=guild)  # type: ignore[method-assign]
+        client.get_channel = MagicMock(return_value=channel)  # type: ignore[method-assign]
+
+        [done] = await cog.settle_combos(combo.ends + RESULT_DELAY)
+
+        assert (done.combo.status, done.combo.payout) == ("won", 666)
+        assert sum("Combinadas resueltas" in text for text in sent_texts(channel)) == 1
+        plays = await client.casino_stats.report(
+            GUILD_ID, OWNER_ID, since=None, today=date(2026, 10, 6)
+        )
+        assert plays.by_game["deportes"].plays == 1
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats["sports_combo_wins"] == 1
+        assert profile.stats["sports_combos_settled"] == 1
+    finally:
+        await client.close()
+
+
 async def test_donar_desde_la_renta_llega_al_cog_de_donativos(tmp_path: Path) -> None:
     """El botón Donar del consejo de la Renta dona con el `donar` de siempre."""
     client = await load_bot(tmp_path)

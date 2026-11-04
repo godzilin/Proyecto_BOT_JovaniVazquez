@@ -50,6 +50,17 @@ vieja, y el tope limita cuánto, también si carga varios mercados del mismo par
 apuesta hasta el comienzo del partido. Lo que la API no da por terminado `VOID_AFTER`
 después del comienzo (aplazado, suspendido o sin datos) se anula y se devuelve.
 
+Combinadas (`combo_odds`, `combo_outcome`). Un boleto con de `MIN_LEGS` a `MAX_LEGS`
+patas, cada una de un partido distinto, que se cobra solo si aciertan todas. La cuota es
+el producto de las de las patas, así que el margen también se multiplica: con 3 patas el
+jugador recupera de media 0,94³ ≈ 83 % y con 5, un 73 %, como en las casas de verdad. Dos
+patas del mismo partido no se dejan juntar: no son independientes (quien gana 3-1 acierta
+«1» y «más de 2,5») y multiplicar sus cuotas pagaría de más. El exacto no entra
+(`COMBO_MARKETS`). Lo que se cobra tiene tope (`MAX_COMBO_PAYOUT`). Una pata fallada pierde
+la combinada al momento; una anulada cuenta como 1,00 y, si se anulan todas, se devuelve.
+Lo apostado cuenta entero en el tope de cada partido que toca (`MAX_STAKE`): el tope existe
+por las cuotas viejas, y una combinada multiplica lo que se gana con una.
+
 Limitación conocida: el marcador de la API es el final, así que en una eliminatoria con
 prórroga cuenta lo que pasó en ella (en todos los mercados). En LaLiga y en la fase de
 liga de la Champions no hay prórroga.
@@ -111,6 +122,13 @@ DRAW_NAME = "Draw"
 #: Apuesta mínima y máxima por partido.
 MIN_STAKE = 10
 MAX_STAKE = 50_000
+#: Combinadas: de 2 a `MAX_LEGS` patas, cada una de un partido distinto.
+MIN_LEGS = 2
+MAX_LEGS = 5
+#: Lo más que cobra una combinada, apuesta incluida. Del orden de lo que cobra una
+#: sencilla al máximo (50.000 a 25,00 son 1,25 millones): sin tope, cinco patas a 25,00
+#: pagarían cien millones de veces lo apostado.
+MAX_COMBO_PAYOUT = 1_000_000
 
 #: Cuánto hacia delante se piden partidos.
 LOOKAHEAD_SECONDS = 7 * 86_400
@@ -207,6 +225,9 @@ MARKET_PICKS: dict[Market, tuple[str, ...]] = {
     ),
 }
 _MARKET_OF = {pick: market for market, picks in MARKET_PICKS.items() for pick in picks}
+#: Mercados que pueden ser pata de una combinada. El exacto no: su retorno ya es el más
+#: bajo y es donde más se equivoca el modelo, y multiplicarlo agranda las dos cosas.
+COMBO_MARKETS = frozenset({Market.RESULT, Market.GOALS, Market.BOTH})
 
 
 def market_of(pick: str) -> Market | None:
@@ -383,6 +404,70 @@ def house_odds(probabilities: Mapping[Pick, float]) -> dict[Pick, int]:
 def payout(stake: int, odds: int) -> int:
     """Lo que cobra una apuesta acertada, apuesta incluida (hacia abajo)."""
     return stake * odds // 100
+
+
+# -- Combinadas ---------------------------------------------------------------------------
+
+
+def combo_odds(legs: Iterable[int]) -> int:
+    """Cuota de una combinada en centésimas: el producto de sus patas, hacia abajo.
+
+    Se redondea hacia abajo en cada paso, así que nunca pasa del producto exacto: el
+    margen de cada pata se queda entero.
+    """
+    total = 100
+    for odds in legs:
+        total = total * odds // 100
+    return total
+
+
+def combo_payout(stake: int, odds: int) -> int:
+    """Lo que cobra una combinada acertada, apuesta incluida, con el tope del boleto."""
+    return min(payout(stake, odds), MAX_COMBO_PAYOUT)
+
+
+class LegStatus(StrEnum):
+    """Cómo está cada pata de una combinada (y la combinada entera)."""
+
+    OPEN = "open"
+    WON = "won"
+    LOST = "lost"
+    VOID = "void"
+
+
+def leg_status(pick: str, score: Score | None, *, commence: float, now: float) -> LegStatus:
+    """Cómo queda una pata con el marcador que hay ahora (`None`, sin resultado).
+
+    Sin resultado sigue abierta hasta `VOID_AFTER` después del comienzo y luego se anula,
+    igual que una apuesta sencilla.
+    """
+    if score is not None:
+        return LegStatus.WON if wins(pick, score) else LegStatus.LOST
+    if now >= commence + VOID_AFTER:
+        return LegStatus.VOID
+    return LegStatus.OPEN
+
+
+def combo_outcome(legs: Iterable[tuple[LegStatus, int]]) -> tuple[LegStatus, int]:
+    """Cómo queda una combinada con el estado y la cuota de cada pata.
+
+    - Con una pata fallada, perdida al momento, sin esperar a las demás.
+    - Con alguna aún abierta, abierta.
+    - Todas anuladas: anulada (se devuelve lo apostado).
+    - Si no, ganada a la cuota de las acertadas: una pata anulada cuenta como 1,00.
+
+    Returns:
+        El estado y la cuota con la que se cobra (0 si no se cobra).
+    """
+    statuses = list(legs)
+    if any(status is LegStatus.LOST for status, _ in statuses):
+        return LegStatus.LOST, 0
+    if any(status is LegStatus.OPEN for status, _ in statuses):
+        return LegStatus.OPEN, 0
+    won = [odds for status, odds in statuses if status is LegStatus.WON]
+    if not won:
+        return LegStatus.VOID, 0
+    return LegStatus.WON, combo_odds(won)
 
 
 def _cents(probability: float, rtp: float) -> int:

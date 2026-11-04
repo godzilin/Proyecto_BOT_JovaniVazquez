@@ -60,6 +60,8 @@ from bot.repositories.economy import (
     SlotsSettlement,
     SportsBet,
     SportsBetTakenError,
+    SportsCombo,
+    SportsLeg,
     SportsStakeCapError,
     TillEmptyError,
     Treasury,
@@ -169,6 +171,8 @@ __all__ = [
     "PokerSettlement",
     "SlotsSettlement",
     "SportsBet",
+    "SportsCombo",
+    "SportsLeg",
     "SportsBetTakenError",
     "SportsStakeCapError",
     "STARTING_BALANCE",
@@ -1011,6 +1015,107 @@ class EconomyService:
     async def sports_bets(self, guild_id: int, user_id: int, *, limit: int) -> list[SportsBet]:
         """Las apuestas de `deportes` de alguien: abiertas primero y luego las últimas."""
         return await self.repository.sports_bets(guild_id, user_id, limit=limit)
+
+    async def sports_staked(
+        self, guild_id: int, user_id: int, event_ids: list[str]
+    ) -> dict[str, int]:
+        """Lo que alguien lleva apostado a cada partido, sencillas y combinadas abiertas."""
+        return await self.repository.sports_staked(guild_id, user_id, event_ids)
+
+    async def sports_combo_bet(
+        self, combo: SportsCombo, *, game: str, cap: int | None = None
+    ) -> tuple[SportsCombo, int]:
+        """Apuesta una combinada de `deportes`; el dinero espera en el depósito.
+
+        Tratamiento fiscal: juego, igual que `sports_bet`. Una combinada es una apuesta de
+        contrapartida más (art. 3.c de la Ley 13/2011: se juega contra el operador a una
+        cuota fijada al apostar, aquí el producto de las de sus patas), y su premio es
+        ganancia patrimonial de la base general (art. 33.1 LIRPF) cuyas pérdidas solo
+        compensan ganancias de juego (art. 33.5.d). Sin gravamen especial de loterías ni
+        IAJ aparte, como las sencillas. Al apostar no se toca el día del casino: se imputa
+        cuando se sabe el resultado (art. 14.1.c LIRPF), en `settle_sports_combo`.
+
+        Args:
+            combo: La combinada sin guardar, con sus patas.
+            game: Prefijo de los motivos del libro.
+            cap: Lo más que se puede apostar a cada partido, sumando sencillas y
+                combinadas (`bot.services.sports.MAX_STAKE`; `None`, sin tope).
+
+        Returns:
+            La combinada guardada y el saldo de quien apuesta.
+
+        Raises:
+            SportsStakeCapError: Pasaría el tope de algún partido (`room`, lo que cabe).
+            InsufficientFundsError: No le llega.
+        """
+        return await self.repository.sports_combo_bet(combo, game=game, cap=cap)
+
+    async def mark_sports_legs(
+        self, guild_id: int, combo_id: int, statuses: dict[str, str]
+    ) -> SportsCombo | None:
+        """Apunta las patas ya resueltas de una combinada abierta. No mueve dinero."""
+        return await self.repository.mark_sports_legs(guild_id, combo_id, statuses)
+
+    async def settle_sports_combo(
+        self,
+        guild_id: int,
+        combo_id: int,
+        *,
+        statuses: dict[str, str],
+        payout: int,
+        game: str,
+    ) -> tuple[SportsCombo, BetSettlement] | None:
+        """Resuelve una combinada de `deportes` con su premio (0 si ha fallado).
+
+        Tratamiento fiscal: juego (ver `sports_combo_bet`). Lo apostado y lo cobrado entran
+        a la vez en el día del casino de hoy y ajustan su retención como `settle_bet`. El
+        premio sale de la nada y lo apostado desaparece: lo compensa el margen, que en una
+        combinada se multiplica (`bot.services.sports.combo_odds`).
+
+        Args:
+            statuses: Estado de las patas que acaban de resolverse, por partido.
+
+        Returns:
+            La combinada resuelta y lo movido en el día del casino, o `None` si ya estaba
+            resuelta.
+
+        Raises:
+            BalanceLimitError: Si el premio pasaría el saldo máximo. No se mueve nada.
+        """
+        now = self._clock()
+        return await self.repository.settle_sports_combo(
+            guild_id,
+            combo_id,
+            statuses=statuses,
+            payout=payout,
+            game=game,
+            day=local_day(now).isoformat(),
+            now=now,
+            day_tax=gambling_day_tax,
+        )
+
+    async def void_sports_combo(
+        self, guild_id: int, combo_id: int, *, statuses: dict[str, str], game: str
+    ) -> tuple[SportsCombo, int] | None:
+        """Anula una combinada de `deportes` (todas sus patas sin resultado) y la devuelve.
+
+        Tratamiento fiscal: ninguno, como `void_sports_bet`. Es dinero propio que vuelve sin
+        que haya habido juego.
+
+        Returns:
+            La combinada anulada y el saldo de su dueño, o `None` si ya estaba resuelta.
+        """
+        return await self.repository.void_sports_combo(
+            guild_id, combo_id, statuses=statuses, game=game, now=self._clock()
+        )
+
+    async def open_sports_combos(self) -> list[SportsCombo]:
+        """Las combinadas de `deportes` sin resolver de todos los servidores."""
+        return await self.repository.open_sports_combos()
+
+    async def sports_combos(self, guild_id: int, user_id: int, *, limit: int) -> list[SportsCombo]:
+        """Las combinadas de alguien: abiertas primero y luego las últimas."""
+        return await self.repository.sports_combos(guild_id, user_id, limit=limit)
 
     async def slots_pot(self, guild_id: int, *, seed: int) -> int:
         """Bote común de la tragaperras del servidor (lo siembra si es nuevo)."""

@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.38.0 · 2026-11-04
+
+- Deportes: apuestas combinadas en `deportes`, de 2 a 5 partidos con la cuota multiplicada y su boleto dibujado
+- Logros: 30 nuevos de las combinadas en ⚽ Deportes
+
 ### 9.37.0 · 2026-11-04
 
 - Admin: `garito` elige desde Discord en qué canales se juega al casino, como `tajo` con la pala; sin elegir nada, siguen valiendo los de la configuración del bot

@@ -966,6 +966,13 @@ PRODUCED_STATS = {
     "sports_win_00", "sports_win_rout", "sports_win_by_one", "sports_lost_safe",
     "sports_lost_tied", "sports_lost_rout", "sports_lost_by_one", "sports_lost_goals",
     "sports_refunds", "sports_slips",
+    "sports_combos", "sports_combo_staked", "sports_combo_full", "sports_combo_mixed",
+    "sports_combo_all_markets", "sports_combo_huge", "sports_combo_all_in", "sports_combo_min",
+    "sports_combo_666", "sports_combo_69", "sports_combos_settled", "sports_combo_wins",
+    "sports_combo_losses", "sports_combo_capped", "sports_combo_saved_by_void",
+    "sports_combo_full_win", "sports_combo_last_leg", "sports_combo_first_leg",
+    "sports_combo_refunds", "sports_combo_odds_max", "sports_combo_legs_max",
+    "sports_combo_win_max", "sports_combo_odds_won_max", "sports_combo_legs_won_max",
     # 🎸 Robuso (cogs/robuso.py y los ecos de services/robuso.py; test_robuso.py las suma)
     *ROBUSO_ECHOES.values(), *ROBUSO_DAILY, f"{VOICE_WITH_PREFIX}{ROBUSO_ID}",
     "robuso_hk_new_year", "robuso_silence_max", "robuso_voice_gap_max", "robuso_hk_vc_minutes",

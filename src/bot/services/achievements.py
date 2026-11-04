@@ -200,6 +200,8 @@ from bot.services.slots import Kind as SlotKind
 from bot.services.slots import Spin
 from bot.services.slots import WinTier as SlotWinTier
 from bot.services.slots import pot_share as slots_pot_share
+from bot.services.sports import MAX_COMBO_PAYOUT as SPORTS_MAX_COMBO_PAYOUT
+from bot.services.sports import MAX_LEGS as SPORTS_MAX_LEGS
 from bot.services.sports import MAX_STAKE as SPORTS_MAX_STAKE
 from bot.services.sports import MIN_STAKE as SPORTS_MIN_STAKE
 from bot.services.sports import SPORTS
@@ -684,6 +686,8 @@ SPORTS_LONG_ODDS = 500
 SPORTS_SAFE_ODDS = 130
 #: Goles de diferencia de una goleada.
 SPORTS_ROUT = 4
+#: Combinadas: cuota total (en centésimas) que cuenta como «pelotazo» (×100).
+SPORTS_COMBO_HUGE_ODDS = 10_000
 
 _R = Rarity
 C, R, E, L, M = _R.COMMON, _R.RARE, _R.EPIC, _R.LEGENDARY, _R.MYTHIC
@@ -15913,6 +15917,121 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Falla «marcan los dos» en un partido con 4 goles o más.", R, True),
     ])  # fmt: skip
 
+    # Combinadas (`deportes`, modo 🧾 Combinada de `deportes`: de 2 a 5 partidos, una opción por
+    # partido; se cobra solo si aciertan todas). La cuota es el producto de las de cada pata
+    # (×5-×15 en una de 3) y la probabilidad real de ganar, 0,94^n / cuota: a ×10, ~8 %; a ×50,
+    # ~1,5 %; a ×100, ~0,7 %; una de 5 patas con cuotas normales, ~3-5 %. Quien las juega a menudo
+    # hace unas 4 a la semana, así que 10 combinadas son 2-3 semanas (Raro), 50 son unos 3 meses
+    # (Legendario) y acertar una a ×10 o más, unas 5 semanas (Épico). Ganar a ×50 son unos 4
+    # meses (Legendario); cobrar el tope de 1.000.000 Y$ (50.000 Y$ a ×20 o más), más de un año
+    # (Mítico). Lo que se fuerza a propósito (5 patas, mezclar ligas, el mínimo, las cuotas con
+    # guasa) es Común o Raro. Que se anulen todos los partidos de una (Épico) pide al menos dos
+    # aplazados a la vez; uno solo ya es Raro en las sencillas. Las cifras en Y$ salen de una
+    # apuesta normal de 1.000-5.000 Y$.
+    a += _tiers("deportes", "sports_combos", [
+        (1, "sports_combo_1", "Todos a la combi", "Haz tu primera combinada deportiva.", C),
+        (10, "sports_combo_10", "Sumando y sigue", "Haz 10 combinadas deportivas.", R),
+        (50, "sports_combo_50", "Ciempatas", "Haz 50 combinadas deportivas.", L),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combos_settled", [
+        (5, "sports_combo_settled_5", "Colorín colorado",
+         "Que se resuelvan 5 de tus combinadas deportivas, ganadas o perdidas.", R),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_wins", [
+        (1, "sports_combo_wins_1", "La unión hace la fuerza",
+         "Acierta todas las patas de una combinada deportiva.", R),
+        (10, "sports_combo_wins_10", "Pata de conejo", "Gana 10 combinadas deportivas.", E),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_losses", [
+        (10, "sports_combo_losses_10", "Estirar la pata", "Pierde 10 combinadas deportivas.", R),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_staked", [
+        (100_000, "sports_combo_staked_100k", "Patrocinador de la casa",
+         "Apuesta 100.000 Y$ en total en combinadas deportivas.", E),
+    ], unit="money")  # fmt: skip
+    a += _tiers("deportes", "sports_combo_win_max", [
+        (10_000, "sports_combo_win_10k", "Pata negra",
+         "Gana 10.000 Y$ netos con una combinada deportiva.", R),
+        (100_000, "sports_combo_win_100k", "Adiós a la hipoteca",
+         "Gana 100.000 Y$ netos con una combinada deportiva.", L),
+    ], unit="money")  # fmt: skip
+    a += _tiers("deportes", "sports_combo_odds_won_max", [
+        (500, "sports_combo_odds_won_5", "Plato combinado",
+         "Gana una combinada con una cuota total de ×5 o más.", R),
+        (1_000, "sports_combo_odds_won_10", "Más difícil todavía",
+         "Gana una combinada con una cuota total de ×10 o más.", E),
+        (5_000, "sports_combo_odds_won_50", "El Dorado",
+         "Gana una combinada con una cuota total de ×50 o más.", L),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_legs_won_max", [
+        (4, "sports_combo_legs_won_4", "Cuarteto fantástico",
+         "Gana una combinada acertando 4 patas.", E),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_legs_max", [
+        (4, "sports_combo_legs_4", "Mesa camilla", "Haz una combinada de 4 patas o más.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_odds_max", [
+        (2_500, "sports_combo_odds_25", "Cuota de pantalla",
+         "Haz una combinada con una cuota total de ×25 o más.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_huge", [
+        (1, "sports_combo_huge", "El siglo de las luces",
+         "Haz una combinada con una cuota total de ×100 o más.", R),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_full", [
+        (1, "sports_combo_full", "Quien mucho abarca",
+         f"Haz una combinada de {SPORTS_MAX_LEGS} patas.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_mixed", [
+        (1, "sports_combo_mixed", "Liga de la Justicia",
+         "Mezcla partidos de LaLiga y de la Champions en una combinada.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_all_markets", [
+        (1, "sports_combo_all_markets", "Tres tristes tigres",
+         "Junta en una combinada patas de los tres mercados: resultado, goles y ambos marcan.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_all_in", [
+        (1, "sports_combo_all_in", "Meter la pata hasta el fondo",
+         "Apuesta todo tu saldo en una combinada deportiva.", C),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_min", [
+        (1, "sports_combo_min", "Patatas bravas",
+         f"Apuesta {SPORTS_MIN_STAKE} Y$ justos en una combinada.", C, True),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_666", [
+        (1, "sports_combo_666", "Patas de cabra",
+         "Haz una combinada con una cuota total de exactamente ×6,66.", R, True),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_69", [
+        (1, "sports_combo_69", "Patas entrelazadas",
+         "Haz una combinada con una cuota total de exactamente ×69,00.", R, True),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_capped", [
+        (1, "sports_combo_capped", "Tope de gama",
+         f"Cobra una combinada hasta el tope de {SPORTS_MAX_COMBO_PAYOUT:_} Y$.".replace("_", "."),
+         M, True),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_saved_by_void", [
+        (1, "sports_combo_saved_by_void", "Deus ex machina",
+         "Gana una combinada en la que algún partido se ha anulado.", E),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_refunds", [
+        (1, "sports_combo_refunds", "Ctrl+Z",
+         "Recupera tu apuesta entera: todos los partidos de una combinada se anulan.", E, True),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_full_win", [
+        (1, "sports_combo_full_win", "Cinco horas con Mario",
+         f"Gana una combinada acertando sus {SPORTS_MAX_LEGS} patas.", L),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_last_leg", [
+        (1, "sports_combo_last_leg", "El eslabón perdido",
+         "Pierde una combinada por la última pata en jugarse, con todas las demás acertadas.", R),
+    ])  # fmt: skip
+    a += _tiers("deportes", "sports_combo_first_leg", [
+        (1, "sports_combo_first_leg", "Adiós, muy buenas",
+         "Pierde una combinada por la primera pata en jugarse, con las demás aún sin jugar.", C),
+    ])  # fmt: skip
+
     # 🏰 patrimonio (`perfil`), 💎 `fortunas` y 🧾 la factura de `hacienda` ------------------------
     # Mirar es una decisión: nada pasa de Raro. El patrimonio neto sí cuesta.
     a += _tiers("economy", "patrimonio_views", [
@@ -24307,6 +24426,99 @@ def _sports_side_stats(
         if not won and pick != "otro":
             want_home, want_away = (int(goals) for goals in pick.split("-"))
             bump("sports_exact_near", abs(want_home - home) + abs(want_away - away) == 1)
+
+
+def sports_combo_bet_stats(
+    *,
+    stake: int,
+    odds: int,
+    legs: int,
+    sports: set[str],
+    markets: set[str],
+    balance_before: int,
+) -> StatDelta:
+    """Lo que cuenta una combinada deportiva (`deportes`) al hacerla.
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota total en centésimas (`bot.services.sports.combo_odds`).
+        legs: Patas de la combinada.
+        sports: Competiciones de sus partidos.
+        markets: Mercados de sus patas (`bot.services.sports.COMBO_MARKETS`).
+        balance_before: Saldo antes de apostar.
+    """
+    add = {"sports_combos": 1, "sports_combo_staked": stake}
+
+    def bump(stat: str, condition: bool) -> None:
+        if condition:
+            add[stat] = 1
+
+    bump("sports_combo_full", legs >= SPORTS_MAX_LEGS)
+    bump("sports_combo_mixed", len(sports) > 1)
+    bump("sports_combo_all_markets", len(markets) >= 3)
+    bump("sports_combo_huge", odds >= SPORTS_COMBO_HUGE_ODDS)
+    bump("sports_combo_all_in", stake >= balance_before > 0)
+    bump("sports_combo_min", stake == SPORTS_MIN_STAKE)
+    bump("sports_combo_666", odds == 666)
+    bump("sports_combo_69", odds == 6_900)
+    peak = {"sports_combo_odds_max": odds, "sports_combo_legs_max": legs}
+    return StatDelta(add=add, peak=peak)
+
+
+def sports_combo_result_stats(
+    *,
+    stake: int,
+    odds: int,
+    payout: int,
+    legs: int,
+    won: int,
+    lost: int,
+    void: int,
+) -> StatDelta:
+    """Lo que cuenta una combinada deportiva resuelta (sin lo común del casino).
+
+    Una combinada se pierde en cuanto falla una pata, así que al perderla puede tener
+    patas sin jugar (`legs - won - lost - void`).
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota con la que se cobra (la de las patas acertadas; 0 si ha fallado).
+        payout: Lo cobrado, apuesta incluida (0 si falló).
+        legs: Patas de la combinada.
+        won: Patas acertadas.
+        lost: Patas falladas.
+        void: Patas anuladas.
+    """
+    add = {"sports_combos_settled": 1}
+    peak: dict[str, int] = {}
+    pending = legs - won - lost - void
+
+    def bump(stat: str, condition: bool) -> None:
+        if condition:
+            add[stat] = 1
+
+    if payout:
+        add["sports_combo_wins"] = 1
+        peak = {
+            "sports_combo_win_max": payout - stake,
+            "sports_combo_odds_won_max": odds,
+            "sports_combo_legs_won_max": won,
+        }
+        bump("sports_combo_capped", payout >= SPORTS_MAX_COMBO_PAYOUT)
+        bump("sports_combo_saved_by_void", void > 0)
+        bump("sports_combo_full_win", won >= SPORTS_MAX_LEGS)
+    else:
+        add["sports_combo_losses"] = 1
+        # La última pata en jugarse es la que falla, y todas las demás se acertaron.
+        bump("sports_combo_last_leg", lost == 1 and pending == 0 and won == legs - 1)
+        # Falla la primera en jugarse: quedaban todas las demás.
+        bump("sports_combo_first_leg", won == 0 and void == 0 and pending == legs - lost)
+    return StatDelta(add=add, peak=peak)
+
+
+def sports_combo_void_stats() -> StatDelta:
+    """Una combinada deportiva con todas sus patas anuladas y devuelta."""
+    return StatDelta(add={"sports_combo_refunds": 1})
 
 
 def sports_void_stats() -> StatDelta:

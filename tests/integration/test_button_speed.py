@@ -836,6 +836,23 @@ async def press_sports_stake(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+async def press_sports_combo(client: BotClient, owner: MagicMock) -> Click:
+    view, match = sports_panel(client, owner)
+    from dataclasses import replace
+
+    other = replace(match, event_id="e2", home="Betis", away="Sevilla")
+    view.cog.matches[match.sport] = [match, other]
+    legs = [("e1", "1", 185), ("e2", "X", 360)]
+    modal = module_of(client, "Deportes").ComboStakeModal(view, legs)
+    modal.amount._value = "50"  # lo que Discord rellena al enviar
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.channel_id = 77
+        await modal.on_submit(interaction)
+
+    return click
+
+
 async def press_sports_slip(client: BotClient, owner: MagicMock) -> Click:
     view, _ = sports_panel(client, owner)
     button = next(
@@ -3008,6 +3025,7 @@ CASES: dict[str, Press] = {
     "dados mesa: odds": press_dice_table_odds,
     "dados mesa: ficha": press_dice_table_modal,
     "deportes: apostar en el formulario": press_sports_stake,
+    "deportes: apostar una combinada": press_sports_combo,
     "deportes: mis apuestas": press_sports_slip,
     "ruleta: apostar": press_roulette,
     "blackjack: repartir": press_blackjack,
