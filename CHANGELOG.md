@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.40.0 · 2026-11-04
+
+- Pisos: la cartera enseña la renta, el IBI, los gastos y el neto de esta noche en lugar de los de los últimos 7 días; la renta es la misma cifra que `saldo` y el Euríbor pasa al pie
+- Saldo: las rentas de esta noche aclaran que son de los inquilinos que tienes al día
+
 ### 9.39.2 · 2026-11-04
 
 - Perfil y pala: mirar los logros ya no congela los botones del bot

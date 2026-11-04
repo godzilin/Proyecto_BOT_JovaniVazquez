@@ -658,14 +658,13 @@ class Panel(ui.View):
         if screen == CARTERA:
             mine = tuple(h.listing for h in market.of_member(me))
             news = await self.cog.service.news(self.guild.id, mine, 6)
-            week = await self.cog.service.week_income(self.guild.id, me)
             effort = None
             home = market.homes.get(me)
             if home is not None and home[0] == HOME_RENTED and home[1] in market.leases:
                 income = await self.cog.service.work_income(self.guild.id, me)
                 effort = rules.effort(market.leases[home[1]].rent, income)
             return view.portfolio_state(
-                market, me, self.owner.display_name, self.cash, week, news, names, effort, today,
+                market, me, self.owner.display_name, self.cash, news, names, effort, today,
                 page=self.page if page is None else page,
             )  # fmt: skip
         if screen == CAJA:

@@ -17,7 +17,7 @@ from bot.repositories.economy import (
 )
 from bot.repositories.housing import HousingError, HousingRepository, assets_in
 from bot.services import housing as rules
-from bot.services.economy import STARTING_BALANCE, EconomyService
+from bot.services.economy import STARTING_BALANCE, EconomyService, format_amount
 from bot.services.housing_catalog import (
     BARRIO_BY_KEY,
     BARRIOS,
@@ -32,6 +32,7 @@ from bot.services.housing_catalog import (
     listings_of,
 )
 from bot.services.housing_market import HousingService
+from bot.services.housing_view import portfolio_state
 from bot.services.levels import TIMEZONE
 from bot.services.taxes import WEALTH_MINIMUM, wealth_quote, wealth_tax
 
@@ -818,3 +819,27 @@ async def test_los_pisos_declaran_por_inmueble_imputan_los_vacios_y_la_casa_desg
     assert statement.income.imputed == rules.imputed_rent(empty, 100)
     assert statement.detail.tax.base == statement.filed.base
     assert statement.detail.result == statement.filed.result
+
+
+async def test_lo_de_esta_noche_de_la_cartera_es_lo_que_apunta_el_cierre(tmp_path: Path) -> None:
+    """Renta, IBI y gastos de «Esta noche» en `pisos` son los del cierre de esa noche."""
+    clock = Clock(at(14))
+    economy, service = await make(tmp_path, clock)
+    await give(economy, ANA, 10_000_000)
+    await service.buy(GUILD, ANA, BAJO.key, 50)
+    with sqlite3.connect(tmp_path / "bot.db") as connection:
+        connection.execute(
+            "UPDATE housing_leases SET status = 'alquilado', tenant = 'familia', rent = 8000, "
+            "until = '2027-01-01', arrears = 300, arrears_ibi = 100"
+        )
+    market = await service.market(GUILD)
+    night = portfolio_state(market, ANA, "Ana", 0, [], {}, today=date(2026, 10, 14))["tonight"]
+    clock.now = at(15).timestamp()
+
+    await service.close_days(GUILD)
+
+    day = await service.repository.income(GUILD, ANA, date(2026, 10, 14))
+    assert night["rent"] == format_amount(day.rent) == format_amount(4000)
+    assert night["ibi"] == format_amount(day.ibi)
+    # El impuesto de primas sale de la renta, pero el cierre lo apunta aparte de los gastos.
+    assert night["costs"] == format_amount(day.costs + housing_taxes(tmp_path, "ips"))

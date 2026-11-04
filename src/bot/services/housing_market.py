@@ -29,7 +29,6 @@ from bot.repositories.housing import (
     LoanClosed,
     LoanDesk,
     Market,
-    MemberDay,
     MemberKeys,
     MemberSale,
     News,
@@ -110,10 +109,6 @@ class HousingService:
     async def news(self, guild_id: int, listings: tuple[str, ...], limit: int = 8) -> list[News]:
         """Lo último que ha pasado en unos inmuebles."""
         return await self.repository.news(guild_id, listings, limit)
-
-    async def week_income(self, guild_id: int, user_id: int) -> MemberDay:
-        """Lo que un miembro ha cobrado y pagado por sus inmuebles en los últimos 7 días."""
-        return await self.repository.income(guild_id, user_id, self.today() - timedelta(days=7))
 
     async def income(self, guild_id: int, user_id: int) -> int:
         """Lo que el banco cree que gana alguien al día (nóminas, negocio y 70 % de las rentas)."""

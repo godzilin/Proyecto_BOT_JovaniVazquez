@@ -2763,13 +2763,14 @@ function paintCartera(st) {
     coins(42, 120, 1); T("Efectivo", 58, 122, { font: F.m(18), color: C.mute }); fitText(u.cash, 32, 152, 170, F.d, 25, 14, { color: C.ink });
     bricks(228, 120, 1); T("En ladrillo", 244, 122, { font: F.m(18), color: C.mute }); fitText(u.worth, 218, 152, 184, F.d, 25, 14, { color: C.blue });
   }
-  const w = st.week, wx = 16 + lw0 + 16, ww = 984 - wx, wc = (ww - 32) / 4;
+  // Lo de esta noche: la renta es la misma cifra que `saldo`. El título va en negrita para
+  // no mezclarse con las etiquetas de las columnas; el Euríbor va al pie.
+  const w = st.tonight, wx = 16 + lw0 + 16, ww = 984 - wx, wc = (ww - 32) / 4;
   card(wx, 100, ww, 78);
-  T("Últimos 7 días", wx + 16, 120, { font: F.m(18), color: C.mute });
-  if (st.euribor) T(st.euribor, wx + ww - 16, 120, { font: F.m(17), color: C.mute, align: "right" });
-  [["Renta", w.rent, C.ink], ["IBI", w.ibi, C.redDk], ["Gastos", w.costs, C.redDk], ["Neto", w.net, C.greenDk]].forEach(([l, v, c], i) => {
+  T("Esta noche", wx + 16, 118, { font: F.d(18), color: C.ink });
+  [["Renta", w.rent, C.ink], ["IBI", w.ibi, C.redDk], ["Gastos", w.costs, C.redDk], ["Neto", w.net, w.loss ? C.redDk : C.greenDk]].forEach(([l, v, c], i) => {
     const x = wx + 16 + i * wc;
-    T(l, x, 142, { font: F.m(17), color: C.mute }); fitText(v, x, 164, wc - 8, F.d, 19, 12, { color: c });
+    T(l, x, 142, { font: F.m(16), color: C.mute }); fitText(v, x, 164, wc - 8, F.d, 19, 12, { color: c });
   });
   if (st.empty) {
     card(16, 192, 520, 408); sofaRoom(16, 192, 520, 408);

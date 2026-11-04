@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from bot.repositories.economy import EconomyRepository, LedgerEntry
-from bot.repositories.housing import Decision, Holding, Market, MemberDay, Split
+from bot.repositories.housing import Decision, Holding, Market, Split
 from bot.repositories.housing_finance import Deposit, Mortgage
 from bot.repositories.housing_junta import Vote
 from bot.repositories.housing_trade import Auction
@@ -146,12 +146,15 @@ def test_las_rentas_de_saldo_suman_lo_mismo_que_la_cartera_de_pisos() -> None:
     )
 
     by_kind = {i.kind: i for i in pending_items(market, USER, [], TODAY)}
-    cartera = portfolio_state(market, USER, "x", 0, MemberDay(), [], {}, today=TODAY)
+    cartera = portfolio_state(market, USER, "x", 0, [], {}, today=TODAY)
 
     assert by_kind["rents"].amount == 600 + 500
     assert by_kind["arrears"].amount == 90  # los atrasos de una habitación también salen
     rents = {i["key"]: i["rent"] for i in cartera["items"]}
     assert rents == {piso.key: "600 Y$/mes", normal: "500 Y$/mes", impago: "—"}
+    # La cartera da la misma previsión que saldo, y saldo dice de quién es.
+    assert cartera["tonight"]["rent"] == "1.100 Y$"
+    assert "de los inquilinos que tienes al día" in by_kind["rents"].text
 
 
 def test_la_fianza_de_un_piso_que_ya_dejaste_vuelve_esta_noche() -> None:

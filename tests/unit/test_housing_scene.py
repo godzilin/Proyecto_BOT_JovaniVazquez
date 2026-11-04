@@ -22,7 +22,7 @@ import pytest_asyncio
 from PIL import Image, ImageChops, ImageStat
 from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready, own_node
 
-from bot.repositories.housing import Decision, Holding, Market, MemberDay, News, Review, Split
+from bot.repositories.housing import Decision, Holding, Market, News, Review, Split
 from bot.repositories.housing_finance import Mortgage, Promotion, VpoOwner
 from bot.repositories.housing_junta import Vote
 from bot.repositories.housing_trade import Auction
@@ -206,9 +206,9 @@ def mood_samples() -> dict[str, dict[str, Any]]:
 
 def money_samples() -> dict[str, dict[str, Any]]:
     """Las pantallas con lo de las fases 2 a 4: el peor caso de la ficha, la cartera y las VPO."""
-    m, week = money_market(), MemberDay(30000, 1200, 4000)
+    m = money_market()
     news4 = [News("schamann_bajo", date(2026, 10, 14), "firma_miembro", 4300, 20, None)] * 4
-    full = view.portfolio_state(m, 10, "Ana", 120000, week, NEWS, NAMES)
+    full = view.portfolio_state(m, 10, "Ana", 120000, NEWS, NAMES)
     many = {**full, "items": (full["items"] * 3)[:10]}
     mine_only = Market(vpo=m.vpo, homes={30: ("vpo", "anaza")}, euribor=0.0225)
     return {
@@ -220,9 +220,9 @@ def money_samples() -> dict[str, dict[str, Any]]:
         "cartera_finanzas": full,
         "cartera_diez": many,
         "cartera_solo_vpo": view.portfolio_state(
-            mine_only, 30, "Perro Sanxe", 900, MemberDay(), [], NAMES
+            mine_only, 30, "Perro Sanxe", 900, [], NAMES
         ),
-        "cartera_ejecutada": view.portfolio_state(m, 70, "Luis", 50, MemberDay(), [], NAMES)
+        "cartera_ejecutada": view.portfolio_state(m, 70, "Luis", 50, [], NAMES)
         | {"bank_debt": "25.000 Y$", "debt": "25.000 Y$"},
         # Más de 10: la página que toca y «Página 2 de 3» abajo, con y sin «Última hora».
         "cartera_paginada": many
@@ -375,7 +375,6 @@ def phase2_samples() -> dict[str, dict[str, Any]]:
         lease = rules.Lease(status="vacio", pick="yo")
         return phase2_market({PISO: lease}, {PISO: waiting(*tenants)}, news=False)
 
-    week = MemberDay(30000, 1200, 4000)
     gestion = {
         "gestion_seguro_candidatos": view.gestion_state(m, PISO, 10, NAMES, TODAY),
         "gestion_sin_seguro": view.gestion_state(bare, PISO, 10, NAMES, TODAY),
@@ -400,7 +399,7 @@ def phase2_samples() -> dict[str, dict[str, Any]]:
             lineup("abuela", "estudiantes", "britanicos"), PISO, TODAY
         ),
     }
-    cartera = view.portfolio_state(m, 10, "Ana", 120000, week, NEWS, NAMES, today=TODAY)
+    cartera = view.portfolio_state(m, 10, "Ana", 120000, NEWS, NAMES, today=TODAY)
     others = {
         "ficha_candidatos_noticia": view.listing_state(m, PISO, 10, NAMES, [], TODAY),
         "ficha_inquilino_cubierto": view.listing_state(m, "schamann_bajo", 10, NAMES, NEWS, TODAY),
@@ -871,15 +870,14 @@ def checkout(key: str, **kwargs: Any) -> dict[str, Any]:
 def samples() -> dict[str, dict[str, Any]]:
     """Las pantallas de muestra: las quince, con casos largos, vacíos y de todos los tipos."""
     m = market()
-    week = MemberDay(30000, 1200, 4000)
     out: dict[str, dict[str, Any]] = {
         "mapa": view.map_state(m, 10, "Ana", 120000),
         "barrio_schamann": view.barrio_state(m, "schamann", 10, NAMES),
         "barrio_vegueta": view.barrio_state(m, "vegueta", 10, NAMES),
         "ficha_schamann_bajo": view.listing_state(m, "schamann_bajo", 10, NAMES, NEWS),
         "ficha_adeje_chalet": view.listing_state(m, "adeje_chalet", 10, NAMES, []),
-        "cartera": view.portfolio_state(m, 10, "Ana", 120000, week, NEWS, NAMES),
-        "cartera_vacia": view.portfolio_state(m, 99, "Nadie", 500, MemberDay(), [], NAMES),
+        "cartera": view.portfolio_state(m, 10, "Ana", 120000, NEWS, NAMES),
+        "cartera_vacia": view.portfolio_state(m, 99, "Nadie", 500, [], NAMES),
         "caja_compra": checkout(
             "schamann_bajo",
             selling=False,
@@ -911,7 +909,7 @@ def samples() -> dict[str, dict[str, Any]]:
     for kind, key in BY_KIND.items():
         out[f"ficha_{kind}"] = view.listing_state(m, key, 10, NAMES, NEWS if kind == "bajo" else [])
     out["ficha_titulo_largo"] = view.listing_state(m, LONGEST.key, 10, NAMES, NEWS)
-    out["cartera_con_cero"] = view.portfolio_state(m, 20, "Bea", 5, MemberDay(), [], NAMES)
+    out["cartera_con_cero"] = view.portfolio_state(m, 20, "Bea", 5, [], NAMES)
     out["ficha_muchos_duenos"] = view.listing_state(m, LISTINGS[0].key, 10, NAMES, NEWS)
     out["ficha_desahucio"] = view.listing_state(m, LISTINGS[3].key, 10, NAMES, [])
     out["barrio_isleta"] = view.barrio_state(m, "isleta", 10, NAMES)
@@ -1680,10 +1678,10 @@ def test_mis_pisos_va_de_diez_en_diez_y_corrige_la_pagina_que_sobra() -> None:
     m = paged_market(23)
     keys = view.portfolio_keys(m, 10)
     assert len(keys) == 23
-    first = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES)
+    first = view.portfolio_state(m, 10, "Ana", 1, [], NAMES)
     assert (first["page"], first["pages"]) == (1, 3)
     assert [i["key"] for i in first["items"]] == keys[:10]
-    last = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES, page=2)
+    last = view.portfolio_state(m, 10, "Ana", 1, [], NAMES, page=2)
     assert [i["key"] for i in last["items"]] == keys[20:]
     assert last["fallback"][-1] == "Página 3 de 3"
     # Si vende y sobra la página en la que estaba, se ve la última que queda.
@@ -1696,9 +1694,9 @@ def test_mis_pisos_va_de_diez_en_diez_y_corrige_la_pagina_que_sobra() -> None:
 def test_la_vpo_abre_la_primera_pagina_de_mis_pisos() -> None:
     m = paged_market(10, vpo=True)
     assert view.portfolio_pages(len(view.portfolio_keys(m, 10))) == 2
-    first = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES)
+    first = view.portfolio_state(m, 10, "Ana", 1, [], NAMES)
     assert first["items"][0]["kind"] == "vpo" and len(first["items"]) == 10
-    second = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES, page=1)
+    second = view.portfolio_state(m, 10, "Ana", 1, [], NAMES, page=1)
     assert [i["key"] for i in second["items"]] == [LISTINGS[9].key]
-    alone = view.portfolio_state(paged_market(10), 10, "Ana", 1, MemberDay(), [], NAMES)
+    alone = view.portfolio_state(paged_market(10), 10, "Ana", 1, [], NAMES)
     assert alone["pages"] == 1 and len(alone["items"]) == 10
