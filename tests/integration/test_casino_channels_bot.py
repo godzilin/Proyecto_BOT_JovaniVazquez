@@ -110,7 +110,7 @@ async def test_con_punto_fuera_del_tajo_la_pala_se_borra_sola(tmp_path: Path) ->
     client = await load_bot(tmp_path)
     try:
         await client.work.toggle_channel(GUILD_ID, CASINO)
-        work = client.get_cog("Work")
+        work = client.get_cog("Trabajo")
         ctx = make_ctx(client, "pala", make_channel(OTHER))
 
         await work.pala_text.callback(work, ctx)
