@@ -40,8 +40,8 @@ botones ya llenan las cinco filas de Discord; el tapete se cambia en la mochila.
 `patrimonio.wealth_due`. El
 saldo de otro enseña lo mismo que si lo pidiera él (sin su mascota).
 
-Si `CASINO_CHANNEL_IDS` está configurado, la ruleta solo se abre en esos
-canales. Permisos que necesita el bot en el canal: enviar mensajes,
+La ruleta solo se abre en los canales del casino que elige `garito` (sin elegir, los de
+`CASINO_CHANNEL_IDS`) y en sus hilos. Permisos que necesita el bot en el canal: enviar mensajes,
 insertar enlaces (embeds) y adjuntar archivos (el GIF de la rueda).
 """
 
@@ -1011,7 +1011,7 @@ class Casino(commands.Cog):
         economy: EconomyService,
         renderer: RouletteScene | None = None,
         wheel: Wheel | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         preload: bool = True,
     ) -> None:
         self.bot = bot
@@ -1212,8 +1212,8 @@ class Casino(commands.Cog):
     ) -> None:
         """Abre una mesa de ruleta con botones (o gira directamente con `apuesta`).
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado.
-        Mueve yapdollars del usuario a través de la economía del bot.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Mueve yapdollars del usuario a través de la economía del bot.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -1598,4 +1598,4 @@ class Casino(commands.Cog):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Casino(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Casino(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

@@ -38,9 +38,9 @@ mesa del canal, con varios jugadores, un tirador y las mismas tiradas para todos
 (ver `bot.cogs.craps_mesa`). Es el mismo comando: la mesa individual de arriba
 sigue igual.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos (y añadir reacciones para confirmar `.dados mesa 500 pase`).
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos
+(y añadir reacciones para confirmar `.dados mesa 500 pase`).
 """
 
 from __future__ import annotations
@@ -67,6 +67,7 @@ from bot.cogs import shop as tienda
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.cogs.craps_mesa import NO_MENTIONS, CrapsTable, MesaError, remember
 from bot.services.achievements import casino_stats, craps_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.craps import (
     BAR,
     CRAPS,
@@ -923,7 +924,7 @@ class Craps(commands.Cog, name="Dados"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: CrapsScene | None = None,
         ahead: bool | None = None,
@@ -1212,10 +1213,10 @@ class Craps(commands.Cog, name="Dados"):
     ) -> None:
         """Abre una mesa de craps y, si se elige apuesta, tira la salida.
 
-        Con `mesa:Compartida` abre (o baja al final) la mesa del canal y la
-        apuesta entra en su próxima salida. Solo en los canales de
-        `CASINO_CHANNEL_IDS` si está configurado. Cobra la apuesta al tirar la
-        salida y las Odds al ponerlas; paga al decidirse.
+        Con `mesa:Compartida` abre (o baja al final) la mesa del canal y la apuesta entra en su
+        próxima salida. Solo en los canales del casino que elige `garito` (sin elegir, los de
+        `CASINO_CHANNEL_IDS`) y en sus hilos. Cobra la apuesta al tirar la salida y las Odds al
+        ponerlas; paga al decidirse.
         """
         responder = InteractionResponder(interaction)
         bet = parse_bet(apuesta) if apuesta else None
@@ -1325,4 +1326,4 @@ class Craps(commands.Cog, name="Dados"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Craps(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Craps(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

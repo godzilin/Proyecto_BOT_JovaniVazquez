@@ -44,9 +44,8 @@ probabilidad `gallos.death_chance` (del 10 % al 5 % según el aguante), sorteada
 con el azar del cog. La ficha pasa al cementerio, el dueño empieza con un gallo
 nuevo y se cuenta con una línea de luto. Morir no mueve dinero.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se pelea en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos.
+Solo se pelea en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -83,6 +82,7 @@ from bot.services.achievements import (
     gallos_stats,
     gallos_train_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1893,7 +1893,7 @@ class Gallos(commands.Cog, name="Gallos"):
         *,
         economy: EconomyService,
         repository: GallosRepository,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: GallosScene | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -2158,8 +2158,8 @@ class Gallos(commands.Cog, name="Gallos"):
     ) -> None:
         """Abre tu reñidero o reta a alguien.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Contra
-        la casa cobra al pelear; en un duelo, a los dos al aceptar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Contra la casa cobra al pelear; en un duelo, a los dos al aceptar.
         """
         responder = InteractionResponder(interaction)
 
@@ -2217,6 +2217,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot,
             economy=bot.economy,
             repository=bot.gallos,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

@@ -32,9 +32,8 @@ que es cuando se ajusta el IRPF del día. Si la mesa caduca (3 min sin
 tocarla) o el bot se apaga de forma ordenada con una racha a medias, se
 cobra sola: nunca hay partida empezada sin un acierto.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -59,6 +58,7 @@ from bot.cogs import apuestas, renta
 from bot.cogs import shop as tienda
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import casino_stats, coin_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.coin import (
     EDGE_CHANCE,
     CoinError,
@@ -800,7 +800,7 @@ class Coin(commands.Cog, name="Moneda"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: CoinScene | None = None,
         ahead: bool | None = None,
@@ -933,8 +933,8 @@ class Coin(commands.Cog, name="Moneda"):
     ) -> None:
         """Abre una mesa de cara o cruz y, si se elige lado, lanza.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        la apuesta al lanzar la primera y paga al cobrar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al lanzar la primera y paga al cobrar.
         """
         responder = InteractionResponder(interaction)
         pick = parse_side(lado) if lado else None
@@ -990,4 +990,4 @@ class Coin(commands.Cog, name="Moneda"):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Coin(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Coin(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

@@ -44,9 +44,9 @@ Telemetría: cada consulta a la API cuenta como evento `deportes` (`cuotas` o
 `resultados`, con lo que tarda y si falla) y los créditos que quedan, como
 `créditos de la API`: así el informe dice si el plan gratis llega.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se abre en esos canales. Permisos del bot
-en el canal: enviar mensajes, insertar enlaces y adjuntar archivos (las imágenes). No
-necesita intents especiales.
+Solo se abre en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos
+(las imágenes). No necesita intents especiales.
 """
 
 from __future__ import annotations
@@ -79,6 +79,7 @@ from bot.services.achievements import (
     sports_slip_stats,
     sports_void_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.casino_stats import mult
 from bot.services.economy import (
     CURRENCY_EMOJI,
@@ -829,7 +830,7 @@ class Deportes(commands.Cog):
         repository: SportsRepository,
         *,
         api_key: str = "",
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         clock: Callable[[], float] = time.time,
         session: aiohttp.ClientSession | None = None,
         scene: sports_scene.SportsScene | None = None,
@@ -1352,6 +1353,6 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
             bot.economy,
             bot.sports,
             api_key=bot.odds_api_key,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
         )
     )

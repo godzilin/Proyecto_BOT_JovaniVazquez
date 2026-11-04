@@ -30,9 +30,9 @@ al explotar (`pay_winnings`, con 0 si explota), que es cuando se ajusta el
 IRPF del día. Si el bot se apaga de forma ordenada, en embarque se devuelve
 lo apostado y en vuelo se retira a todos en el multiplicador del momento.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar
-archivos y añadir reacciones (para confirmar `.cohete` cuando ya hay mesa).
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces, adjuntar archivos y
+añadir reacciones (para confirmar `.cohete` cuando ya hay mesa).
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ from bot.cogs import achievements as logros
 from bot.cogs import apuestas, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import casino_stats, crash_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.crash import (
     CrashError,
     CrashRound,
@@ -849,7 +850,7 @@ class Crash(commands.Cog):
         *,
         economy: EconomyService,
         renderer: CrashRenderer | None = None,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -1014,8 +1015,8 @@ class Crash(commands.Cog):
     ) -> None:
         """Abre la mesa de Crash del canal o entra en la ronda que esté embarcando.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        la apuesta al entrar y paga al retirarse.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al entrar y paga al retirarse.
         """
 
         async def send(**kwargs: Any) -> discord.Message:
@@ -1069,4 +1070,4 @@ class Crash(commands.Cog):
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía compartida del bot."""
-    await bot.add_cog(Crash(bot, economy=bot.economy, casino_channel_ids=bot.casino_channel_ids))
+    await bot.add_cog(Crash(bot, economy=bot.economy, casino_channel_ids=bot.casino_channels))

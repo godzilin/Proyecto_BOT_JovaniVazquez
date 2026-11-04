@@ -37,9 +37,8 @@ la apuesta.
 
 Ancho de banda: cada paso sube un GIF (~200-300 KB) y un PNG.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar
-archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -64,6 +63,7 @@ from bot.cogs import apuestas, renta
 from bot.cogs import shop as tienda
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import casino_stats, chicken_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.chicken import (
     DEFAULT_DIFFICULTY,
     DIFFICULTIES,
@@ -1009,7 +1009,7 @@ class Chicken(commands.Cog, name="Pollo"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         renderer: ChickenScene | None = None,
         load_record: Callable[[int, int, str], Awaitable[int]] | None = None,
@@ -1187,8 +1187,8 @@ class Chicken(commands.Cog, name="Pollo"):
     ) -> None:
         """Abre una carretera del Pollo y empieza la partida.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        la apuesta al empezar y paga al cobrar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al empezar y paga al cobrar.
         """
         responder = InteractionResponder(interaction)
         try:
@@ -1271,7 +1271,7 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
         Chicken(
             bot,
             economy=bot.economy,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
             load_record=load_record,
         )
     )

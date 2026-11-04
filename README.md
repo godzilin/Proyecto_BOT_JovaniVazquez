@@ -45,7 +45,9 @@ pip install -e ".[dev]"
    (por defecto `.`); con él se invocan los mismos comandos que con `/`.
 4. `CASINO_CHANNEL_IDS` (opcional) limita los juegos del casino (ruleta,
    blackjack, tragaperras, pachinko, lotería, porras y apuestas deportivas) a
-   esos canales: IDs separados por comas. En nuestro servidor, `#casino` es
+   esos canales: IDs separados por comas. Es el valor de partida: un
+   administrador los cambia desde Discord con `garito` (lo elegido así se guarda
+   y manda sobre la variable). En nuestro servidor, `#casino` es
    `1384280704539562054`. Vacío = se puede jugar en cualquier canal.
 5. `ODDS_API_KEY` (opcional, secreta) es la clave de [The Odds API](https://the-odds-api.com)
    para las apuestas deportivas (`deportes`). El plan gratis (500 créditos al mes)
@@ -80,7 +82,7 @@ python -m bot
   | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
   | ⚙️ General | `ayuda` · `latencia` |
-  | 🛡️ Admin | `abrir` · `admin` · `apodo` · `aspecto` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
+  | 🛡️ Admin | `abrir` · `admin` · `apodo` · `aspecto` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `garito` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
 
   La ayuda es un menú desplegable, como el de `perfil`: una portada con las
   categorías y una página por categoría con cada comando y lo que hace (la

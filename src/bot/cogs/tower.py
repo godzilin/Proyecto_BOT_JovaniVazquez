@@ -51,8 +51,8 @@ LIRPF). Si la torre caduca (3 min sin tocarla) o el bot se apaga de forma
 ordenada con una partida a medias, se cobra sola; si no se había subido ningún
 piso, se devuelve la apuesta.
 
-Si `CASINO_CHANNEL_IDS` está configurado, solo se juega en esos canales.
-Permisos del bot en el canal: enviar mensajes y adjuntar archivos.
+Solo se juega en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+y en sus hilos. Permisos del bot en el canal: enviar mensajes y adjuntar archivos.
 """
 
 from __future__ import annotations
@@ -75,6 +75,7 @@ from bot.cogs import achievements as logros
 from bot.cogs import apuestas, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.services.achievements import casino_stats, tower_stats
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     BalanceLimitError,
     BetSettlement,
@@ -1022,7 +1023,7 @@ class Tower(commands.Cog, name="Torre"):
         bot: commands.Bot,
         *,
         economy: EconomyService,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         rng: random.Random | None = None,
         load_record: Callable[[int, int], Awaitable[int]] | None = None,
         renderer: TowerScene | None = None,
@@ -1197,8 +1198,8 @@ class Tower(commands.Cog, name="Torre"):
     ) -> None:
         """Abre una Torre del dragón y empieza la partida.
 
-        Solo en los canales de `CASINO_CHANNEL_IDS` si está configurado. Cobra
-        la apuesta al empezar y paga al cobrar.
+        Solo en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
+        y en sus hilos. Cobra la apuesta al empezar y paga al cobrar.
         """
         responder = InteractionResponder(interaction)
         try:
@@ -1260,7 +1261,7 @@ async def setup(bot: BotClient) -> None:  # type: ignore[override]
         Tower(
             bot,
             economy=bot.economy,
-            casino_channel_ids=bot.casino_channel_ids,
+            casino_channel_ids=bot.casino_channels,
             load_record=load_record,
         )
     )

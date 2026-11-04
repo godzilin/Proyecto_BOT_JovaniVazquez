@@ -80,6 +80,7 @@ from bot.services.achievements import (
     lottery_prize_stats,
     scratch_stats,
 )
+from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
     CURRENCY_EMOJI,
     EconomyService,
@@ -785,7 +786,7 @@ class Loteria(commands.Cog):
         economy: EconomyService,
         repository: LotteryRepository,
         *,
-        casino_channel_ids: frozenset[int] = frozenset(),
+        casino_channel_ids: CasinoChannelIds = frozenset(),
         clock: Callable[[], float] = time.time,
         rng: random.Random | None = None,
         scene: LotteryScene | None = None,
@@ -1744,5 +1745,5 @@ async def pending(bot: commands.Bot, guild_id: int, user_id: int) -> list[Pendin
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía y las loterías del bot."""
     await bot.add_cog(
-        Loteria(bot, bot.economy, bot.lottery, casino_channel_ids=bot.casino_channel_ids)
+        Loteria(bot, bot.economy, bot.lottery, casino_channel_ids=bot.casino_channels)
     )
