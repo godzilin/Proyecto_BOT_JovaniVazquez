@@ -579,6 +579,8 @@ class Panel(ui.View):
         self.sale_draft: tuple[int, int] | None = None
         #: La subasta elegida en la pantalla 🔨 Subastas.
         self.auction_id: int | None = None
+        #: La página de 🔑 Mis pisos, desde 0 (◀ ▶). Se queda al ir a una ficha y volver.
+        self.page = 0
         self.market = Market()
         self.cash = 0
         self.message: discord.Message | None = None
@@ -615,6 +617,7 @@ class Panel(ui.View):
         barrio: str | None = None,
         listing: str | None = None,
         building: str | None = None,
+        page: int | None = None,
     ) -> dict[str, Any]:
         market, me = self.market, self.owner.id
         names = self._names(market)
@@ -662,8 +665,9 @@ class Panel(ui.View):
                 income = await self.cog.service.work_income(self.guild.id, me)
                 effort = rules.effort(market.leases[home[1]].rent, income)
             return view.portfolio_state(
-                market, me, self.owner.display_name, self.cash, week, news, names, effort, today
-            )
+                market, me, self.owner.display_name, self.cash, week, news, names, effort, today,
+                page=self.page if page is None else page,
+            )  # fmt: skip
         if screen == CAJA:
             return self._checkout_state()
         if screen == VPO:
@@ -784,7 +788,7 @@ class Panel(ui.View):
             stamp=stamp,
         )
 
-    def _neighbours(self) -> list[tuple[str, dict[str, str]]]:
+    def _neighbours(self) -> list[tuple[str, dict[str, Any]]]:
         """Pantallas que se abren desde la de ahora, de la más a la menos probable.
 
         Salen con los datos que ya hay en memoria (volver al mapa, la cartera, la ficha
@@ -834,8 +838,10 @@ class Panel(ui.View):
         if self.screen in (REFORMAS, IMPREVISTOS, RESENAS, JUNTA):
             return [(FICHA, {"listing": self.listing}), (GESTION, {"listing": self.listing})]
         if self.screen == CARTERA:
-            mine = self.market.of_member(me)[:6]
-            return [(FICHA, {"listing": h.listing}) for h in mine] + [(MAPA, {}), (VPO, {})]
+            page, pages, keys = view.portfolio_page(self.market, me, self.page)
+            turns = [(CARTERA, {"page": p}) for p in (page + 1, page - 1) if 0 <= p < pages]
+            mine = [k for k in keys if not k.startswith(view.VPO_PREFIX)][:6]
+            return [*turns, *((FICHA, {"listing": k}) for k in mine), (MAPA, {}), (VPO, {})]
         if self.screen == VPO:
             return [(MAPA, {}), (CARTERA, {})]
         if self.screen == SUBASTAS:
@@ -877,6 +883,7 @@ class Panel(ui.View):
             self.pending,
             self.financed,
             self.done is None,
+            self.page,
         )
 
     def _default_checkouts(self) -> list[tuple[bool, int]]:
@@ -986,7 +993,9 @@ class Panel(ui.View):
         elif self.screen == LLAVES:
             self._keys_buttons()
         elif self.screen == CARTERA:
-            mine = self.market.of_member(self.owner.id)[:MAX_OPTIONS]
+            self.page, pages, keys = view.portfolio_page(self.market, self.owner.id, self.page)
+            held = {h.listing: h for h in self.market.of_member(self.owner.id)}
+            mine = [held[k] for k in keys if k in held]  # la VPO tiene su botón 🏛️
             if mine:
                 pick: ui.Select = ui.Select(
                     placeholder="Abre uno de tus pisos",
@@ -1008,6 +1017,11 @@ class Panel(ui.View):
             self._button("🏛️ VPO", "vpo", self._go_vpo, row=2)
             self._auctions_button(row=2)
             self._waiting_button(row=2)
+            if pages > 1:
+                self._button("◀", "pagina:antes", self._page_back, row=3,
+                             disabled=self.page == 0)  # fmt: skip
+                self._button("▶", "pagina:despues", self._page_next, row=3,
+                             disabled=self.page >= pages - 1)  # fmt: skip
             self._portfolio_buttons()
         elif self.screen == VPO:
             self._vpo_buttons()
@@ -1779,7 +1793,11 @@ class Panel(ui.View):
             self.cog.bot,
             self.guild.id,
             self.owner.id,
-            housing_panel_stats(screen=screen, building=self.building),
+            housing_panel_stats(
+                screen=screen,
+                building=self.building,
+                pages=self._pages() if screen == CARTERA else 0,
+            ),
             getattr(interaction.channel, "id", None),
         )
 
@@ -1788,6 +1806,30 @@ class Panel(ui.View):
 
     async def _go_portfolio(self, interaction: discord.Interaction) -> None:
         await self._go(interaction, CARTERA)
+
+    async def _page_back(self, interaction: discord.Interaction) -> None:
+        await self._turn_page(interaction, -1)
+
+    async def _page_next(self, interaction: discord.Interaction) -> None:
+        await self._turn_page(interaction, 1)
+
+    async def _turn_page(self, interaction: discord.Interaction, step: int) -> None:
+        """◀ ▶ de 🔑 Mis pisos: la página de al lado (`show` la mete en las que haya)."""
+        await ack(interaction)
+        self.page += step
+        self.confirm = None
+        await self.show(interaction)
+        logros.note(
+            self.cog.bot,
+            self.guild.id,
+            self.owner.id,
+            housing_panel_stats(screen="pagina", pages=self._pages()),
+            getattr(interaction.channel, "id", None),
+        )
+
+    def _pages(self) -> int:
+        """Cuántas páginas ocupa ahora 🔑 Mis pisos."""
+        return view.portfolio_pages(len(view.portfolio_keys(self.market, self.owner.id)))
 
     async def _go_vpo(self, interaction: discord.Interaction) -> None:
         await self._go(interaction, VPO)

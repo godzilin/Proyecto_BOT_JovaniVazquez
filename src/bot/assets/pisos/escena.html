@@ -2781,12 +2781,14 @@ function paintCartera(st) {
   }
   // Las filas con hipoteca llevan una línea más y necesitan alto: si no caben con la franja de «Última hora»,
   // se quita la franja; si aun así no caben, se enseñan menos y el resto va a «y N más».
+  // Python manda una página de 10 como mucho (◀ ▶ para el resto): abajo a la derecha, «Página 2 de 3».
   const hasMort = st.items.some((it) => it.mortgage), minH = hasMort ? 68 : 44;
+  const paged = (st.pages || 1) > 1;
   let count = Math.min(st.items.length, 10), layout;
   for (; count >= 1; count--) {
     const more = st.items.length - count, many = count > 5, rows = Math.ceil(count / (many ? 2 : 1)), gap = many ? 8 : 10;
     for (const withNews of st.news.length ? [true, false] : [false]) {
-      const bottom = many ? (withNews ? 540 : more ? 570 : 604) : 604;
+      const bottom = many ? (withNews ? 540 : more || paged ? 570 : 604) : 604;
       const rh = clamp(Math.floor((bottom - 192 - gap * (rows - 1)) / rows), 44, 96);
       layout = { count, more, many, rows, gap, rh, withNews };
       if (rh >= minH) break;
@@ -2794,6 +2796,7 @@ function paintCartera(st) {
     if (layout.rh >= minH) break;
   }
   const { more, many, rows, gap, rh, withNews } = layout;
+  const tail = [more ? `y ${more} más` : "", paged ? `Página ${st.page} de ${st.pages}` : ""].filter(Boolean).join(" · ");
   const items = st.items.slice(0, layout.count), top = 192;
   const hasNews = st.news.length > 0 && (many ? withNews : true);
   const lw = many ? 476 : hasNews ? 620 : 968;
@@ -2802,11 +2805,11 @@ function paintCartera(st) {
     itemRow(it, 16 + col * (lw + 16), top + r * (rh + gap), lw, rh, rh < 70 || hasMort);
   });
   if (!many) { // si sobra sitio, el tiburón da su consejo
-    const used = top + items.length * (rh + gap), free = 604 - used - (more ? 26 : 0);
+    const used = top + items.length * (rh + gap), free = 604 - used - (tail ? 26 : 0);
     if (free >= 110) postIt(SHARK_TIPS[hash(u.name) % SHARK_TIPS.length], 16, used + 8, Math.min(lw, 540), Math.min(free - 8, 130), hash(u.name + "r") % 2 ? 0.012 : -0.012, "CONSEJO DEL TIBURÓN");
   }
   const news = st.news.map((raw) => { const i = raw.indexOf(" · "); return i > 0 ? [raw.slice(0, i), raw.slice(i + 3)] : ["", raw]; });
-  if (more && !(many && hasNews)) T(`y ${more} más`, 984, many ? 588 : 620, { font: F.m(20), color: C.mute, align: "right" });
+  if (tail && !(many && hasNews)) T(tail, 984, many ? 588 : 620, { font: F.m(20), color: C.mute, align: "right" });
   if (!hasNews) return;
   if (!many) {
     card(652, 192, 332, 412); T("Últimas noticias", 668, 214, { font: F.m(19), color: C.mute });
@@ -2821,8 +2824,9 @@ function paintCartera(st) {
   } else {
     card(16, 552, 968, 52); T("Última hora", 32, 578, { font: F.m(18), color: C.mute });
     T(news[0][0], 160, 578, { font: F.d(16), color: C.orange });
-    fitText(news[0][1], 222, 578, more ? 640 : 750, F.r, 20, 14, { color: C.ink });
-    if (more) T(`y ${more} más`, 972, 578, { font: F.m(20), color: C.mute, align: "right" });
+    // la noticia acaba donde empieza «y N más · Página 2 de 3»
+    fitText(news[0][1], 222, 578, tail ? 972 - 16 - width(tail, F.m(20)) - 222 : 750, F.r, 20, 14, { color: C.ink });
+    if (tail) T(tail, 972, 578, { font: F.m(20), color: C.mute, align: "right" });
   }
 }
 

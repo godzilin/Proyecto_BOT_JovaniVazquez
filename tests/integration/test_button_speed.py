@@ -2394,6 +2394,22 @@ async def press_pisos_pick(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+async def press_pisos_page(client: BotClient, owner: MagicMock) -> Click:
+    from bot.repositories.economy import LedgerEntry
+    from bot.services.housing_catalog import LISTINGS
+
+    await client.economy.repository.apply(GUILD_ID, OWNER_ID, [LedgerEntry(10**9, "test")])
+    for listing in LISTINGS[:11]:  # una más de las que caben: dos páginas
+        await client.get_cog("Pisos").service.buy(GUILD_ID, OWNER_ID, listing.key, 1)
+    panel = pisos_panel(client, owner)
+    panel.screen = "cartera"
+
+    async def click(interaction: MagicMock) -> None:
+        await panel._page_next(interaction)
+
+    return click
+
+
 async def press_pisos_remortgage(client: BotClient, owner: MagicMock) -> Click:
     await pisos_owned(client, "taco_bajo")
     panel = pisos_panel(client, owner)
@@ -3092,6 +3108,7 @@ CASES: dict[str, Press] = {
     "vender: poner en el Rastro": press_vender_stall,
     "vender: ofrecer a un miembro": press_vender_member,
     "pisos: elegir barrio": press_pisos_barrio,
+    "pisos: pasar de página en Mis pisos": press_pisos_page,
     "pisos: pagar en la caja": press_pisos_pay,
     "pisos: cambiar la renta": press_pisos_level,
     "pisos: caja con hipoteca": press_pisos_mortgage,

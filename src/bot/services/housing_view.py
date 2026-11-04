@@ -14,7 +14,7 @@ Pantallas (`screen`):
 - `mapa`: Gran Canaria y Tenerife con una chincheta por barrio.
 - `barrio`: los nueve inmuebles de un barrio y su obra nueva (o el solar donde irá).
 - `ficha`: un inmueble con todas sus cuentas.
-- `cartera`: lo que tiene un miembro.
+- `cartera`: lo que tiene un miembro, de `PORTFOLIO_PAGE` en `PORTFOLIO_PAGE` (◀ ▶).
 - `caja`: la cuenta de una compra o una venta, antes o después de pagar.
 - `vpo`: las viviendas de protección oficial, el sorteo de los lunes y lo tuyo.
 
@@ -70,6 +70,9 @@ State = dict[str, Any]
 BARRIO_SLOTS = 10
 #: Clave de la tarjeta del solar de un barrio sin obra nueva (`solar_<barrio>`).
 SOLAR_PREFIX = "solar_"
+#: Inmuebles por página de 🔑 Mis pisos: los que caben en la imagen aun con hipoteca
+#: (dos columnas de cinco) y en su desplegable. El resto, con ◀ ▶.
+PORTFOLIO_PAGE = 10
 
 #: Cómo se dice cada estado de un inmueble con dueño.
 STATUS_TEXT = {
@@ -721,6 +724,32 @@ def mortgage_box(mortgages: list) -> State | None:  # list[Mortgage]
     }
 
 
+def portfolio_keys(market: Market, user_id: int) -> list[str]:
+    """Los inmuebles de 🔑 Mis pisos, en el orden en que salen: su VPO (si tiene) y luego
+    cada participación. La imagen y el desplegable de cada página salen de esta lista."""
+    keys = [f"{VPO_PREFIX}{unit}"] if (unit := market.vpo_of(user_id)) is not None else []
+    keys += [h.listing for h in market.of_member(user_id) if market.listing(h.listing)]
+    return keys
+
+
+def portfolio_pages(count: int) -> int:
+    """Cuántas páginas ocupan `count` inmuebles en 🔑 Mis pisos (al menos una)."""
+    return max(1, -(-count // PORTFOLIO_PAGE))
+
+
+def portfolio_page(market: Market, user_id: int, page: int) -> tuple[int, int, list[str]]:
+    """La página `page` de 🔑 Mis pisos, contando desde 0 y metida en las que hay.
+
+    Returns:
+        `(página, páginas, claves de esa página)`: la página ya corregida (si vendió y
+        sobran páginas, la última), cuántas hay y los inmuebles que enseña.
+    """
+    keys = portfolio_keys(market, user_id)
+    pages = portfolio_pages(len(keys))
+    page = min(max(page, 0), pages - 1)
+    return page, pages, keys[page * PORTFOLIO_PAGE : (page + 1) * PORTFOLIO_PAGE]
+
+
 def portfolio_state(
     market: Market,
     user_id: int,
@@ -731,13 +760,18 @@ def portfolio_state(
     names: dict[int, str],
     effort: float | None = None,
     today: date | None = None,
+    page: int = 0,
 ) -> State:
     """Lo que tiene un miembro: cada inmueble, lo cobrado en 7 días y las noticias.
+
+    Las cifras de arriba (efectivo, ladrillo, deuda, candidatos) son de todo lo que tiene;
+    la lista, solo de una página (`PORTFOLIO_PAGE` inmuebles).
 
     Args:
         effort: Si vive de alquiler en el piso de otro miembro, la parte de su sueldo que
             se le va en la renta (`housing.effort`), para la línea de dónde vive.
         today: Hoy, para los candidatos que esperan.
+        page: La página de la lista, desde 0 (`portfolio_page` la corrige si sobra).
     """
     items = []
     for holding in market.of_member(user_id):
@@ -789,10 +823,16 @@ def portfolio_state(
     worth += VPO_BY_KEY[unit].price if unit is not None else 0
     debt = sum(m.owed for m in market.mortgages_of(user_id)) + market.bank_debts.get(user_id, 0)
     home = market.homes.get(user_id)
+    waiting = sum(1 for i in items if i.get("waiting"))
+    page, pages, shown = portfolio_page(market, user_id, page)
+    visible = set(shown)
+    items = [i for i in items if i["key"] in visible]
     state: State = {
         "screen": "cartera",
         "user": {"name": name, "cash": format_amount(cash), "worth": format_amount(worth)},
         "items": items,
+        "page": page + 1,
+        "pages": pages,
         "week": {
             "rent": format_amount(week.rent),
             "ibi": format_amount(week.ibi),
@@ -808,13 +848,14 @@ def portfolio_state(
         "euribor": "Euríbor " + _pct(market.euribor, 2),
         "living": _living(market, home, names, effort),
         "socimi": user_id in market.socimi,
-        "waiting": sum(1 for i in items if i.get("waiting")),
+        "waiting": waiting,
         "footer": "Lo cobrado es antes del IRPF, que se retiene al cobrar",
     }
     state["fallback"] = [
         f"Los pisos de {name}: {format_amount(worth)}",
         f"Últimos 7 días: {state['week']['rent']} de renta, {state['week']['net']} netos",
         *(f"{i['title']} ({i['shares']} %): {i['value']} · {i['status']}" for i in items),
+        *([f"Página {page + 1} de {pages}"] if pages > 1 else []),
     ] if items else [f"{name} no tiene ningún piso. Generación inquilina."]  # fmt: skip
     return state
 

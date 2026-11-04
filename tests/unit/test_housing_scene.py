@@ -224,6 +224,11 @@ def money_samples() -> dict[str, dict[str, Any]]:
         ),
         "cartera_ejecutada": view.portfolio_state(m, 70, "Luis", 50, MemberDay(), [], NAMES)
         | {"bank_debt": "25.000 Y$", "debt": "25.000 Y$"},
+        # Más de 10: la página que toca y «Página 2 de 3» abajo, con y sin «Última hora».
+        "cartera_paginada": many
+        | {"page": 2, "pages": 3, "items": [i | {"mortgage": ""} for i in many["items"]]},
+        "cartera_paginada_sin_noticias": many | {"page": 3, "pages": 3, "news": []},
+        "cartera_paginada_corta": {**full, "page": 3, "pages": 3},
         "vpo_apuntada": view.vpo_state(
             m, 20, NAMES, eligible=True, reason="", next_draw="lunes 19/10", income=6000
         ),
@@ -1662,3 +1667,38 @@ async def test_node_y_chromium_pintan_lo_mismo(scene: HousingScene) -> None:
     ):
         x, y = (browser_scene.assemble([patch], size_of(state))[0] for patch in (patch_b, patch_n))
         assert difference(x.convert("RGB"), y.convert("RGB")) < 4, name
+
+
+def paged_market(count: int, vpo: bool = False) -> Market:
+    """Un miembro (el 10) con participaciones en `count` inmuebles y, si se pide, su VPO."""
+    holdings = {item.key: {10: Holding(item.key, 10, 1, 1, 1, 0)} for item in LISTINGS[:count]}
+    owners = {"anaza": VpoOwner("anaza", 10, 430000, 0, 0, 0)} if vpo else {}
+    return Market(holdings=holdings, vpo=owners)
+
+
+def test_mis_pisos_va_de_diez_en_diez_y_corrige_la_pagina_que_sobra() -> None:
+    m = paged_market(23)
+    keys = view.portfolio_keys(m, 10)
+    assert len(keys) == 23
+    first = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES)
+    assert (first["page"], first["pages"]) == (1, 3)
+    assert [i["key"] for i in first["items"]] == keys[:10]
+    last = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES, page=2)
+    assert [i["key"] for i in last["items"]] == keys[20:]
+    assert last["fallback"][-1] == "Página 3 de 3"
+    # Si vende y sobra la página en la que estaba, se ve la última que queda.
+    assert view.portfolio_page(m, 10, 99)[:2] == (2, 3)
+    assert view.portfolio_page(m, 10, -1)[0] == 0
+    # Lo de arriba (el ladrillo) es de todo, no de la página.
+    assert first["user"]["worth"] == last["user"]["worth"]
+
+
+def test_la_vpo_abre_la_primera_pagina_de_mis_pisos() -> None:
+    m = paged_market(10, vpo=True)
+    assert view.portfolio_pages(len(view.portfolio_keys(m, 10))) == 2
+    first = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES)
+    assert first["items"][0]["kind"] == "vpo" and len(first["items"]) == 10
+    second = view.portfolio_state(m, 10, "Ana", 1, MemberDay(), [], NAMES, page=1)
+    assert [i["key"] for i in second["items"]] == [LISTINGS[9].key]
+    alone = view.portfolio_state(paged_market(10), 10, "Ana", 1, MemberDay(), [], NAMES)
+    assert alone["pages"] == 1 and len(alone["items"]) == 10
