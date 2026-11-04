@@ -63,8 +63,8 @@ def test_team_style_es_estable_y_valido_para_un_equipo_desconocido() -> None:
     assert all(t.pattern in {"plain", "stripes", "hoops", "halves", "sash"} for t in TEAMS.values())
 
 
-def test_las_muestras_cubren_los_dos_tipos() -> None:
-    assert {s["kind"] for s in samples().values()} == {"boleto", "final"}
+def test_las_muestras_cubren_los_tres_tipos() -> None:
+    assert {s["kind"] for s in samples().values()} == {"boleto", "combinada", "final"}
 
 
 async def test_sin_node_ni_chromium_no_se_pinta() -> None:

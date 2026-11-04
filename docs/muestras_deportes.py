@@ -1,4 +1,4 @@
-"""Muestras de las imágenes de `/deportes`: el boleto y el marcador final.
+"""Muestras de las imágenes de `/deportes`: el boleto, la combinada y el marcador final.
 
 Sirve para revisar la escena (`assets/deportes/escena.html`) a ojo y a las pruebas
 (`tests/unit/test_sports_scene.py`), que importan `samples()`.
@@ -39,6 +39,35 @@ def _boleto(home: str, away: str, **extra: Any) -> dict[str, Any]:
         "payout": "3.440 Y$",
         "player": "Diego",
         "serial": "Nº 000123",
+    }
+    return {**state, **extra}
+
+
+def _leg(home: str, away: str, **extra: Any) -> dict[str, Any]:
+    leg: dict[str, Any] = {
+        "league": "LaLiga",
+        "accent": LALIGA,
+        "home": team_style(home),
+        "away": team_style(away),
+        "kickoff": "sáb 1/11 · 21:00",
+        "market": "Resultado",
+        "pick": f"1 ({home})",
+        "odds": "×1,85",
+    }
+    return {**leg, **extra}
+
+
+def _combinada(legs: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "kind": "combinada",
+        "accent": LALIGA,
+        "legs": legs,
+        "odds": "×7,58",
+        "stake": "100 Y$",
+        "payout": "758 Y$",
+        "capped": False,
+        "player": "Diego",
+        "serial": "Nº C00012",
     }
     return {**state, **extra}
 
@@ -87,6 +116,78 @@ def samples() -> dict[str, dict[str, Any]]:
             market="Resultado",
             pick="Empate",
             odds="×3,40",
+        ),
+        "combinada_2": _combinada(
+            [
+                _leg("Real Madrid", "Barcelona"),
+                _leg(
+                    "Sevilla",
+                    "Betis",
+                    market="Más/menos goles",
+                    pick="Más de 2,5 goles",
+                    odds="×1,72",
+                ),
+            ],
+            odds="×3,18",
+            payout="318 Y$",
+        ),
+        "combinada_5_mixta": _combinada(
+            [
+                _leg("Real Racing Club de Santander", "Atlético Madrid", odds="×2,10"),
+                _leg(
+                    "Sevilla",
+                    "Villarreal",
+                    market="Más/menos goles",
+                    pick="Más de 2,5 goles",
+                    odds="×1,72",
+                    kickoff="dom 2/11 · 16:15",
+                ),
+                _leg(
+                    "ŠK Slovan Bratislava",
+                    "Bayern Munich",
+                    league="Champions",
+                    accent=CHAMPIONS,
+                    market="Ambos marcan",
+                    pick="Marcan los dos",
+                    odds="×1,95",
+                    kickoff="mar 5/11 · 21:00",
+                ),
+                _leg(
+                    "Paris Saint Germain",
+                    "Real Racing Club de Santander",
+                    league="Champions",
+                    accent=CHAMPIONS,
+                    pick="X (empate)",
+                    odds="×3,60",
+                    kickoff="mié 6/11 · 18:45",
+                ),
+                _leg(
+                    "Barcelona",
+                    "ŠK Slovan Bratislava",
+                    league="Champions",
+                    accent=CHAMPIONS,
+                    pick="1 (Barcelona)",
+                    odds="×1,25",
+                    kickoff="mié 6/11 · 21:00",
+                ),
+            ],
+            odds="×37,64",
+            stake="5.000 Y$",
+            payout="188.200 Y$",
+            serial="Nº C00345",
+        ),
+        "combinada_tope": _combinada(
+            [
+                _leg("Real Madrid", "Barcelona", odds="×12,40"),
+                _leg("Atlético Madrid", "Sevilla", pick="X (empate)", odds="×9,80"),
+                _leg("Villarreal", "Betis", pick="2 (Betis)", odds="×8,30"),
+            ],
+            odds="×1.008,6",
+            stake="2.500.000 Y$",
+            payout="1.000.000 Y$",
+            capped=True,
+            player="Ángel 🎰🔥 ☆",
+            serial="Nº C99999",
         ),
         "final_3_1": _final("Bayern Munich", "Paris Saint Germain", 3, 1),
         "final_0_0": _final(
