@@ -15923,9 +15923,11 @@ def _build_catalog() -> tuple[Achievement, ...]:
     # ~1,5 %; a ×100, ~0,7 %; una de 5 patas con cuotas normales, ~3-5 %. Quien las juega a menudo
     # hace unas 4 a la semana, así que 10 combinadas son 2-3 semanas (Raro), 50 son unos 3 meses
     # (Legendario) y acertar una a ×10 o más, unas 5 semanas (Épico). Ganar a ×50 son unos 4
-    # meses (Legendario); a ×100 y el tope de 1.000.000 Y$, más de un año (Mítico). Lo que se
-    # fuerza a propósito (5 patas, mezclar ligas, el mínimo) es Común o Raro. Las cifras en Y$ salen
-    # de una apuesta normal de 1.000-5.000 Y$.
+    # meses (Legendario); cobrar el tope de 1.000.000 Y$ (50.000 Y$ a ×20 o más), más de un año
+    # (Mítico). Lo que se fuerza a propósito (5 patas, mezclar ligas, el mínimo, las cuotas con
+    # guasa) es Común o Raro. Que se anulen todos los partidos de una (Épico) pide al menos dos
+    # aplazados a la vez; uno solo ya es Raro en las sencillas. Las cifras en Y$ salen de una
+    # apuesta normal de 1.000-5.000 Y$.
     a += _tiers("deportes", "sports_combos", [
         (1, "sports_combo_1", "Todos a la combi", "Haz tu primera combinada deportiva.", C),
         (10, "sports_combo_10", "Sumando y sigue", "Haz 10 combinadas deportivas.", R),
@@ -15998,11 +16000,11 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a += _tiers("deportes", "sports_combo_666", [
         (1, "sports_combo_666", "Patas de cabra",
-         "Haz una combinada con una cuota total de exactamente ×6,66.", E, True),
+         "Haz una combinada con una cuota total de exactamente ×6,66.", R, True),
     ])  # fmt: skip
     a += _tiers("deportes", "sports_combo_69", [
         (1, "sports_combo_69", "Patas entrelazadas",
-         "Haz una combinada con una cuota total de exactamente ×69,00.", E, True),
+         "Haz una combinada con una cuota total de exactamente ×69,00.", R, True),
     ])  # fmt: skip
     a += _tiers("deportes", "sports_combo_capped", [
         (1, "sports_combo_capped", "Tope de gama",
@@ -16015,7 +16017,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a += _tiers("deportes", "sports_combo_refunds", [
         (1, "sports_combo_refunds", "Ctrl+Z",
-         "Recupera tu apuesta entera: todos los partidos de una combinada se anulan.", L, True),
+         "Recupera tu apuesta entera: todos los partidos de una combinada se anulan.", E, True),
     ])  # fmt: skip
     a += _tiers("deportes", "sports_combo_full_win", [
         (1, "sports_combo_full_win", "Cinco horas con Mario",
