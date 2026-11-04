@@ -78,6 +78,7 @@ from bot.services.achievements import (
     total_reward,
     voice_minute_stats,
     voice_move_stats,
+    with_derived,
 )
 from bot.services.economy import (
     CURRENCY_EMOJI,
@@ -217,7 +218,7 @@ def _achievement_line(
         return f"⏳ {rarity.emoji} **{achievement.name}**\n-# {achievement.description}"
     if achievement.secret:
         return f"🔒 {rarity.emoji} **???** · secreto · {share}"
-    current, goal = progress(achievement, stats)
+    current, goal = progress(achievement, stats, derived=True)
     return (
         f"⬛ {rarity.emoji} **{achievement.name}** · `{progress_bar(current, goal)}` "
         f"{format_value(current, achievement.unit)}/{format_value(goal, achievement.unit)}\n"
@@ -236,7 +237,8 @@ def _category_lines(
     holders: Mapping[str, int],
     members: int,
 ) -> list[str]:
-    stats = with_unlocked_count(profile.stats, profile.unlocked)
+    # Una vez por página, no por logro (`progress(..., derived=True)`).
+    stats = with_derived(with_unlocked_count(profile.stats, profile.unlocked))
     items = [a for a in CATALOG if a.category == category.key]
     return [_achievement_line(a, stats, profile.unlocked, holders, members) for a in items]
 
@@ -372,12 +374,14 @@ def summary_embed(
             inline=False,
         )
 
-    stats = with_unlocked_count(profile.stats, unlocked)
+    # Una vez para todos: con `with_derived` en cada logro, el resumen paraba el bucle
+    # varios segundos (informe del 04/11/2026, «Bloqueos del bucle»).
+    stats = with_derived(with_unlocked_count(profile.stats, unlocked))
     candidates = []
     for achievement in COUNTED:
         if achievement.id in unlocked or achievement.secret:
             continue
-        current, goal = progress(achievement, stats)
+        current, goal = progress(achievement, stats, derived=True)
         if 0 < current < goal:
             candidates.append((current / goal, achievement, current))
     candidates.sort(key=lambda item: item[0], reverse=True)

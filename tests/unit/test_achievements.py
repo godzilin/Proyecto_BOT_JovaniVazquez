@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import sqlite3
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -1728,6 +1729,34 @@ def test_resumen_sugiere_los_logros_mas_cercanos() -> None:
     embed = summary_embed("Diego", None, Profile({"messages": 95}, {}), {}, 3)
     near = next(f for f in embed.fields if f.name == "Casi lo tienes")
     assert "Ya no hay quien te calle" in near.value
+
+
+def test_el_resumen_y_las_categorias_calculan_lo_derivado_una_sola_vez(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Calcularlo en cada logro (más de 7.000) paraba el bucle segundos al abrir `logros`.
+    import bot.cogs.achievements as cog_module
+    import bot.services.achievements as service_module
+
+    calls: list[int] = []
+    real = service_module.with_derived
+
+    def counted(stats: Mapping[str, int]) -> dict[str, int]:
+        calls.append(1)
+        return real(stats)
+
+    monkeypatch.setattr(service_module, "with_derived", counted)
+    monkeypatch.setattr(cog_module, "with_derived", counted)
+    # Los mensajes importados solo cuentan a través de lo derivado (`messages_total`).
+    profile = Profile({"messages": 50, "messages_imported": 45}, {})
+    embed = summary_embed("Diego", None, profile, {}, 3)
+    near = next(f for f in embed.fields if f.name == "Casi lo tienes")
+    assert "Ya no hay quien te calle" in near.value
+    assert len(calls) == 1
+    calls.clear()
+    category = next(c for c in CATEGORIES if c.key == "chat")
+    assert "95/" in (category_embed(category, "Diego", profile, {}, 5).description or "")
+    assert len(calls) == 1
 
 
 # -- Ganchos en los juegos -------------------------------------------------------------
