@@ -8,6 +8,16 @@ criterio.
 
 ## 9.x
 
+### 9.43.0 · 2026-11-05
+
+- Mascotas: `mascota` enseña un retrato dibujado de tu mascota, con la cara de su especie, su raza, su ropa, su fondo y su cara del momento (duerme de madrugada, sale contenta si la has cuidado, de fiesta en su aniversario)
+- Mascotas: 👗 Vestir, con 68 prendas y fondos por hueco (cabeza, ojos, cuello, cuerpo y fondo) que se ven puestos antes de comprarlos; se venden en la tienda (también por temporada), se ganan con logros o salen en la colección 👗 Armario de las cajas
+- Mascotas: 🧬 Raza, con 52 razas de pago (siamés, beagle, guacamayo, koi showa…) que se miran antes y se compran desde el panel
+- Mascotas: 📔 Álbum con las fotos que se hacen solas (niveles, aniversario, primera ropa, visitas) y 📸 Enseñar para publicar el retrato en el canal
+- Mascotas: 🦮 Pasear (un cuidado más al día) y 🏠 Visitar la mascota de otro miembro, que suma vínculo a las dos y deja una foto de las dos juntas
+- Mascotas: el aniversario de su llegada a casa sale en los mensajes del bot, con foto y tarta
+- Logros: 45 nuevos en 🐾 Mascotas y uno de la colección 👗 Armario de las cajas
+
 ### 9.42.0 · 2026-11-05
 
 - Predicciones: `predice` para apostar a preguntas reales de Polymarket (las generales del 29 de noviembre, el mundo, la economía y la cripto, la cultura y la tecnología) con cuotas sacadas de su precio

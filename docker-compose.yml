@@ -28,7 +28,7 @@ services:
     # bot/services/horses_scene.py): unos 170 MB, que se cierra tras 10 min sin
     # uso. La moneda, los dados, la ruleta, el Pollo, el autobús, el bacará, el
     # póker, la timba, los gallos, el 4 en raya, la torre, Allá tú, la guerra, el blackjack, las tragaperras (la clásica y
-    # los Botes), la carrera de los caballos, el panel de `pisos`, el del negocio de `pala` (~75 MB medidos con la fase 2) y la lotería (una sola escena para sus cinco imágenes) ya no usan Chromium: los pintan procesos de Node
+    # los Botes), la carrera de los caballos, el panel de `pisos`, el del negocio de `pala` (~75 MB medidos con la fase 2), la lotería (una sola escena para sus cinco imágenes) y el retrato de `mascota` ya no usan Chromium: los pintan procesos de Node
     # (bot/services/node_scene.py) compartidos por todos los juegos: uno siempre abierto y hasta 4, de ~80 MB más ~50 MB
     # por escena cargada (3 como mucho; la de los Botes, con las tres máquinas cargadas, ~120 MB), así que como mucho ~1,2 GB. Con el bot (~300 MB) y el Chromium de los caballos
     # se queda por debajo de los 2 GB; los procesos de más se cierran a los 10 min sin uso. Con 768 MB el sistema mataba
