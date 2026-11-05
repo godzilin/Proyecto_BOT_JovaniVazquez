@@ -38,6 +38,7 @@ Solo canvas 2D, sin filtros: Skia en Node y Chromium no siempre coinciden en ell
 </style>
 </head>
 <body>
+<script src="ropa.js"></script>
 <script>
 (() => {
 "use strict";
@@ -47,7 +48,14 @@ const H = 400;
 const TAU = Math.PI * 2;
 const big = document.createElement("canvas"); big.width = W * S; big.height = H * S;
 const out = document.createElement("canvas"); out.width = W; out.height = H;
-const g = big.getContext("2d");
+// `let`: para sacar los anclajes sin pintar se cambia un momento por `NOOP` (ver `anchorsOf`).
+let g = big.getContext("2d");
+// Un lienzo que no hace nada: acepta cualquier llamada y cualquier propiedad.
+const NOOP = new Proxy(function () {}, {
+  get: (_t, prop) => (prop === "measureText" ? () => ({ width: 0 }) : NOOP),
+  set: () => true,
+  apply: () => NOOP,
+});
 const octx = out.getContext("2d");
 
 const MONT = "Montserrat, RobotoM, sans-serif";
@@ -1175,25 +1183,40 @@ function backdropGradient(cols, night) {
   fillEll(320, 346, 210, 34, alpha(light(accent, 0.45), 0.55));
   if (night) { g.fillStyle = "rgba(14,18,56,0.4)"; g.fillRect(0, 0, W, H); }
 }
-function paintBackdrop(bd, night) {
+function paintBackdrop(bd, night, seed) {
   const cols = Array.isArray(bd && bd.colors) ? bd.colors : [];
-  if (bd && bd.shape === "casa") backdropHome(cols, night); else backdropGradient(cols, night);
+  const shape = bd && bd.shape;
+  if (!shape || shape === "casa") { backdropHome(cols, night); return; }
+  if (window.Ropa && window.Ropa.SHAPES.fondo.includes(shape)) {
+    window.Ropa.backdrop(g, bd, W, H, seed);
+    if (night) { g.fillStyle = "rgba(14,18,56,0.4)"; g.fillRect(0, 0, W, H); }
+    return;
+  }
+  backdropGradient(cols, night);
 }
 
 // -- Mascotas ------------------------------------------------------------------------------------
 
-// Aquí se pintarán las prendas: la otra tarea rellena el `switch`. `anchor` está en coordenadas del
-// lienzo (ver `placeAnchors`) y `pet` es el estado de la mascota (para su plan y su raza).
-function drawOutfit(slot, drawing, anchor, pet) {
-  if (!drawing || !anchor) return;
-  switch (slot) {
-    case "cabeza": // sombreros, gorros, coronas: sobre anchor.head (x, y de lo alto, w, tilt)
-    case "ojos": // gafas, antifaces: sobre anchor.eyes (x, y, sep)
-    case "cuello": // collares, pañuelos, pajaritas: sobre anchor.neck (x, y, w)
-    case "cuerpo": // capas, camisetas, trajes: sobre anchor.body (x, y, w, h)
-    default:
-      break;
+// Las prendas las pinta ropa.js (Ropa.item) en su anclaje, ya en coordenadas del lienzo. Las
+// gafas miden lo que la separación de los ojos entre 0,54 (sus cristales van a ±0,27 del ancho), y
+// giran con la cabeza.
+const OUTFIT_ORDER = ["cuerpo", "cuello", "ojos", "cabeza"];
+const DEG = 180 / Math.PI;
+function outfitAnchor(slot, placed) {
+  const tilt = placed.head ? placed.head.tilt || 0 : 0;
+  if (slot === "cabeza" && placed.head) return { x: placed.head.x, y: placed.head.y, w: placed.head.w, a: tilt * DEG };
+  if (slot === "ojos" && placed.eyes) return { x: placed.eyes.x, y: placed.eyes.y, w: placed.eyes.sep / 0.54, a: tilt * DEG };
+  if (slot === "cuello" && placed.neck) {
+    const head = placed.head ? { dy: placed.head.y - placed.neck.y, w: placed.head.w } : null;
+    return { x: placed.neck.x, y: placed.neck.y, w: placed.neck.w, head };
   }
+  if (slot === "cuerpo" && placed.body) return { x: placed.body.x, y: placed.body.y, w: placed.body.w, h: placed.body.h };
+  return null;
+}
+function drawOutfit(slot, drawing, placed) {
+  if (!drawing || !placed || !window.Ropa) return;
+  const anchor = outfitAnchor(slot, placed);
+  if (anchor) window.Ropa.item(g, slot, drawing, anchor);
 }
 // Los anclajes del plan, del espacio del plan al del lienzo. Un hueco que el plan no tiene va a null.
 function placeAnchors(A, plan, ox, gy, s, fx) {
@@ -1216,16 +1239,28 @@ function drawPet(pet, st, ox, gy, s, flip, lean) {
   const dorm = st.mood === "dormida";
   const c = { look: pet.look || {}, mood: st.mood, dy: dorm ? 9 : 0, rot: dorm ? 0.12 : lean, seed: st.seed | 0, species: pet.species };
   const fx = flip ? -1 : 1;
+  const outfit = pet.outfit || {};
+  const back = OUTFIT_ORDER.filter((slot) => window.Ropa && window.Ropa.behind(slot, outfit[slot]));
   fillEll(ox, gy + 6, (SHADOW[plan] || 90) * s, 15 * s, "rgba(40,20,56,0.24)");
-  g.save();
-  g.translate(ox, gy); g.scale(fx * s, s);
-  g.lineJoin = "round"; g.lineCap = "round";
-  const A = PLANS[plan](c);
-  g.restore();
-  const placed = placeAnchors(A, plan, ox, gy, s, fx);
-  for (const [slot, key] of Object.entries(SLOT_ANCHOR)) {
-    const drawing = pet.outfit && pet.outfit[slot];
-    if (drawing) drawOutfit(slot, drawing, placed[key], pet);
+  const paint = () => {
+    g.save();
+    g.translate(ox, gy); g.scale(fx * s, s);
+    g.lineJoin = "round"; g.lineCap = "round";
+    const A = PLANS[plan](c);
+    g.restore();
+    return placeAnchors(A, plan, ox, gy, s, fx);
+  };
+  if (back.length) {
+    // Lo que va detrás (capas, alas) necesita los anclajes antes de pintar la mascota.
+    const real = g;
+    g = NOOP;
+    let dry;
+    try { dry = paint(); } finally { g = real; }
+    for (const slot of back) drawOutfit(slot, outfit[slot], dry);
+  }
+  const placed = paint();
+  for (const slot of OUTFIT_ORDER) {
+    if (outfit[slot] && !back.includes(slot)) drawOutfit(slot, outfit[slot], placed);
   }
   return placed;
 }
@@ -1291,17 +1326,17 @@ function paintConfetti(seed, front) {
 }
 function paintPlate(plate) {
   const name = clean(plate.name), line = clean(plate.line);
-  font("700", 22, MONT);
+  font("700", 28, MONT);
   const w1 = g.measureText(name).width;
-  font("", 13, SOFT);
+  font("", 17, SOFT);
   const w2 = g.measureText(line).width;
-  const w = clamp(Math.max(w1, w2) + 40, 150, 290), h = line ? 56 : 40, x = 16, y = H - 16 - h;
+  const w = clamp(Math.max(w1, w2) + 46, 170, 360), h = line ? 70 : 50, x = 14, y = H - 14 - h;
   g.save();
   g.beginPath(); rr(x + 2, y + 4, w, h, 14); g.fillStyle = "rgba(40,20,56,0.25)"; g.fill();
   g.beginPath(); rr(x, y, w, h, 14); g.fillStyle = "#fffaf0"; g.fill(); g.lineWidth = 3; g.strokeStyle = "#7a5a6e"; g.stroke();
-  fillEll(x + 14, y + h / 2, 3.4, 3.4, "#e58a9b");
-  fitText(name, x + 26, y + (line ? 27 : 28), w - 40, 22, 12, MONT, "#3b2a40", "left", "700");
-  if (line) fitText(line, x + 26, y + 45, w - 40, 13, 9, SOFT, "#7a6a80", "left");
+  fillEll(x + 16, y + h / 2, 4.2, 4.2, "#e58a9b");
+  fitText(name, x + 30, y + (line ? 33 : 34), w - 46, 28, 14, MONT, "#3b2a40", "left", "700");
+  if (line) fitText(line, x + 30, y + 56, w - 46, 17, 11, SOFT, "#7a6a80", "left");
   g.restore();
 }
 function paintCake(x, gy) {
@@ -1322,7 +1357,7 @@ function paintCake(x, gy) {
 
 function paintPortrait(st, plate, debug) {
   const night = st.mood === "dormida";
-  paintBackdrop(st.backdrop, night);
+  paintBackdrop(st.backdrop, night, st.seed | 0);
   const pets = Array.isArray(st.pets) ? st.pets.slice(0, 2) : [];
   const duo = pets.length === 2;
   const gy = 345;

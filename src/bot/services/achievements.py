@@ -11351,7 +11351,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Ponles 250 prendas a tus mascotas.", E),
     ])  # fmt: skip
     a += _tiers("pets", "pet_outfits_owned", [
-        (5, "pet_wardrobe_5", "Fondo de armario", "Ten 5 prendas o fondos para tus mascotas.", C),
+        (5, "pet_wardrobe_5", "Cuatro trapitos y uno más",
+         "Ten 5 prendas o fondos para tus mascotas.", C),
         (20, "pet_wardrobe_20", "Armario empotrado",
          "Ten 20 prendas o fondos para tus mascotas.", R),
         (40, "pet_wardrobe_40", "El vestidor de palacio",

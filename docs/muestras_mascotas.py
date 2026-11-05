@@ -9,6 +9,13 @@ especie nueva, una raza o una prenda antes de entregarla («Añadir una especie�
 - `caras.png`: seis especies variadas en las cuatro caras (tranquila, contenta, dormida, fiesta).
 - `extras.png`: una visita (dos mascotas), el marco de foto del álbum (`caption`), la tarta
   del aniversario (`cake`) y la placa con un nombre largo.
+- `ropa_N.png`: cada prenda de `pet_wardrobe.OUTFITS` puesta, cada una en una especie
+  distinta (van rotando).
+- `conjunto_N.png`: las 28 especies con un conjunto completo (cabeza, ojos, cuello y una
+  capa), para ver que los anclajes cuadran en todas.
+- `fondos.png`: cada fondo con el mismo gato.
+
+Con `--ropa` solo saca las tres de ropa (lo más rápido para ajustar una prenda).
 
 Uso, desde la raíz del repo (necesita `node` y `npm ci` hecho):
 
@@ -36,6 +43,7 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "src"))
 
 from bot.services.pet_scene import PetScene, pet_entry, portrait_state  # noqa: E402
+from bot.services.pet_wardrobe import OUTFIT_BY_KEY, OUTFITS, Slot  # noqa: E402
 from bot.services.pets_looks import LOOKS  # noqa: E402
 
 FONT = HERE / "src" / "bot" / "assets" / "memes" / "fonts" / "robotomedium.ttf"
@@ -116,12 +124,66 @@ def _extra_items() -> list[Item]:
     ]
 
 
-async def main_async(folder: Path, debug: bool, only: set[str] | None) -> list[Path]:
+#: Especies por las que van rotando las prendas en `ropa_N.png`.
+WEAR_SPECIES = ("gato", "perro", "loro", "conejo", "caballo", "pedrusco", "hamster", "cabra")
+#: El conjunto completo de `conjunto_N.png`.
+FULL_LOOK = ("chistera", "gafas_sol", "pajarita", "capa")
+
+
+def _wear_items() -> list[Item]:
+    items: list[Item] = []
+    for i, outfit in enumerate(o for o in OUTFITS if o.slot is not Slot.BACKDROP):
+        species = WEAR_SPECIES[i % len(WEAR_SPECIES)]
+        entry = pet_entry(species, LOOKS[species].default, {outfit.slot: outfit})
+        items.append((f"{outfit.key} · {species}", portrait_state([entry], seed=i)))
+    return items
+
+
+def _full_items() -> list[Item]:
+    look = {OUTFIT_BY_KEY[k].slot: OUTFIT_BY_KEY[k] for k in FULL_LOOK}
+    return [
+        (species, portrait_state([pet_entry(species, LOOKS[species].default, look)], seed=1))
+        for species in LOOKS
+    ]
+
+
+def _backdrop_items() -> list[Item]:
+    cat = _entry("gato")
+    return [
+        (outfit.key, portrait_state([cat], backdrop=outfit, seed=i))
+        for i, outfit in enumerate(o for o in OUTFITS if o.slot is Slot.BACKDROP)
+    ]
+
+
+async def _save_paged(
+    scene: PetScene, items: list[Item], debug: bool, folder: Path, name: str
+) -> list[Path]:
+    per_sheet = COLUMNS * ROWS_PER_SHEET
+    tiles = await _paint(scene, items, debug)
+    written = []
+    for n, start in enumerate(range(0, len(tiles), per_sheet), 1):
+        path = folder / f"{name}_{n}.png"
+        _sheet(tiles[start : start + per_sheet]).save(path)
+        written.append(path)
+    return written
+
+
+async def main_async(
+    folder: Path, debug: bool, only: set[str] | None, clothes: bool = False
+) -> list[Path]:
     """Pinta y guarda las hojas; devuelve sus rutas."""
     folder.mkdir(parents=True, exist_ok=True)
     scene = PetScene()
     written: list[Path] = []
     try:
+        if clothes or not only:
+            written += await _save_paged(scene, _wear_items(), debug, folder, "ropa")
+            written += await _save_paged(scene, _full_items(), debug, folder, "conjunto")
+            path = folder / "fondos.png"
+            _sheet(await _paint(scene, _backdrop_items(), debug)).save(path)
+            written.append(path)
+            if clothes:
+                return written
         per_sheet = COLUMNS * ROWS_PER_SHEET
         tiles = await _paint(scene, _breed_items(only), debug)
         for n, start in enumerate(range(0, len(tiles), per_sheet), 1):
@@ -145,9 +207,10 @@ def main() -> None:
     parser.add_argument("carpeta", type=Path, help="donde dejar las hojas")
     parser.add_argument("--debug", action="store_true", help="marca los anclajes de las prendas")
     parser.add_argument("--especie", help="solo las razas de estas especies, separadas por comas")
+    parser.add_argument("--ropa", action="store_true", help="solo las hojas de ropa y fondos")
     args = parser.parse_args()
     only = {s.strip() for s in args.especie.split(",")} if args.especie else None
-    for path in asyncio.run(main_async(args.carpeta, args.debug, only)):
+    for path in asyncio.run(main_async(args.carpeta, args.debug, only, args.ropa)):
         print(path)
 
 

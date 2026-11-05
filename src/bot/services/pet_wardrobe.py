@@ -19,7 +19,7 @@ prenda es de su dueño, que se la puede poner a todas sus mascotas.
   cualquier pieza, y además se ponen.
 
 **El dibujo.** Cada prenda dice qué forma pinta la escena (`shape`, una función de
-`assets/mascotas/escena.html`), con qué colores (`colors`) y, si acaso, con qué
+`assets/mascotas/ropa.js`, que carga `assets/mascotas/escena.html`), con qué colores (`colors`) y, si acaso, con qué
 estampado (`pattern`). La escena dibuja cada mascota y sabe dónde tiene la cabeza, los
 ojos, el cuello y el lomo, así que la prenda se coloca sola. Una especie sin un hueco (un
 pez no tiene cuello) no lo enseña en el armario (`bot.services.pets_looks.slots_of`).
