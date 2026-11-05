@@ -213,6 +213,26 @@ def test_estadisticas_de_vestir_marcan_las_combinaciones() -> None:
     assert "pet_dressed" not in undress.add
 
 
+def test_la_ficha_no_cambia_con_cada_caricia() -> None:
+    from bot.services.pet_scene import card
+    from bot.services.pets_catalog import SPECIES_BY_KEY
+
+    cat = PetState(id=1, guild_id=GUILD, user_id=OWNER, species="gato", bond=BOND_LEVELS[4] + 1)
+    look = {Slot.HEAD: OUTFIT_BY_KEY["chistera"], Slot.BACKDROP: OUTFIT_BY_KEY["fondo_teide"]}
+
+    def text() -> dict:
+        siames = look_of("gato").breed("siames")
+        return card(cat, SPECIES_BY_KEY["gato"], siames, look, name="Michi",
+                    xp="+2,0 % de XP", active=True, streak=3, best_streak=9)  # fmt: skip
+
+    before = text()
+    apply_care(cat, Care.PET, NOW)
+    assert text() == before, "lo que cambia en cada cuidado no va en la imagen"
+    assert before["level"] == 4 and before["stars"] == 1 and before["breed"] == "Siamés"
+    assert [w["slot"] for w in before["wearing"]] == ["cabeza", "fondo"]
+    assert before["theme"] and before["active"] is True
+
+
 # -- Reglas -----------------------------------------------------------------------------
 
 
@@ -501,7 +521,11 @@ async def test_visitar_suma_a_las_dos_y_deja_foto(tmp_path: Path) -> None:
     assert public.kwargs["ephemeral"] is False
     assert public.kwargs["allowed_mentions"].users == [host]
     duo = [st for st in scene.states if len(st["pets"]) == 2]
-    assert len(duo) == 1 and duo[0]["plate"]["line"] == "De visita"
+    assert len(duo) == 1 and duo[0]["card"]["sub"].startswith("De visita")
+    assert [gst["role"] for gst in duo[0]["card"]["guests"]] == [
+        "Viene de visita",
+        "Recibe en casa",
+    ]
     points = CARE_RULES[Care.VISIT].points
     (cat,) = await cog.repository.pets(GUILD, OWNER)
     (dog,) = await cog.repository.pets(GUILD, OTHER)

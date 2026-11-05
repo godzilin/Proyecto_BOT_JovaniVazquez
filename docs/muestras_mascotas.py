@@ -42,8 +42,10 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "src"))
 
-from bot.services.pet_scene import PetScene, pet_entry, portrait_state  # noqa: E402
+from bot.services.pet_scene import PetScene, card, pet_entry, portrait_state  # noqa: E402
 from bot.services.pet_wardrobe import OUTFIT_BY_KEY, OUTFITS, Slot  # noqa: E402
+from bot.services.pets import BOND_LEVELS, PetState  # noqa: E402
+from bot.services.pets_catalog import SPECIES_BY_KEY  # noqa: E402
 from bot.services.pets_looks import LOOKS  # noqa: E402
 
 FONT = HERE / "src" / "bot" / "assets" / "memes" / "fonts" / "robotomedium.ttf"
@@ -77,8 +79,25 @@ def _sheet(tiles: list[tuple[str, bytes]], columns: int = COLUMNS) -> Image.Imag
     return sheet
 
 
+def _with_card(state: dict[str, Any]) -> dict[str, Any]:
+    """Rellena la ficha de un retrato de una mascota que no la trae (nivel 4, racha de 5)."""
+    if state["card"] or len(state["pets"]) != 1:
+        return state
+    entry = state["pets"][0]
+    species = SPECIES_BY_KEY[entry["species"]]
+    look = LOOKS[entry["species"]]
+    breed = next((b for b in look.breeds if dict(b.look) == entry["look"]), look.default)
+    pet = PetState(id=1, guild_id=1, user_id=1, species=species.key, bond=BOND_LEVELS[4])
+    worn = {o.slot: o for o in OUTFITS if o.drawing() in entry["outfit"].values()}
+    if state["backdrop"]["shape"] != "casa":
+        worn |= {o.slot: o for o in OUTFITS if o.drawing() == state["backdrop"]}
+    text = card(pet, species, breed, worn, name=species.name.split()[0], xp="+2,0 % de XP",
+                active=True, streak=5, best_streak=12)  # fmt: skip
+    return state | {"card": text}
+
+
 async def _paint(scene: PetScene, items: list[Item], debug: bool) -> list[tuple[str, bytes]]:
-    states = [state | ({"debug": True} if debug else {}) for _, state in items]
+    states = [_with_card(state) | ({"debug": True} if debug else {}) for _, state in items]
     pngs = await scene.paint(states)
     if pngs is None:
         raise SystemExit("Ni Node ni Chromium pueden pintar la escena")
@@ -106,7 +125,7 @@ def _mood_items() -> list[Item]:
 
 def _extra_items() -> list[Item]:
     gato, perro = _entry("gato", "siames"), _entry("perro", "beagle")
-    long_plate = {"name": "Su Excelencia Don Bigotes Tercero", "line": "Gato callejero · Nivel 12"}
+    long_card = {"title": "Su Excelencia Don Bigotes Tercero", "sub": "Gato callejero tuerto"}
     return [
         ("visita (dos mascotas)", portrait_state([gato, perro], mood="contenta", seed=7)),
         (
@@ -118,8 +137,8 @@ def _extra_items() -> list[Item]:
             portrait_state([_entry("caniche", "blanco")], mood="fiesta", cake=True, seed=4),
         ),
         (
-            "placa con nombre largo",
-            portrait_state([_entry("gato_callejero", "negro")], plate=long_plate, seed=1),
+            "nombre largo en la cabecera",
+            portrait_state([_entry("gato_callejero", "negro")], card=long_card, seed=1),
         ),
     ]
 

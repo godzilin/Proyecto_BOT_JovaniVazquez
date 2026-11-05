@@ -1,25 +1,34 @@
 <!doctype html>
 <!--
-Escena de `mascota`, dibujada con canvas: el retrato de una o dos mascotas. La pinta Node con Skia
-(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver bot/services/pet_scene.py).
-Si no hay ninguno, el panel sale en texto.
+Escena de `mascota`, dibujada con canvas: la ficha de una mascota, como las pantallas de los
+negocios de `pala` (assets/negocio/escena.html). La pinta Node con Skia (assets/escena_node.cjs) y,
+si no hay Node, un Chromium sin ventana (ver bot/services/pet_scene.py). Si no hay ninguno, el panel
+sale en texto.
 
 No decide nada: Python le pasa el estado ya hecho (`pet_scene.portrait_state`, contrato en el
-docstring de ese módulo) y aquí solo se pinta. Mide 640 × 400. Funciones que llama Python:
+docstring de ese módulo) y aquí solo se pinta. Mide 1000 × 640. Funciones que llama Python:
 
 - loadFonts()                  espera a las fuentes (canvas no las carga solo).
 - setup(meta)                  sin estado entre imágenes: cada una se pinta entera.
 - renderFrames(states, first)  un PNG por estado: {x: 0, y: 0, u}.
 
-Cómo se dibuja. Todo va al doble (S = 2: lienzo de 1280 × 800) y se reduce a la mitad justa en un
-paso al copiar. Cada plan de cuerpo (`PLANS.gato`, `PLANS.perro`...) pinta una mascota sentada de
-frente en un espacio propio: el suelo en y = 0, el centro en x = 0 y unos 235 de alto (la cabeza,
-la mitad). La mascota se coloca con una traslación y una escala; los planes leen los parámetros de
-la raza (`pet.look`, `pets_looks.py`) y devuelven los ANCLAJES para las prendas, en el espacio del
-plan: `head` (centro de lo alto de la cabeza, ancho, inclinación), `eyes` (centro entre los ojos,
-separación), `neck` (centro, ancho) y `body` (centro, ancho, alto del tronco). `placeAnchors` los
-pasa a coordenadas del lienzo (con el espejo de la visita) y `drawOutfit(slot, drawing, anchor,
-pet)` los recibe, uno por prenda; hoy no pinta nada, es el sitio de las prendas. Los planes sin
+Tres composiciones: la ficha (`paintCard`: cabecera con el nombre, la escena en un marco, la cita
+con su personalidad y las tarjetas de vínculo, rareza, racha y ropa), la visita (`paintVisit`, con
+dos mascotas) y la foto del álbum (`paintAlbum`, con `caption`: una instantánea grande). Los textos
+llegan en `st.card`.
+
+La escena de la mascota mide W × H (640 × 400) y se pinta dentro del marco con una escala. Todo va
+al doble (S = 2) y se reduce a la mitad justa en un paso al copiar. Cada plan de cuerpo
+(`PLANS.gato`, `PLANS.perro`...) pinta una mascota sentada de frente en un espacio propio: el suelo
+en y = 0, el centro en x = 0 y unos 235 de alto (la cabeza, la mitad). La mascota se coloca con una
+traslación y una escala; los planes leen los parámetros de la raza (`pet.look`, `pets_looks.py`) y
+devuelven los ANCLAJES para las prendas: `head` (centro de lo alto de la cabeza, ancho,
+inclinación), `eyes` (centro entre los ojos, separación), `neck` (centro, ancho) y `body` (centro,
+ancho, alto del tronco). `placeAnchors` los pasa a coordenadas del lienzo (con el espejo de la
+visita) y `drawOutfit` pinta cada prenda con ropa.js (`Ropa.item`). Lo que va detrás (capas, alas,
+el cono) se pinta antes que la mascota con los anclajes sacados en seco (`g = NOOP`). La mascota y lo
+que lleva delante se pintan en una capa aparte (`layer`) que recibe su volumen (`volume`: luz
+cálida arriba a la izquierda y sombra abajo, solo sobre su silueta) y se pega encima. Los planes sin
 hueco (`PLAN_SLOTS`, como en pets_looks.py) devuelven ese anclaje a null. Con `meta.debug` o
 `state.debug` se pintan los anclajes: puntos y cajas de colores.
 
@@ -34,6 +43,7 @@ Solo canvas 2D, sin filtros: Skia en Node y Chromium no siempre coinciden en ell
   @font-face { font-family: "Montserrat"; src: url("../memes/fonts/MontserratBold.ttf"); font-weight: 700; }
   @font-face { font-family: "RobotoM"; src: url("../memes/fonts/robotomedium.ttf"); }
   @font-face { font-family: "RobotoR"; src: url("../memes/fonts/robotoregular.ttf"); }
+  @font-face { font-family: "Luckiest"; src: url("../botes/fonts/luckiest-guy.woff"); }
   html, body { margin: 0; padding: 0; background: transparent; }
 </style>
 </head>
@@ -46,8 +56,15 @@ const S = 2;
 const W = 640;
 const H = 400;
 const TAU = Math.PI * 2;
-const big = document.createElement("canvas"); big.width = W * S; big.height = H * S;
-const out = document.createElement("canvas"); out.width = W; out.height = H;
+// La escena de la mascota mide W × H (640 × 400) y va dentro de una ficha de CW × CH, como las
+// pantallas de los negocios: cabecera, la escena enmarcada, tarjetas a la derecha y un pie.
+const CW = 1000;
+const CH = 640;
+const big = document.createElement("canvas"); big.width = CW * S; big.height = CH * S;
+const out = document.createElement("canvas"); out.width = CW; out.height = CH;
+// La mascota se pinta aparte para darle volumen (luz y sombra sobre su silueta) y se pega encima.
+const layer = document.createElement("canvas"); layer.width = CW * S; layer.height = CH * S;
+const lctx = layer.getContext("2d");
 // `let`: para sacar los anclajes sin pintar se cambia un momento por `NOOP` (ver `anchorsOf`).
 let g = big.getContext("2d");
 // Un lienzo que no hace nada: acepta cualquier llamada y cualquier propiedad.
@@ -1258,11 +1275,62 @@ function drawPet(pet, st, ox, gy, s, flip, lean) {
     try { dry = paint(); } finally { g = real; }
     for (const slot of back) drawOutfit(slot, outfit[slot], dry);
   }
-  const placed = paint();
-  for (const slot of OUTFIT_ORDER) {
-    if (outfit[slot] && !back.includes(slot)) drawOutfit(slot, outfit[slot], placed);
+  // La mascota y lo que lleva delante, en la capa, con su luz y su sombra; luego se pega.
+  const main = g;
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.clearRect(0, 0, layer.width, layer.height);
+  lctx.setTransform(main.getTransform());
+  g = lctx;
+  let placed;
+  try {
+    placed = paint();
+    for (const slot of OUTFIT_ORDER) {
+      if (outfit[slot] && !back.includes(slot)) drawOutfit(slot, outfit[slot], placed);
+    }
+    volume(placed, gy);
+  } finally {
+    g = main;
   }
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(layer, 0, 0);
+  g.restore();
   return placed;
+}
+// Volumen: una luz cálida arriba a la izquierda y una sombra violeta abajo y a la derecha, solo
+// sobre lo ya pintado en la capa (`source-atop`), así respeta la silueta de cada especie.
+function volume(placed, gy) {
+  const head = placed && placed.head, body = placed && placed.body;
+  const top = head ? head.y : gy - 220, cx = head ? head.x : (body ? body.x : 320);
+  const span = Math.max(80, gy - top), wide = (head ? head.w : span) * 1.6;
+  g.save();
+  g.globalCompositeOperation = "source-atop";
+  const lx = cx - wide * 0.32, ly = top + span * 0.18;
+  const glow = g.createRadialGradient(lx, ly, 0, lx, ly, span * 1.05);
+  glow.addColorStop(0, "rgba(255,250,232,0.3)");
+  glow.addColorStop(0.45, "rgba(255,250,232,0.1)");
+  glow.addColorStop(1, "rgba(255,250,232,0)");
+  g.fillStyle = glow; g.fillRect(cx - span * 1.5, top - span * 0.4, span * 3, span * 1.6);
+  const low = g.createLinearGradient(0, top + span * 0.35, 0, gy + 6);
+  low.addColorStop(0, "rgba(64,26,92,0)");
+  low.addColorStop(1, "rgba(64,26,92,0.14)");
+  g.fillStyle = low; g.fillRect(cx - span * 1.5, top - span * 0.4, span * 3, span * 1.6);
+  const side = g.createLinearGradient(cx - wide * 0.1, 0, cx + wide * 0.75, 0);
+  side.addColorStop(0, "rgba(64,26,92,0)");
+  side.addColorStop(1, "rgba(64,26,92,0.09)");
+  g.fillStyle = side; g.fillRect(cx - span * 1.5, top - span * 0.4, span * 3, span * 1.6);
+  g.restore();
+}
+// Luz de la escena: un velo cálido desde la ventana y las esquinas algo más oscuras.
+function sceneLight(night) {
+  const warm = g.createRadialGradient(150, 70, 10, 150, 70, 420);
+  warm.addColorStop(0, night ? "rgba(140,170,255,0.10)" : "rgba(255,236,190,0.22)");
+  warm.addColorStop(1, "rgba(255,236,190,0)");
+  g.fillStyle = warm; g.fillRect(0, 0, W, H);
+  const vig = g.createRadialGradient(W / 2, H * 0.58, H * 0.42, W / 2, H * 0.58, W * 0.66);
+  vig.addColorStop(0, "rgba(34,14,44,0)");
+  vig.addColorStop(1, "rgba(34,14,44,0.16)");
+  g.fillStyle = vig; g.fillRect(0, 0, W, H);
 }
 function debugAnchors(a) {
   const dot = (x, y, color) => { g.beginPath(); ell(x, y, 3.5, 3.5); g.fillStyle = color; g.fill(); };
@@ -1324,21 +1392,6 @@ function paintConfetti(seed, front) {
     g.restore();
   }
 }
-function paintPlate(plate) {
-  const name = clean(plate.name), line = clean(plate.line);
-  font("700", 28, MONT);
-  const w1 = g.measureText(name).width;
-  font("", 17, SOFT);
-  const w2 = g.measureText(line).width;
-  const w = clamp(Math.max(w1, w2) + 46, 170, 360), h = line ? 70 : 50, x = 14, y = H - 14 - h;
-  g.save();
-  g.beginPath(); rr(x + 2, y + 4, w, h, 14); g.fillStyle = "rgba(40,20,56,0.25)"; g.fill();
-  g.beginPath(); rr(x, y, w, h, 14); g.fillStyle = "#fffaf0"; g.fill(); g.lineWidth = 3; g.strokeStyle = "#7a5a6e"; g.stroke();
-  fillEll(x + 16, y + h / 2, 4.2, 4.2, "#e58a9b");
-  fitText(name, x + 30, y + (line ? 33 : 34), w - 46, 28, 14, MONT, "#3b2a40", "left", "700");
-  if (line) fitText(line, x + 30, y + 56, w - 46, 17, 11, SOFT, "#7a6a80", "left");
-  g.restore();
-}
 function paintCake(x, gy) {
   fillEll(x, gy + 5, 58, 11, "rgba(40,20,56,0.24)");
   blob(() => ell(x, gy - 6, 54, 12), "#f4ecff", { lw: 3 });
@@ -1353,11 +1406,294 @@ function paintCake(x, gy) {
   fillEll(x, gy - 110, 2.6, 4, "#fff3b0");
 }
 
+// -- La ficha ------------------------------------------------------------------------------------
+// Como las pantallas de los negocios (assets/negocio/escena.html): papel con olas, cabecera a rayas
+// con su insignia y el nombre en Luckiest, la escena enmarcada y tarjetas con sombra. Lo que enseña
+// sale de `st.card`, ya en texto (lo arma Python); la escena no calcula nada.
+
+const PAPER = "#fbf3e0", CARD = "#fffdf6", MUTE = "#675f52", GOLD = "#f6bd2d";
+const LUCK = (z) => `${z}px Luckiest`;
+const BOLD = (z) => `700 ${z}px Montserrat`;
+const MED = (z) => `${z}px RobotoM`;
+const REG = (z) => `${z}px RobotoR`;
+
+function kText(str, x, y, f, color, align = "left") {
+  g.font = f; g.fillStyle = color; g.textAlign = align; g.textBaseline = "alphabetic";
+  const z = parseFloat(f.match(/([\d.]+)px/)[1]);
+  g.fillText(str, x, y + z * 0.35);
+}
+// Reduce la letra hasta que quepa y, si ni así, recorta con «…». Devuelve el tamaño usado.
+function kFit(str, maxW, ff, size, min) {
+  let t = clean(str);
+  for (let z = size; z >= min; z--) { g.font = ff(z); if (g.measureText(t).width <= maxW) return [t, z]; }
+  g.font = ff(min);
+  while (t.length > 1 && g.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return [t.trimEnd() + "…", min];
+}
+function kLine(str, x, y, maxW, ff, size, min, color, align = "left") {
+  const [t, z] = kFit(str, maxW, ff, size, min);
+  kText(t, x, y, ff(z), color, align);
+  return z;
+}
+function kTitle(str, x, y, maxW, size, min, color, o = {}) {
+  const [t, z] = kFit(str, maxW, LUCK, size, min);
+  g.font = LUCK(z); g.textAlign = o.align || "left"; g.textBaseline = "alphabetic"; g.lineJoin = "round";
+  const yy = y + z * 0.36;
+  if (o.shadow) { g.fillStyle = o.shadow; g.fillText(t, x + 1.5, yy + 2.5); }
+  if (o.stroke) { g.strokeStyle = o.stroke; g.lineWidth = o.sw || 5; g.strokeText(t, x, yy); }
+  g.fillStyle = color; g.fillText(t, x, yy);
+}
+function kWrap(str, maxW, f, maxLines) {
+  g.font = f;
+  const words = clean(str).split(" ").filter(Boolean), lines = [];
+  let cur = "";
+  for (const w of words) {
+    const trial = cur ? cur + " " + w : w;
+    if (g.measureText(trial).width <= maxW || !cur) { cur = trial; continue; }
+    lines.push(cur); cur = w;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const keep = lines.slice(0, maxLines);
+    let last = keep[maxLines - 1];
+    while (last.length > 1 && g.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+    keep[maxLines - 1] = last.trimEnd() + "…";
+    return keep;
+  }
+  return lines;
+}
+function kRR(x, y, w, h, r, color) { g.beginPath(); rr(x, y, w, h, r); g.fillStyle = color; g.fill(); }
+const SHADOW_RING = [0, 0.2191, 0.1512, 0.0932, 0.0475, 0.016];
+// Tarjeta de papel con sombra cálida en anillos (Node y Chromium dan lo mismo).
+function kCard(x, y, w, h, o = {}) {
+  const r = o.r ?? 14;
+  for (let k = 5; k >= 1; k--) {
+    g.beginPath(); rr(x - k + 0.5, y - k + 4.5, w + 2 * k - 1, h + 2 * k - 1, r + k - 0.5);
+    g.strokeStyle = `rgba(92,58,20,${SHADOW_RING[k]})`; g.lineWidth = 1; g.stroke();
+  }
+  kRR(x, y + 4, w, h, r, `rgba(92,58,20,${SHADOW_RING[1]})`);
+  kRR(x, y, w, h, r, o.fill || CARD);
+  g.beginPath(); rr(x + 0.5, y + 0.5, w - 1, h - 1, r);
+  g.strokeStyle = o.stroke || "rgba(160,120,60,0.28)"; g.lineWidth = o.stroke ? 2 : 1.2; g.stroke();
+  if (o.top) { g.save(); g.beginPath(); rr(x, y, w, h, r); g.clip(); g.fillStyle = o.top; g.fillRect(x, y, w, 6); g.restore(); }
+}
+function kLabel(str, x, y, color = MUTE) { kText(clean(str).toUpperCase(), x, y, BOLD(14), color); }
+// Una etiqueta redonda de color con brillo arriba. Devuelve su ancho.
+function kChip(str, x, y, bg, fg, o = {}) {
+  const size = o.size || 20, h = size + 14, [t, z] = kFit(str, (o.maxW || 300) - 22, BOLD, size, 12);
+  g.font = BOLD(z);
+  const w = g.measureText(t).width + 24, x0 = o.align === "right" ? x - w : x;
+  kRR(x0, y + 2, w, h, h / 2, "rgba(0,0,0,0.22)");
+  kRR(x0, y, w, h, h / 2, bg);
+  g.save(); g.beginPath(); rr(x0, y, w, h, h / 2); g.clip(); g.fillStyle = "rgba(255,255,255,0.16)"; g.fillRect(x0, y, w, h * 0.45); g.restore();
+  kText(t, x0 + w / 2, y + h / 2 + 1, BOLD(z), fg, "center");
+  return w;
+}
+function kStar(cx, cy, r, color, line) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, q = i % 2 ? r * 0.46 : r; g.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q); }
+  g.closePath(); g.fillStyle = color; g.fill();
+  if (line) { g.strokeStyle = line; g.lineWidth = Math.max(1, r * 0.1); g.lineJoin = "round"; g.stroke(); }
+}
+
+// Iconos de trazo (sin emojis: el Chromium del Docker no trae su fuente), en un cuadro de 40 × 40.
+function kIcon(key, cx, cy, s, color) {
+  g.save(); g.translate(cx, cy); g.scale(s / 20, s / 20);
+  g.fillStyle = color; g.strokeStyle = color; g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = 3.4;
+  const dot = (x, y, rx, ry = rx, rot = 0) => { g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, TAU); g.fill(); };
+  if (key === "pata") {
+    dot(0, 6, 10, 8.5);
+    dot(-11, -5, 4.2, 5.4, -0.4); dot(-4, -12, 4.2, 5.4, -0.15); dot(4, -12, 4.2, 5.4, 0.15); dot(11, -5, 4.2, 5.4, 0.4);
+  } else if (key === "cabeza") {
+    g.beginPath(); g.ellipse(0, 8, 17, 4.5, 0, 0, TAU); g.fill();
+    g.beginPath(); rr(-9, -14, 18, 21, 3); g.fill();
+  } else if (key === "ojos") {
+    g.beginPath(); g.arc(-8, 2, 7, 0, TAU); g.stroke(); g.beginPath(); g.arc(8, 2, 7, 0, TAU); g.stroke();
+    g.beginPath(); g.moveTo(-1.5, 0); g.quadraticCurveTo(0, -3, 1.5, 0); g.stroke();
+  } else if (key === "cuello") {
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(-14, -9); g.lineTo(-14, 9); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(14, -9); g.lineTo(14, 9); g.closePath(); g.fill(); dot(0, 0, 4);
+  } else if (key === "cuerpo") {
+    g.beginPath(); g.moveTo(-7, -14); g.lineTo(-17, -8); g.lineTo(-13, 0); g.lineTo(-9, -2); g.lineTo(-9, 14);
+    g.lineTo(9, 14); g.lineTo(9, -2); g.lineTo(13, 0); g.lineTo(17, -8); g.lineTo(7, -14); g.quadraticCurveTo(0, -8, -7, -14); g.fill();
+  } else if (key === "fondo") {
+    g.beginPath(); rr(-16, -12, 32, 24, 3); g.stroke();
+    g.beginPath(); g.moveTo(-13, 9); g.lineTo(-4, -2); g.lineTo(3, 5); g.lineTo(7, 1); g.lineTo(13, 9); g.fill(); dot(7, -5, 3);
+  } else if (key === "llama") {
+    g.beginPath(); g.moveTo(0, -17); g.bezierCurveTo(9, -6, 15, 2, 12, 9); g.bezierCurveTo(9, 17, -9, 17, -12, 9);
+    g.bezierCurveTo(-14, 2, -8, -2, -6, -9); g.bezierCurveTo(-3, -4, -1, -3, 0, -17); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.55)"; g.beginPath(); g.ellipse(0, 8, 5, 6.5, 0, 0, TAU); g.fill();
+  } else if (key === "truco") {
+    kStar(0, 0, 15, color);
+  } else if (key === "casa") {
+    g.beginPath(); g.moveTo(-16, -2); g.lineTo(0, -15); g.lineTo(16, -2); g.lineTo(12, -2); g.lineTo(12, 14); g.lineTo(-12, 14); g.lineTo(-12, -2); g.closePath(); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.75)"; g.fillRect(-4, 3, 8, 11);
+  }
+  g.restore();
+}
+
+// El papel del fondo, con un dibujo de olas muy suave (el de `pisos`).
+function kPaper() {
+  const gr = g.createLinearGradient(0, 0, CW * 0.35, CH);
+  gr.addColorStop(0, "#fdf6e6"); gr.addColorStop(1, "#f1e2c2");
+  g.fillStyle = gr; g.fillRect(0, 0, CW, CH);
+  g.strokeStyle = "rgba(180,140,70,0.09)"; g.lineWidth = 2;
+  for (let y = 110; y < CH; y += 46) for (let x = ((y / 46) % 2) * 30 - 20; x < CW; x += 60) {
+    g.beginPath(); g.arc(x + 15, y, 15, Math.PI * 1.1, Math.PI * 1.9); g.arc(x + 45, y, 15, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+  }
+}
+// La cabecera: degradado del color del pasillo, rayas, insignia con la huella, nombre y especie.
+function kHeader(card, right) {
+  const main = (card.theme && card.theme[0]) || "#2f7d4f", accent = (card.theme && card.theme[1]) || GOLD, hh = 92;
+  const gr = g.createLinearGradient(0, 0, CW, 0);
+  gr.addColorStop(0, mix(main, "#ffffff", 0.08)); gr.addColorStop(1, mix(main, "#000000", 0.22));
+  g.fillStyle = gr; g.fillRect(0, 0, CW, hh);
+  g.save(); g.beginPath(); g.rect(0, 0, CW, hh); g.clip(); g.globalAlpha = 0.07; g.fillStyle = accent;
+  for (let x = -hh; x < CW; x += 34) { g.beginPath(); g.moveTo(x, hh); g.lineTo(x + 16, hh); g.lineTo(x + 16 + hh, 0); g.lineTo(x + hh, 0); g.closePath(); g.fill(); }
+  g.restore();
+  g.fillStyle = accent; g.fillRect(0, hh - 4, CW, 4);
+  // la insignia
+  const bx = 52, by = hh / 2 - 2, br = 33;
+  g.beginPath(); g.arc(bx, by + 3, br, 0, TAU); g.fillStyle = "rgba(0,0,0,0.25)"; g.fill();
+  g.beginPath(); g.arc(bx, by, br, 0, TAU); g.fillStyle = accent; g.fill();
+  g.beginPath(); g.arc(bx, by, br - 5, 0, TAU); g.fillStyle = mix(main, "#000000", 0.1); g.fill();
+  kIcon("pata", bx, by + 1, 19, accent);
+  const rightW = right ? right(hh) : 0, maxW = CW - 104 - rightW - 30;
+  kTitle(card.title || "", 100, hh / 2 - 15, maxW, 40, 20, accent, { shadow: "rgba(0,0,0,0.35)" });
+  kLine(card.sub || "", 102, hh / 2 + 21, maxW, MED, 21, 14, mix(accent, main, 0.18));
+}
+// La escena (640 × 400) dentro de un marco redondeado.
+function kFrame(x, y, w, h, draw) {
+  g.save();
+  g.beginPath(); rr(x, y + 4, w, h, 16); g.fillStyle = "rgba(92,58,20,0.18)"; g.fill();
+  g.beginPath(); rr(x, y, w, h, 16); g.clip();
+  g.translate(x, y); g.scale(w / W, h / H);
+  draw();
+  g.restore();
+  g.beginPath(); rr(x, y, w, h, 16); g.lineWidth = 2; g.strokeStyle = "rgba(0,0,0,0.15)"; g.stroke();
+}
+// Diez corazones: los del nivel, llenos.
+function kHearts(x, y, level, gap = 28) {
+  for (let i = 0; i < 10; i++) {
+    const on = i < level;
+    heart(x + i * gap, y, 1.0, on ? "#ff5d8f" : "#efe3d0", on ? "#a02a52" : "#cdbb9e");
+  }
+}
+function kBond(c, x, y, w) {
+  kCard(x, y, w, 118, { top: "#ff5d8f" });
+  kLabel("Vínculo", x + 18, y + 26);
+  kLine(c.xp || "", x + w - 18, y + 26, w - 130, MED, 15, 11, MUTE, "right");
+  kTitle(`Nivel ${c.level ?? 0}`, x + 18, y + 58, w - 36, 34, 20, "#3b2a40");
+  kHearts(x + 30, y + 94, c.level ?? 0, (w - 60) / 9);
+}
+function kKind(c, x, y, w) {
+  kCard(x, y, w, 84);
+  kLabel(c.rarity || "", x + 18, y + 24);
+  const n = c.stars || 1;
+  for (let i = 0; i < 5; i++) kStar(x + 26 + i * 26, y + 54, 11, i < n ? GOLD : "#e3d8bc", i < n ? "rgba(160,110,10,0.5)" : null);
+  kLine(c.breed || "", x + w - 18, y + 24, w - 140, BOLD, 17, 12, "#3b2a40", "right");
+  kLine(c.breedNote || "", x + w - 18, y + 54, w - 160, MED, 15, 11, MUTE, "right");
+}
+function kStreak(c, x, y, w) {
+  kCard(x, y, w, 72);
+  kIcon("llama", x + 34, y + 36, 16, c.streak ? "#f58220" : "#cdbb9e");
+  kLine(c.streak ? `${c.streak} día${c.streak === 1 ? "" : "s"} de racha` : "Sin racha", x + 62, y + 27, w - 80, BOLD, 19, 13, "#3b2a40");
+  kLine(c.streakNote || "", x + 62, y + 50, w - 80, MED, 15, 11, MUTE);
+}
+function kWearing(c, x, y, w, h) {
+  kCard(x, y, w, h);
+  kLabel("Lleva puesto", x + 18, y + 24);
+  const rows = (c.wearing || []).slice(0, 5);
+  if (!rows.length) {
+    kLine("Nada todavía.", x + 18, y + 58, w - 36, BOLD, 18, 12, "#3b2a40");
+    kWrap("Vístela con el botón Vestir: sombreros, gafas, collares, ropa y fondos.", w - 36, MED(15), 3)
+      .forEach((l, i) => kText(l, x + 18, y + 86 + i * 21, MED(15), MUTE));
+    return;
+  }
+  const step = Math.min(34, (h - 44) / rows.length);
+  rows.forEach((r, i) => {
+    const ry = y + 52 + i * step;
+    g.beginPath(); g.arc(x + 32, ry, 14, 0, TAU); g.fillStyle = "#f3e7cf"; g.fill();
+    kIcon(r.slot, x + 32, ry, 9.5, "#8a6a3a");
+    kLine(r.name || "", x + 56, ry, w - 74, MED, 17, 11, "#3b2a40");
+  });
+}
+function kQuote(c, x, y, w, h) {
+  kCard(x, y, w, h);
+  g.font = LUCK(54); g.fillStyle = "rgba(160,120,60,0.22)"; g.textAlign = "left"; g.textBaseline = "alphabetic";
+  g.fillText("«", x + 12, y + 56);
+  const lines = kWrap(c.quote || "", w - 80, MED(21), 2), lh = 27;
+  const top = y + (c.tricks ? 34 : h / 2 - ((lines.length - 1) * lh) / 2);
+  lines.forEach((l, i) => kText(l, x + 52, top + i * lh, MED(21), "#3b2a40"));
+  if (c.tricks) {
+    g.fillStyle = "rgba(160,120,60,0.18)"; g.fillRect(x + 52, y + h - 40, w - 70, 1.5);
+    kIcon("truco", x + 62, y + h - 20, 9, GOLD);
+    kLine(c.tricks, x + 80, y + h - 20, w - 98, MED, 16, 11, MUTE);
+  }
+}
+const MOOD_CHIP = { contenta: ["Contenta", "#e85d8f"], dormida: ["Durmiendo", "#3b4f8a"], fiesta: ["De fiesta", "#f2a900"] };
+
+function paintCard(st, debug) {
+  const c = st.card || {};
+  kPaper();
+  kHeader(c, (hh) => {
+    let x = CW - 24, used = 0;
+    if (c.active) { const w = kChip("Va contigo", x, hh / 2 - 19, "#1f9d55", "#fff", { align: "right", size: 22 }); x -= w + 10; used += w + 10; }
+    const mood = MOOD_CHIP[st.mood];
+    if (mood) { const w = kChip(mood[0], x, hh / 2 - 16, mood[1], "#fff", { align: "right", size: 18 }); used += w + 10; }
+    return used;
+  });
+  const fx = 16, fy = 106, fw = 624, fh = 390;
+  kFrame(fx, fy, fw, fh, () => paintPortrait(st, false, debug));
+  kQuote(c, fx, fy + fh + 12, fw, CH - 16 - (fy + fh + 12));
+  const px = 656, pw = CW - 16 - px;
+  kBond(c, px, 106, pw);
+  kKind(c, px, 236, pw);
+  kStreak(c, px, 332, pw);
+  kWearing(c, px, 416, pw, CH - 16 - 416);
+}
+// Una visita: las dos en la escena y una tarjeta por mascota.
+function paintVisit(st, debug) {
+  const c = st.card || {};
+  kPaper();
+  kHeader(c, (hh) => kChip("De visita", CW - 24, hh / 2 - 19, "#1f6fb2", "#fff", { align: "right", size: 22 }) + 10);
+  const fx = 16, fy = 106, fw = 624, fh = 390;
+  kFrame(fx, fy, fw, fh, () => paintPortrait(st, false, debug));
+  kQuote(c, fx, fy + fh + 12, fw, CH - 16 - (fy + fh + 12));
+  const px = 656, pw = CW - 16 - px, guests = (c.guests || []).slice(0, 2);
+  guests.forEach((gst, i) => {
+    const y = 106 + i * 172;
+    kCard(px, y, pw, 160, { top: i ? "#1f6fb2" : "#ff5d8f" });
+    kIcon("casa", px + 30, y + 32, 12, i ? "#1f6fb2" : "#c9c0b0");
+    kLine(gst.role || "", px + 52, y + 32, pw - 70, BOLD, 14, 11, MUTE);
+    kTitle(gst.name || "", px + 18, y + 66, pw - 36, 28, 16, "#3b2a40");
+    kLine(gst.sub || "", px + 18, y + 98, pw - 36, MED, 16, 11, MUTE);
+    kHearts(px + 30, y + 132, gst.level || 0, (pw - 60) / 9);
+  });
+  kCard(px, 450, pw, CH - 16 - 450);
+  kIcon("pata", px + 32, 450 + 36, 13, "#ff5d8f");
+  kWrap(c.note || "", pw - 70, MED(17), 4).forEach((l, i) => kText(l, px + 56, 450 + 30 + i * 23, MED(17), "#3b2a40"));
+}
+// Una foto del álbum: la instantánea grande sobre el papel, con su cabecera.
+function paintAlbum(st, debug) {
+  const c = st.card || {};
+  kPaper();
+  kHeader({ ...c, sub: c.sub || "" }, (hh) => kChip("Álbum", CW - 24, hh / 2 - 19, "#7a5aa8", "#fff", { align: "right", size: 22 }) + 10);
+  g.save();
+  const k = 1.33;
+  g.translate(CW / 2 - (W * k) / 2, 104);
+  g.scale(k, k);
+  g.beginPath(); g.rect(0, 0, W, H); g.clip();
+  paintPolaroid(st, debug, true);
+  g.restore();
+}
+
 // -- Entrada -------------------------------------------------------------------------------------
 
 function paintPortrait(st, plate, debug) {
   const night = st.mood === "dormida";
   paintBackdrop(st.backdrop, night, st.seed | 0);
+  sceneLight(night);
   const pets = Array.isArray(st.pets) ? st.pets.slice(0, 2) : [];
   const duo = pets.length === 2;
   const gy = 345;
@@ -1372,13 +1708,14 @@ function paintPortrait(st, plate, debug) {
   }
   if (st.mood === "fiesta") paintConfetti(st.seed | 0, true);
   if (debug) for (const a of placed) debugAnchors(a);
-  if (plate && st.plate) paintPlate(st.plate);
 }
 // El retrato dentro de un marco de foto instantánea, algo inclinado, con el texto abajo.
-function paintPolaroid(st, debug) {
-  const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, "#dcd6cc"); bg.addColorStop(1, "#bcb4a8");
-  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+function paintPolaroid(st, debug, onPaper = false) {
+  if (!onPaper) {
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#dcd6cc"); bg.addColorStop(1, "#bcb4a8");
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  }
   const fw = 416, fh = 336, pw = 376, ph = 236;
   g.save();
   g.translate(320, 198); g.rotate(-0.04);
@@ -1397,19 +1734,21 @@ function paintPolaroid(st, debug) {
 }
 function sceneFrame(st, debug) {
   g.setTransform(S, 0, 0, S, 0, 0);
-  g.clearRect(0, 0, W, H);
+  g.clearRect(0, 0, CW, CH);
   g.lineCap = "round"; g.lineJoin = "round"; g.globalAlpha = 1; g.setLineDash([]);
-  if (st.caption) paintPolaroid(st, debug); else paintPortrait(st, true, debug);
-  octx.clearRect(0, 0, W, H);
+  if (st.caption) paintAlbum(st, debug);
+  else if ((st.pets || []).length > 1) paintVisit(st, debug);
+  else paintCard(st, debug);
+  octx.clearRect(0, 0, CW, CH);
   octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
-  octx.drawImage(big, 0, 0, W * S, H * S, 0, 0, W, H);
+  octx.drawImage(big, 0, 0, CW * S, CH * S, 0, 0, CW, CH);
   return { x: 0, y: 0, u: window.exportFrame(out) };
 }
 
 let META = {};
 window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
 window.loadFonts = async () => {
-  await Promise.all([document.fonts.load("700 20px Montserrat"), document.fonts.load("20px RobotoM"), document.fonts.load("20px RobotoR")]);
+  await Promise.all([document.fonts.load("700 20px Montserrat"), document.fonts.load("20px RobotoM"), document.fonts.load("20px RobotoR"), document.fonts.load("20px Luckiest")]);
   await document.fonts.ready;
   return true;
 };

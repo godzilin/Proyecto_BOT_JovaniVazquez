@@ -1117,74 +1117,201 @@ window.Ropa = (() => {
       }
     },
     canteras(g, d, W, H, seed) {
-      sky(g, W, H, tone(col(d, 0, "#7ec8e3"), 0.2), col(d, 0, "#7ec8e3"));
-      cloud(g, W * 0.12, H * 0.14, 14);
-      cloud(g, W * 0.7, H * 0.1, 11);
-      g.fillStyle = "#fff6c9";
-      ellipse(g, W * 0.86, H * 0.16, 26, 26);
+      const skyc = col(d, 0, "#7ec8e3");
+      sky(g, W, H * 0.5, tone(skyc, -0.15), tone(skyc, 0.45));
+      const sun = g.createRadialGradient(W * 0.86, H * 0.12, 4, W * 0.86, H * 0.12, 80);
+      sun.addColorStop(0, "rgba(255,252,225,1)");
+      sun.addColorStop(0.25, "rgba(255,240,190,0.7)");
+      sun.addColorStop(1, "rgba(255,240,190,0)");
+      g.fillStyle = sun;
+      g.fillRect(0, 0, W, H * 0.5);
+      cloud(g, W * 0.1, H * 0.12, 13);
+      cloud(g, W * 0.52, H * 0.07, 9, "rgba(255,255,255,0.8)");
+      // La Isleta al fondo, en azul de lejanía.
+      g.beginPath();
+      g.moveTo(W * 0.48, H * 0.46);
+      g.bezierCurveTo(W * 0.56, H * 0.36, W * 0.62, H * 0.3, W * 0.68, H * 0.33);
+      g.bezierCurveTo(W * 0.74, H * 0.26, W * 0.8, H * 0.3, W * 0.86, H * 0.36);
+      g.bezierCurveTo(W * 0.92, H * 0.34, W * 0.98, H * 0.4, W + 10, H * 0.46);
+      g.closePath();
+      g.fillStyle = "#8aa9c4";
       g.fill();
-      floor(g, W, H, H * 0.45, col(d, 2, "#2e86c1"), tone(col(d, 2, "#2e86c1"), 0.25));
-      g.fillStyle = tone(col(d, 2, "#2e86c1"), -0.15);
-      g.fillRect(0, H * 0.53, W, 6);
-      g.fillStyle = "#8d6e63";
-      for (let x = 0; x < W; x += 30) {
-        ellipse(g, x + 15, H * 0.535, 16, 5);
+      // El mar: degradado, brillos del sol y la barra de roca.
+      const sea = col(d, 2, "#2e86c1");
+      const sg = g.createLinearGradient(0, H * 0.46, 0, H * 0.7);
+      sg.addColorStop(0, tone(sea, -0.1));
+      sg.addColorStop(1, tone(sea, 0.45));
+      g.fillStyle = sg;
+      g.fillRect(0, H * 0.46, W, H * 0.24);
+      const r = rng(seed);
+      g.fillStyle = "rgba(255,255,255,0.75)";
+      for (let i = 0; i < 26; i++) {
+        const x = W * (0.6 + r() * 0.4), y = H * (0.48 + r() * 0.12);
+        g.fillRect(x, y, 6 + r() * 14, 1.6);
+      }
+      g.fillStyle = "#5d4a40";
+      for (let x = 0; x < W; x += 26) {
+        ellipse(g, x + 13, H * 0.535, 15, 4 + (x % 3));
         g.fill();
       }
-      g.strokeStyle = "rgba(255,255,255,0.7)";
+      g.strokeStyle = "rgba(255,255,255,0.8)";
       g.lineWidth = 2;
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 3; i++) {
         g.beginPath();
-        const y = H * (0.58 + i * 0.03);
-        for (let x = 0; x <= W; x += 20) g.lineTo(x, y + Math.sin(x / 30 + i) * 2);
+        const y = H * (0.62 + i * 0.03);
+        for (let x = 0; x <= W; x += 16) g.lineTo(x, y + Math.sin(x / 24 + i * 1.7) * 2);
         g.stroke();
       }
-      floor(g, W, H, H * 0.7, col(d, 1, "#f2d49b"), tone(col(d, 1, "#f2d49b"), -0.12));
-      const r = rng(seed);
-      g.fillStyle = alpha(tone(col(d, 1, "#f2d49b"), -0.3), 0.5);
-      for (let i = 0; i < 60; i++) {
+      // La arena, con su sombrilla y la toalla.
+      const sand = col(d, 1, "#f2d49b");
+      floor(g, W, H, H * 0.68, tone(sand, 0.15), tone(sand, -0.12));
+      g.fillStyle = alpha(tone(sand, 0.4), 0.8);
+      g.beginPath();
+      for (let x = 0; x <= W; x += 20) g.lineTo(x, H * 0.68 + Math.sin(x / 30) * 3);
+      g.lineTo(W, H * 0.7);
+      g.lineTo(0, H * 0.7);
+      g.fill();
+      g.fillStyle = alpha(tone(sand, -0.3), 0.45);
+      for (let i = 0; i < 70; i++) {
         ellipse(g, r() * W, H * 0.72 + r() * H * 0.28, 1.4, 1);
         g.fill();
       }
-      ellipse(g, W * 0.15, H * 0.82, 50, 14, -0.1);
-      fill(g, "#e74c3c", 2);
+      const ux = W * 0.86, uy = H * 0.84;
+      ellipse(g, ux - 20, uy + 4, 60, 10);
+      g.fillStyle = "rgba(80,50,20,0.22)";
+      g.fill();
+      g.strokeStyle = "#6d5a48";
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(ux, uy);
+      g.lineTo(ux - 10, uy - 130);
+      g.stroke();
+      for (let k = 0; k < 6; k++) {
+        const a0 = Math.PI + (k / 6) * Math.PI, a1 = Math.PI + ((k + 1) / 6) * Math.PI;
+        g.beginPath();
+        g.moveTo(ux - 10, uy - 132);
+        g.arc(ux - 10, uy - 104, 62, a0, a1);
+        g.closePath();
+        fill(g, k % 2 ? "#ffffff" : "#e74c3c", 1.5, "#a33a2e");
+      }
+      g.save();
+      g.translate(W * 0.13, H * 0.85);
+      g.rotate(-0.12);
+      rrect(g, -50, -13, 100, 26, 4);
+      fill(g, "#2e86c1", 2, "#1d5d87");
+      g.fillStyle = "#f1c40f";
+      g.fillRect(-50, -4, 100, 8);
+      g.restore();
     },
-    teide(g, d, W, H) {
-      sky(g, W, H, tone(col(d, 0, "#9ad0f5"), -0.1), tone(col(d, 0, "#9ad0f5"), 0.3));
+    teide(g, d, W, H, seed) {
+      // Cielo de alta montaña, el sol con su halo y Las Cañadas con el Teide nevado.
+      const skyc = col(d, 0, "#9ad0f5");
+      sky(g, W, H, tone(skyc, -0.28), tone(skyc, 0.35));
+      const sun = g.createRadialGradient(W * 0.82, H * 0.14, 4, W * 0.82, H * 0.14, 90);
+      sun.addColorStop(0, "rgba(255,252,230,1)");
+      sun.addColorStop(0.2, "rgba(255,246,200,0.75)");
+      sun.addColorStop(1, "rgba(255,246,200,0)");
+      g.fillStyle = sun;
+      g.fillRect(0, 0, W, H * 0.6);
+      cloud(g, W * 0.08, H * 0.12, 9, "rgba(255,255,255,0.7)");
       const rock = col(d, 1, "#8d6e63");
+      // Pico Viejo a la izquierda y el cono del Teide.
+      const cone = () => {
+        g.beginPath();
+        g.moveTo(-10, H * 0.6);
+        g.bezierCurveTo(W * 0.1, H * 0.48, W * 0.2, H * 0.36, W * 0.3, H * 0.33);
+        g.quadraticCurveTo(W * 0.36, H * 0.31, W * 0.42, H * 0.18);
+        g.quadraticCurveTo(W * 0.47, H * 0.1, W * 0.52, H * 0.1);
+        g.quadraticCurveTo(W * 0.57, H * 0.12, W * 0.62, H * 0.22);
+        g.bezierCurveTo(W * 0.72, H * 0.38, W * 0.88, H * 0.5, W + 10, H * 0.58);
+        g.lineTo(W + 10, H * 0.7);
+        g.lineTo(-10, H * 0.7);
+        g.closePath();
+      };
+      cone();
+      const slope = g.createLinearGradient(W * 0.3, 0, W * 0.75, 0);
+      slope.addColorStop(0, tone(rock, 0.18));
+      slope.addColorStop(0.5, rock);
+      slope.addColorStop(1, tone(rock, -0.35));
+      g.fillStyle = slope;
+      g.fill();
+      g.save();
+      cone();
+      g.clip();
+      g.strokeStyle = alpha(tone(rock, -0.45), 0.35);
+      g.lineWidth = 2;
+      for (let i = 0; i < 9; i++) {
+        const x = W * (0.36 + i * 0.035);
+        g.beginPath();
+        g.moveTo(x + 6, H * 0.16 + i * 2);
+        g.quadraticCurveTo(x - 8 + i * 4, H * 0.4, x - 30 + i * 9, H * 0.66);
+        g.stroke();
+      }
+      // La nieve de la cima, con su borde irregular.
       g.beginPath();
-      g.moveTo(W * 0.05, H * 0.62);
-      g.lineTo(W * 0.42, H * 0.16);
-      g.lineTo(W * 0.5, H * 0.12);
-      g.lineTo(W * 0.58, H * 0.17);
-      g.lineTo(W * 0.95, H * 0.62);
+      g.moveTo(W * 0.415, H * 0.19);
+      g.quadraticCurveTo(W * 0.47, H * 0.1, W * 0.52, H * 0.1);
+      g.quadraticCurveTo(W * 0.57, H * 0.12, W * 0.615, H * 0.21);
+      const r = rng(seed + 5);
+      for (let x = W * 0.615; x > W * 0.415; x -= W * 0.02) {
+        g.lineTo(x, H * (0.2 + r() * 0.07));
+      }
       g.closePath();
-      fill(g, rock, 3);
+      g.fillStyle = col(d, 2, "#ffffff");
+      g.fill();
+      g.fillStyle = "rgba(170,195,230,0.55)";
       g.beginPath();
-      g.moveTo(W * 0.42, H * 0.16);
-      g.lineTo(W * 0.5, H * 0.12);
-      g.lineTo(W * 0.58, H * 0.17);
-      g.lineTo(W * 0.62, H * 0.24);
-      g.lineTo(W * 0.56, H * 0.22);
-      g.lineTo(W * 0.5, H * 0.27);
-      g.lineTo(W * 0.44, H * 0.22);
-      g.lineTo(W * 0.37, H * 0.23);
+      g.moveTo(W * 0.52, H * 0.1);
+      g.quadraticCurveTo(W * 0.57, H * 0.12, W * 0.615, H * 0.21);
+      g.lineTo(W * 0.55, H * 0.24);
       g.closePath();
-      fill(g, col(d, 2, "#ffffff"), 2, "#c9d6df");
-      for (let i = 0; i < 7; i++) cloud(g, (i / 6) * W - 30, H * 0.58 + (i % 2) * 8, 22, "rgba(255,255,255,0.95)");
-      floor(g, W, H, H * 0.7, "#a1887f", "#6d4c41");
-      g.fillStyle = "#5d4037";
-      for (const [x, s] of [[0.1, 14], [0.3, 9], [0.8, 16], [0.92, 10]]) {
-        ellipse(g, W * x, H * 0.76, s, s * 0.6);
+      g.fill();
+      g.restore();
+      cone();
+      g.lineWidth = 2.5;
+      g.strokeStyle = alpha(tone(rock, -0.55), 0.6);
+      g.stroke();
+      // El mar de nubes, con sombra azulada por debajo.
+      for (let i = 0; i < 12; i++) {
+        const x = (i / 11) * W, y = H * 0.6 + (i % 3) * 6;
+        g.fillStyle = "rgba(150,175,215,0.6)";
+        ellipse(g, x, y + 10, 46, 16);
+        g.fill();
+        g.fillStyle = "rgba(255,255,255,0.97)";
+        ellipse(g, x, y, 44, 18);
+        g.fill();
+        ellipse(g, x + 22, y - 8, 26, 14);
         g.fill();
       }
-      g.fillStyle = "#c62828";
-      for (const x of [0.06, 0.86]) {
-        g.fillRect(W * x, H * 0.62, 6, 50);
-        for (let k = 0; k < 6; k++) {
-          ellipse(g, W * x + 3, H * 0.6 - k * 8, 7 - k, 5);
-          g.fill();
+      // El suelo de picón, con retamas y tajinastes rojos.
+      floor(g, W, H, H * 0.7, "#8a5a44", "#4a2f25");
+      g.fillStyle = "rgba(30,15,10,0.25)";
+      for (let i = 0; i < 40; i++) {
+        ellipse(g, r() * W, H * 0.72 + r() * H * 0.27, 1.5 + r() * 2.5, 1 + r() * 1.5);
+        g.fill();
+      }
+      for (const [x, y, s] of [[0.06, 0.8, 1.1], [0.32, 0.76, 0.8], [0.9, 0.83, 1.2], [0.72, 0.75, 0.7]]) {
+        for (let k = 0; k < 7; k++) {
+          const a = (k / 6) * Math.PI;
+          ellipse(g, W * x + Math.cos(a) * 18 * s, H * y - Math.sin(a) * 12 * s, 12 * s, 9 * s);
+          fill(g, k % 2 ? "#f4f1e6" : "#e8e2cf", 1.2, "#b8ad8f");
         }
+        ellipse(g, W * x, H * y + 2, 22 * s, 5 * s);
+        g.fillStyle = "rgba(20,10,5,0.25)";
+        g.fill();
+      }
+      for (const [x, h] of [[0.18, 120], [0.84, 96]]) {
+        const bx = W * x, by = H * 0.8;
+        g.fillStyle = "#4e7d3a";
+        ellipse(g, bx, by, 16, 6);
+        g.fill();
+        for (let k = 0; k < 14; k++) {
+          const yy = by - 8 - (k / 14) * h, ww = 12 * (1 - k / 16);
+          ellipse(g, bx + (k % 2 ? 2 : -2), yy, ww, 6);
+          fill(g, k % 3 ? "#d6283e" : "#b51b30", 0);
+        }
+        ellipse(g, bx, by - h - 6, 4, 6);
+        fill(g, "#e04050", 0);
       }
     },
     moncloa(g, d, W, H) {
@@ -1375,20 +1502,70 @@ window.Ropa = (() => {
       fill(g, "#8d6e63", 1.5);
     },
     espacio(g, d, W, H, seed) {
-      sky(g, W, H, col(d, 0, "#0b0d2b"), tone(col(d, 0, "#0b0d2b"), 0.15));
-      stars(g, W, H, 120, seed, 1);
-      ellipse(g, W * 0.8, H * 0.22, 46, 46);
-      fill(g, col(d, 1, "#6c5ce7"), 3);
-      g.beginPath();
-      g.ellipse(W * 0.8, H * 0.22, 80, 16, -0.3, 0, TAU);
-      g.lineWidth = 6;
-      g.strokeStyle = alpha(col(d, 2, "#fdcb6e"), 0.85);
+      const deep = col(d, 0, "#0b0d2b");
+      sky(g, W, H, deep, tone(deep, 0.18));
+      // Nebulosas: manchas de color muy suaves.
+      for (const [x, y, rad, c] of [[0.25, 0.3, 220, "#6c5ce7"], [0.7, 0.55, 180, "#e84393"], [0.5, 0.1, 160, "#0984e3"]]) {
+        const neb = g.createRadialGradient(W * x, H * y, 0, W * x, H * y, rad);
+        neb.addColorStop(0, alpha(c, 0.32));
+        neb.addColorStop(1, alpha(c, 0));
+        g.fillStyle = neb;
+        g.fillRect(0, 0, W, H);
+      }
+      stars(g, W, H, 160, seed, 1);
+      const r = rng(seed + 2);
+      for (let i = 0; i < 6; i++) {
+        const x = r() * W, y = r() * H * 0.6;
+        g.fillStyle = "rgba(255,255,255,0.9)";
+        star(g, x, y, 4 + r() * 4, 4, 0.2, 0);
+        g.fill();
+      }
+      // El planeta con su volumen y su anillo (la mitad de atrás, detrás del planeta).
+      const px = W * 0.8, py = H * 0.24, pr = 46, pc = col(d, 1, "#6c5ce7");
+      const ring = () => { g.beginPath(); g.ellipse(px, py, 86, 17, -0.3, 0, TAU); };
+      g.lineWidth = 7;
+      g.strokeStyle = alpha(col(d, 2, "#fdcb6e"), 0.8);
+      ring();
       g.stroke();
-      floor(g, W, H, H * 0.74, "#b0b4c8", "#6d7189");
-      const r = rng(seed + 1);
+      const pg = g.createRadialGradient(px - pr * 0.4, py - pr * 0.4, 4, px, py, pr);
+      pg.addColorStop(0, tone(pc, 0.45));
+      pg.addColorStop(0.6, pc);
+      pg.addColorStop(1, tone(pc, -0.45));
+      ellipse(g, px, py, pr, pr);
+      g.fillStyle = pg;
+      g.fill();
+      g.save();
+      ellipse(g, px, py, pr, pr);
+      g.clip();
+      g.fillStyle = alpha(tone(pc, 0.3), 0.35);
+      for (let k = -2; k <= 2; k++) g.fillRect(px - pr, py + k * 14, pr * 2, 5);
+      g.restore();
+      g.save();
+      g.beginPath();
+      g.rect(0, py, W, H);
+      g.clip();
+      ring();
+      g.stroke();
+      g.restore();
+      // Suelo lunar con cráteres en relieve.
+      const moon = g.createLinearGradient(0, H * 0.72, 0, H);
+      moon.addColorStop(0, "#c3c7da");
+      moon.addColorStop(1, "#6d7189");
+      g.fillStyle = moon;
+      g.beginPath();
+      g.moveTo(0, H * 0.74);
+      g.quadraticCurveTo(W * 0.5, H * 0.68, W, H * 0.74);
+      g.lineTo(W, H);
+      g.lineTo(0, H);
+      g.fill();
       for (let i = 0; i < 9; i++) {
-        ellipse(g, r() * W, H * 0.78 + r() * H * 0.2, 10 + r() * 18, 4 + r() * 5);
-        fill(g, "#8a8ea6", 1.5, "#5c6078");
+        const x = r() * W, y = H * 0.79 + r() * H * 0.18, rx = 10 + r() * 22, ry = rx * 0.3;
+        ellipse(g, x, y, rx, ry);
+        g.fillStyle = "rgba(60,62,90,0.45)";
+        g.fill();
+        ellipse(g, x, y - ry * 0.3, rx * 0.85, ry * 0.7);
+        g.fillStyle = "rgba(220,224,240,0.35)";
+        g.fill();
       }
     },
     halloween(g, d, W, H, seed) {

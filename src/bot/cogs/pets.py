@@ -79,7 +79,7 @@ from bot.services.economy import CURRENCY_EMOJI, format_amount
 from bot.services.housing_furniture import FURNITURE_KEYS
 from bot.services.levels import TIMEZONE
 from bot.services.lootboxes import is_piece
-from bot.services.pet_scene import pet_entry, portrait_key, portrait_state
+from bot.services.pet_scene import card, pet_entry, portrait_key, portrait_state, visit_card
 from bot.services.pet_wardrobe import (
     OUTFITS,
     SLOTS,
@@ -239,8 +239,14 @@ def pet_card(
     note: str | None,
     breed: Breed | None = None,
     look: dict[Slot, Outfit] | None = None,
+    compact: bool = False,
 ) -> str:
-    """Ficha de una mascota en el panel."""
+    """Ficha de una mascota en el panel.
+
+    Args:
+        compact: Si hay retrato: el nombre, la raza, la ropa y los trucos ya salen en la imagen,
+            así que el texto se queda con lo que cambia en cada cuidado.
+    """
     level = state.level
     goal = next_level_at(state.bond)
     progress = f"{state.bond}/{goal}" if goal is not None else f"{state.bond} (máximo)"
@@ -250,6 +256,24 @@ def pet_card(
         f"{emoji} {today.get(care.value, 0)}/{CARE_RULES[care].daily}" for care, emoji in _TODAY
     )
     tricks = species.tricks[: unlocked_tricks(level)]
+    diet = {
+        "nada": "-# No come: lo suyo es la compañía.",
+        "todo": "-# Come cualquier objeto de la mochila, no solo comida, salvo los de edición "
+        "limitada.",
+    }.get(species.diet)
+    if compact:
+        # Quien no ve la imagen (un lector de pantalla) sabe igual de quién es la ficha.
+        lines = [
+            f"-# {species.emoji} {discord.utils.escape_markdown(pet_name(state, species))} · "
+            f"{species.name}" + (" · ⭐ Va contigo" if active else ""),
+            f"💞 Vínculo nivel **{level}** · {bond_bar(state.bond)} {progress}",
+            f"🗓️ Hoy: {done}",
+        ]
+        if diet:
+            lines.append(diet)
+        if note:
+            lines += ["", note]
+        return "\n".join(lines)
     lines = [
         f"## {species.emoji} {discord.utils.escape_markdown(pet_name(state, species))}",
         f"-# {species.name} · {species.rarity}" + (" · ⭐ Va contigo" if active else ""),
@@ -271,12 +295,8 @@ def pet_card(
         lines.append("🎪 Trucos: " + " · ".join(t.split(".")[0] for t in tricks))
     else:
         lines.append("🎪 Aún no sabe trucos: el primero llega a nivel 3.")
-    if species.diet == "nada":
-        lines.append("-# No come: lo suyo es la compañía.")
-    elif species.diet == "todo":
-        lines.append(
-            "-# Come cualquier objeto de la mochila, no solo comida, salvo los de edición limitada."
-        )
+    if diet:
+        lines.append(diet)
     if note:
         lines += ["", note]
     return "\n".join(lines)
@@ -399,6 +419,7 @@ class PetPanel(ui.LayoutView):
             self.look_now(state),
             self.breed_now(state),
             cared=self.cared,
+            owner=self.owner,
         )
 
     async def paint(self) -> None:
@@ -499,6 +520,7 @@ class PetPanel(ui.LayoutView):
                     note=self.note,
                     breed=breed_for(state, self.owned),
                     look=self.looks.get(state.id),
+                    compact=self.image is not None,
                 )
             )
         )
@@ -1109,6 +1131,7 @@ class Mascotas(commands.Cog):
         cared: bool = False,
         caption: str | None = None,
         guest: tuple[PetState, dict[Slot, Outfit], Breed] | None = None,
+        owner: Owner | None = None,
     ) -> dict[str, Any]:
         """El estado del retrato de una mascota (y, de visita, el de la que visita).
 
@@ -1118,23 +1141,38 @@ class Mascotas(commands.Cog):
             cared: Si se acaba de cuidar: sale contenta.
             caption: Pie de foto del álbum.
             guest: La mascota que viene de visita: sale al lado, con su ropa y su raza.
+            owner: Su dueño (la racha y la que lleva consigo); sin él, la de la caché.
         """
         now = self.clock()
         species = SPECIES_BY_KEY[state.species]
         party = anniversary_years(state.adopted_at, now) > 0
         pets = [pet_entry(state.species, breed, look)]
         name = pet_name(state, species)
-        line = f"{species.name} · Nivel {state.level}"
         if guest is not None:
             other, other_look, other_breed = guest
+            other_species = SPECIES_BY_KEY[other.species]
             pets.insert(0, pet_entry(other.species, other_breed, other_look))
-            name = f"{pet_name(other, SPECIES_BY_KEY[other.species])} y {name}"
-            line = "De visita"
+            text = visit_card(
+                (other, other_species, pet_name(other, other_species)), (state, species, name)
+            )
+        else:
+            active = self.active.get((state.guild_id, state.user_id))
+            text = card(
+                state,
+                species,
+                breed,
+                look,
+                name=name,
+                xp=focus_text(species, state.level),
+                active=(owner.active_id if owner else (active.id if active else None)) == state.id,
+                streak=owner.streak if owner else 0,
+                best_streak=owner.best_streak if owner else 0,
+            )
         return portrait_state(
             pets,
             backdrop=look.get(Slot.BACKDROP),
             mood=portrait_mood(state, now, party=party, cared=cared or guest is not None),
-            plate={"name": name, "line": line},
+            card=text,
             caption=caption,
             cake=party,
             seed=state.id,
@@ -1174,7 +1212,8 @@ class Mascotas(commands.Cog):
         try:
             look, breed, _owned = await self.dressing(state.guild_id, state.user_id, state)
             now = self.clock()
-            portrait = self.portrait(state, look, breed, cared=True, guest=guest)
+            owner = await self.repository.owner(state.guild_id, state.user_id)
+            portrait = self.portrait(state, look, breed, cared=True, guest=guest, owner=owner)
             caption = photo_caption(reason, now, level=level, years=years)
             await self.repository.add_photo(
                 state, taken_at=now, reason=reason.value, caption=caption, portrait=portrait
@@ -1788,7 +1827,9 @@ class Mascotas(commands.Cog):
             return
         self.last_show[key] = now
         look = panel.looks.get(state.id, {})
-        portrait = self.portrait(state, look, breed_for(state, panel.owned), cared=True)
+        portrait = self.portrait(
+            state, look, breed_for(state, panel.owned), cared=True, owner=panel.owner
+        )
         png = await self.paint(portrait)
         if png is None:
             await notify(interaction, "La cámara no funciona ahora mismo. Prueba más tarde.")
