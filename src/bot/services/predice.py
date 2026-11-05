@@ -118,10 +118,15 @@ _MONTHS_EN = (
 _DATE = re.compile(rf"\b({'|'.join(_MONTHS_EN)}) (\d{{1,2}})(?:, (\d{{4}}))?\b")
 
 
-def date_es(text: str) -> str:
-    """Pasa al español las fechas en inglés de un texto corto.
+_THOUSANDS = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")
 
-    `January 15, 2027` es `15 de enero de 2027` y `December 31` es `31 de diciembre`. Lo
+
+def date_es(text: str) -> str:
+    """Pasa al español las fechas y los miles en inglés de un texto corto.
+
+    `January 15, 2027` es `15 de enero de 2027` y `December 31` es `31 de diciembre`. Los
+    miles con coma pasan a punto (`76,000` es `76.000`, como en `format_amount`); los
+    decimales con punto se dejan, porque no se distinguen de una versión (`6.1`). Lo
     demás (incluido un `?` final) queda como está; un texto sin fechas no cambia.
     """
 
@@ -130,7 +135,9 @@ def date_es(text: str) -> str:
         year = f" de {match.group(3)}" if match.group(3) else ""
         return f"{int(match.group(2))} de {month}{year}"
 
-    return _DATE.sub(replace, text)
+    # Las fechas primero: «January 15, 2027» lleva una coma que no es de miles.
+    dated = _DATE.sub(replace, text)
+    return _THOUSANDS.sub(lambda match: match.group(0).replace(",", "."), dated)
 
 
 # -- Cuotas -----------------------------------------------------------------------------
@@ -197,8 +204,13 @@ class Offer:
 
     @property
     def single(self) -> bool:
-        """¿Es una pregunta Sí/No sin más (un solo mercado)?"""
-        return len(self.markets) == 1
+        """¿Es una pregunta Sí/No sin más?
+
+        Un solo mercado y sin `group_title`: un evento de varias opciones al que solo le
+        queda una apostable («22%+» del voto de Vox) sigue siendo de opciones, y su
+        opción tiene que verse.
+        """
+        return len(self.markets) == 1 and not self.markets[0].group_title
 
     @property
     def closes(self) -> float:
