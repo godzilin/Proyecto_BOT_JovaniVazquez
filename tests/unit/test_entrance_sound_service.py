@@ -93,3 +93,57 @@ async def test_probe_audio_duration_rechaza_un_archivo_que_no_es_audio(tmp_path:
     bogus.write_bytes(b"no soy un mp3")
     with pytest.raises(EntranceSoundError):
         await probe_audio_duration(bogus)
+
+
+# -- Cifrado de voz (DAVE) -------------------------------------------------------------------
+
+
+class _FakeVoiceState:
+    """El estado de conexión de `discord.py` que mira `wait_until_audible`."""
+
+    def __init__(self, version: int, ready_after: int | None) -> None:
+        self.dave_protocol_version = version
+        self._ready_after = ready_after
+        self.checks = 0
+
+    @property
+    def can_encrypt(self) -> bool:
+        self.checks += 1
+        return self._ready_after is not None and self.checks > self._ready_after
+
+
+async def test_sin_cifrado_de_voz_no_se_espera() -> None:
+    from types import SimpleNamespace
+
+    from bot.services.entrance_sound import wait_until_audible
+
+    state = _FakeVoiceState(version=0, ready_after=None)
+    assert await wait_until_audible(SimpleNamespace(_connection=state), timeout=1) is True
+    assert state.checks == 0
+
+
+async def test_con_cifrado_espera_a_que_las_claves_esten_listas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import bot.services.entrance_sound as module
+
+    monkeypatch.setattr(module, "DAVE_POLL_SECONDS", 0.001)
+    state = _FakeVoiceState(version=1, ready_after=3)
+    assert await module.wait_until_audible(SimpleNamespace(_connection=state), timeout=1) is True
+    assert state.checks == 4  # Tres veces sin claves y la cuarta, listo.
+
+
+async def test_si_el_cifrado_nunca_esta_listo_no_se_cuelga(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import bot.services.entrance_sound as module
+
+    monkeypatch.setattr(module, "DAVE_POLL_SECONDS", 0.001)
+    state = _FakeVoiceState(version=1, ready_after=None)
+    assert (
+        await module.wait_until_audible(SimpleNamespace(_connection=state), timeout=0.05) is False
+    )

@@ -119,6 +119,7 @@ from bot.services.entrance_sound import (
     play_packets,
     probe_audio_duration,
     read_opus_packets,
+    wait_until_audible,
 )
 from bot.services.levels import TIMEZONE
 from bot.services.pets import Event, Moment
@@ -2111,6 +2112,8 @@ class Beernight(commands.Cog):
             voice: discord.VoiceClient | None = None
             try:
                 voice = await channel.connect(timeout=CONNECT_TIMEOUT_SECONDS, self_deaf=True)
+                # Sin esto el audio sale antes de que el cifrado de voz esté listo.
+                await wait_until_audible(voice)
                 await asyncio.sleep(PRE_ROLL_SECONDS)
                 await play_packets(voice, packets)
             except (discord.ClientException, discord.HTTPException, TimeoutError):
