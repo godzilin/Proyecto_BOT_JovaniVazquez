@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.41.0 · 2026-11-05
+
+- Predicciones: `predice` para apostar a preguntas reales de Polymarket (las generales del 29 de noviembre, el mundo, la economía y la cripto, la cultura y la tecnología) con cuotas sacadas de su precio
+- Predicciones: el precio se comprueba en directo al apostar, y las predicciones se resuelven solas cuando Polymarket da el resultado; lo que espera sale en `saldo` y lo resuelto, en `apuestas`
+- Logros: entrada propia 🔮 Predicciones con 64 logros
+
 ### 9.40.0 · 2026-11-04
 
 - Pisos: la cartera enseña la renta, el IBI, los gastos y el neto de esta noche en lugar de los de los últimos 7 días; la renta es la misma cifra que `saldo` y el Euríbor pasa al pie
