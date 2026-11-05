@@ -48,8 +48,8 @@ from bot.repositories.picar import PicarRepository
 from bot.repositories.poker import PokerRepository
 from bot.repositories.porras import PorraRepository
 from bot.repositories.predice import PredictRepository
-from bot.repositories.rueda import RuedaRepository
 from bot.repositories.rastro import MarketRepository
+from bot.repositories.rueda import RuedaRepository
 from bot.repositories.shop import ShopRepository
 from bot.repositories.slots import SlotsRepository
 from bot.repositories.sports import SportsRepository
