@@ -1,0 +1,874 @@
+<!doctype html>
+<!--
+Escena de la Rueda, dibujada con canvas: una rueda de feria con aro de bombillas,
+aguja de lengüeta, expositor de la semana y cartel del premio. La pinta Node con
+Skia (assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver
+bot/services/rueda_scene.py).
+
+No decide nada: Python le pasa en cada fotograma cuánto ha girado la rueda, dónde
+está la aguja, qué hacen las bombillas y qué cartel sale
+(bot/services/rueda_render.py: meta_state, spin_states, board_state y
+result_state). Aquí solo se pinta. Funciones que llama Python:
+
+- loadFonts()           espera a las fuentes (canvas no las carga solo).
+- setup(meta)           porciones, expositor, racha y mascota. Pinta una vez el
+                        fondo, el disco de la rueda y el aro (si cambian).
+- renderFrames(states, first)
+                        dibuja los fotogramas y devuelve, de cada uno, el
+                        recuadro que ha cambiado y dónde va.
+
+Todo se dibuja al doble (S = 2) y se reduce justo a la mitad al exportar. Sin
+azar suelto: el azar (bokeh, confeti) sale de una semilla y del fotograma, y
+no se guarda nada entre fotogramas salvo lo que se rehace en setup. Sin emojis:
+el Chromium del Docker no trae su fuente, los iconos son trazados.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Luckiest"; src: url("../botes/fonts/luckiest-guy.woff"); }
+  @font-face { font-family: "Montserrat"; src: url("../memes/fonts/MontserratBold.ttf"); font-weight: 700; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+</style>
+</head>
+<body>
+<script>
+"use strict";
+const S = 2;
+const W = 600, H = 400;
+const TAU = Math.PI * 2;
+const PANEL_X = 505;               // centro del panel de la derecha
+const BANNER_Y = 294;              // centro del cartel (mitad baja de la rueda)
+
+const big = document.createElement("canvas"); big.width = W * S; big.height = H * S;
+const bctx = big.getContext("2d");
+const patch = document.createElement("canvas");
+const pctx = patch.getContext("2d");
+
+let META = null, META_KEY = null;
+let BG = null, DISCS = null, FG = null, BULBS = [];
+let DISC_SIZE = 0;
+let PREV = null;                   // recuadro pintado en el fotograma anterior
+let DIRTY = null;                  // recuadro pintado en este
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rad = (d) => d * Math.PI / 180;
+function rng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function layer(w, h) {
+  const c = document.createElement("canvas"); c.width = Math.round(w * S); c.height = Math.round(h * S);
+  const g = c.getContext("2d"); g.scale(S, S); return [c, g];
+}
+function rgb(c) { c = c.replace("#", ""); return [0, 2, 4].map(i => parseInt(c.slice(i, i + 2), 16)); }
+function hexOf(v) { return "#" + v.map(x => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0")).join(""); }
+function mixc(a, b, t) { const A = rgb(a), B = rgb(b); return hexOf(A.map((x, i) => lerp(x, B[i], t))); }
+function rgba(c, a) { const [r, g, b] = rgb(c); return `rgba(${r},${g},${b},${a})`; }
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); rrPath(g, x, y, w, h, r);
+}
+function rrPath(g, x, y, w, h, r) {
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function mark(x0, y0, x1, y1) {
+  if (!DIRTY) DIRTY = [x0, y0, x1, y1];
+  else DIRTY = [Math.min(DIRTY[0], x0), Math.min(DIRTY[1], y0), Math.max(DIRTY[2], x1), Math.max(DIRTY[3], y1)];
+}
+function sparkle(g, x, y, r, fill) {
+  // Destello de cuatro puntas.
+  g.fillStyle = fill; g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4 - Math.PI / 2, rr = i % 2 ? r * 0.22 : r;
+    g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  g.closePath(); g.fill();
+}
+function outlined(g, text, x, y, size, fill, stroke, width) {
+  g.lineJoin = "round"; g.lineWidth = width; g.strokeStyle = stroke;
+  g.strokeText(text, x, y); g.fillStyle = fill; g.fillText(text, x, y);
+}
+
+// -- Colores de cada premio (cerca de COLORS en rueda_render.py) --------------------------
+
+const COLOR = {
+  y300: "#2563eb", y600: "#7c3aed", y1000: "#0d9488", y2500: "#ea580c",
+  xp250: "#db2777", xp1000: "#a3185f", carton: "#b97a1c", regalo: "#dc2626",
+  chuche: "#f472b6", pieza: "#16a34a", otra: "#06b6d4", nada: "#5a5a66",
+};
+const GOLD = ["#7a5412", "#d9a93f", "#fff1b0", "#e8b93e", "#8f6418"];
+
+// -- Iconos (en unidades de ~1; arriba = hacia el borde de la rueda) ----------------------
+
+const INK = "rgba(24,10,40,0.62)";
+function solid(g, paths, fill) {
+  // Contorno oscuro de la unión de las formas y luego el relleno: sin líneas por dentro.
+  g.lineJoin = "round"; g.lineWidth = 0.34; g.strokeStyle = INK;
+  for (const p of paths) g.stroke(p);
+  g.fillStyle = fill; for (const p of paths) g.fill(p);
+}
+function pathOf(fn) { const p = new Path2D(); fn(p); return p; }
+const ICON = {
+  dinero(g) {
+    for (const [y, c] of [[0.62, "#d89a1d"], [0.2, "#e4a822"], [-0.22, "#efb92b"]]) {
+      const side = pathOf(p => { p.rect(-0.82, y, 1.64, 0.3); });
+      const top = pathOf(p => { p.ellipse(0, y, 0.82, 0.32, 0, 0, TAU); });
+      solid(g, [side, top], c);
+      g.fillStyle = "#ffe27a"; g.beginPath(); g.ellipse(0, y, 0.62, 0.2, 0, 0, TAU); g.fill();
+    }
+  },
+  xp(g) {
+    const p = pathOf(q => { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.46 : 1.02; q.lineTo(Math.cos(a) * r, Math.sin(a) * r + 0.05); } q.closePath(); });
+    solid(g, [p], "#ffe14a");
+    g.fillStyle = "rgba(255,255,255,0.75)"; g.beginPath(); g.ellipse(-0.18, -0.2, 0.16, 0.3, 0.5, 0, TAU); g.fill();
+  },
+  carton(g) { box(g, "#d9a85b", "#b9863a", "#f1d9a2", false); },
+  regalo(g) { box(g, "#ef4444", "#b91c1c", "#ffffff", true); },
+  maletin(g) {
+    const handle = pathOf(p => { p.moveTo(-0.34, -0.3); p.lineTo(-0.34, -0.62); p.lineTo(0.34, -0.62); p.lineTo(0.34, -0.3); });
+    g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = INK; g.lineWidth = 0.34; g.stroke(handle);
+    g.strokeStyle = "#f5c242"; g.lineWidth = 0.16; g.stroke(handle);
+    const body = pathOf(p => { rrPath(p, -0.92, -0.32, 1.84, 1.08, 0.14); });
+    solid(g, [body], "#2d2d33");
+    g.fillStyle = "#f5c242"; g.fillRect(-0.92, 0.08, 1.84, 0.1);
+    g.fillRect(-0.5, -0.06, 0.24, 0.34); g.fillRect(0.26, -0.06, 0.24, 0.34);
+  },
+  chuche(g) {
+    const stick = pathOf(p => { p.moveTo(0, 0.2); p.lineTo(0, 1.0); });
+    g.lineCap = "round"; g.strokeStyle = INK; g.lineWidth = 0.4; g.stroke(stick);
+    g.strokeStyle = "#ffffff"; g.lineWidth = 0.2; g.stroke(stick);
+    const head = pathOf(p => { p.arc(0, -0.28, 0.66, 0, TAU); });
+    solid(g, [head], "#ffffff");
+    g.strokeStyle = "#ef4466"; g.lineWidth = 0.17; g.beginPath();
+    for (let t = 0; t <= 1; t += 0.04) { const a = t * TAU * 1.6, r = 0.08 + t * 0.5; g.lineTo(Math.cos(a) * r, -0.28 + Math.sin(a) * r); }
+    g.stroke();
+  },
+  pieza(g) {
+    const parts = [
+      pathOf(p => { rrPath(p, -0.62, -0.42, 1.24, 1.24, 0.1); }),
+      pathOf(p => { p.arc(0, -0.5, 0.27, 0, TAU); }),
+      pathOf(p => { p.arc(0.66, 0.2, 0.27, 0, TAU); }),
+    ];
+    solid(g, parts, "#fff3c4");
+    g.fillStyle = "rgba(60,30,10,0.32)"; g.beginPath(); g.arc(-0.62, 0.2, 0.25, 0, TAU); g.fill();
+  },
+  otra(g) {
+    g.lineCap = "round"; g.lineJoin = "round";
+    for (const [col, w] of [[INK, 0.4], ["#ffffff", 0.2]]) {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = w;
+      for (const k of [0, 1]) {
+        const a0 = rad(200) + k * Math.PI, a1 = rad(330) + k * Math.PI;
+        g.beginPath(); g.arc(0, 0.05, 0.68, a0, a1); g.stroke();
+        const x = Math.cos(a1) * 0.68, y = 0.05 + Math.sin(a1) * 0.68, d = a1 + Math.PI / 2;
+        g.beginPath();
+        g.moveTo(x + Math.cos(d) * 0.34, y + Math.sin(d) * 0.34);
+        g.lineTo(x + Math.cos(d + 2.2) * 0.34, y + Math.sin(d + 2.2) * 0.34);
+        g.lineTo(x + Math.cos(d - 2.2) * 0.34, y + Math.sin(d - 2.2) * 0.34);
+        g.closePath(); g.fill();
+      }
+    }
+  },
+  nada(g) {
+    const handle = pathOf(p => { p.moveTo(0.28, 0.28); p.lineTo(0.88, 0.88); });
+    g.lineCap = "round"; g.strokeStyle = INK; g.lineWidth = 0.5; g.stroke(handle);
+    g.strokeStyle = "#e5e7eb"; g.lineWidth = 0.28; g.stroke(handle);
+    const lens = pathOf(p => { p.arc(-0.16, -0.16, 0.54, 0, TAU); });
+    g.lineWidth = 0.46; g.strokeStyle = INK; g.stroke(lens);
+    g.fillStyle = "rgba(220,235,255,0.35)"; g.fill(lens);
+    g.lineWidth = 0.24; g.strokeStyle = "#f3f4f6"; g.stroke(lens);
+  },
+};
+function box(g, light, dark, ribbon, bow) {
+  const body = pathOf(p => { p.rect(-0.78, -0.12, 1.56, 0.98); });
+  const lid = pathOf(p => { p.rect(-0.9, -0.5, 1.8, 0.4); });
+  solid(g, [body, lid], dark);
+  g.fillStyle = light; g.fillRect(-0.78, -0.12, 1.56, 0.98); g.fillRect(-0.9, -0.5, 1.8, 0.4);
+  g.fillStyle = "rgba(0,0,0,0.16)"; g.fillRect(-0.78, -0.12, 1.56, 0.1);
+  g.fillStyle = ribbon; g.fillRect(-0.15, -0.5, 0.3, 1.36);
+  if (bow) {
+    for (const sx of [-1, 1]) {
+      const loop = pathOf(p => { p.ellipse(sx * 0.3, -0.7, 0.3, 0.2, sx * -0.5, 0, TAU); });
+      solid(g, [loop], ribbon);
+    }
+    solid(g, [pathOf(p => { p.arc(0, -0.62, 0.15, 0, TAU); })], ribbon);
+  }
+}
+function iconFor(w) { return w.kind === "dinero" ? "dinero" : w.kind === "xp" ? "xp" : w.kind === "caja" ? w.key : w.kind; }
+
+// -- La rueda (una vez por meta): se gira entera en cada fotograma --------------------------
+
+function shade(c, t) {
+  // Color de una porción a una distancia t (0 buje, 1 borde): oscura dentro y clara en el borde.
+  if (t < 0.4) return mixc(c, "#000000", lerp(0.5, 0.14, t / 0.4));
+  if (t < 0.78) return mixc(c, "#000000", lerp(0.14, 0, (t - 0.4) / 0.38));
+  return mixc(c, "#ffffff", lerp(0, 0.3, (t - 0.78) / 0.22));
+}
+function wedgeFill(g, key, R) {
+  const grad = g.createRadialGradient(0, 0, 26, 0, 0, R);
+  const c = COLOR[key] || "#777777";
+  for (const t of [0, 0.2, 0.4, 0.6, 0.78, 1]) grad.addColorStop(t, shade(c, t));
+  return grad;
+}
+const BAND_R = [26, 95];
+function bandedWedge(g, w, R) {
+  // El mismo degradado a escalones: los GIF de una rueda girando pesan mucho menos.
+  const c = COLOR[w.key] || "#777777", a0 = rad(w.a0 - 90), a1 = rad(w.a1 - 90);
+  const edges = [...BAND_R, R];
+  edges.slice(0, -1).forEach((r0, k) => {
+    const t = ((r0 + edges[k + 1]) / 2 - 26) / (R - 26);
+    g.beginPath();
+    if (k === 0) { g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); }
+    else { g.arc(0, 0, R, a0, a1); g.arc(0, 0, r0, a1, a0, true); }
+    g.closePath(); g.fillStyle = shade(c, t); g.fill();
+  });
+}
+const SPECIAL = {
+  y5000: { stops: ["#6b4a0e", "#d9a521", "#fff0a0", "#e6b22e"], edge: "#fff4b0", glow: "#ffd24a" },
+  y15000: { stops: ["#d6bd6a", "#fff3bd", "#ffffff", "#fff3bd"], edge: "#ffffff", glow: "#fff0a8" },
+  maletin: { stops: ["#050507", "#16161b", "#26262e", "#101014"], edge: "#f5c242", glow: "#f5c242" },
+  expositor: { stops: ["#aebcff", "#e8edff", "#ffffff", "#dfe6ff"], edge: "#ffffff", glow: "#bcd0ff" },
+};
+function fitSize(g, parts, size, max) {
+  // Ancho de un texto en varios trozos (número grande y unidad pequeña) y cuánto encoge para caber.
+  let width = 0;
+  for (const p of parts) { g.font = p.font(size); width += g.measureText(p.text).width; }
+  return width > max ? size * max / width : size;
+}
+function labelParts(w) {
+  const m = /^([\d.]+)\s*(.*)$/.exec(w.label);
+  if (w.kind === "dinero") return [{ text: w.label, big: true, font: s => `${s}px Luckiest`, fill: "#ffffff" },
+    { text: " Y$", big: false, font: s => `700 ${s * 0.5}px Montserrat`, fill: "#ffe8a0", size: 0.5 }];
+  if (m && m[2]) return [{ text: m[1], big: true, font: s => `${s}px Luckiest`, fill: "#ffffff" },
+    { text: " " + m[2], big: false, font: s => `700 ${s * 0.52}px Montserrat`, fill: "#ffe8a0", size: 0.52 }];
+  return [{ text: w.label, big: true, font: s => `${s * 0.92}px Luckiest`, fill: "#ffffff" }];
+}
+function drawLabel(g, w, R) {
+  const width = w.a1 - w.a0, mid = (w.a0 + w.a1) / 2;
+  const parts = labelParts(w);
+  let size = clamp(1.3 * width + 0.4, 9, 21);
+  size = fitSize(g, parts, size, 96);
+  g.save(); g.rotate(rad(mid - 90 + 180));
+  g.textBaseline = "middle"; g.textAlign = "left";
+  let x = -(R - 38);
+  for (const p of parts) {
+    g.font = p.font(size);
+    const t = p.text;
+    outlined(g, t, x, 0.5, size, p.fill, "rgba(24,8,40,0.88)", Math.max(2, size * (p.big ? 0.22 : 0.3)));
+    x += g.measureText(t).width;
+  }
+  g.restore();
+}
+function drawIcon(g, w, R) {
+  const width = w.a1 - w.a0, mid = (w.a0 + w.a1) / 2;
+  const rr = R - 21, chord = 2 * rr * Math.sin(rad(width) / 2);
+  const u = Math.min(8.4, chord * 0.34);
+  g.save(); g.rotate(rad(mid)); g.translate(0, -rr); g.scale(u, u);
+  (ICON[iconFor(w)] || ICON.nada)(g);
+  g.restore();
+}
+// `rich`: la rueda entera, quieta o casi. `lite`: lo mismo con el degradado a escalones, para
+// el giro lento. `fast`: sin letras ni iconos ni clavos, para cuando va tan rápido que no se leen.
+function paintDisc(variant) {
+  const R = META.geo.r, rich = variant === "rich", fast = variant === "fast";
+  DISC_SIZE = Math.ceil((R + 2) * 2);
+  const [c, g] = layer(DISC_SIZE, DISC_SIZE);
+  g.translate(DISC_SIZE / 2, DISC_SIZE / 2);
+  g.fillStyle = "#1a0d33"; g.beginPath(); g.arc(0, 0, R, 0, TAU); g.fill();
+  const wedges = META.wedges;
+  const normal = wedges.filter(w => !w.sliver);
+  for (const w of normal) {
+    if (rich) {
+      g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, rad(w.a0 - 90), rad(w.a1 - 90)); g.closePath();
+      g.fillStyle = wedgeFill(g, w.key, R); g.fill();
+    } else bandedWedge(g, w, R);
+  }
+  // Separadores dorados.
+  g.lineCap = "butt";
+  for (const w of fast ? [] : wedges) {
+    const a = rad(w.a0 - 90);
+    g.strokeStyle = "rgba(255,224,140,0.9)"; g.lineWidth = 0.9;
+    g.beginPath(); g.moveTo(Math.cos(a) * 27, Math.sin(a) * 27); g.lineTo(Math.cos(a) * (R - 1), Math.sin(a) * (R - 1)); g.stroke();
+  }
+  // Las rayas especiales, un poco más anchas de lo que miden para que se vean.
+  for (const w of wedges.filter(x => x.sliver)) {
+    const sp = SPECIAL[w.key] || SPECIAL.expositor;
+    const mid = (w.a0 + w.a1) / 2, half = Math.max((w.a1 - w.a0) / 2, 0.75);
+    const a0 = rad(mid - half - 90), a1 = rad(mid + half - 90), am = rad(mid - 90);
+    g.beginPath(); g.moveTo(Math.cos(am) * 24, Math.sin(am) * 24); g.arc(0, 0, R, a0, a1); g.closePath();
+    const grad = g.createRadialGradient(0, 0, 26, 0, 0, R);
+    sp.stops.forEach((c2, i) => grad.addColorStop(i / (sp.stops.length - 1), c2));
+    g.fillStyle = grad; g.fill();
+    g.lineWidth = 0.8; g.strokeStyle = sp.edge;
+    for (const a of [a0, a1]) { g.beginPath(); g.moveTo(Math.cos(a) * 26, Math.sin(a) * 26); g.lineTo(Math.cos(a) * (R - 1), Math.sin(a) * (R - 1)); g.stroke(); }
+    if (fast) continue;
+    g.lineWidth = 3.4; g.strokeStyle = rgba(sp.glow, 0.2);
+    g.beginPath(); g.moveTo(Math.cos(am) * 40, Math.sin(am) * 40); g.lineTo(Math.cos(am) * (R - 3), Math.sin(am) * (R - 3)); g.stroke();
+    // Un destello cerca del borde, en la raya.
+    const sx = Math.cos(am) * (R - 20), sy = Math.sin(am) * (R - 20);
+    sparkle(g, sx, sy, w.key === "expositor" ? 7.5 : 5.5, w.key === "maletin" ? "#f5c242" : "#ffffff");
+  }
+  if (fast) return c;
+  for (const w of normal) { drawIcon(g, w, R); drawLabel(g, w, R); }
+  // Clavos de latón en cada borde.
+  for (const w of wedges) {
+    const a = rad(w.a0 - 90), x = Math.cos(a) * (R - 5.5), y = Math.sin(a) * (R - 5.5);
+    g.fillStyle = "rgba(30,12,0,0.55)"; g.beginPath(); g.arc(x + 0.5, y + 0.7, 2.5, 0, TAU); g.fill();
+    const grad = g.createRadialGradient(x - 0.7, y - 0.7, 0.2, x, y, 2.5);
+    grad.addColorStop(0, "#fff7c8"); grad.addColorStop(0.5, "#e2ae35"); grad.addColorStop(1, "#8f6418");
+    g.fillStyle = grad; g.beginPath(); g.arc(x, y, 2.3, 0, TAU); g.fill();
+  }
+  return c;
+}
+
+// -- Lo que está encima de la rueda y no gira: aro, cristal y buje -----------------------
+
+function paintFG() {
+  const { cx, cy, r, bulbs } = META.geo;
+  const [c, g] = layer(W, H);
+  const ro = r + 15, ri = r + 1;
+  // Sombra interior bajo el aro.
+  g.strokeStyle = "rgba(10,2,25,0.4)"; g.lineWidth = 4; g.beginPath(); g.arc(cx, cy, r - 1, 0, TAU); g.stroke();
+  // Aro de oro biselado.
+  let grad = g.createLinearGradient(cx - ro, cy - ro, cx + ro, cy + ro);
+  GOLD.forEach((c2, i) => grad.addColorStop(i / (GOLD.length - 1), c2));
+  g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, ro, 0, TAU); g.arc(cx, cy, ri, 0, TAU, true); g.fill();
+  grad = g.createLinearGradient(cx + ro, cy + ro, cx - ro, cy - ro);
+  grad.addColorStop(0, "#fff3b8"); grad.addColorStop(0.5, "#b8841f"); grad.addColorStop(1, "#6b4a0e");
+  g.strokeStyle = grad; g.lineWidth = 2.6; g.beginPath(); g.arc(cx, cy, ri + 1.5, 0, TAU); g.stroke();
+  g.strokeStyle = "rgba(255,250,210,0.75)"; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, ro - 1.3, 0, TAU); g.stroke();
+  g.strokeStyle = "#4d3208"; g.lineWidth = 1.2;
+  g.beginPath(); g.arc(cx, cy, ro, 0, TAU); g.stroke();
+  g.beginPath(); g.arc(cx, cy, ri, 0, TAU); g.stroke();
+  // Casquillos de las bombillas.
+  BULBS = [];
+  for (let k = 0; k < bulbs; k++) {
+    const a = rad(k * 360 / bulbs - 90), x = cx + Math.cos(a) * (r + 8), y = cy + Math.sin(a) * (r + 8);
+    BULBS.push([x, y]);
+    g.fillStyle = "#4a2f08"; g.beginPath(); g.arc(x, y, 4.7, 0, TAU); g.fill();
+    g.strokeStyle = "rgba(255,236,160,0.7)"; g.lineWidth = 0.8; g.beginPath(); g.arc(x, y, 4.7, rad(110), rad(250)); g.stroke();
+    g.strokeStyle = "rgba(40,22,0,0.7)"; g.beginPath(); g.arc(x, y, 4.7, rad(-70), rad(70)); g.stroke();
+  }
+  // Cristal: brillo fijo encima de la rueda.
+  g.save(); g.beginPath(); g.arc(cx, cy, r - 2, 0, TAU); g.clip();
+  grad = g.createLinearGradient(cx - r, cy - r, cx + r * 0.2, cy + r * 0.3);
+  grad.addColorStop(0, "rgba(255,255,255,0.2)"); grad.addColorStop(0.6, "rgba(255,255,255,0.05)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad; g.fillRect(cx - r, cy - r, r * 2, r * 2);
+  // Luz de feria desde arriba: la parte de abajo queda en penumbra (y la rueda girando, donde no se lee, también).
+  grad = g.createRadialGradient(cx, cy - r * 0.45, r * 0.45, cx, cy - r * 0.25, r * 1.35);
+  grad.addColorStop(0, "rgba(8,2,26,0)"); grad.addColorStop(1, "rgba(8,2,26,0.46)");
+  g.fillStyle = grad; g.fillRect(cx - r, cy - r, r * 2, r * 2);
+  g.restore();
+  g.strokeStyle = "rgba(255,255,255,0.4)"; g.lineWidth = 3; g.lineCap = "round";
+  g.beginPath(); g.arc(cx, cy, r - 9, rad(205), rad(255)); g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = 1.6;
+  g.beginPath(); g.arc(cx, cy, r - 9, rad(262), rad(276)); g.stroke();
+  // Buje: esmalte con aro de oro y «Y$».
+  grad = g.createRadialGradient(cx, cy, 28, cx, cy, 42);
+  grad.addColorStop(0, "rgba(10,2,25,0.55)"); grad.addColorStop(1, "rgba(10,2,25,0)");
+  g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, 42, 0, TAU); g.fill();
+  grad = g.createLinearGradient(cx - 30, cy - 30, cx + 30, cy + 30);
+  GOLD.forEach((c2, i) => grad.addColorStop(i / (GOLD.length - 1), c2));
+  g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, 30, 0, TAU); g.fill();
+  g.strokeStyle = "#4d3208"; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, 30, 0, TAU); g.stroke();
+  grad = g.createRadialGradient(cx - 8, cy - 9, 2, cx, cy, 26);
+  grad.addColorStop(0, "#7a45c4"); grad.addColorStop(0.55, "#2e1360"); grad.addColorStop(1, "#150833");
+  g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, 25.5, 0, TAU); g.fill();
+  g.strokeStyle = "rgba(240,200,90,0.85)"; g.lineWidth = 0.9; g.beginPath(); g.arc(cx, cy, 21.5, 0, TAU); g.stroke();
+  g.font = "21px Luckiest"; g.textAlign = "center"; g.textBaseline = "middle";
+  grad = g.createLinearGradient(0, cy - 11, 0, cy + 11);
+  grad.addColorStop(0, "#fff3b0"); grad.addColorStop(1, "#e0a52a");
+  outlined(g, "Y$", cx, cy + 1, 21, grad, "#1a0838", 3.2);
+  g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 1.6; g.lineCap = "round";
+  g.beginPath(); g.arc(cx, cy, 22.5, rad(200), rad(250)); g.stroke();
+  return c;
+}
+
+// -- Fondo y panel de la derecha (una vez por meta) -----------------------------------------
+
+function trophy(g, x, y, s, fill) {
+  // Copa de campeón; (x, y) es el centro de la base.
+  const body = pathOf(p => {
+    p.moveTo(x - 17 * s, y - 62 * s); p.lineTo(x + 17 * s, y - 62 * s);
+    p.bezierCurveTo(x + 17 * s, y - 40 * s, x + 9 * s, y - 31 * s, x + 3 * s, y - 29 * s);
+    p.lineTo(x + 3 * s, y - 16 * s); p.lineTo(x - 3 * s, y - 16 * s); p.lineTo(x - 3 * s, y - 29 * s);
+    p.bezierCurveTo(x - 9 * s, y - 31 * s, x - 17 * s, y - 40 * s, x - 17 * s, y - 62 * s); p.closePath();
+  });
+  const handles = pathOf(p => {
+    for (const sx of [-1, 1]) {
+      p.moveTo(x + sx * 17 * s, y - 58 * s);
+      p.bezierCurveTo(x + sx * 30 * s, y - 58 * s, x + sx * 28 * s, y - 38 * s, x + sx * 12 * s, y - 38 * s);
+    }
+  });
+  const base = pathOf(p => { rrPath(p, x - 14 * s, y - 16 * s, 28 * s, 8 * s, 2 * s); rrPath(p, x - 20 * s, y - 8 * s, 40 * s, 8 * s, 2 * s); });
+  g.lineCap = "round"; g.strokeStyle = "#6b4a0e"; g.lineWidth = 6 * s; g.stroke(handles);
+  g.strokeStyle = fill; g.lineWidth = 3.2 * s; g.stroke(handles);
+  g.lineWidth = 1; g.strokeStyle = "#6b4a0e";
+  g.fillStyle = fill; g.fill(body); g.stroke(body); g.fill(base); g.stroke(base);
+  g.fillStyle = "rgba(255,255,255,0.55)"; g.beginPath(); g.ellipse(x - 8 * s, y - 50 * s, 2.6 * s, 9 * s, 0.1, 0, TAU); g.fill();
+  sparkle(g, x, y - 46 * s, 6.5 * s, "rgba(255,255,255,0.9)");
+}
+function flame(g, x, y, s) {
+  const outer = pathOf(p => {
+    p.moveTo(x, y - 12 * s);
+    p.bezierCurveTo(x + 3 * s, y - 6 * s, x + 9 * s, y - 3 * s, x + 7 * s, y + 4 * s);
+    p.bezierCurveTo(x + 6 * s, y + 9 * s, x - 6 * s, y + 9 * s, x - 7 * s, y + 3 * s);
+    p.bezierCurveTo(x - 8 * s, y - 2 * s, x - 3 * s, y - 4 * s, x, y - 12 * s); p.closePath();
+  });
+  let grad = g.createLinearGradient(0, y - 12 * s, 0, y + 9 * s);
+  grad.addColorStop(0, "#ffb02e"); grad.addColorStop(1, "#ef4a1d");
+  g.fillStyle = grad; g.fill(outer);
+  g.fillStyle = "#ffe27a"; g.beginPath(); g.ellipse(x, y + 4.5 * s, 3.2 * s, 4.6 * s, 0, 0, TAU); g.fill();
+}
+function wrap(g, text, max) {
+  const words = text.split(/\s+/), lines = [];
+  let line = "";
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (g.measureText(t).width <= max || !line) line = t; else { lines.push(line); line = w; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+function paintBG() {
+  const { cx, cy, r } = META.geo;
+  const [c, g] = layer(W, H);
+  // Noche morada con el foco en la rueda.
+  let grad = g.createRadialGradient(cx, cy, 20, cx, cy, 470);
+  grad.addColorStop(0, "#4a2288"); grad.addColorStop(0.45, "#26114f"); grad.addColorStop(1, "#08061c");
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  // Rayos de oro detrás de la rueda.
+  grad = g.createRadialGradient(cx, cy, r, cx, cy, 480);
+  grad.addColorStop(0, "rgba(255,206,90,0.17)"); grad.addColorStop(1, "rgba(255,206,90,0)");
+  g.fillStyle = grad;
+  for (let k = 0; k < 20; k++) {
+    const a = rad(k * 18), b = a + rad(8);
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * 700, cy + Math.sin(a) * 700);
+    g.lineTo(cx + Math.cos(b) * 700, cy + Math.sin(b) * 700); g.closePath(); g.fill();
+  }
+  // Luces de feria desenfocadas.
+  const rand = rng(20261105);
+  const tints = ["#ffc857", "#ff5fa2", "#45d4ff", "#ffe9a8", "#9d6bff"];
+  for (let i = 0; i < 46; i++) {
+    const x = rand() * W, y = rand() * H, rr = 3 + rand() * 13, col = tints[Math.floor(rand() * tints.length)];
+    const bg = g.createRadialGradient(x, y, 0, x, y, rr);
+    bg.addColorStop(0, rgba(col, 0.2)); bg.addColorStop(0.8, rgba(col, 0.1)); bg.addColorStop(1, rgba(col, 0));
+    g.fillStyle = bg; g.beginPath(); g.arc(x, y, rr, 0, TAU); g.fill();
+  }
+  for (let i = 0; i < 26; i++) sparkle(g, rand() * W, rand() * H, 1.4 + rand() * 2.2, `rgba(255,240,200,${0.25 + rand() * 0.35})`);
+  // Resplandor de oro y sombra bajo la rueda.
+  grad = g.createRadialGradient(cx, cy, r + 4, cx, cy, r + 40);
+  grad.addColorStop(0, "rgba(255,190,70,0.4)"); grad.addColorStop(1, "rgba(255,190,70,0)");
+  g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, r + 40, 0, TAU); g.fill();
+  grad = g.createRadialGradient(cx + 3, cy + 7, r, cx + 3, cy + 7, r + 26);
+  grad.addColorStop(0, "rgba(0,0,0,0.5)"); grad.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grad; g.beginPath(); g.arc(cx + 3, cy + 7, r + 26, 0, TAU); g.fill();
+
+  paintPanel(g);
+  return c;
+}
+function paintPanel(g) {
+  const x = PANEL_X, sc = META.showcase, streak = META.streak || 0;
+  // Tarjeta de cristal oscuro.
+  roundRect(g, 420, 10, 170, 380, 16);
+  let grad = g.createLinearGradient(0, 10, 0, 390);
+  grad.addColorStop(0, "rgba(34,16,74,0.78)"); grad.addColorStop(1, "rgba(14,7,38,0.82)");
+  g.fillStyle = grad; g.fill();
+  g.lineWidth = 1.4; g.strokeStyle = "rgba(240,200,90,0.6)"; g.stroke();
+  roundRect(g, 423.5, 13.5, 163, 373, 13); g.lineWidth = 0.7; g.strokeStyle = "rgba(240,200,90,0.2)"; g.stroke();
+  // Título.
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "31px Luckiest";
+  grad = g.createLinearGradient(0, 24, 0, 52);
+  grad.addColorStop(0, "#fff6bf"); grad.addColorStop(0.55, "#f3c24a"); grad.addColorStop(1, "#c58a1c");
+  g.fillStyle = "rgba(0,0,0,0.45)"; g.fillText("LA RUEDA", x + 1.5, 41.5);
+  outlined(g, "LA RUEDA", x, 40, 31, grad, "#2a0e52", 5);
+  g.font = "700 9.5px Montserrat"; g.fillStyle = "#e7d9ff";
+  g.fillText("EXPOSITOR DE LA SEMANA", x, 66);
+  // Vitrina: cristal, foco, copa y peana.
+  const vx = 440, vy = 76, vw = 130, vh = 126;
+  roundRect(g, vx, vy, vw, vh, 10);
+  grad = g.createLinearGradient(0, vy, 0, vy + vh);
+  grad.addColorStop(0, "rgba(150,170,255,0.26)"); grad.addColorStop(1, "rgba(60,40,140,0.4)");
+  g.fillStyle = grad; g.fill();
+  g.save(); roundRect(g, vx, vy, vw, vh, 10); g.clip();
+  grad = g.createLinearGradient(0, vy, 0, vy + 100);
+  grad.addColorStop(0, "rgba(255,246,205,0.5)"); grad.addColorStop(1, "rgba(255,246,205,0)");
+  g.fillStyle = grad; g.beginPath(); g.moveTo(x - 7, vy); g.lineTo(x + 7, vy); g.lineTo(x + 52, vy + 100); g.lineTo(x - 52, vy + 100); g.closePath(); g.fill();
+  g.fillStyle = "rgba(255,255,255,0.08)";
+  g.beginPath(); g.moveTo(vx + 10, vy); g.lineTo(vx + 34, vy); g.lineTo(vx + 6, vy + vh); g.lineTo(vx - 18, vy + vh); g.closePath(); g.fill();
+  g.restore();
+  const ped = pathOf(p => { rrPath(p, vx + 12, vy + vh - 26, vw - 24, 26, 3); });
+  grad = g.createLinearGradient(0, vy + vh - 26, 0, vy + vh);
+  grad.addColorStop(0, "#6b4a9c"); grad.addColorStop(1, "#2c1659");
+  g.fillStyle = grad; g.fill(ped); g.strokeStyle = "#e8b93e"; g.lineWidth = 1.4; g.stroke(ped);
+  g.fillStyle = "#e8b93e"; g.fillRect(vx + 12, vy + vh - 26, vw - 24, 2.6);
+  if (sc) {
+    trophy(g, x, vy + vh - 26, 1.0, "#f3c24a");
+  } else {
+    g.save(); g.setLineDash([4, 3]); g.globalAlpha = 0.35; trophy(g, x, vy + vh - 26, 1.0, "rgba(255,255,255,0.15)"); g.restore();
+  }
+  roundRect(g, vx, vy, vw, vh, 10); g.lineWidth = 1.6; g.strokeStyle = "rgba(210,220,255,0.75)"; g.stroke();
+  // Nombre del título y cuántos quedan.
+  g.font = "700 11.5px Montserrat"; g.fillStyle = "#ffffff";
+  const name = sc ? sc.name : "Sin título esta semana";
+  const lines = wrap(g, name, 148).slice(0, 2);
+  lines.forEach((ln, i) => g.fillText(ln, x, 217 + i * 13.5));
+  g.font = "700 10.5px Montserrat";
+  g.fillStyle = sc ? "#ffd98a" : "#ff9c9c";
+  g.fillText(sc ? `Quedan ${sc.left} de ${sc.of}` : "Agotado", x, 249);
+  // Racha.
+  const rw = 124, ry = 263;
+  roundRect(g, x - rw / 2, ry, rw, 24, 12);
+  g.fillStyle = "rgba(10,4,30,0.6)"; g.fill();
+  g.strokeStyle = streak > 0 ? "rgba(255,170,60,0.8)" : "rgba(240,200,90,0.35)"; g.lineWidth = 1; g.stroke();
+  const label = `Racha: ${streak} ${streak === 1 ? "día" : "días"}`;
+  g.font = "700 11.5px Montserrat"; g.fillStyle = "#fff2cf";
+  if (streak > 0) { g.textAlign = "left"; flame(g, x - rw / 2 + 15, ry + 12.5, 0.92); g.fillText(label, x - rw / 2 + 28, ry + 12.8); g.textAlign = "center"; }
+  else g.fillText(label, x, ry + 12.8);
+  // Entrada de una vuelta al día.
+  const ty = 293, tw = 138, th = 22;
+  const ticket = pathOf(p => {
+    const l = x - tw / 2, r2 = x + tw / 2, n = 5;
+    p.moveTo(l + 4, ty); p.lineTo(r2 - 4, ty); p.arc(r2, ty + th / 2, n, -Math.PI / 2 - 0.4, Math.PI / 2 + 0.4, true);
+    p.lineTo(r2 - 4, ty + th); p.lineTo(l + 4, ty + th); p.arc(l, ty + th / 2, n, Math.PI / 2 - 0.4, -Math.PI / 2 + 0.4, true); p.closePath();
+  });
+  grad = g.createLinearGradient(x - tw / 2, 0, x + tw / 2, 0);
+  grad.addColorStop(0, "#f7d774"); grad.addColorStop(1, "#e2a42e");
+  g.fillStyle = grad; g.fill(ticket); g.strokeStyle = "#7a5412"; g.lineWidth = 1; g.stroke(ticket);
+  g.setLineDash([2, 2]); g.strokeStyle = "rgba(90,50,5,0.5)"; g.beginPath(); g.moveTo(x - tw / 2 + 20, ty + 3); g.lineTo(x - tw / 2 + 20, ty + th - 3); g.stroke(); g.setLineDash([]);
+  g.font = "700 10px Montserrat"; g.fillStyle = "#4a2c05"; g.fillText("UNA VUELTA AL DÍA", x + 9, ty + th / 2 + 0.6);
+  star5(g, x - tw / 2 + 11, ty + th / 2, 4.2, "#7a4a05");
+  // Soporte de la rueda del hámster.
+  if (META.pet === "hamster") {
+    const hy = HAM.y;
+    g.strokeStyle = "#8d7db0"; g.lineWidth = 3; g.lineCap = "round";
+    g.beginPath(); g.moveTo(x - 20, 388); g.lineTo(x - 3, hy); g.moveTo(x + 20, 388); g.lineTo(x + 3, hy); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x - 20, 388); g.lineTo(x - 3, hy); g.stroke();
+    g.fillStyle = "rgba(0,0,0,0.3)"; g.beginPath(); g.ellipse(x, 389, 28, 3.2, 0, 0, TAU); g.fill();
+  }
+}
+function star5(g, x, y, r, fill) {
+  g.fillStyle = fill; g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.closePath(); g.fill();
+}
+
+// -- Cada fotograma -------------------------------------------------------------------------
+
+const HAM = { x: PANEL_X, y: 352, r: 28 };
+function drawHamster(g, phase) {
+  const { x, y, r } = HAM, run = phase > 0, p = phase * 9;
+  const floor = y + r - 4;
+  const wheelA = phase * 2.4;
+  // Rueda: aro, radios que giran y eje.
+  g.save(); g.translate(x, y);
+  g.strokeStyle = "rgba(255,255,255,0.12)"; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, r - 2, 0, TAU); g.stroke();
+  g.strokeStyle = "#b6a7d8"; g.lineWidth = 2.2; g.beginPath(); g.arc(0, 0, r - 2, 0, TAU); g.stroke();
+  g.lineWidth = 1; g.strokeStyle = "rgba(182,167,216,0.8)";
+  for (let k = 0; k < 6; k++) { const a = wheelA + k * Math.PI / 3; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * (r - 2), Math.sin(a) * (r - 2)); g.stroke(); }
+  g.fillStyle = "#e8b93e"; g.beginPath(); g.arc(0, 0, 2.6, 0, TAU); g.fill();
+  g.restore();
+  // Hámster (mira a la derecha): patas, cuerpo, cabeza.
+  const bob = run ? -Math.abs(Math.sin(p)) * 1.3 : 0, by = floor - 9.5 + bob;
+  const leg = (lx, k) => {
+    const a = run ? p + k * Math.PI / 2 : 0.0;
+    const fx = lx + (run ? Math.sin(a) * 3.2 : (k % 2 ? 1.2 : -1.2)), fy = floor - (run ? Math.max(0, Math.cos(a)) * 2.8 : 0);
+    g.fillStyle = "#e6b072"; g.beginPath(); g.ellipse(fx, fy - 1, 2.8, 2, 0, 0, TAU); g.fill();
+    g.fillStyle = "#f6a6a6"; g.beginPath(); g.ellipse(fx + 0.8, fy - 0.2, 1.5, 0.9, 0, 0, TAU); g.fill();
+  };
+  leg(x - 8, 0); leg(x + 7, 2);
+  g.fillStyle = "#f0b97c"; g.beginPath(); g.ellipse(x - 2, by, 11.5, 8.4, 0, 0, TAU); g.fill();
+  g.fillStyle = "#fff0d6"; g.beginPath(); g.ellipse(x, by + 3.2, 8.2, 4.8, 0, 0, TAU); g.fill();
+  g.strokeStyle = "#f6a6a6"; g.lineWidth = 1.4; g.lineCap = "round"; g.beginPath(); g.moveTo(x - 13, by + 2); g.quadraticCurveTo(x - 17, by - 1, x - 15.5, by - 4); g.stroke();
+  g.fillStyle = "#f0b97c"; g.beginPath(); g.arc(x + 9, by - 2.4, 7.2, 0, TAU); g.fill();
+  g.fillStyle = "#d98e4a"; g.beginPath(); g.ellipse(x - 3, by - 5.2, 6.2, 2.6, -0.1, Math.PI, TAU); g.fill();
+  g.fillStyle = "#e6a2a2"; g.beginPath(); g.arc(x + 5.4, by - 8.6, 2.9, 0, TAU); g.fill();
+  g.fillStyle = "#f6c9c9"; g.beginPath(); g.arc(x + 5.4, by - 8.6, 1.5, 0, TAU); g.fill();
+  g.fillStyle = "rgba(255,120,120,0.45)"; g.beginPath(); g.ellipse(x + 10.2, by + 0.2, 2.5, 1.7, 0, 0, TAU); g.fill();
+  g.fillStyle = "#1c1030"; g.beginPath(); g.arc(x + 11.6, by - 3.6, 1.35, 0, TAU); g.fill();
+  g.fillStyle = "#ffffff"; g.beginPath(); g.arc(x + 12.0, by - 4.0, 0.5, 0, TAU); g.fill();
+  g.fillStyle = "#f08aa0"; g.beginPath(); g.arc(x + 15.4, by - 1.6, 1.15, 0, TAU); g.fill();
+  leg(x - 3, 1); leg(x + 11.5, 3);
+  g.save(); g.translate(x, y); g.strokeStyle = "rgba(182,167,216,0.9)"; g.lineWidth = 2.2;
+  g.beginPath(); g.arc(0, 0, r - 2, rad(60), rad(120)); g.stroke(); g.restore();
+}
+
+function bulbLevels(st, n) {
+  // Cuánto brilla cada bombilla (0 a 1) y si es de luz fría.
+  const out = [];
+  const L = st.lights | 0;
+  for (let k = 0; k < n; k++) {
+    let v = 0.12, cold = false;
+    if (st.mode === "spin") {
+      const d = ((L - k) % n + n) % n;
+      v = d === 0 ? 1 : d === 1 ? 0.78 : d === 2 ? 0.5 : 0.14;
+    } else if (st.mode === "win") {
+      v = (k + L) % 2 === 0 ? 1 : 0.18;
+    } else if (st.mode === "lose") {
+      v = (k + L) % 4 === 0 ? 0.85 : 0.1; cold = v > 0.5;
+    } else {
+      v = (k + L) % 2 === 0 ? 1 : 0.38;
+    }
+    out.push([v, cold]);
+  }
+  return out;
+}
+function drawBulbs(g, st) {
+  const lv = bulbLevels(st, BULBS.length);
+  BULBS.forEach(([x, y], k) => {
+    const [v, cold] = lv[k];
+    const lit = cold ? "#e8f2ff" : "#ffe27a", off = cold ? "#4a5468" : "#6e4a12";
+    if (v > 0.45) {
+      const halo = g.createRadialGradient(x, y, 1, x, y, 7);
+      halo.addColorStop(0, cold ? `rgba(200,225,255,${0.5 * v})` : `rgba(255,226,120,${0.55 * v})`); halo.addColorStop(1, "rgba(255,226,120,0)");
+      g.fillStyle = halo; g.beginPath(); g.arc(x, y, 7, 0, TAU); g.fill();
+    }
+    g.fillStyle = mixc(off, lit, v); g.beginPath(); g.arc(x, y, 3.3, 0, TAU); g.fill();
+    if (v > 0.45) { g.fillStyle = `rgba(255,255,255,${0.9 * v})`; g.beginPath(); g.arc(x - 0.8, y - 0.8, 1.2, 0, TAU); g.fill(); }
+  });
+}
+// Con la rueda girando solo se lee lo que pasa cerca de la aguja (el resto, a 14° por fotograma, no
+// se lee): ahí va la rueda con letras y alrededor, la rápida, con un degradado a escalones. Cada
+// escalón es un trozo más ancho de la rueda con letras, a una opacidad: (medio ángulo, opacidad).
+const LENS = [[78, 0.3], [66, 0.4], [55, 0.55], [45, 1]];
+function drawDisc(g, st) {
+  const { cx, cy, r } = META.geo;
+  // Cuanto más rápido va, menos detalle: a 20 fotogramas por segundo no se vería y el GIF pesaría el triple.
+  const moving = st.mode === "spin" || (st.mode === "idle" && st.lights > 0 && !st.hint);
+  const variant = st.blur > 0 ? "fast" : moving && st.winA <= 0 ? "lite" : "rich";
+  const put = (v) => {
+    g.save(); g.translate(cx, cy); g.rotate(rad(st.angle));
+    g.drawImage(DISCS[v], -DISC_SIZE / 2, -DISC_SIZE / 2, DISC_SIZE, DISC_SIZE); g.restore();
+  };
+  if (variant !== "lite") return put(variant);
+  put("fast");
+  for (const [deg, alpha] of LENS) {
+    g.save(); g.globalAlpha = alpha; g.beginPath(); g.moveTo(cx, cy);
+    g.arc(cx, cy, r + 2, rad(-90 - deg), rad(-90 + deg)); g.closePath(); g.clip();
+    put("lite"); g.restore();
+  }
+}
+function drawWin(g, st) {
+  const { cx, cy, r } = META.geo;
+  const w = META.wedges[st.win];
+  if (!w || st.winA <= 0) return;
+  const mid = (w.a0 + w.a1) / 2, half = Math.max((w.a1 - w.a0) / 2, 1.1);
+  const a0 = rad(mid - half + st.angle - 90), a1 = rad(mid + half + st.angle - 90);
+  // El resto de la rueda se apaga un poco; la porción ganadora brilla.
+  g.save(); g.fillStyle = `rgba(12,4,32,${0.5 * st.winA})`; g.beginPath();
+  g.moveTo(cx + r, cy); g.arc(cx, cy, r, 0, TAU);
+  g.moveTo(cx, cy); g.arc(cx, cy, r, a0, a1); g.closePath(); g.fill("evenodd"); g.restore();
+  g.save(); g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, r, a0, a1); g.closePath(); g.clip();
+  g.fillStyle = `rgba(255,248,214,${0.3 * st.winA})`; g.fillRect(cx - r, cy - r, r * 2, r * 2); g.restore();
+  g.save(); g.lineWidth = 1.6; g.strokeStyle = `rgba(255,244,190,${0.9 * st.winA})`;
+  for (const a of [a0, a1]) { g.beginPath(); g.moveTo(cx + Math.cos(a) * 28, cy + Math.sin(a) * 28); g.lineTo(cx + Math.cos(a) * (r - 1), cy + Math.sin(a) * (r - 1)); g.stroke(); }
+  g.restore();
+}
+function drawRimGlow(g, st) {
+  const { cx, cy, r } = META.geo;
+  const w = META.wedges[st.win];
+  if (!w || st.winA <= 0) return;
+  const mid = (w.a0 + w.a1) / 2, half = Math.max((w.a1 - w.a0) / 2, 2.4) + 1.5;
+  const a0 = rad(mid - half + st.angle - 90), a1 = rad(mid + half + st.angle - 90);
+  g.save(); g.lineCap = "round";
+  g.strokeStyle = `rgba(255,236,150,${0.28 * st.winA})`; g.lineWidth = 9; g.beginPath(); g.arc(cx, cy, r + 19, a0, a1); g.stroke();
+  g.strokeStyle = `rgba(255,248,210,${0.8 * st.winA})`; g.lineWidth = 2.4; g.beginPath(); g.arc(cx, cy, r + 14.4, a0, a1); g.stroke();
+  g.restore();
+}
+function drawPointer(g, st) {
+  const { cx, cy, r } = META.geo;
+  const py = 10.5, tip = cy - r + 20, L = tip - py;
+  g.save(); g.translate(cx, py); g.rotate(-rad(st.pointer || 0));
+  const shape = pathOf(p => {
+    p.moveTo(8.5, 0); p.bezierCurveTo(8.5, L * 0.38, 3.2, L * 0.7, 0, L);
+    p.bezierCurveTo(-3.2, L * 0.7, -8.5, L * 0.38, -8.5, 0); p.arc(0, 0, 8.5, Math.PI, 0);
+  });
+  g.save(); g.translate(1.6, 2.4); g.fillStyle = "rgba(0,0,0,0.38)"; g.fill(shape); g.restore();
+  const grad = g.createLinearGradient(-8.5, 0, 8.5, 0);
+  grad.addColorStop(0, "#fff0a8"); grad.addColorStop(0.45, "#e8b93e"); grad.addColorStop(1, "#8f6418");
+  g.fillStyle = grad; g.fill(shape);
+  g.lineJoin = "round"; g.lineWidth = 1.3; g.strokeStyle = "#4d3208"; g.stroke(shape);
+  g.strokeStyle = "rgba(255,250,210,0.8)"; g.lineWidth = 1; g.beginPath(); g.moveTo(-3.4, 5); g.quadraticCurveTo(-3, L * 0.5, -0.6, L * 0.82); g.stroke();
+  const ruby = g.createRadialGradient(-1.8, -1.8, 0.4, 0, 0, 6.2);
+  ruby.addColorStop(0, "#ff9aa8"); ruby.addColorStop(0.5, "#d3123c"); ruby.addColorStop(1, "#650018");
+  g.fillStyle = ruby; g.beginPath(); g.arc(0, 0, 5.6, 0, TAU); g.fill();
+  g.strokeStyle = "#f3c24a"; g.lineWidth = 1.4; g.stroke();
+  g.fillStyle = "rgba(255,255,255,0.85)"; g.beginPath(); g.ellipse(-1.9, -2, 1.4, 0.9, -0.6, 0, TAU); g.fill();
+  g.restore();
+}
+function drawHint(g) {
+  const { cx } = META.geo, y = BANNER_Y;
+  roundRect(g, cx - 92, y - 17, 184, 34, 17);
+  g.fillStyle = "rgba(14,6,36,0.86)"; g.fill();
+  g.lineWidth = 1.8; g.strokeStyle = "#f3c24a"; g.stroke();
+  g.font = "19px Luckiest"; g.textAlign = "center"; g.textBaseline = "middle";
+  const grad = g.createLinearGradient(0, y - 10, 0, y + 10);
+  grad.addColorStop(0, "#fff3b0"); grad.addColorStop(1, "#f0b92f");
+  outlined(g, "PULSA GIRAR", cx + 12, y + 1, 19, grad, "#1a0838", 3);
+  // Flechas circulares a la izquierda.
+  g.save(); g.translate(cx - 68, y); g.strokeStyle = "#f3c24a"; g.fillStyle = "#f3c24a"; g.lineWidth = 2.2; g.lineCap = "round";
+  g.beginPath(); g.arc(0, 0, 6.5, rad(30), rad(300)); g.stroke();
+  g.beginPath(); g.moveTo(6.6, -2.6); g.lineTo(11.5, 3.2); g.lineTo(2.8, 3.8); g.closePath(); g.fill();
+  g.restore();
+}
+
+const KINDS = {
+  money: { a: "#ffe58a", b: "#e0a52a", edge: "#7a4d08", tail: "#b57a14", ink: "#3b2204", hi: "#fff6c8", glow: "#ffd24a" },
+  xp: { a: "#f9a8d4", b: "#be185d", edge: "#4a0a2e", tail: "#8a1048", ink: "#ffffff", hi: "#ffd1ea", glow: "#ff5fa2" },
+  item: { a: "#5eead4", b: "#0f766e", edge: "#053b36", tail: "#0a554f", ink: "#ffffff", hi: "#c9fff6", glow: "#45e0c8" },
+  again: { a: "#a5f3fc", b: "#0891b2", edge: "#073b4c", tail: "#0a6a85", ink: "#06283a", hi: "#e7fdff", glow: "#45d4ff" },
+  showcase: { a: "#ffffff", b: "#f5c242", edge: "#7a5412", tail: "#c99a2c", ink: "#5b3a00", hi: "#ffffff", glow: "#fff0a8" },
+};
+function drawBanner(g, st) {
+  const b = st.banner;
+  if (!b || st.bannerA <= 0) return;
+  const { cx } = META.geo, y = BANNER_Y;
+  g.save(); g.globalAlpha = clamp(st.bannerA, 0, 1); g.translate(cx, y); g.scale(st.bannerS, st.bannerS);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  if (b.kind === "nothing") { drawStamp(g, b); g.restore(); return; }
+  const k = KINDS[b.kind] || KINDS.money;
+  let size = 33;
+  g.font = `${size}px Luckiest`;
+  while (g.measureText(b.title).width > 262 && size > 14) { size -= 1; g.font = `${size}px Luckiest`; }
+  const tw = g.measureText(b.title).width;
+  g.font = "700 12px Montserrat";
+  let sub = b.sub, sw = g.measureText(sub).width, ss = 12;
+  while (sw > 262 && ss > 8) { ss -= 0.5; g.font = `700 ${ss}px Montserrat`; sw = g.measureText(sub).width; }
+  const pw = clamp(Math.max(tw, sw) + 64, 200, 318), ph = 78, x0 = -pw / 2, y0 = -ph / 2;
+  if (b.kind === "showcase") {
+    const halo = g.createRadialGradient(0, 0, 20, 0, 0, 170);
+    halo.addColorStop(0, rgba(k.glow, 0.5)); halo.addColorStop(1, rgba(k.glow, 0));
+    g.fillStyle = halo; g.fillRect(-190, -120, 380, 240);
+  }
+  // Colas de la cinta, detrás de la placa.
+  for (const sx of [-1, 1]) {
+    const e = sx * (pw / 2 - 8), o = sx * (pw / 2 + 26);
+    g.beginPath(); g.moveTo(e, -22); g.lineTo(o, -22); g.lineTo(o - sx * 13, 0); g.lineTo(o, 22); g.lineTo(e, 22); g.closePath();
+    g.fillStyle = k.tail; g.fill(); g.lineWidth = 1.6; g.lineJoin = "round"; g.strokeStyle = k.edge; g.stroke();
+  }
+  roundRect(g, x0, y0 + 5, pw, ph, 15); g.fillStyle = "rgba(0,0,0,0.38)"; g.fill();
+  roundRect(g, x0, y0, pw, ph, 15);
+  const grad = g.createLinearGradient(0, y0, 0, y0 + ph);
+  grad.addColorStop(0, k.a); grad.addColorStop(1, k.b);
+  g.fillStyle = grad; g.fill(); g.lineWidth = 2.6; g.strokeStyle = k.edge; g.stroke();
+  roundRect(g, x0 + 4.5, y0 + 4.5, pw - 9, ph - 9, 11); g.lineWidth = 1.2; g.strokeStyle = rgba(k.hi, 0.7); g.stroke();
+  g.save(); roundRect(g, x0, y0, pw, ph, 15); g.clip();
+  g.fillStyle = "rgba(255,255,255,0.2)"; g.fillRect(x0, y0, pw, ph * 0.42); g.restore();
+  g.font = `${size}px Luckiest`;
+  const dark = k.ink !== "#ffffff";
+  outlined(g, b.title, 0, -9, size, k.ink, dark ? rgba(k.hi, 0.9) : rgba(k.edge, 0.95), dark ? 2.2 : 5);
+  g.font = `700 ${ss}px Montserrat`; g.fillStyle = dark ? k.ink : "#ffffff";
+  g.fillText(sub, 0, 20);
+  if (b.kind === "showcase" || b.kind === "money") {
+    sparkle(g, x0 + 14, y0 + 13, 6, "rgba(255,255,255,0.95)"); sparkle(g, -x0 - 14, y0 + ph - 13, 5, "rgba(255,255,255,0.9)");
+  }
+  g.restore();
+}
+function drawStamp(g, b) {
+  g.rotate(-0.1);
+  const ink = "#b3262d";
+  let size = 31;
+  g.font = `${size}px Luckiest`;
+  while (g.measureText(b.title).width > 232 && size > 14) { size -= 1; g.font = `${size}px Luckiest`; }
+  const sw0 = g.measureText(b.title).width;
+  g.font = "700 12px Montserrat";
+  const sw = Math.max(sw0, g.measureText(b.sub).width), pw = clamp(sw + 44, 210, 280), ph = 70;
+  roundRect(g, -pw / 2 + 2, -ph / 2 + 5, pw, ph, 10); g.fillStyle = "rgba(0,0,0,0.35)"; g.fill();
+  roundRect(g, -pw / 2, -ph / 2, pw, ph, 10); g.fillStyle = "rgba(238,236,242,0.96)"; g.fill();
+  g.strokeStyle = ink; g.lineWidth = 3; g.stroke();
+  roundRect(g, -pw / 2 + 5, -ph / 2 + 5, pw - 10, ph - 10, 6); g.lineWidth = 1.2; g.stroke();
+  g.fillStyle = ink; g.font = `${size}px Luckiest`; g.fillText(b.title, 0, -8);
+  g.font = "700 12px Montserrat"; g.fillStyle = "#7a2a30"; g.fillText(b.sub, 0, 19);
+  // Tinta gastada: motas del color del papel, siempre las mismas.
+  const rand = rng(11);
+  g.fillStyle = "rgba(238,236,242,0.95)";
+  for (let i = 0; i < 46; i++) { g.beginPath(); g.arc((rand() - 0.5) * (pw - 14), (rand() - 0.5) * (ph - 14), 0.5 + rand() * 0.9, 0, TAU); g.fill(); }
+}
+function drawConfetti(g, st) {
+  const t = st.burst, bx = META.geo.cx, by = BANNER_Y - 14;
+  const cols = ["#ffd84a", "#ff4d8d", "#35d0ff", "#7cf06b", "#ffffff", "#ff8a3d", "#b57bff"];
+  const alpha = clamp(1 - (t - 0.34) / 0.2, 0, 1);
+  if (alpha <= 0) return;
+  for (let i = 0; i < 72; i++) {
+    const rand = rng((st.seed | 0) * 31 + i * 7919 + 17);
+    const ang = -Math.PI / 2 + (rand() - 0.5) * Math.PI * 1.7, sp = 190 + rand() * 430;
+    const x = bx + Math.cos(ang) * sp * t, y = by + Math.sin(ang) * sp * t + 0.5 * 520 * t * t;
+    const col = cols[Math.floor(rand() * cols.length)], w = 5 + rand() * 5, h = 3 + rand() * 3;
+    const rot = rand() * TAU + (rand() * 2 - 1) * 14 * t, round = rand() < 0.22;
+    g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate(rot); g.fillStyle = col;
+    if (round) { g.beginPath(); g.arc(0, 0, h * 0.8, 0, TAU); g.fill(); }
+    else {
+      // Al girar «de canto» la pieza se estrecha, como un confeti de verdad.
+      g.scale(1, 0.35 + 0.65 * Math.abs(Math.cos(rot * 2.3 + i)));
+      g.fillRect(-w / 2, -h / 2, w, h);
+    }
+    g.restore();
+  }
+}
+
+function paint(st) {
+  const g = bctx;
+  DIRTY = null;
+  // Cada fotograma parte del estado de fábrica del lienzo (grosor y remates de línea, fuente...):
+  // lo que dejara el anterior cambiaría un borde según por dónde empiece a pintar cada proceso.
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.drawImage(BG, 0, 0);
+  g.setTransform(S, 0, 0, S, 0, 0);
+  drawDisc(g, st);
+  drawWin(g, st);
+  g.drawImage(FG, 0, 0, W, H);
+  drawRimGlow(g, st);
+  drawBulbs(g, st);
+  drawPointer(g, st);
+  mark(16, 0, 412, H);
+  if (st.hint && !st.banner) drawHint(g);
+  if (META.pet === "hamster") { drawHamster(g, st.hamster || 0); mark(HAM.x - 34, HAM.y - 34, HAM.x + 34, 392); }
+  if (st.banner && st.bannerA > 0) drawBanner(g, st);
+  if (st.burst >= 0) { drawConfetti(g, st); mark(0, 0, W, H); }
+  g.restore();
+}
+
+function snapshot(first) {
+  let [x0, y0, x1, y1] = first || !PREV ? [0, 0, W, H] : [
+    Math.min(DIRTY[0], PREV[0]), Math.min(DIRTY[1], PREV[1]),
+    Math.max(DIRTY[2], PREV[2]), Math.max(DIRTY[3], PREV[3]),
+  ];
+  PREV = DIRTY;
+  x0 = clamp(Math.floor(x0), 0, W); y0 = clamp(Math.floor(y0), 0, H);
+  x1 = clamp(Math.ceil(x1), x0 + 1, W); y1 = clamp(Math.ceil(y1), y0 + 1, H);
+  const w = x1 - x0, h = y1 - y0;
+  patch.width = w; patch.height = h;
+  pctx.imageSmoothingEnabled = true; pctx.imageSmoothingQuality = "high";
+  pctx.drawImage(big, x0 * S, y0 * S, w * S, h * S, 0, 0, w, h);
+  return { x: x0, y: y0, u: window.exportFrame(patch) };
+}
+
+// En Chromium cada recuadro va como data URL de PNG; el pintor de Node
+// (assets/escena_node.cjs) pone su exportFrame, que devuelve los píxeles tal cual.
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
+window.loadFonts = async () => {
+  await Promise.all([document.fonts.load("30px Luckiest"), document.fonts.load("700 12px Montserrat")]);
+  await document.fonts.ready;
+  return true;
+};
+window.setup = async (meta) => {
+  const key = JSON.stringify(meta);
+  PREV = null;
+  if (key !== META_KEY) {
+    META = meta; META_KEY = key;
+    DISCS = { rich: paintDisc("rich"), lite: paintDisc("lite"), fast: paintDisc("fast") }; FG = paintFG(); BG = paintBG();
+  }
+  return true;
+};
+window.renderFrames = (states, first = 0) => states.map((st, i) => {
+  paint(st);
+  return snapshot(i === 0);
+});
+</script>
+</body>
+</html>
