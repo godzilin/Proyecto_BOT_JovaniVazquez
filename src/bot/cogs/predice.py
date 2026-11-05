@@ -41,7 +41,7 @@ vez en el día del casino, con la retención del IRPF del juego. Tratamiento fis
 `EconomyService.predict_bet`. Lo que espera sale en `saldo` (`pending`). Apostar es gastar:
 lleva `renta.remind` y la línea de `renta.hint`.
 
-Logros: sección 🔮 Predicciones del grupo 🎰 Casino (`predict_bet_stats`,
+Logros: entrada propia 🔮 Predicciones del menú de logros (`predict_bet_stats`,
 `predict_result_stats`, `predict_void_stats` y `predict_slip_stats`), más lo común del
 casino al resolverse (`casino_play` y `apuestas.record`). No admite porras
 (`porras.EXCLUDED_GAMES`): se resuelve días después.
