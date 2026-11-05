@@ -95,6 +95,12 @@ def games() -> dict[str, tuple[Callable[[], Any], Callable[[Any], Awaitable[Any]
     from bot.services.housing_scene import HousingScene
     from bot.services.lottery_scene import LotteryScene
     from bot.services.roulette_scene import RouletteScene
+    from bot.services.rueda import Draw as WheelDraw
+    from bot.services.rueda import layout as wheel_layout
+    from bot.services.rueda_render import banner_for as wheel_banner
+    from bot.services.rueda_render import meta_state as wheel_meta
+    from bot.services.rueda_render import spin_states as wheel_states
+    from bot.services.rueda_scene import RuedaScene
     from bot.services.slots_scene import SlotsScene
     from bot.services.tower import Difficulty
     from bot.services.tower_scene import TowerScene
@@ -133,7 +139,17 @@ def games() -> dict[str, tuple[Callable[[], Any], Callable[[Any], Awaitable[Any]
             finish=finish,
         )
 
+    wedges = wheel_layout()
+    wheel_spin = WheelDraw(4, wedges[4].prize.key, 0.4, 12345)
+    wheel = wheel_states(wedges, wheel_spin, wheel_banner(wheel_spin.prize, wedges[4].prize.kind))
+    showcase = {"key": "rueda_titulo_eje", "name": "Eje de la Rueda", "left": 7, "of": 10}
+
     return {
+        # La Rueda: una vuelta sin tensión (se pinta antes del clic).
+        "rueda": (
+            lambda: RuedaScene(executable_path=no),
+            lambda s: s.spin(wheel_meta(wedges, showcase=showcase, streak=3), *wheel),
+        ),
         "moneda": (
             lambda: CoinScene(executable_path=no),
             lambda s: s.toss(lost_game(), start=Side.CARA, seed=3),
