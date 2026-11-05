@@ -45,6 +45,7 @@ OWNER_ID = 10
 OTHER_ID = 20
 GAMES = (
     "Casino",
+    "Rueda",
     "Blackjack",
     "Tragaperras",
     "Botes",
@@ -99,6 +100,7 @@ async def load_bot(tmp_path: Path) -> BotClient:
     await client.porras.initialize()
     await client.sports.initialize()
     await client.predice.initialize()
+    await client.rueda.initialize()
     await client.slots_repository.initialize()
     await client.picar.initialize()
     for extension in INITIAL_EXTENSIONS:
@@ -1084,6 +1086,37 @@ async def test_las_mascotas_llegan_a_todos_con_el_bot_real(tmp_path: Path) -> No
             module = importer(game, client)
             hint = await module.renta.hint(client, GUILD_ID, OWNER_ID, loud)
             assert hint is not None and "**Toby**" in hint, game
+    finally:
+        await client.close()
+
+
+async def test_la_rueda_llega_a_la_tienda_los_niveles_y_la_mascota_con_el_bot_real(
+    tmp_path: Path,
+) -> None:
+    """`rueda` carga antes que la tienda, las mascotas y los logros: sus puentes los encuentran."""
+    from bot.services.pets import PetState
+    from bot.services.rueda_catalog import PIECES, TITLE_KEYS, TITLE_STOCK
+
+    client = await load_bot(tmp_path)
+    try:
+        module = importer("Rueda", client)
+        item = await module.tienda.give_key(client, GUILD_ID, OWNER_ID, PIECES[0].key)
+        assert item is not None and item.catalog_key == PIECES[0].key
+        given = await module.tienda.give_numbered(client, GUILD_ID, OWNER_ID, TITLE_KEYS[0])
+        assert given is not None and given[1:] == (1, TITLE_STOCK)
+        assert await module.tienda.give_numbered(client, GUILD_ID, OWNER_ID, TITLE_KEYS[0]) is None
+        left = await module.tienda.units_left(client, GUILD_ID, TITLE_KEYS)
+        assert left[TITLE_KEYS[0]] == TITLE_STOCK - 1 and left[TITLE_KEYS[1]] == TITLE_STOCK
+        assert await module.niveles.levels_enabled(client, GUILD_ID) is False
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_ID
+        owner = MagicMock(spec=discord.Member)
+        owner.id, owner.bot = OWNER_ID, False
+        assert await module.niveles.give_xp(client, guild, owner, None, 250) is False
+        client.get_cog("Mascotas").active[(GUILD_ID, OWNER_ID)] = PetState(
+            id=1, guild_id=GUILD_ID, user_id=OWNER_ID, species="hamster", name="", bond=0
+        )
+        assert module.mascotas.active_species(client, GUILD_ID, OWNER_ID) == "hamster"
     finally:
         await client.close()
 
