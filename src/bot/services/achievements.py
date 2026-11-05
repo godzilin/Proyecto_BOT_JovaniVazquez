@@ -175,6 +175,7 @@ from bot.services.pachinko import Kind as PachinkoKind
 from bot.services.pachinko import Volley as PachinkoVolley
 from bot.services.pachinko_motion import VolleyMotion as PachinkoMotion
 from bot.services.pending import Pending, Side
+from bot.services.pet_wardrobe import OUTFITS as PET_OUTFITS
 from bot.services.pets_catalog import SPAWNING as PET_SPAWNING
 from bot.services.pets_catalog import SPECIES as PET_SPECIES
 from bot.services.picar_physics import TICKS_PER_SECOND as PICAR_TICKS_PER_SECOND
@@ -10896,6 +10897,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
             M,
         ),
         (
+            "armario",
+            "box_col_armario",
+            "Desfile de cartón",
+            "Completa la colección del Armario de mascota.",
+            L,
+        ),
+        (
             "aniversario",
             "box_col_aniversario",
             "Felices años, servidor",
@@ -11333,6 +11341,107 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("pets", "pet_canarias", [
         (1, "pet_canarias", "Día de Canarias con mascota",
          "Cuida a una mascota el 30 de mayo.", C),
+    ])  # fmt: skip
+    # 👗 Armario, razas, fotos, paseos y visitas de las mascotas
+    a += _tiers("pets", "pet_dressed", [
+        (1, "pet_dress_1", "Prêt-à-porter de salón", "Ponle una prenda a una mascota.", C),
+        (50, "pet_dress_50", "Cambio de vestuario en la gala",
+         "Ponles 50 prendas a tus mascotas.", R),
+        (250, "pet_dress_250", "Pasarela Cibeles en el pasillo",
+         "Ponles 250 prendas a tus mascotas.", E),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_outfits_owned", [
+        (5, "pet_wardrobe_5", "Fondo de armario", "Ten 5 prendas o fondos para tus mascotas.", C),
+        (20, "pet_wardrobe_20", "Armario empotrado",
+         "Ten 20 prendas o fondos para tus mascotas.", R),
+        (40, "pet_wardrobe_40", "El vestidor de palacio",
+         "Ten 40 prendas o fondos para tus mascotas.", E),
+        (len(PET_OUTFITS), "pet_wardrobe_all", "Ni el armario de Narnia",
+         "Ten todas las prendas y fondos del armario de las mascotas.", M),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_full_look", [
+        (1, "pet_full_look", "De veinticinco alfileres",
+         "Ponle a una mascota algo en la cabeza, los ojos, el cuello y el cuerpo.", R),
+    ])  # fmt: skip
+    for stat, achievement_id, name, description, rarity, secret in (
+        ("pet_dress_cucaracha", "pet_dress_cucaracha", "Aunque la cucaracha se vista de seda",
+         "Viste entera a la cucaracha superviviente.", R, True),
+        ("pet_dress_cabra_corona", "pet_dress_cabra_corona", "La cabra tira a la corona",
+         "Ponle una corona a la cabra majorera.", R, True),
+        ("pet_dress_piedra_chistera", "pet_dress_piedra_chistera", "Rock con clase",
+         "Ponle la chistera a la piedra mascota.", C, True),
+        ("pet_dress_pulpo_gafas", "pet_dress_pulpo_gafas", "Pulpo con oposiciones",
+         "Ponle las gafas de pasta al pulpo adivino.", C, True),
+        ("pet_dress_gato_parche", "pet_dress_gato_parche", "Gato con parche y sin botas",
+         "Ponle el parche de pirata a un gato.", C, True),
+        ("pet_dress_canarias", "pet_dress_canarias", "Mago de los pies al sombrero",
+         "Ponle a una mascota sombrero, ropa y fondo del pasillo de Canarias.", R, False),
+        ("pet_dress_theme", "pet_dress_theme", "A juego hasta el pasillo",
+         "Viste entera a una mascota con prendas del mismo pasillo de la tienda.", E, False),
+    ):  # fmt: skip
+        a.append(Achievement(
+            id=achievement_id, name=name, description=description, category="pets",
+            rarity=rarity, conditions=((stat, 1),), secret=secret,
+        ))  # fmt: skip
+    a += _tiers("pets", "pet_breeds_owned", [
+        (1, "pet_breed_1", "De casta le viene al galgo", "Compra una raza para una mascota.", C),
+        (5, "pet_breed_5", "Libro genealógico", "Ten 5 razas compradas.", R),
+        (15, "pet_breed_15", "Criadero con pedigrí", "Ten 15 razas compradas.", E),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_breed_changes", [
+        (20, "pet_breed_swap_20", "Crisis de identidad genética",
+         "Cambia 20 veces la raza de tus mascotas.", R, True),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_breed_rock", [
+        (1, "pet_breed_rock", "Piedra de buena familia",
+         "Compra una raza para la piedra mascota.", C, True),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_shows", [
+        (1, "pet_show_1", "Posado robado", "Enseña en el canal la foto de una mascota.", C),
+        (25, "pet_shows_25", "Book de modelo", "Enseña 25 fotos de tus mascotas.", R),
+        (100, "pet_shows_100", "Más fotos que en una boda",
+         "Enseña 100 fotos de tus mascotas.", E),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_shows_dressed", [
+        (1, "pet_show_dressed", "Alfombra roja de barrio",
+         "Enseña la foto de una mascota vestida en los cuatro huecos.", R),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_shows_night", [
+        (1, "pet_show_night", "Flash a las tantas",
+         "Enseña la foto de una mascota entre las 0:00 y las 6:00.", C, True),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_photos", [
+        (10, "pet_photos_10", "Álbum de la comunión",
+         "Junta 10 fotos en los álbumes de tus mascotas.", R),
+        (50, "pet_photos_50", "Carrete de 36 y pico",
+         "Junta 50 fotos en los álbumes de tus mascotas.", E),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_walked", [
+        (1, "pet_walk_1", "Vuelta a la manzana", "Saca de paseo a una mascota.", C),
+        (30, "pet_walk_30", "Ruta del colesterol", "Saca de paseo a tus mascotas 30 veces.", R),
+        (100, "pet_walk_100", "Camino de Santiago por etapas",
+         "Saca de paseo a tus mascotas 100 veces.", E),
+        (365, "pet_walk_365", "Kilómetro cero de la avenida",
+         "Saca de paseo a tus mascotas 365 veces.", L),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_visits", [
+        (1, "pet_visit_1", "Visita de cortesía",
+         "Lleva una mascota de visita a casa de la de otro miembro.", C),
+        (10, "pet_visit_10", "Vecino de toda la vida", "Haz 10 visitas con tus mascotas.", R),
+        (50, "pet_visit_50", "Más visitas que el Prado", "Haz 50 visitas con tus mascotas.", E),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_hosted", [
+        (1, "pet_hosted_1", "Pasa, que está abierto",
+         "Que la mascota de otro miembro venga de visita a casa de la tuya.", C),
+        (10, "pet_hosted_10", "Casa de la abuela", "Recibe 10 visitas de mascotas.", R),
+    ])  # fmt: skip
+    a += _tiers("pets", "pet_years", [
+        (1, "pet_anniversary_1", "Bodas de papel",
+         "Celebra el primer año de una mascota en casa.", R),
+        (2, "pet_anniversary_2", "Bodas de algodón",
+         "Celebra el segundo año de una mascota en casa.", E),
+        (5, "pet_anniversary_5", "Bodas de madera",
+         "Celebra el quinto año de una mascota en casa.", L),
     ])  # fmt: skip
 
     # 🪏 Trabajo ------------------------------------------------------------------------
@@ -27245,7 +27354,15 @@ def pet_care_stats(
 
     if points > 0:
         bump("pet_cares")
-        bump({"acariciar": "pet_petted", "jugar": "pet_played", "comer": "pet_fed"}[action])
+        bump(
+            {
+                "acariciar": "pet_petted",
+                "jugar": "pet_played",
+                "comer": "pet_fed",
+                "pasear": "pet_walked",
+                "visitar": "pet_visits",
+            }[action]
+        )
     bump("pet_favourite", favourite)
     bump("pet_gifts", gift)
     bump("pet_fed_nothing", action == "comer" and not eats)
@@ -27287,6 +27404,97 @@ def pet_name_stats(*, name: str) -> StatDelta:
     for mark in _pet_name_marks(name):
         delta.add[mark] = 1
     return delta
+
+
+def pet_dress_stats(
+    *,
+    species: str,
+    outfit: str | None,
+    owned: int,
+    complete: bool,
+    look: Mapping[str, str],
+    aisles: Mapping[str, str],
+) -> StatDelta:
+    """Estadísticas de ponerle (o quitarle) una prenda a una mascota.
+
+    Args:
+        species: Especie de la mascota.
+        outfit: Clave de la prenda puesta (`bot.services.pet_wardrobe`); `None` si se quita.
+        owned: Prendas distintas que tiene su dueño.
+        complete: Si lleva algo en los cuatro huecos de ropa.
+        look: Lo que lleva tras el cambio: hueco → clave de la prenda.
+        aisles: Lo que lleva tras el cambio: hueco → pasillo de la prenda.
+    """
+    delta = StatDelta(peak={"pet_outfits_owned": owned})
+    if outfit is None:
+        return delta
+    delta.add["pet_dressed"] = 1
+    if complete:
+        delta.add["pet_full_look"] = 1
+        if species == "cucaracha":
+            delta.add["pet_dress_cucaracha"] = 1
+    if species == "cabra" and look.get("cabeza") in {"corona", "corona_diamantes"}:
+        delta.add["pet_dress_cabra_corona"] = 1
+    if species == "pedrusco" and look.get("cabeza") == "chistera":
+        delta.add["pet_dress_piedra_chistera"] = 1
+    if species == "pulpo" and look.get("ojos") == "gafas_pasta":
+        delta.add["pet_dress_pulpo_gafas"] = 1
+    if species in {"gato", "gato_callejero"} and look.get("ojos") == "parche":
+        delta.add["pet_dress_gato_parche"] = 1
+    canary = [aisles.get(slot) for slot in ("cabeza", "cuerpo", "fondo")]
+    if all(aisle == "canarias" for aisle in canary):
+        delta.add["pet_dress_canarias"] = 1
+    clothes = [aisles.get(slot) for slot in ("cabeza", "ojos", "cuello", "cuerpo")]
+    if complete and len(set(clothes)) == 1:
+        delta.add["pet_dress_theme"] = 1
+    return delta
+
+
+def pet_breed_stats(*, bought: bool, owned: int, species: str) -> StatDelta:
+    """Estadísticas de cambiar la raza de una mascota.
+
+    Args:
+        bought: Si la raza se acaba de comprar (si no, ya la tenía o es la de serie).
+        owned: Razas de pago que tiene su dueño tras el cambio.
+        species: Especie de la mascota.
+    """
+    delta = StatDelta(add={"pet_breed_changes": 1}, peak={"pet_breeds_owned": owned})
+    if bought and species == "pedrusco":
+        delta.add["pet_breed_rock"] = 1
+    return delta
+
+
+def pet_show_stats(*, dressed: int, when: float) -> StatDelta:
+    """Estadísticas de enseñar en el canal la foto de una mascota.
+
+    Args:
+        dressed: Huecos de ropa que lleva en la foto.
+    """
+    delta = StatDelta(add={"pet_shows": 1, "pet_photos": 1})
+    if dressed >= 4:
+        delta.add["pet_shows_dressed"] = 1
+    if datetime.fromtimestamp(when, TIMEZONE).hour < 6:
+        delta.add["pet_shows_night"] = 1
+    return delta
+
+
+def pet_photo_stats() -> StatDelta:
+    """Estadísticas de una foto del álbum que se hace sola (nivel, aniversario, visita…)."""
+    return StatDelta(add={"pet_photos": 1})
+
+
+def pet_hosted_stats() -> StatDelta:
+    """Estadísticas de quien recibe en casa la visita de la mascota de otro."""
+    return StatDelta(add={"pet_hosted": 1, "pet_photos": 1})
+
+
+def pet_anniversary_stats(*, years: int) -> StatDelta:
+    """Estadísticas del aniversario de una mascota en casa.
+
+    Args:
+        years: Años que cumple en casa.
+    """
+    return StatDelta(add={"pet_anniversaries": 1, "pet_photos": 1}, peak={"pet_years": years})
 
 
 def shop_title_stats(*, worn: bool) -> StatDelta:

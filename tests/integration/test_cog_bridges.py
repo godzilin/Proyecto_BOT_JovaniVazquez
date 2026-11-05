@@ -3241,3 +3241,66 @@ async def test_el_rasca_apunta_sus_logros_al_acabar_con_el_bot_real(tmp_path: Pa
         assert any(stat.startswith("lottery_day_") for stat in profile.stats)
     finally:
         await client.close()
+
+
+async def test_comprar_ropa_desde_el_armario_cobra_igic_y_la_pone_con_el_bot_real(
+    tmp_path: Path,
+) -> None:
+    """El armario de `mascota` compra con la caja de la tienda: IGIC, mochila y logros.
+
+    Y la ropa que regala un logro llega sola al abrir el armario, aunque el logro sea de
+    antes de que existiera.
+    """
+    from bot.cogs.pets import Mode
+    from bot.services.pet_wardrobe import OUTFIT_BY_KEY, Slot
+
+    client = await load_bot(tmp_path)
+    await client.pets.initialize()
+    try:
+        tienda = client.get_cog("Tienda")
+        await tienda.stock_up(GUILD_ID)
+        cat = await client.shop.item_by_key(GUILD_ID, "mascota_gato")
+        await client.shop.grant(GUILD_ID, OWNER_ID, cat, 0.0)
+        await client.economy.grant(GUILD_ID, OWNER_ID, amount=50_000, reason="prueba")
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_ID
+        owner = MagicMock(spec=discord.Member)
+        owner.id, owner.bot, owner.display_name = OWNER_ID, False, "Diego"
+        owner.guild = guild
+        pets = client.get_cog("Mascotas")
+        panel = await pets.panel(guild, owner, owner)
+
+        def click() -> MagicMock:
+            interaction = fake_interaction(owner)
+            interaction.guild = guild
+            interaction.channel = MagicMock(spec=discord.TextChannel)
+            interaction.channel.send = AsyncMock()
+            return interaction
+
+        before = await client.economy.balance(GUILD_ID, OWNER_ID)
+        await pets.dress(click(), panel, Slot.HEAD, "comprar:chistera")
+        assert panel.checkout is not None and panel.preview is OUTFIT_BY_KEY["chistera"]
+        total = panel.checkout.price.total
+        assert total > OUTFIT_BY_KEY["chistera"].price, "con IGIC"
+        await panel._pay(click())
+        # Lo cobrado, menos lo que paga el logro de la primera prenda (con su IRPF).
+        after = await client.economy.balance(GUILD_ID, OWNER_ID)
+        assert before - total <= after < before - total // 2
+        assert panel.looks[panel.current.id][Slot.HEAD] is OUTFIT_BY_KEY["chistera"]
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats["pet_dressed"] == 1 and "pet_dress_1" in profile.unlocked
+
+        # La corona de laurel llega al abrir el armario si ya se tenía su logro.
+        from bot.services.achievements import StatDelta, newly_unlocked
+
+        await client.achievements.record(
+            GUILD_ID,
+            {OWNER_ID: StatDelta(peak={"pet_bond_max": 10})},
+            newly_unlocked,
+            now=0.0,
+        )
+        await panel._goto(Mode.WARDROBE)(click())
+        keys = {e.catalog_key for e in await client.shop.inventory(GUILD_ID, OWNER_ID, 0.0)}
+        assert OUTFIT_BY_KEY["laurel"].catalog_key in keys
+    finally:
+        await client.close()

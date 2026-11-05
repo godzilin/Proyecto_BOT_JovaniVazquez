@@ -8,7 +8,8 @@ casillas de la ruleta o las piezas de cada tablero en segundo plano). Las prueba
 base de datos, los logros y las jugadas: la imagen no entra en ninguna aserción.
 
 `use_fake_drawings` cambia esas clases (y las del pozo de `picar`, la Torre del dragón,
-Allá tú, la Guerra, la lotería, el blackjack y los negocios de `pala`) en sus módulos de
+Allá tú, la Guerra, la lotería, el blackjack, los negocios de `pala` y el retrato de
+`mascota`) en sus módulos de
 servicio ANTES de cargar los cogs. `load_extension` vuelve a ejecutar cada cog y su
 `from ... import SlotsScene` recoge el doble, así que el cog, el bot y la base de datos
 son los reales y solo se sustituye el dibujo. Los dobles devuelven los mismos tipos
@@ -32,6 +33,7 @@ import bot.services.hold_win_render as hold_win_render
 import bot.services.hold_win_scene as hold_win_scene
 import bot.services.lottery_scene as lottery_scene
 import bot.services.pachinko_render as pachinko_render
+import bot.services.pet_scene as pet_scene
 import bot.services.picar_scene as picar_scene
 import bot.services.renta_scene as renta_scene
 import bot.services.roulette_render as roulette_render
@@ -415,6 +417,28 @@ class FakeRentaScene:
         return None
 
 
+class FakePetScene:
+    """`PetScene` sin dibujar: un PNG de relleno por retrato; apunta lo que le piden."""
+
+    def __init__(self) -> None:
+        self.states: list[dict[str, object]] = []
+
+    @property
+    def disabled(self) -> bool:
+        return False
+
+    async def paint(self, states: list[dict[str, object]]) -> list[bytes] | None:
+        self.states += states
+        return [b"PNG" for _state in states]
+
+    async def still(self, state: dict[str, object]) -> bytes | None:
+        self.states.append(state)
+        return b"PNG"
+
+    async def close(self) -> None:
+        return None
+
+
 class FakeLotteryScene:
     """`LotteryScene` sin dibujar: PNG y GIF de relleno; apunta los modos que le piden."""
 
@@ -455,3 +479,4 @@ def use_fake_drawings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sports_scene, "SportsScene", FakeSportsScene)
     monkeypatch.setattr(renta_scene, "RentaScene", FakeRentaScene)
     monkeypatch.setattr(lottery_scene, "LotteryScene", FakeLotteryScene)
+    monkeypatch.setattr(pet_scene, "PetScene", FakePetScene)

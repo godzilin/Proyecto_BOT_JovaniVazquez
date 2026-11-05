@@ -10,6 +10,12 @@ cambios. Este repositorio guarda lo que la tienda no sabe:
   se crea la primera vez que se mira la mascota.
 - `pet_owners`: la mascota activa de cada miembro y su racha de días
   cuidando.
+- `pet_outfits`: lo que lleva puesto cada mascota, una prenda por hueco
+  (`bot.services.pet_wardrobe`). Guarda la clave del artículo; si su dueño ya
+  no lo tiene (lo vendió), no se ve, sin tener que borrarlo al venderlo.
+- `pet_photos`: el álbum de cada mascota. Cada foto guarda el estado del
+  retrato tal como era (`bot.services.pet_scene`), no la imagen: se vuelve a
+  pintar al mirarla y ocupa ~1 KB.
 
 Mismo archivo SQLite que el resto del bot. Solo se guardan IDs, nombres de
 mascota y marcas de tiempo; todo se borra cuando el bot sale del servidor.
@@ -23,10 +29,10 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from bot.repositories import sqlite
-from bot.services.pets import PetState
+from bot.services.pets import ALBUM_SIZE, PetState
 from bot.services.pets_catalog import CATALOG_PREFIX, species_of
 
 T = TypeVar("T")
@@ -62,7 +68,27 @@ def _state(row: sqlite3.Row) -> PetState:
         today={k: int(v) for k, v in json.loads(row["today"]).items()},
         last={k: float(v) for k, v in json.loads(row["last"]).items()},
         totals={k: int(v) for k, v in json.loads(row["totals"]).items()},
+        breed=str(row["breed"] or ""),
+        celebrated=int(row["celebrated"] or 0),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class PhotoRow:
+    """Una foto del álbum.
+
+    Attributes:
+        reason: `bot.services.pets.Photo`.
+        caption: Pie de foto ya escrito.
+        state: Estado del retrato tal como se pintó (`bot.services.pet_scene`).
+    """
+
+    id: int
+    pet_id: int
+    taken_at: float
+    reason: str
+    caption: str
+    state: dict[str, Any]
 
 
 class PetRepository:
@@ -107,6 +133,28 @@ class PetRepository:
 
                 CREATE INDEX IF NOT EXISTS pets_owner ON pets (guild_id, user_id);
 
+                CREATE TABLE IF NOT EXISTS pet_outfits (
+                    pet_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    slot TEXT NOT NULL,
+                    catalog_key TEXT NOT NULL,
+                    PRIMARY KEY (pet_id, slot)
+                );
+
+                CREATE TABLE IF NOT EXISTS pet_photos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pet_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    taken_at REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    caption TEXT NOT NULL,
+                    state TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS pet_photos_pet ON pet_photos (pet_id, id);
+
                 CREATE TABLE IF NOT EXISTS pet_owners (
                     guild_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
@@ -118,6 +166,15 @@ class PetRepository:
                 );
                 """
             )
+            # Columnas de la 9.43 (raza y aniversario) en las bases de datos de antes.
+            have = {row[1] for row in connection.execute("PRAGMA table_info(pets)")}
+            for name, ddl in (
+                ("breed", "TEXT NOT NULL DEFAULT ''"),
+                ("celebrated", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in have:
+                    # `name` y `ddl` salen de una tupla fija, nunca de entrada del usuario.
+                    connection.execute(f"ALTER TABLE pets ADD COLUMN {name} {ddl}")
             connection.commit()
         finally:
             connection.close()
@@ -207,7 +264,8 @@ class PetRepository:
     def _save_in(connection: sqlite3.Connection, state: PetState) -> None:
         connection.execute(
             """
-            UPDATE pets SET name = ?, bond = ?, day = ?, today = ?, last = ?, totals = ?
+            UPDATE pets SET name = ?, bond = ?, day = ?, today = ?, last = ?, totals = ?,
+                breed = ?, celebrated = ?
             WHERE id = ? AND guild_id = ? AND user_id = ?
             """,
             (
@@ -217,6 +275,8 @@ class PetRepository:
                 json.dumps(state.today),
                 json.dumps(state.last),
                 json.dumps(state.totals),
+                state.breed,
+                state.celebrated,
                 state.id,
                 state.guild_id,
                 state.user_id,
@@ -307,6 +367,118 @@ class PetRepository:
             connection.close()
         return [_state(row) for row in rows]
 
+    # -- Armario ---------------------------------------------------------------------
+
+    async def outfits(self, pet_ids: list[int]) -> dict[int, dict[str, str]]:
+        """Lo que lleva puesto cada mascota: id → hueco → clave del artículo."""
+        if not pet_ids:
+            return {}
+        return await self._run(self._outfits_sync, list(pet_ids))
+
+    def _outfits_sync(self, pet_ids: list[int]) -> dict[int, dict[str, str]]:
+        connection = self._connect()
+        try:
+            marks = ",".join("?" * len(pet_ids))
+            rows = connection.execute(
+                f"SELECT pet_id, slot, catalog_key FROM pet_outfits WHERE pet_id IN ({marks})",
+                pet_ids,
+            ).fetchall()
+        finally:
+            connection.close()
+        out: dict[int, dict[str, str]] = {pet_id: {} for pet_id in pet_ids}
+        for row in rows:
+            out[int(row["pet_id"])][str(row["slot"])] = str(row["catalog_key"])
+        return out
+
+    async def wear(self, state: PetState, slot: str, catalog_key: str | None) -> None:
+        """Le pone a una mascota la prenda `catalog_key` en `slot` (`None`: se la quita)."""
+        await self._run(self._wear_sync, state, slot, catalog_key)
+
+    def _wear_sync(self, state: PetState, slot: str, catalog_key: str | None) -> None:
+        connection = self._connect()
+        try:
+            with connection:
+                if catalog_key is None:
+                    connection.execute(
+                        "DELETE FROM pet_outfits WHERE pet_id = ? AND slot = ?", (state.id, slot)
+                    )
+                else:
+                    connection.execute(
+                        """
+                        INSERT INTO pet_outfits (pet_id, guild_id, user_id, slot, catalog_key)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT (pet_id, slot) DO UPDATE SET catalog_key = excluded.catalog_key
+                        """,
+                        (state.id, state.guild_id, state.user_id, slot, catalog_key),
+                    )
+        finally:
+            connection.close()
+
+    # -- Álbum -------------------------------------------------------------------------
+
+    async def add_photo(
+        self, state: PetState, *, taken_at: float, reason: str, caption: str, portrait: dict
+    ) -> None:
+        """Guarda una foto en el álbum de una mascota (y borra las que pasen de `ALBUM_SIZE`)."""
+        await self._run(self._add_photo_sync, state, taken_at, reason, caption, portrait)
+
+    def _add_photo_sync(
+        self, state: PetState, taken_at: float, reason: str, caption: str, portrait: dict
+    ) -> None:
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO pet_photos (pet_id, guild_id, user_id, taken_at, reason, caption,
+                        state)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        state.id,
+                        state.guild_id,
+                        state.user_id,
+                        taken_at,
+                        reason,
+                        caption,
+                        json.dumps(portrait, sort_keys=True),
+                    ),
+                )
+                connection.execute(
+                    """
+                    DELETE FROM pet_photos WHERE pet_id = ? AND id NOT IN (
+                        SELECT id FROM pet_photos WHERE pet_id = ? ORDER BY id DESC LIMIT ?
+                    )
+                    """,
+                    (state.id, state.id, ALBUM_SIZE),
+                )
+        finally:
+            connection.close()
+
+    async def photos(self, pet_id: int) -> list[PhotoRow]:
+        """El álbum de una mascota, de la foto más vieja a la más nueva."""
+        return await self._run(self._photos_sync, pet_id)
+
+    def _photos_sync(self, pet_id: int) -> list[PhotoRow]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM pet_photos WHERE pet_id = ? ORDER BY id", (pet_id,)
+            ).fetchall()
+        finally:
+            connection.close()
+        return [
+            PhotoRow(
+                id=int(row["id"]),
+                pet_id=int(row["pet_id"]),
+                taken_at=float(row["taken_at"]),
+                reason=str(row["reason"]),
+                caption=str(row["caption"]),
+                state=json.loads(row["state"]),
+            )
+            for row in rows
+        ]
+
     async def delete_guild_data(self, guild_id: int) -> None:
         """Borra las mascotas y los dueños de un servidor."""
         await self._run(self._delete_guild_sync, guild_id)
@@ -315,7 +487,7 @@ class PetRepository:
         connection = self._connect()
         try:
             with connection:
-                for table in ("pets", "pet_owners"):
+                for table in ("pets", "pet_owners", "pet_outfits", "pet_photos"):
                     # `table` sale de una tupla fija, nunca de entrada del usuario.
                     connection.execute(f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,))
         finally:

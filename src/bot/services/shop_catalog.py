@@ -68,10 +68,17 @@ numerados y piden nivel. Uno de cada por persona. No dan dinero ni XP.
 un logro están ocultas (`visible=False`), como las mascotas que aparecen
 solas. Cambian el aspecto de una mesa del casino y nada más.
 
+**Ropa y razas de las mascotas.** La ropa sale de `bot.services.pet_wardrobe`: cada
+prenda que se vende o se gana con un logro es un objeto `ropa_<clave>` en el pasillo de su
+tema, una por persona (las de logro, ocultas); las de caja son piezas de la colección 👗
+Armario. Las razas salen de `bot.services.pets_looks`: cada una que se paga es un objeto
+oculto `raza_<especie>_<raza>`, uno por persona, que se compra desde el panel de la
+mascota. Ni una ni otra dan dinero ni XP: cambian el retrato de `mascota`.
+
 **Cajas y piezas.** Salen de `bot.services.lootboxes`: siete cajas con la clave de su
 artículo (`caja_carton`, `caja_regalo`, `maletin_ministro`, `cofre_rey_emerito` y las de
 temporada `caja_navidad`, `caja_halloween`, `caja_aniversario`), que se abren desde la
-mochila (uso `lootbox`) y pagan IGIC general, y las 82 piezas de colección
+mochila (uso `lootbox`) y pagan IGIC general, y las 90 piezas de colección
 (`pieza_<colección>_<pieza>`) que solo salen de ellas: coleccionables ocultos
 (`visible=False`) con su valor como precio. La caja botín de siempre (`caja_botin`)
 está en `RETIRED_ITEMS`: ya no se vende, pero se sigue abriendo.
@@ -94,7 +101,9 @@ from dataclasses import dataclass
 
 from bot.services.donations import ONG_GIFTS, OngGift
 from bot.services.lootboxes import BOXES, COLLECTION_BY_KEY, PIECES, Box, Piece
-from bot.services.pets_catalog import SPECIES, Species
+from bot.services.pet_wardrobe import OUTFITS, Outfit
+from bot.services.pets_catalog import SPECIES, SPECIES_BY_KEY, Species
+from bot.services.pets_looks import LOOKS, Breed, breed_catalog_key
 from bot.services.shop import Kind
 from bot.services.shop_uses import USES, Use
 from bot.services.skins import SKINS, Skin
@@ -309,6 +318,44 @@ def _skin(skin: Skin) -> CatalogEntry:
         per_user=1,
         min_level=skin.min_level,
         visible=skin.for_sale,
+    )
+
+
+def _outfit(outfit: Outfit) -> CatalogEntry:
+    """El artículo de una prenda del armario (oculto si solo se gana con un logro)."""
+    return CatalogEntry(
+        key=outfit.catalog_key,
+        kind=Kind.TROPHY,
+        aisle=outfit.aisle,
+        emoji=outfit.emoji,
+        name=outfit.name,
+        price=outfit.price,
+        description=outfit.description,
+        igic=outfit.igic,
+        per_user=1,
+        min_level=outfit.min_level,
+        visible=outfit.for_sale,
+    )
+
+
+def _breed(species: str, breed: Breed) -> CatalogEntry:
+    """El artículo de una raza: oculto, se compra desde el panel de la mascota."""
+    animal = SPECIES_BY_KEY[species]
+    short = animal.name.split()[0].lower()
+    return CatalogEntry(
+        key=breed_catalog_key(species, breed.key),
+        kind=Kind.TROPHY,
+        aisle=animal.aisle,
+        emoji="🧬",
+        name=f"Raza para tu {short}: {breed.name.lower()}",
+        price=breed.price,
+        description=(
+            f"Cambia cómo se ve tu {short} en su retrato de `mascota`. Se "
+            "compra una vez y se pone y se quita las veces que quieras."
+        ),
+        per_user=1,
+        min_level=10 if breed.price >= 100_000 else 0,
+        visible=False,
     )
 
 
@@ -1120,6 +1167,11 @@ CATALOG: tuple[CatalogEntry, ...] = (
 CATALOG += tuple(_pet(species) for species in SPECIES)
 #: Y las skins, con el suyo generado desde `skins`.
 CATALOG += tuple(_skin(skin) for skin in SKINS)
+#: La ropa de las mascotas (salvo la de caja, que son piezas) y sus razas de pago.
+CATALOG += tuple(_outfit(outfit) for outfit in OUTFITS if not outfit.box)
+CATALOG += tuple(
+    _breed(species, breed) for species, look in LOOKS.items() for breed in look.breeds[1:]
+)
 #: Las cajas y sus piezas de colección, generadas desde `lootboxes`.
 CATALOG += tuple(_box(box) for box in BOXES)
 CATALOG += tuple(_piece(piece) for piece in PIECES)

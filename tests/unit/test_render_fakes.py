@@ -16,6 +16,7 @@ from render_fakes import (
     FakeHoldWinScene,
     FakeLotteryScene,
     FakePachinkoRenderer,
+    FakePetScene,
     FakePicarScene,
     FakeRentaScene,
     FakeSlotsScene,
@@ -27,6 +28,7 @@ from bot.services.business_scene import BusinessScene
 from bot.services.hold_win_scene import HoldWinScene
 from bot.services.lottery_scene import LotteryScene
 from bot.services.pachinko_render import PachinkoRenderer
+from bot.services.pet_scene import PetScene
 from bot.services.picar_scene import PicarScene
 from bot.services.renta_scene import RentaScene
 from bot.services.roulette_render import WheelRenderer
@@ -46,6 +48,7 @@ from bot.services.sports_scene import SportsScene
         (FakeSportsScene, SportsScene),
         (FakeRentaScene, RentaScene),
         (FakeLotteryScene, LotteryScene),
+        (FakePetScene, PetScene),
     ],
     ids=lambda cls: cls.__name__,
 )

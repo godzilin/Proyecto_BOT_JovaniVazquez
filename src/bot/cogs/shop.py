@@ -93,8 +93,7 @@ from bot.cogs import banco_compras as financiar
 from bot.cogs import pets as mascotas
 from bot.cogs import renta
 from bot.repositories.shop import InventoryEntry, ShopRepository
-from bot.services import credit
-from bot.services import skins as skins_registry
+from bot.services import credit, pet_wardrobe
 from bot.services.achievements import (
     StatDelta,
     lootbox_free_stats,
@@ -131,8 +130,10 @@ from bot.services.lootboxes import (
     shake_frame,
 )
 from bot.services.lootboxes import in_season as box_in_season
+from bot.services.pet_wardrobe import Outfit, is_outfit, outfit_of
 from bot.services.pets import Event, Moment
-from bot.services.pets_catalog import species_of
+from bot.services.pets_catalog import SPECIES_BY_KEY, species_of
+from bot.services.pets_looks import breed_of_item, is_breed
 from bot.services.shop import (
     DANGEROUS_PERMISSIONS,
     MAX_CART_LINES,
@@ -346,6 +347,8 @@ def giftable(item: ShopItem) -> bool:
         and not is_title(item.catalog_key)
         and not is_skin(item.catalog_key)
         and not is_piece(item.catalog_key)
+        and not is_outfit(item.catalog_key)
+        and not is_breed(item.catalog_key)
         and item.catalog_key not in FURNITURE_KEYS
     )
 
@@ -355,15 +358,21 @@ def season_name(item: ShopItem) -> str | None:
     skin = skin_of_item(item.catalog_key)
     if skin is not None:
         return skin.season.name if skin.season else None
+    outfit = outfit_of(item.catalog_key)
+    if outfit is not None:
+        return outfit.season.name if outfit.season else None
     box = box_of(item.catalog_key)
     return box.season.name if box is not None and box.season else None
 
 
 def on_sale(item: ShopItem, when: datetime) -> bool:
-    """Si un artículo se vende ahora: las skins y las cajas de temporada, solo en sus meses."""
+    """Si un artículo se vende ahora: skins, ropa y cajas de temporada, solo en sus meses."""
     skin = skin_of_item(item.catalog_key)
     if skin is not None:
         return in_season(skin, when)
+    outfit = outfit_of(item.catalog_key)
+    if outfit is not None:
+        return pet_wardrobe.in_season(outfit, when)
     box = box_of(item.catalog_key)
     return box is None or box_in_season(box, when)
 
@@ -390,6 +399,12 @@ def kind_detail(item: ShopItem) -> str:
         game = GAMES[skin.game]
         season = f" · 🗓️ de {skin.season.name}" if skin.season else ""
         return f"🎨 Skin de {game.label}: cambia el {game.thing}{season}"
+    if (outfit := outfit_of(item.catalog_key)) is not None:
+        season = f" · 🗓️ de {outfit.season.name}" if outfit.season else ""
+        return f"👗 Ropa de mascota ({outfit.slot.label.lower()}): se pone en `mascota`{season}"
+    if (bred := breed_of_item(item.catalog_key)) is not None:
+        species = SPECIES_BY_KEY.get(bred[0])
+        return f"🧬 Raza de {species.name.lower() if species else 'mascota'}: se pone en `mascota`"
     return "Coleccionable"
 
 
@@ -397,12 +412,16 @@ def in_tab(item: ShopItem, tab: str) -> bool:
     """Si un artículo sale en una pestaña del escaparate."""
     usable = use_of(item.catalog_key) is not None
     skin = is_skin(item.catalog_key)
+    clothes = is_outfit(item.catalog_key)
     if tab == "uso":
         return usable
     if tab == "skin":
         return skin
     if tab == "objeto":
-        return item.kind is Kind.TROPHY and not usable and not skin
+        return item.kind is Kind.TROPHY and not usable and not skin and not clothes
+    if tab == "mascota":
+        # La ropa de las mascotas sale con ellas: es donde la busca quien tiene una.
+        return item.kind is Kind.PET or clothes
     return tab == "todo" or item.kind.value == tab
 
 
@@ -1436,6 +1455,27 @@ class Tienda(commands.Cog):
         """
         return await self._grant_skins(guild_id, user_id, rewards_for(set(achievement_ids)))
 
+    async def sync_reward_outfits(
+        self, guild_id: int, user_id: int, achievement_ids: list[str] | set[str]
+    ) -> list[Outfit]:
+        """Mete en la mochila la ropa de mascota que regalan estos logros y le falta."""
+        wanted = pet_wardrobe.rewards_for(achievement_ids)
+        if not wanted:
+            return []
+        now = self.clock()
+        owned = {e.catalog_key for e in await self.repository.inventory(guild_id, user_id, now)}
+        given = []
+        for outfit in wanted:
+            if outfit.catalog_key in owned:
+                continue
+            await self.stock_up(guild_id)
+            item = await self.repository.item_by_key(guild_id, outfit.catalog_key)
+            if item is None:
+                continue
+            await self.repository.grant(guild_id, user_id, item, now)
+            given.append(outfit)
+        return given
+
     async def grant_free_skins(self, guild_id: int, user_id: int, game: str) -> list[Skin]:
         """Mete en la mochila las skins gratis de `game` que le falten (`Skin.free`).
 
@@ -1465,13 +1505,14 @@ class Tienda(commands.Cog):
         return given
 
     async def claim_reward_skins(self, guild_id: int, user_id: int) -> None:
-        """Da las skins de logros que ya tenía y le faltan (al abrir la mochila o el 🎨).
+        """Da las skins y la ropa de logros que ya tenía y le faltan.
 
-        Si ninguna skin se gana con logros, ni mira los logros: abrir la mochila
-        no paga una lectura de más.
+        Se llama al abrir la mochila, el 🎨 de una mesa o el armario de `mascota`:
+        así llegan también los regalos nuevos de logros que ya se tenían.
         """
-        if any(skin.achievement for skin in skins_registry.SKINS):
-            await self.sync_reward_skins(guild_id, user_id, await self._unlocked(guild_id, user_id))
+        unlocked = await self._unlocked(guild_id, user_id)
+        await self.sync_reward_skins(guild_id, user_id, unlocked)
+        await self.sync_reward_outfits(guild_id, user_id, unlocked)
 
     async def _unlocked(self, guild_id: int, user_id: int) -> set[str]:
         """Logros que tiene un miembro, para las skins que se ganan con ellos."""
@@ -3130,12 +3171,15 @@ async def refresh_worn(bot: commands.Bot, guild_id: int, user_id: int) -> None:
 
 async def grant_reward_skins(
     bot: commands.Bot, guild_id: int, user_id: int, achievement_ids: list[str]
-) -> list[Skin]:
-    """Da las skins que regalan estos logros recién desbloqueados (`achievements`)."""
+) -> list[Skin | Outfit]:
+    """Da las skins y la ropa de mascota que regalan estos logros recién desbloqueados."""
     if (cog := find_cog(bot, Tienda)) is None:
         return []
     try:
-        return await cog.sync_reward_skins(guild_id, user_id, achievement_ids)
+        given: list[Skin | Outfit] = []
+        given += await cog.sync_reward_skins(guild_id, user_id, achievement_ids)
+        given += await cog.sync_reward_outfits(guild_id, user_id, achievement_ids)
+        return given
     except Exception:
         logger.exception("No se pudieron dar las skins de logros a %s", user_id)
         return []
@@ -3221,13 +3265,22 @@ async def open_aisle(
 
 
 async def prepare_checkout(
-    bot: commands.Bot, interaction: discord.Interaction, catalog_key: str
+    bot: commands.Bot,
+    interaction: discord.Interaction,
+    catalog_key: str,
+    *,
+    hidden: bool = False,
 ) -> Checkout | None:
     """Caja del artículo de serie `catalog_key`, sin enseñarla, para pagarla desde otro panel.
 
-    `pala` la usa para comprar y dar un regalo sin salir del panel. Si no se puede
-    comprar (nivel, existencias), la caja viene con `failed` y el motivo en
-    `result`. `None` si la tienda no está cargada o no lo vende.
+    `pala` la usa para comprar y dar un regalo sin salir del panel, y `mascota` para la
+    ropa y las razas. Si no se puede comprar (nivel, existencias, temporada), la caja
+    viene con `failed` y el motivo en `result`. `None` si la tienda no está cargada o
+    no lo vende.
+
+    Args:
+        hidden: Si vale un artículo oculto del escaparate: las razas de las mascotas
+            solo se compran desde su panel.
     """
     cog = find_cog(bot, Tienda)
     guild, buyer = interaction.guild, interaction.user
@@ -3235,7 +3288,7 @@ async def prepare_checkout(
         return None
     await cog.stock_up(guild.id)
     item = await cog.repository.item_by_key(guild.id, catalog_key)
-    if item is None or not item.visible:
+    if item is None or not (item.visible or (hidden and is_breed(item.catalog_key))):
         return None
     now = cog.clock()
     error, note = await cog._precheck(guild, buyer, item, now)
