@@ -1,0 +1,377 @@
+[
+ {
+  "id": "1203632",
+  "slug": "lal-vil-esp-2026-10-30",
+  "title": "Villarreal CF vs. RCD Espanyol de Barcelona",
+  "description": "This event is for the upcoming La Liga game, scheduled for Friday, October 30, 2026 between Villarreal CF and RCD Espanyol de Barcelona.",
+  "startTime": "2026-10-30T20:00:00Z",
+  "endDate": "2026-10-30T20:00:00Z",
+  "negRisk": true,
+  "tags": [
+   {
+    "label": "Sports",
+    "slug": "sports"
+   },
+   {
+    "label": "Games",
+    "slug": "games"
+   },
+   {
+    "label": "Soccer",
+    "slug": "soccer"
+   },
+   {
+    "label": "La Liga",
+    "slug": "la-liga"
+   }
+  ],
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png",
+  "active": true,
+  "closed": true,
+  "score": "0-1",
+  "period": "VFT",
+  "ended": true,
+  "live": false,
+  "gameId": 90117229,
+  "markets": [
+   {
+    "id": "5797216",
+    "slug": "lal-vil-esp-2026-10-30-vil",
+    "question": "Will Villarreal CF win on 2026-10-30?",
+    "description": "In the upcoming game, scheduled for October 30, 2026\nIf Villarreal CF wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 minutes ",
+    "groupItemTitle": "Villarreal CF",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"28414240241553615364297533383552268931981113938088293167329080021262131247770\", \"20147481601502300789453416000361109236263075756874108225138624533139121062380\"]",
+    "positionIds": [
+     "1280963180176791034600426002689601356773670817042871101671133211865261277184",
+     "1280963180176791034600426002689601356773670817042871101671133211865261277185"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.001,
+    "endDate": "2026-10-30T20:00:00Z",
+    "gameStartTime": "2026-10-30 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-30 22:08:30+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5797218",
+    "slug": "lal-vil-esp-2026-10-30-draw",
+    "question": "Will Villarreal CF vs. RCD Espanyol de Barcelona end in a draw?",
+    "description": "In the upcoming game, scheduled for October 30, 2026\nIf the game ends in a draw, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve to \"Yes\".\nThis market refers only to the outcome within the first 90",
+    "groupItemTitle": "Draw (Villarreal CF vs. RCD Espanyol de Barcelona)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"20586873147420939285329315343503510763533575464903494604758648300305419177117\", \"19507068775201778051189079383533232871893219466231543689776064672789025846313\"]",
+    "positionIds": [
+     "1280963180176791034600426002689601356773670817042871101671133211865261277440",
+     "1280963180176791034600426002689601356773670817042871101671133211865261277441"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.001,
+    "endDate": "2026-10-30T20:00:00Z",
+    "gameStartTime": "2026-10-30 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-30 22:08:30+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5797219",
+    "slug": "lal-vil-esp-2026-10-30-esp",
+    "question": "Will RCD Espanyol de Barcelona win on 2026-10-30?",
+    "description": "In the upcoming game, scheduled for October 30, 2026\nIf RCD Espanyol de Barcelona wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first",
+    "groupItemTitle": "RCD Espanyol de Barcelona",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "clobTokenIds": "[\"31512317165124802381423276126918139804740650028427476435366504866846903375306\", \"107432285261110144187455391559237253679138079812882717707524060984852035539411\"]",
+    "positionIds": [
+     "1280963180176791034600426002689601356773670817042871101671133211865261277696",
+     "1280963180176791034600426002689601356773670817042871101671133211865261277697"
+    ],
+    "version": "v1",
+    "bestBid": 0.999,
+    "bestAsk": 1,
+    "spread": 0.001,
+    "lastTradePrice": 0.999,
+    "endDate": "2026-10-30T20:00:00Z",
+    "gameStartTime": "2026-10-30 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-30 22:08:30+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   }
+  ]
+ },
+ {
+  "id": "1209857",
+  "slug": "lal-bet-mala-2026-10-31",
+  "title": "Real Betis Balompié vs. Málaga CF",
+  "description": "This event is for the upcoming La Liga game, scheduled for Saturday, October 31, 2026 between Real Betis Balompié and Málaga CF.",
+  "startTime": "2026-10-31T17:30:00Z",
+  "endDate": "2026-10-31T17:30:00Z",
+  "negRisk": true,
+  "tags": [
+   {
+    "label": "Sports",
+    "slug": "sports"
+   },
+   {
+    "label": "Games",
+    "slug": "games"
+   },
+   {
+    "label": "Soccer",
+    "slug": "soccer"
+   },
+   {
+    "label": "La Liga",
+    "slug": "la-liga"
+   }
+  ],
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png",
+  "active": true,
+  "closed": true,
+  "score": "2-1",
+  "period": "VFT",
+  "ended": true,
+  "live": false,
+  "gameId": 90117225,
+  "markets": [
+   {
+    "id": "5859200",
+    "slug": "lal-bet-mala-2026-10-31-bet",
+    "question": "Will Real Betis Balompié win on 2026-10-31?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf Real Betis Balompié wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 mi",
+    "groupItemTitle": "Real Betis Balompié",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "clobTokenIds": "[\"33562811531117372343727058113081321797093836347763385903916345462204867571306\", \"98035087052703670247100243662236903953633625554300444321827609349019925474483\"]",
+    "positionIds": [
+     "1159888498843505088475336147225012736930921328305247690268756507464862531584",
+     "1159888498843505088475336147225012736930921328305247690268756507464862531585"
+    ],
+    "version": "v1",
+    "bestBid": 0.999,
+    "bestAsk": 1,
+    "spread": 0.001,
+    "lastTradePrice": 0.999,
+    "endDate": "2026-10-31T17:30:00Z",
+    "gameStartTime": "2026-10-31 17:30:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 19:56:51+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5859201",
+    "slug": "lal-bet-mala-2026-10-31-draw",
+    "question": "Will Real Betis Balompié vs. Málaga CF end in a draw?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf the game ends in a draw, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve to \"Yes\".\nThis market refers only to the outcome within the first 90",
+    "groupItemTitle": "Draw (Real Betis Balompié vs. Málaga CF)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"69702167100876055109527228115023510182215827707797514950981174925504340352146\", \"68576159473942615346209222517921356544548760180311146962270819539294663522537\"]",
+    "positionIds": [
+     "1159888498843505088475336147225012736930921328305247690268756507464862531840",
+     "1159888498843505088475336147225012736930921328305247690268756507464862531841"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.028,
+    "endDate": "2026-10-31T17:30:00Z",
+    "gameStartTime": "2026-10-31 17:30:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 19:47:31+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5859202",
+    "slug": "lal-bet-mala-2026-10-31-mala",
+    "question": "Will Málaga CF win on 2026-10-31?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf Málaga CF wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 minutes of r",
+    "groupItemTitle": "Málaga CF",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"86468285244814749382217381157808601614454835775515755589715731897432684842845\", \"42524989111316180031903380253441714740105886493005493023909330282836745710958\"]",
+    "positionIds": [
+     "1159888498843505088475336147225012736930921328305247690268756507464862532096",
+     "1159888498843505088475336147225012736930921328305247690268756507464862532097"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.001,
+    "endDate": "2026-10-31T17:30:00Z",
+    "gameStartTime": "2026-10-31 17:30:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 19:47:31+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   }
+  ]
+ },
+ {
+  "id": "1209868",
+  "slug": "lal-bar-ala-2026-10-31",
+  "title": "FC Barcelona vs. Deportivo Alavés",
+  "description": "This event is for the upcoming La Liga game, scheduled for Saturday, October 31, 2026 between FC Barcelona and Deportivo Alavés.",
+  "startTime": "2026-10-31T20:00:00Z",
+  "endDate": "2026-10-31T20:00:00Z",
+  "negRisk": true,
+  "tags": [
+   {
+    "label": "Sports",
+    "slug": "sports"
+   },
+   {
+    "label": "Games",
+    "slug": "games"
+   },
+   {
+    "label": "Soccer",
+    "slug": "soccer"
+   },
+   {
+    "label": "La Liga",
+    "slug": "la-liga"
+   }
+  ],
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png",
+  "active": true,
+  "closed": true,
+  "score": "6-1",
+  "period": "VFT",
+  "ended": true,
+  "live": false,
+  "gameId": 90117221,
+  "markets": [
+   {
+    "id": "5859302",
+    "slug": "lal-bar-ala-2026-10-31-bar",
+    "question": "Will FC Barcelona win on 2026-10-31?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf FC Barcelona wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 minutes o",
+    "groupItemTitle": "FC Barcelona",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "clobTokenIds": "[\"95539651866159341402170018736334808281619898109626144955120072762409375896536\", \"35830150167251788528494047677051225257933787066853095433035788479959437531661\"]",
+    "positionIds": [
+     "1345708353196805648484278663389102487061140822455247210679629399721261400064",
+     "1345708353196805648484278663389102487061140822455247210679629399721261400065"
+    ],
+    "version": "v1",
+    "bestBid": 0.999,
+    "bestAsk": 1,
+    "spread": 0.001,
+    "lastTradePrice": 0.999,
+    "endDate": "2026-10-31T20:00:00Z",
+    "gameStartTime": "2026-10-31 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 22:16:40.367501+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5859305",
+    "slug": "lal-bar-ala-2026-10-31-draw",
+    "question": "Will FC Barcelona vs. Deportivo Alavés end in a draw?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf the game ends in a draw, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve to \"Yes\".\nThis market refers only to the outcome within the first 90",
+    "groupItemTitle": "Draw (FC Barcelona vs. Deportivo Alavés)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"81400516670202589677764047748194638169047598497424392425395940008342756712790\", \"35167474360844608716394646961425140183986671386569022659718729234636975038018\"]",
+    "positionIds": [
+     "1345708353196805648484278663389102487061140822455247210679629399721261400320",
+     "1345708353196805648484278663389102487061140822455247210679629399721261400321"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.001,
+    "endDate": "2026-10-31T20:00:00Z",
+    "gameStartTime": "2026-10-31 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 22:16:40.371782+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5859309",
+    "slug": "lal-bar-ala-2026-10-31-ala",
+    "question": "Will Deportivo Alavés win on 2026-10-31?",
+    "description": "In the upcoming game, scheduled for October 31, 2026\nIf Deportivo Alavés wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 minut",
+    "groupItemTitle": "Deportivo Alavés",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "clobTokenIds": "[\"56762694679537242946798671851143814953790775332014591165302752806308108241229\", \"109955195745300012726847365099373225930854435517989378483868456912676817183628\"]",
+    "positionIds": [
+     "1345708353196805648484278663389102487061140822455247210679629399721261400576",
+     "1345708353196805648484278663389102487061140822455247210679629399721261400577"
+    ],
+    "version": "v1",
+    "bestAsk": 0.001,
+    "spread": 0.001,
+    "lastTradePrice": 0.001,
+    "endDate": "2026-10-31T20:00:00Z",
+    "gameStartTime": "2026-10-31 20:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": true,
+    "acceptingOrders": false,
+    "umaResolutionStatus": "resolved",
+    "umaResolutionStatuses": "[\"proposed\", \"proposed\"]",
+    "closedTime": "2026-10-31 22:16:40.363266+00",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   }
+  ]
+ }
+]

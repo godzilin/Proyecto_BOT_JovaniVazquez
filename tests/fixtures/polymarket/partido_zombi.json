@@ -1,0 +1,129 @@
+[
+ {
+  "id": "1089916",
+  "slug": "lal-ray-bil-2026-10-10",
+  "title": "Rayo Vallecano de Madrid vs. Athletic Club",
+  "description": "This event is for the upcoming La Liga game, scheduled for Saturday, October 10, 2026 between Rayo Vallecano de Madrid and Athletic Club.",
+  "startTime": "2026-10-10T12:00:00Z",
+  "endDate": "2026-10-10T12:00:00Z",
+  "negRisk": true,
+  "tags": [
+   {
+    "label": "Sports",
+    "slug": "sports"
+   },
+   {
+    "label": "Games",
+    "slug": "games"
+   },
+   {
+    "label": "Soccer",
+    "slug": "soccer"
+   },
+   {
+    "label": "La Liga",
+    "slug": "la-liga"
+   }
+  ],
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png",
+  "active": true,
+  "closed": false,
+  "score": "0-0",
+  "period": "SUS",
+  "ended": false,
+  "live": true,
+  "gameId": 90117197,
+  "markets": [
+   {
+    "id": "5014977",
+    "slug": "lal-ray-bil-2026-10-10-ray",
+    "question": "Will Rayo Vallecano de Madrid win on 2026-10-10?",
+    "description": "In the upcoming game, scheduled for October 10, 2026\nIf Rayo Vallecano de Madrid wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first ",
+    "groupItemTitle": "Rayo Vallecano de Madrid",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.275\", \"0.725\"]",
+    "clobTokenIds": "[\"71932326558053661020478366656945464222054464428704051104566748341121780719525\", \"43772591337014668082527374634748211091796600357150642300932543951704905553674\"]",
+    "positionIds": [
+     "1239457920713117704534553494506711257917271190281025660857141456714128687104",
+     "1239457920713117704534553494506711257917271190281025660857141456714128687105"
+    ],
+    "version": "v1",
+    "bestBid": 0.26,
+    "bestAsk": 0.29,
+    "spread": 0.03,
+    "lastTradePrice": 0.29,
+    "liquidityNum": 17176.0647,
+    "volume24hr": 571.8042290000001,
+    "endDate": "2026-10-10T12:00:00Z",
+    "gameStartTime": "2026-10-10 12:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": false,
+    "acceptingOrders": true,
+    "umaResolutionStatuses": "[]",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5014978",
+    "slug": "lal-ray-bil-2026-10-10-draw",
+    "question": "Will Rayo Vallecano de Madrid vs. Athletic Club end in a draw?",
+    "description": "In the upcoming game, scheduled for October 10, 2026\nIf the game ends in a draw, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve to \"Yes\".\nThis market refers only to the outcome within the first 90",
+    "groupItemTitle": "Draw (Rayo Vallecano de Madrid vs. Athletic Club)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.37\", \"0.63\"]",
+    "clobTokenIds": "[\"107428238696627085423612646047678309668925997011790108432733125831886878167315\", \"26093081623143772965592281278997914238821034493056490423171592634614361183979\"]",
+    "positionIds": [
+     "1239457920713117704534553494506711257917271190281025660857141456714128687360",
+     "1239457920713117704534553494506711257917271190281025660857141456714128687361"
+    ],
+    "version": "v1",
+    "bestBid": 0.31,
+    "bestAsk": 0.43,
+    "spread": 0.12,
+    "lastTradePrice": 0.43,
+    "liquidityNum": 3638.8204,
+    "volume24hr": 503.53314400000005,
+    "endDate": "2026-10-10T12:00:00Z",
+    "gameStartTime": "2026-10-10 12:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": false,
+    "acceptingOrders": true,
+    "umaResolutionStatuses": "[]",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   },
+   {
+    "id": "5014980",
+    "slug": "lal-ray-bil-2026-10-10-bil",
+    "question": "Will Athletic Club win on 2026-10-10?",
+    "description": "In the upcoming game, scheduled for October 10, 2026\nIf Athletic Club wins, this market will resolve to \"Yes\".\nOtherwise, this market will resolve to \"No\".\nIf the game is postponed, this market will remain open until the game has been completed.\nIf the game is canceled entirely, with no make-up game, this market will resolve \"No\".\nThis market refers only to the outcome within the first 90 minutes ",
+    "groupItemTitle": "Athletic Club",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.455\", \"0.545\"]",
+    "clobTokenIds": "[\"69983812871438379658776347656195488575171100778752859476451169640554345203547\", \"647195517645297636552322833889363807010013971390938336792067770402830369875\"]",
+    "positionIds": [
+     "1239457920713117704534553494506711257917271190281025660857141456714128687616",
+     "1239457920713117704534553494506711257917271190281025660857141456714128687617"
+    ],
+    "version": "v1",
+    "bestBid": 0.45,
+    "bestAsk": 0.46,
+    "spread": 0.01,
+    "lastTradePrice": 0.46,
+    "liquidityNum": 18065.858,
+    "volume24hr": 1132.6608500000002,
+    "endDate": "2026-10-10T12:00:00Z",
+    "gameStartTime": "2026-10-10 12:00:00+00",
+    "sportsMarketType": "moneyline",
+    "active": true,
+    "closed": false,
+    "acceptingOrders": true,
+    "umaResolutionStatuses": "[]",
+    "negRisk": true,
+    "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-lal.png"
+   }
+  ]
+ }
+]
