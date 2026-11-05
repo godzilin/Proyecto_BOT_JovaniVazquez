@@ -55,6 +55,12 @@ pip install -e ".[dev]"
    los resultados y unos 60 en el más/menos de los mercados de goles). Sin ella,
    `deportes` avisa de que no está configurado.
 
+Las predicciones (`predice`) no necesitan clave: leen los datos públicos de
+Polymarket (`gamma-api.polymarket.com` para las preguntas y
+`clob.polymarket.com` para el precio al apostar). El NAS tiene que poder salir a
+esos dos dominios por HTTPS; si no llega, `predice` sale sin preguntas y las
+predicciones abiertas esperan.
+
 El bot carga automáticamente el archivo `.env` (si existe) al arrancar,
 mediante `python-dotenv`. En producción no es necesario un archivo
 `.env`: basta con exportar las variables en el entorno de despliegue.
@@ -75,7 +81,7 @@ python -m bot
   | Categoría | Comandos |
   |---|---|
   | 👤 Perfil | `pala` · `perfil [miembro]` · `ranking [pagina]` |
-  | 🎰 Casino | `4enraya [miembro] [cantidad]` · `allatu [cantidad] [tabla]` · `apuestas [miembro]` · `backgammon [miembro] [cantidad]` · `bacara [cantidad] [lado]` · `blackjack [cantidad]` (atajo `.bj`) · `caballo [cantidad] [caballos] [tipo]` · `cohete [cantidad] [auto]` · `dados [cantidad] [apuesta] [mesa]` · `deportes` · `gallos [cantidad] [miembro]` · `guagua [cantidad]` · `guerra [cantidad]` · `loteria` · `minas [cantidad] [minas]` · `moneda [cantidad] [lado]` · `pachinko [cantidad]` · `picar` · `poker [modo] [cantidad]` · `pollo [cantidad] [dificultad] [autocobro]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `ruleta [cantidad] [apuesta]` · `torre [cantidad] [nivel]` · `tragas [cantidad] [máquina]` |
+  | 🎰 Casino | `4enraya [miembro] [cantidad]` · `allatu [cantidad] [tabla]` · `apuestas [miembro]` · `backgammon [miembro] [cantidad]` · `bacara [cantidad] [lado]` · `blackjack [cantidad]` (atajo `.bj`) · `caballo [cantidad] [caballos] [tipo]` · `cohete [cantidad] [auto]` · `dados [cantidad] [apuesta] [mesa]` · `deportes` · `gallos [cantidad] [miembro]` · `guagua [cantidad]` · `guerra [cantidad]` · `loteria` · `minas [cantidad] [minas]` · `moneda [cantidad] [lado]` · `pachinko [cantidad]` · `picar` · `poker [modo] [cantidad]` · `pollo [cantidad] [dificultad] [autocobro]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `predice` · `ruleta [cantidad] [apuesta]` · `torre [cantidad] [nivel]` · `tragas [cantidad] [máquina]` |
   | 🏦 Dinero | `banco [mostrador]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `hacienda [miembro]` · `imv` · `patrimonio [miembro]` · `renta` · `saldo [miembro]` |
   | 🛍️ Tienda | `mascota [miembro]` · `pieles [miembro] [imagen]` · `rastro` · `tienda` · `trueque <objeto> <miembro> <a cambio> [dinero]` · `vender <objeto> <precio> [comprador]` |
   | 🎵 Música | `cola` · `parar` · `pausar` · `poner <consulta>` · `quitar <posicion>` · `saltar` · `seguir` · `vaciar` · `volumen <1-200>` |
