@@ -98,6 +98,7 @@ async def load_bot(tmp_path: Path) -> BotClient:
     await client.poker.initialize()
     await client.porras.initialize()
     await client.sports.initialize()
+    await client.predice.initialize()
     await client.slots_repository.initialize()
     await client.picar.initialize()
     for extension in INITIAL_EXTENSIONS:
@@ -3013,6 +3014,105 @@ async def test_resolver_una_apuesta_deportiva_llega_a_apuestas_y_a_los_logros_co
         assert profile.stats["sports_settled"] == 2
         assert profile.stats["sports_wins"] == 2
         assert profile.stats["sports_win_goles"] == 1
+    finally:
+        await client.close()
+
+
+async def bet_on_prediction(client: BotClient, *, user_id: int = OWNER_ID, side: int = 0):  # noqa: ANN201
+    """Una predicción abierta (por defecto, 100 Y$ al Sí a ×1,51) y su mercado en Polymarket."""
+    import json
+    from dataclasses import replace
+
+    from bot.repositories.economy import PredictBet
+    from bot.services.polymarket import Resolution, parse_event
+
+    raw = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures" / "polymarket" / "elecciones.json")
+        .read_text(encoding="utf-8")
+    )  # fmt: skip
+    base = next(
+        e
+        for e in map(parse_event, raw)
+        if e is not None and e.title.startswith("Spain General Election: PP + Vox")
+    )
+    ends = client.economy.now() + 3_600
+    market = replace(base.markets[0], end=ends)
+    ticket = PredictBet(
+        id=0,
+        guild_id=GUILD_ID,
+        user_id=user_id,
+        channel_id=77,
+        event_id=base.id,
+        event_title="Mayoría de PP y Vox",
+        market_id=market.id,
+        question="Mayoría de PP y Vox",
+        side=side,
+        side_label="Sí" if side == 0 else "No",
+        section="espana",
+        odds=151,
+        stake=100,
+        ends=ends,
+        created_at=client.economy.now(),
+    )
+    bet, _ = await client.economy.predict_bet(ticket, game="predice")
+    resolved = replace(
+        market, active=False, closed=True, accepting=False, resolution=Resolution.RESOLVED,
+        prices=(1.0, 0.0),
+    )  # fmt: skip
+    return bet, resolved
+
+
+async def test_saldo_incluye_las_predicciones_abiertas_con_el_bot_real(tmp_path: Path) -> None:
+    """`predice` carga después que el casino: su puente de lo pendiente tiene que llegar."""
+    client = await load_bot(tmp_path)
+    try:
+        bet, _ = await bet_on_prediction(client)
+        casino = client.get_cog("Casino")
+
+        mine = await casino._pending(GUILD, OWNER_ID, 0)
+
+        [line] = [item for item in mine if item.kind == "predict_bet"]
+        assert (line.amount, line.when) == (100, bet.ends)
+        assert "Mayoría de PP y Vox" in line.text
+    finally:
+        await client.close()
+
+
+async def test_resolver_una_prediccion_llega_a_apuestas_y_a_los_logros_con_el_bot_real(
+    tmp_path: Path,
+) -> None:
+    """El puente `predice` -> `apuestas` y logros con los cogs cargados como en producción."""
+    client = await load_bot(tmp_path)
+    try:
+        bet, market = await bet_on_prediction(client)
+        cog = client.get_cog("Predice")
+        cog.client = SimpleNamespace(market=AsyncMock(return_value=market))
+        owner = MagicMock(spec=discord.Member)
+        owner.id = OWNER_ID
+        owner.bot = False
+        owner.display_name = "Diego"
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_member = MagicMock(return_value=owner)
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.send = AsyncMock()
+        client.get_guild = MagicMock(return_value=guild)  # type: ignore[method-assign]
+        client.get_channel = MagicMock(return_value=channel)  # type: ignore[method-assign]
+
+        resolved = await cog.settle(bet.ends + 60)
+
+        assert [r.bet.status for r in resolved] == ["won"]
+        # Un envío es el resultado; los demás, los avisos de logros que desbloquea.
+        assert sum("Resultado: **Sí**" in text for text in sent_texts(channel)) == 1
+        plays = await client.casino_stats.report(
+            GUILD_ID, OWNER_ID, since=None, today=date(2026, 10, 6)
+        )
+        assert plays.by_game["predice"].plays == 1
+        pending = client.get_cog("Achievements")._pending[GUILD_ID][OWNER_ID]
+        assert pending.add["casino_plays"] == 1
+        assert pending.add["casino_game_predice"] == 1
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats["predict_settled"] == 1
+        assert profile.stats["predict_wins"] == 1
     finally:
         await client.close()
 
