@@ -36,7 +36,7 @@ botones ya llenan las cinco filas de Discord; el tapete se cambia en la mochila.
 
 **Saldo.** `saldo` junta lo pendiente de cada cog (por pagar, por cobrar y retenido,
 `bot.services.pending`) con sus funciones puente: `renta.pending`, `pisos.pending`,
-`work.pending`, `lottery.pending`, `sports.pending`, `rastro.pending` y
+`work.pending`, `lottery.pending`, `sports.pending`, `predice.pending`, `rastro.pending` y
 `patrimonio.wealth_due`. El
 saldo de otro enseña lo mismo que si lo pidiera él (sin su mascota).
 
@@ -1310,8 +1310,9 @@ class Casino(commands.Cog):
         Cada cog da lo suyo con su función puente; se leen a la vez para que `saldo`
         tarde lo que la lectura más lenta y no la suma de todas.
         """
-        # Imports tardíos: `lottery` y `sports` importan este módulo.
+        # Imports tardíos: `lottery`, `sports` y `predice` importan este módulo.
         from bot.cogs import lottery as loterias
+        from bot.cogs import predice as predicciones
         from bot.cogs import sports as deportes
 
         reads = [
@@ -1323,6 +1324,7 @@ class Casino(commands.Cog):
             negocio.pending(self.bot, guild_id, user_id),
             loterias.pending(self.bot, guild_id, user_id),
             deportes.pending(self.bot, guild_id, user_id),
+            predicciones.pending(self.bot, guild_id, user_id),
         ]
         items = [item for found in await asyncio.gather(*reads) for item in found]
         return items + rastro.pending(self.bot, guild_id, user_id)
