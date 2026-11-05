@@ -202,6 +202,7 @@ from bot.services.robuso import DAILY as ROBUSO_DAILY
 from bot.services.robuso import ECHOES as ROBUSO_ECHOES
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, OUTSIDE_BETS, RoundOutcome, Wager, parse_bet
+from bot.services.rueda import PRIZES as RUEDA_PRIZES
 from bot.services.shop_uses import USES as SHOP_USES
 from bot.services.slots import REEL_STRIPS, Kind, spin_at
 from bot.services.slots import pot_share as slots_pot_share
@@ -231,6 +232,12 @@ HOUSING_EVENT_KEYS = (
 )  # fmt: skip
 
 PRODUCED_STATS = {
+    # 🎪 Rueda (`rueda_stats`)
+    "rueda_spins", "rueda_streak_max", "rueda_again_day", "rueda_again_nothing",
+    "rueda_money_max", "rueda_money_total", "rueda_xp_total", "rueda_col", "rueda_in_kind",
+    "rueda_midnight", "rueda_lastminute", "rueda_night", "rueda_nochevieja", "rueda_canarias",
+    "rueda_viernes13", "rueda_inocentes", "rueda_hamster",
+    *(f"rueda_prize_{p.key}" for p in RUEDA_PRIZES),
     # 🏪 Negocio propio de pala (`business_stats` y las acciones del negocio)
     "biz_opened", "biz_turns", "biz_turns_cafeteria", "biz_turns_tienda", "biz_turns_taller",
     "biz_sales", "biz_tips", "biz_best_turn", "biz_clients_turn_max", "biz_stars_max",

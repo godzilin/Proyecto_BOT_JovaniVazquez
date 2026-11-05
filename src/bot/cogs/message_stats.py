@@ -28,6 +28,7 @@ import sqlite3
 import time
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -67,6 +68,7 @@ from bot.services.levels import (
 )
 from bot.services.lootboxes import FREE_BOX_LEVELS
 from bot.services.pets import Event, Moment
+from bot.utils.cogs import find_cog
 from bot.utils.responder import CommandResponder, ContextResponder, InteractionResponder
 
 if TYPE_CHECKING:
@@ -930,6 +932,54 @@ class MessageStats(commands.Cog):
                 guild.id,
                 exc_info=True,
             )
+
+
+async def levels_enabled(bot: commands.Bot, guild_id: int) -> bool:
+    """Si el servidor tiene los niveles encendidos; `False` si el cog no está o falla.
+
+    La Rueda lo mira para no enseñar porciones de XP que no se podrían dar.
+    """
+    if (cog := find_cog(bot, MessageStats)) is None:
+        return False
+    try:
+        return guild_id in await cog.repository.enabled_guild_ids()
+    except Exception:
+        logger.exception("No se pudo leer si %s tiene los niveles encendidos", guild_id)
+        return False
+
+
+async def give_xp(
+    bot: commands.Bot,
+    guild: discord.Guild,
+    member: discord.abc.User,
+    channel: object,
+    xp: int,
+) -> bool:
+    """Suma `xp` a un miembro (un premio, como el de la Rueda) y anuncia si sube de nivel.
+
+    No mira el enfriamiento ni los topes de los mensajes: es un premio, no actividad.
+    Subir de nivel paga su premio de siempre, como con cualquier otra XP. Nunca lanza.
+
+    Returns:
+        Si se ha sumado (no, con los niveles apagados o si algo falla).
+    """
+    if xp <= 0 or (cog := find_cog(bot, MessageStats)) is None:
+        return False
+
+    def decide(_user_id: int, state: MemberActivity, _cooldown: int) -> MemberActivity:
+        return replace(state, total_xp=state.total_xp + xp)
+
+    try:
+        awards = await cog.repository.grant_activity(guild.id, [member.id], decide)
+        award = awards.get(member.id)
+        if award is None:
+            return False
+        if isinstance(channel, discord.abc.Messageable):
+            await cog._handle_level_up(guild, channel, member, award)
+    except Exception:
+        logger.exception("No se pudo dar la XP de premio a %s", member.id)
+        return False
+    return True
 
 
 def is_voice_active(member: discord.Member) -> bool:

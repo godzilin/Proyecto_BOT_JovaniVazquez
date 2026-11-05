@@ -53,6 +53,9 @@ from bot.services.lootboxes import (
 )
 from bot.services.pets_catalog import SPECIES, species_of
 from bot.services.porras import BINOCULARS_KEY, NOTEBOOK_KEY
+from bot.services.rueda_catalog import PIECES as WHEEL_PIECES
+from bot.services.rueda_catalog import TITLES as WHEEL_TITLES
+from bot.services.rueda_catalog import TREAT as WHEEL_TREAT
 from bot.services.shop import (
     MAX_BOOST,
     MAX_DESCRIPTION,
@@ -111,6 +114,7 @@ class Clock:
 
 
 ONG_GIFT_KEYS = {g.catalog_key for g in ONG_GIFTS}
+WHEEL_KEYS = {x.key for x in (*WHEEL_PIECES, *WHEEL_TITLES, WHEEL_TREAT)}
 
 
 def test_surtido_cabe_en_los_limites_de_la_tienda() -> None:
@@ -139,11 +143,15 @@ def test_surtido_cabe_en_los_limites_de_la_tienda() -> None:
         elif entry.key in ONG_GIFT_KEYS:
             # Los regalos de las ONGs no se venden: ocultos, con su valor de precio.
             assert not entry.visible and entry.kind is Kind.TROPHY and entry.use is None
+        elif entry.key in WHEEL_KEYS:
+            # Lo de la Rueda no se vende: oculto, con su valor de precio y sin uso.
+            assert not entry.visible and entry.kind is Kind.TROPHY and entry.use is None
         elif entry.key in RETIRED_ITEMS:
             assert not entry.visible, "lo que ya no se vende se siembra oculto"
         else:
             assert entry.visible, (
-                "solo mascotas, skins, piezas, regalos de ONG y lo retirado van ocultos"
+                "solo mascotas, skins, piezas, regalos de ONG, lo de la Rueda y lo retirado "
+                "van ocultos"
             )
         if entry.food:
             assert entry.kind is Kind.TROPHY, entry.key

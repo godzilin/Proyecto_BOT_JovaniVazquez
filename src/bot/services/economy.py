@@ -1382,6 +1382,30 @@ class EconomyService:
         )
         return IncomeResult(gross=gross, tax=tax, rate=tax / gross, balance=balance)
 
+    async def record_prize_in_kind(
+        self, guild_id: int, user_id: int, *, value: int, concept: str
+    ) -> None:
+        """Apunta en la Renta de la semana un premio en especie (un objeto, no dinero).
+
+        Tratamiento fiscal: un premio en especie de un sorteo es una ganancia patrimonial
+        no derivada de una transmisión (art. 33.1 LIRPF), de la base general, y se valora
+        por su valor de mercado (art. 37.1.g LIRPF), que aquí es su precio de catálogo. En
+        la vida real quien da el premio hace un ingreso a cuenta del 19 % (art. 105
+        RIRPF); aquí quien lo da (la Rueda) no existe, así que no se retiene nada al
+        ganarlo: el valor entra en la base de la semana y la declaración del lunes cobra
+        lo que toque, como el resto de la renta (Biblia, «una sola renta y una sola
+        semana»). No mueve dinero ni se embarga: no hay cobro que embargar.
+
+        Args:
+            value: Valor de catálogo en Y$; si no es positivo, no se apunta nada.
+            concept: Motivo corto y estable, p. ej. `"rueda:especie"`.
+        """
+        if value <= 0:
+            return
+        await self.repository.record_in_kind(
+            guild_id, user_id, gross=value, concept=concept, now=self._clock()
+        )
+
     def _renta_rules(self) -> dict[str, object]:
         return {
             "current_week": week_start(local_day(self._clock())).isoformat(),

@@ -71,6 +71,8 @@ class Event(StrEnum):
     BUSINESS = "business"
     #: Mirar la ficha de Jovani (`jovani`).
     JOVANI = "jovani"
+    #: Girar la Rueda (`rueda`): el ánimo sale de lo que ha tocado.
+    WHEEL = "wheel"
 
 
 class Mood(StrEnum):
@@ -599,6 +601,15 @@ GENERIC_LINES: dict[Event, tuple[str, ...]] = {
         "{pet} no bebe, pero te juzga en silencio.",
         "{pet} se acerca a olisquear el vaso y vuelve con cara de «¿otra vez?».",
         "{pet} te cita a Aznar: «¿Y quién te ha dicho a ti las copas que puedo beber?».",
+    ),
+    Event.WHEEL: (
+        "{pet} sigue la rueda con la cabeza hasta que se para.",
+        "{pet} intenta frenar la rueda con la pata. Llega tarde.",
+        "{pet} se queda mirando la aguja, muy serio.",
+        "{pet} celebra el resultado con un {sound}.",
+        "{pet} quiere subirse a la rueda. No es una noria.",
+        "{pet} apunta qué ha salido. Mañana vuelve a mirar.",
+        "{pet} se marea de ver tanta vuelta.",
     ),
     Event.JOVANI: (
         "{pet} mira la ficha de Jovani y no entiende por qué no sale en el banner.",

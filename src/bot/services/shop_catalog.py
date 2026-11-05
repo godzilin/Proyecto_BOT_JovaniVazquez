@@ -92,6 +92,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from bot.services import rueda_catalog
 from bot.services.donations import ONG_GIFTS, OngGift
 from bot.services.lootboxes import BOXES, COLLECTION_BY_KEY, PIECES, Box, Piece
 from bot.services.pets_catalog import SPECIES, Species
@@ -1124,6 +1125,49 @@ CATALOG += tuple(_skin(skin) for skin in SKINS)
 CATALOG += tuple(_box(box) for box in BOXES)
 CATALOG += tuple(_piece(piece) for piece in PIECES)
 CATALOG += tuple(_ong_gift(gift) for gift in ONG_GIFTS)
+#: Lo que solo da la Rueda (`rueda_catalog`): oculto, en 🎉 Fiestas y verbenas.
+CATALOG += tuple(
+    CatalogEntry(
+        key=p.key,
+        kind=Kind.TROPHY,
+        aisle=rueda_catalog.AISLE,
+        emoji=p.emoji,
+        name=p.name,
+        price=p.price,
+        description=p.description,
+        visible=False,
+    )
+    for p in rueda_catalog.PIECES
+)
+CATALOG += tuple(
+    CatalogEntry(
+        key=t.key,
+        kind=Kind.TROPHY,
+        aisle=rueda_catalog.AISLE,
+        emoji=t.emoji,
+        name=t.name,
+        price=t.price,
+        description=t.description,
+        stock=rueda_catalog.TITLE_STOCK,
+        per_user=1,
+        visible=False,
+        title=True,
+    )
+    for t in rueda_catalog.TITLES
+)
+CATALOG += (
+    CatalogEntry(
+        key=rueda_catalog.TREAT.key,
+        kind=Kind.TROPHY,
+        aisle=rueda_catalog.AISLE,
+        emoji=rueda_catalog.TREAT.emoji,
+        name=rueda_catalog.TREAT.name,
+        price=rueda_catalog.TREAT.price,
+        description=rueda_catalog.TREAT.description,
+        food=True,
+        visible=False,
+    ),
+)
 
 CATALOG_BY_KEY: dict[str, CatalogEntry] = {entry.key: entry for entry in CATALOG}
 

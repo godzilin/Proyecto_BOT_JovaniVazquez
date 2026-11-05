@@ -1715,6 +1715,67 @@ class ShopRepository:
             connection.close()
         return _entry(row), dupe
 
+    async def grant_numbered(
+        self, guild_id: int, user_id: int, catalog_key: str, now: float
+    ) -> tuple[InventoryEntry, int, int] | None:
+        """Mete en la mochila la siguiente unidad numerada de un artículo, sin venta.
+
+        Es el premio del expositor de la Rueda: cuenta como unidad dada (`sold`) para que
+        el número de serie avance y se agote, pero no hay factura ni IGIC. Todo en una
+        transacción, así que dos premios a la vez no se llevan el mismo número.
+
+        Returns:
+            `(entrada, número, edición)`, o `None` si ya no quedan, si el artículo no
+            existe en el servidor o si el miembro ya tiene una (son de uno por persona).
+        """
+        return await self._run(self._grant_numbered_sync, guild_id, user_id, catalog_key, now)
+
+    def _grant_numbered_sync(
+        self, guild_id: int, user_id: int, catalog_key: str, now: float
+    ) -> tuple[InventoryEntry, int, int] | None:
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM shop_items WHERE guild_id = ? AND catalog_key = ?",
+                    (guild_id, catalog_key),
+                ).fetchone()
+                if row is None:
+                    return None
+                item = _item(row)
+                if item.stock is None or item.sold >= item.stock:
+                    return None
+                owned = connection.execute(
+                    """
+                    SELECT 1 FROM shop_inventory
+                    WHERE guild_id = ? AND user_id = ? AND item_id = ? AND status = 'active'
+                    """,
+                    (guild_id, user_id, item.id),
+                ).fetchone()
+                if owned is not None:
+                    return None
+                serial = item.sold + 1
+                connection.execute("UPDATE shop_items SET sold = sold + 1 WHERE id = ?", (item.id,))
+                cursor = connection.execute(
+                    """
+                    INSERT INTO shop_inventory
+                        (guild_id, user_id, item_id, kind, name, emoji, serial, edition,
+                         starts_at, catalog_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        guild_id, user_id, item.id, item.kind.value, item.name, item.emoji,
+                        serial, item.stock, now, item.catalog_key,
+                    ),
+                )  # fmt: skip
+                entry = connection.execute(
+                    "SELECT * FROM shop_inventory WHERE id = ?", (cursor.lastrowid,)
+                ).fetchone()
+        finally:
+            connection.close()
+        return _entry(entry), serial, int(item.stock)
+
     async def collection_size(self, guild_id: int, user_id: int) -> int:
         """Objetos distintos que tiene un miembro (para los logros de colección)."""
         return await self._run(self._collection_sync, guild_id, user_id)

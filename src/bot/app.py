@@ -48,6 +48,7 @@ from bot.repositories.picar import PicarRepository
 from bot.repositories.poker import PokerRepository
 from bot.repositories.porras import PorraRepository
 from bot.repositories.predice import PredictRepository
+from bot.repositories.rueda import RuedaRepository
 from bot.repositories.rastro import MarketRepository
 from bot.repositories.shop import ShopRepository
 from bot.repositories.slots import SlotsRepository
@@ -94,6 +95,7 @@ INITIAL_EXTENSIONS: tuple[str, ...] = (
     "bot.cogs.war",
     "bot.cogs.chicken",
     "bot.cogs.coin",
+    "bot.cogs.rueda",
     "bot.cogs.bus",
     "bot.cogs.allatu",
     "bot.cogs.poker",
@@ -239,6 +241,9 @@ class BotClient(commands.Bot):
         self.odds_api_key = odds_api_key
         # Traducciones de las preguntas de Polymarket (`predice`); el dinero pasa por `economy`.
         self.predice = PredictRepository(database_path)
+        # Las vueltas de la Rueda (`rueda`), sorteadas antes de girar; los premios pasan por
+        # `economy` y la tienda.
+        self.rueda = RuedaRepository(database_path)
         # Oficios, turnos y ascensos de `pala`; el dinero de las nóminas pasa por `economy`.
         self.work = WorkService(WorkRepository(database_path), self.economy, housing=self.housing)
         # Negocios propios dentro de `pala`: comparten las franjas y la batería del curro;
@@ -344,6 +349,7 @@ class BotClient(commands.Bot):
         await self.porras.initialize()
         await self.sports.initialize()
         await self.predice.initialize()
+        await self.rueda.initialize()
         await self.work.repository.initialize()
         await self.negocio.repository.initialize()
         await self.beernight.initialize()

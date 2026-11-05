@@ -654,6 +654,30 @@ SPECIES: tuple[Species, ...] = (
                     hint="Llega volando, a veces, cuando subes de nivel."),
     ),
     Species(
+        "urraca", "🐦‍⬛", "Urraca de la feria", "amuletos", "Épica", 5_000,
+        "Le gusta todo lo que brilla. Por eso vino a la Rueda.",
+        "No se vende: se posa, a veces, en la Rueda cuando la giras. Colecciona "
+        "todo lo que brilla, incluidos tus premios.",
+        "¡chac-chac!",
+        {
+            G: ("{pet} se lleva el premio al nido para verlo brillar.",
+                "{pet} da saltitos alrededor de lo que te ha tocado."),
+            B: ("{pet} te mira como diciendo que eso no brillaba nada.",
+                "{pet} se va al tejado a buscar algo más bonito."),
+            N: ("{pet} esconde una chapa de cerveza debajo del sofá.",
+                "{pet} se mira en la cuchara del café un buen rato."),
+            W.WHEEL: ("{pet} se posa encima de la aguja y la rueda no se para hasta que "
+                      "se va.",
+                      "{pet} picotea las bombillas de la rueda una a una."),
+        },
+        ("Te trae un anillo que no es de nadie. O eso dice.",
+         "Imita el ruido de la rueda al girar.",
+         "Se aprende tu cara y no se le olvida nunca."),
+        favourites=("rueda_piruleta",), talk=1.2, gift_rate=1.6,
+        spawn=Spawn(frozenset({Event.WHEEL}), chance=0.03,
+                    hint="Se posa, a veces, en la Rueda cuando la giras."),
+    ),
+    Species(
         "lagarto", "🦎", "Lagarto gigante de El Hierro", "canarias", "Legendaria", 50_000,
         "En peligro crítico de extinción. Solo se deja ver el Día de Canarias.",
         "No se vende: está protegido. Solo aparece el 30 de mayo, Día de Canarias, a "

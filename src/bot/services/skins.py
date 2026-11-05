@@ -422,6 +422,15 @@ SKINS: tuple[Skin, ...] = (
         "ink": "#000000",
         "pattern": "diamantes",
     }), price=750_000, aisle="lujo", min_level=20),
+    Skin("tapete_feria", "tapete", "🎪", "Tapete de la Feria", (
+        "Rojo de caseta de feria con ribete dorado de bombillas. No se vende: es el "
+        "premio por completar la colección de la Feria de la Rueda."
+    ), _frozen({
+        "felt": ("#c4303a", "#8e1622", "#3a0509"),
+        "fiber": ("rgba(255,225,200,0.05)", "rgba(30,0,0,0.08)"),
+        "trim": "rgba(255,214,110,0.6)",
+        "ink": "#2a0306",
+    }), price=60_000, aisle="cotillon", achievement="rueda_col_full"),
     Skin("tapete_gordo", "tapete", "🎄", "Tapete del Gordo", (
         "Verde de la sala del sorteo, bolas del bombo y espumillón. Solo en "
         "diciembre y enero; el 22, los niños de San Ildefonso cantan tu ruina."
