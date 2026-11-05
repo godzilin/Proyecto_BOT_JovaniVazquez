@@ -264,6 +264,12 @@ LOOKS: dict[str, Look] = {
         _b("azul", "Azul", 300, body="#4aa8e8", belly="#cdeaff", wing="#2f86c8",
            tail="#2a70b0", beak="#e8a089", beakKind="ganchudo"),
     )),
+    "urraca": Look("pajaro", (
+        _b("comun", "Urraca común", body="#1d1f2a", head="#15161f", belly="#f4f4f8",
+           wing="#2c4f7a", wingTip="#f4f4f8", tail="#24506a", beak="#14141a", eye="#2a2a32"),
+        _b("azul", "Rabilarga", 3_000, body="#c9c2ba", head="#15161f", belly="#efe9e2",
+           wing="#5f9ed8", wingTip="#8cc0ec", tail="#5f9ed8", beak="#14141a", eye="#2a2a32"),
+    )),
     "paloma": Look("pajaro", (
         _b("gris", "Gris de plaza", body="#9aa2ae", belly="#b9c0ca", wing="#838b98",
            bars="#3a3a46", neckPatch=("#5fae9a", "#b070c0"), beak="#d9b3a8", eye="#e8803a",

@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.44.0 · 2026-11-05
+
+- Rueda: `rueda`, una vuelta gratis al día con dinero, XP, cajas, una colección propia y un título numerado de premio gordo que cambia cada semana
+- Rueda: la urraca de la feria, una mascota nueva (con su retrato y la raza rabilarga) que se posa a veces al girar, y el Tapete de la Feria por completar la colección
+- Logros: sección 🎪 Rueda con 42 logros
+
 ### 9.43.0 · 2026-11-05
 
 - Mascotas: `mascota` enseña una ficha dibujada de tu mascota, con la cara de su especie, su raza, su ropa, su fondo, su cara del momento (duerme de madrugada, sale contenta si la has cuidado, de fiesta en su aniversario) y tarjetas con su nivel, su rareza, la racha y lo que lleva

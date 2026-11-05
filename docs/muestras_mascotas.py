@@ -11,7 +11,7 @@ especie nueva, una raza o una prenda antes de entregarla («Añadir una especie�
   del aniversario (`cake`) y la placa con un nombre largo.
 - `ropa_N.png`: cada prenda de `pet_wardrobe.OUTFITS` puesta, cada una en una especie
   distinta (van rotando).
-- `conjunto_N.png`: las 28 especies con un conjunto completo (cabeza, ojos, cuello y una
+- `conjunto_N.png`: las 29 especies con un conjunto completo (cabeza, ojos, cuello y una
   capa), para ver que los anclajes cuadran en todas.
 - `fondos.png`: cada fondo con el mismo gato.
 

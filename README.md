@@ -81,7 +81,7 @@ python -m bot
   | Categoría | Comandos |
   |---|---|
   | 👤 Perfil | `pala` · `perfil [miembro]` · `ranking [pagina]` |
-  | 🎰 Casino | `4enraya [miembro] [cantidad]` · `allatu [cantidad] [tabla]` · `apuestas [miembro]` · `backgammon [miembro] [cantidad]` · `bacara [cantidad] [lado]` · `blackjack [cantidad]` (atajo `.bj`) · `caballo [cantidad] [caballos] [tipo]` · `cohete [cantidad] [auto]` · `dados [cantidad] [apuesta] [mesa]` · `deportes` · `gallos [cantidad] [miembro]` · `guagua [cantidad]` · `guerra [cantidad]` · `loteria` · `minas [cantidad] [minas]` · `moneda [cantidad] [lado]` · `pachinko [cantidad]` · `picar` · `poker [modo] [cantidad]` · `pollo [cantidad] [dificultad] [autocobro]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `predice` · `ruleta [cantidad] [apuesta]` · `torre [cantidad] [nivel]` · `tragas [cantidad] [máquina]` |
+  | 🎰 Casino | `4enraya [miembro] [cantidad]` · `allatu [cantidad] [tabla]` · `apuestas [miembro]` · `backgammon [miembro] [cantidad]` · `bacara [cantidad] [lado]` · `blackjack [cantidad]` (atajo `.bj`) · `caballo [cantidad] [caballos] [tipo]` · `cohete [cantidad] [auto]` · `dados [cantidad] [apuesta] [mesa]` · `deportes` · `gallos [cantidad] [miembro]` · `guagua [cantidad]` · `guerra [cantidad]` · `loteria` · `minas [cantidad] [minas]` · `moneda [cantidad] [lado]` · `pachinko [cantidad]` · `picar` · `poker [modo] [cantidad]` · `pollo [cantidad] [dificultad] [autocobro]` · `porra [miembro] [juego] [propuesta] [jugadas] [apuesta]` · `predice` · `rueda` · `ruleta [cantidad] [apuesta]` · `torre [cantidad] [nivel]` · `tragas [cantidad] [máquina]` |
   | 🏦 Dinero | `banco [mostrador]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `hacienda [miembro]` · `imv` · `patrimonio [miembro]` · `renta` · `saldo [miembro]` |
   | 🛍️ Tienda | `mascota [miembro]` · `pieles [miembro] [imagen]` · `rastro` · `tienda` · `trueque <objeto> <miembro> <a cambio> [dinero]` · `vender <objeto> <precio> [comprador]` |
   | 🎵 Música | `cola` · `parar` · `pausar` · `poner <consulta>` · `quitar <posicion>` · `saltar` · `seguir` · `vaciar` · `volumen <1-200>` |
@@ -309,12 +309,12 @@ python -m bot
     enseña lo que tiene alguien; su dueño puede ponerse y quitarse los roles
     que compró para siempre, elegir qué título luce, cambiar sus skins y usar sus
     objetos.
-- **Mascotas** (`mascota [miembro]`): 28 especies con su personalidad, del
+- **Mascotas** (`mascota [miembro]`): 29 especies con su personalidad, del
   gato que te tira la ficha de la mesa a Perro Sanxe (una en todo el
   servidor). 22 se adoptan en la tienda (perros, gatos y hurones con «tasa de
-  adopción», que la Ley 7/2023 no deja venderlos) y 6 aparecen solas: la
+  adopción», que la Ley 7/2023 no deja venderlos) y 7 aparecen solas: la
   cucaracha cuando te quedas a cero, el gato callejero al cobrar el IMV, la
-  cotorra al subir de nivel, el lagarto gigante de El Hierro el Día de
+  cotorra al subir de nivel, la urraca al girar la Rueda, el lagarto gigante de El Hierro el Día de
   Canarias… Puedes tener todas las que quieras; una va contigo.
   - El panel enseña un retrato dibujado de la mascota (su especie, su raza,
     su ropa, su fondo y su cara del momento) y deja acariciarla, jugar con
@@ -324,7 +324,7 @@ python -m bot
     cuál te acompaña. Los demás solo miran.
   - 👗 Vestir: 68 prendas y fondos (sombreros, gafas, collares, capas,
     fondos de Las Canteras o del Teide…) que se ven puestos antes de
-    comprarlos. 🧬 Raza: 52 razas de pago. 📔 Álbum: fotos que se hacen
+    comprarlos. 🧬 Raza: 53 razas de pago. 📔 Álbum: fotos que se hacen
     solas en los momentos importantes. 📸 Enseñar: el retrato, al canal.
   - Cuidar sube el vínculo, que nunca baja. Da poco a propósito: hasta +5 %
     de XP con la que llevas, trucos nuevos a nivel 3, 6 y 9, y a veces un

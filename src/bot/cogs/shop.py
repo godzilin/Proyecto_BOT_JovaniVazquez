@@ -1304,6 +1304,50 @@ class Tienda(commands.Cog):
         entries = await self.repository.inventory(guild_id, user_id, self.clock())
         return frozenset(e.catalog_key for e in entries if e.catalog_key)
 
+    async def give_key(self, guild_id: int, user_id: int, catalog_key: str) -> ShopItem | None:
+        """Mete en la mochila una unidad del objeto de serie `catalog_key`, sin cobrar.
+
+        Es un premio (la Rueda), como `grant_free_box`: no mueve dinero ni lleva IGIC.
+        Solo para artículos de existencias ilimitadas; los numerados van por
+        `give_numbered`.
+
+        Returns:
+            El artículo dado, o `None` si el servidor no lo tiene.
+        """
+        await self.stock_up(guild_id)
+        item = await self.repository.item_by_key(guild_id, catalog_key)
+        if item is None:
+            return None
+        await self.repository.grant(guild_id, user_id, item, self.clock())
+        return item
+
+    async def give_numbered(
+        self, guild_id: int, user_id: int, catalog_key: str
+    ) -> tuple[ShopItem, int, int] | None:
+        """Da la siguiente unidad numerada de `catalog_key` (el expositor de la Rueda).
+
+        Returns:
+            `(artículo, número, edición)`, o `None` si no quedan o ya tiene una.
+        """
+        await self.stock_up(guild_id)
+        item = await self.repository.item_by_key(guild_id, catalog_key)
+        if item is None:
+            return None
+        given = await self.repository.grant_numbered(guild_id, user_id, catalog_key, self.clock())
+        if given is None:
+            return None
+        _, serial, edition = given
+        return item, serial, edition
+
+    async def units_left(self, guild_id: int, keys: Collection[str]) -> dict[str, int]:
+        """Unidades que quedan de cada artículo numerado de `keys` (0 si no existe)."""
+        await self.stock_up(guild_id)
+        left: dict[str, int] = {}
+        for key in keys:
+            item = await self.repository.item_by_key(guild_id, key)
+            left[key] = 0 if item is None or item.stock is None else max(0, item.stock - item.sold)
+        return left
+
     async def consume_key(self, guild_id: int, user_id: int, catalog_key: str) -> bool:
         """Gasta una unidad del objeto de serie `catalog_key` (los regalos de `pala`).
 
@@ -3337,6 +3381,46 @@ async def owned_keys(bot: commands.Bot, guild_id: int, user_id: int) -> frozense
     except Exception:
         logger.exception("No se pudo leer la mochila de %s para la pala", user_id)
         return frozenset()
+
+
+async def give_key(
+    bot: commands.Bot, guild_id: int, user_id: int, catalog_key: str
+) -> ShopItem | None:
+    """Regala un objeto de serie (`Tienda.give_key`); `None` si no se pudo.
+
+    No lanza: si la tienda no está o falla, queda en el log y quien llama lo dice.
+    """
+    if (cog := find_cog(bot, Tienda)) is None:
+        return None
+    try:
+        return await cog.give_key(guild_id, user_id, catalog_key)
+    except Exception:
+        logger.exception("No se pudo dar %s a %s", catalog_key, user_id)
+        return None
+
+
+async def give_numbered(
+    bot: commands.Bot, guild_id: int, user_id: int, catalog_key: str
+) -> tuple[ShopItem, int, int] | None:
+    """Regala la siguiente unidad numerada (`Tienda.give_numbered`); `None` si no se pudo."""
+    if (cog := find_cog(bot, Tienda)) is None:
+        return None
+    try:
+        return await cog.give_numbered(guild_id, user_id, catalog_key)
+    except Exception:
+        logger.exception("No se pudo dar el numerado %s a %s", catalog_key, user_id)
+        return None
+
+
+async def units_left(bot: commands.Bot, guild_id: int, keys: Collection[str]) -> dict[str, int]:
+    """Unidades que quedan de cada numerado (`Tienda.units_left`); vacío si no se pudo."""
+    if (cog := find_cog(bot, Tienda)) is None:
+        return {}
+    try:
+        return await cog.units_left(guild_id, keys)
+    except Exception:
+        logger.exception("No se pudo leer cuántos quedan de %s", ", ".join(keys))
+        return {}
 
 
 async def grant_ong_gift(

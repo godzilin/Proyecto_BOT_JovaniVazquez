@@ -2676,6 +2676,26 @@ class EconomyRepository:
                 kind=kind,
             )
 
+    async def record_in_kind(
+        self, guild_id: int, user_id: int, *, gross: int, concept: str, now: float
+    ) -> None:
+        """Apunta un premio en especie como renta de la semana, sin mover dinero.
+
+        Lo usa `EconomyService.record_prize_in_kind`: el premio ya está en la mochila y
+        aquí solo queda su valor en `economy_tax_records`, sin retención, para que la
+        declaración del lunes lo sume a la base general.
+        """
+        await self._run(self._record_in_kind_sync, guild_id, user_id, gross, concept, now)
+
+    def _record_in_kind_sync(
+        self, guild_id: int, user_id: int, gross: int, concept: str, now: float
+    ) -> None:
+        with self._transaction() as connection:
+            self._record_in(
+                connection, guild_id, user_id, now=now, concept=concept, kind=INCOME_PRIZE,
+                gross=gross, withheld=0,
+            )  # fmt: skip
+
     async def week_income(
         self, guild_id: int, user_id: int, week: FiscalWeek
     ) -> tuple[WeekIncome, Pace]:

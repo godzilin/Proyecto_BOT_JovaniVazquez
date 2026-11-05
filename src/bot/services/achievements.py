@@ -196,6 +196,7 @@ from bot.services.predice import MIN_STAKE as PREDICT_MIN_STAKE
 from bot.services.predice import SECTIONS as PREDICT_SECTIONS
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, ZEROS, RoundOutcome
+from bot.services.rueda_catalog import PIECES as RUEDA_PIECES
 from bot.services.shop_catalog import AISLES as SHOP_AISLES
 from bot.services.shop_catalog import RETIRED_AISLES as SHOP_RETIRED_AISLES
 from bot.services.shop_catalog import TITLE_KEYS as SHOP_TITLE_KEYS
@@ -384,6 +385,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("tower", "🐉 Torre", group=_CG),
     Category("war", "⚔️ Guerra", group=_CG),
     Category("coin", "🪙 Cara o cruz", group=_CG),
+    Category("rueda", "🎪 Rueda", group=_CG),
     Category("bus", "🚌 Autobús", group=_CG),
     Category("allatu", "📦 Allá tú", group=_CG),
     Category("poker", "♠️ Póker", group=_CG),
@@ -11186,6 +11188,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          R, False),
         ("cotorra", "pet_cotorra", "Invasión argentina",
          "Que se te mude la cotorra al subir de nivel.", R, False),
+        ("urraca", "pet_urraca", "Todo lo que reluce",
+         "Que se te pose la urraca al girar la Rueda.", E, False),
         ("lagarto", "pet_lagarto", "Lagartijo, iguana, lagarto",
          "Que te aparezca el lagarto gigante de El Hierro el Día de Canarias.", L, False),
         ("mosquito", "pet_mosquito", "Verano en España", "Que se te pegue el mosquito tigre.",
@@ -16369,6 +16373,169 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "sports_combo_first_leg", "Adiós, muy buenas",
          "Pierde una combinada por la primera pata en jugarse, con las demás aún sin jugar.", C),
     ])  # fmt: skip
+
+    # 🎪 Rueda (`rueda`) ------------------------------------------------------------------
+    # Una vuelta al día (y alguna más con «Otra vuelta»): los contadores de vueltas son
+    # días. La rareza de los de suerte sale de su probabilidad por vuelta
+    # (`rueda.chances`), contando la mediana de días hasta que sale: Inspección (5 %) en
+    # unas dos semanas es Rara; Otra vuelta (3 %), unas tres semanas, Épica; 5.000 Y$
+    # (0,8 %), unos dos meses y medio, Legendaria; el expositor y los 15.000 Y$ (0,2 %),
+    # casi un año, Míticos.
+    a += _tiers("rueda", "rueda_spins", [
+        (1, "rueda_spins_1", "Vuelta de reconocimiento", "Gira la Rueda con `rueda`.", C),
+        (10, "rueda_spins_10", "Girasol", "Gira la Rueda 10 veces.", R),
+        (50, "rueda_spins_50", "Abono de temporada en la noria", "Gira la Rueda 50 veces.", E),
+        (100, "rueda_spins_100", "Hámster profesional", "Gira la Rueda 100 veces.", L),
+        (365, "rueda_spins_365", "Eterno retorno", "Gira la Rueda 365 veces.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_streak_max", [
+        (7, "rueda_streak_7", "Semana fantástica", "Gira la Rueda 7 días seguidos.", R),
+        (30, "rueda_streak_30", "La vuelta al mes en 30 días",
+         "Gira la Rueda 30 días seguidos.", E),
+        (100, "rueda_streak_100", "Derviche giróvago", "Gira la Rueda 100 días seguidos.", L),
+        (365, "rueda_streak_365", "Traslación completa", "Gira la Rueda 365 días seguidos.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_nada", [
+        (1, "rueda_nada_1", "Rueda de reconocimiento", "Que la Rueda caiga en Inspección.", R),
+        (5, "rueda_nada_5", "Expediente abierto", "Que la Rueda caiga en Inspección 5 veces.",
+         L),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_otra", [
+        (1, "rueda_otra_1", "Bis", "Saca «Otra vuelta» en la Rueda.", E),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_again_day", [
+        (2, "rueda_otra_2", "Rizar el rizo", "Saca «Otra vuelta» dos veces el mismo día.", M,
+         True),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_again_nothing", [
+        (1, "rueda_otra_nada", "Para este viaje no hacían falta alforjas",
+         "Saca «Otra vuelta» y, en la vuelta siguiente, Inspección.", M, True),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_money_max", [
+        (1_000, "rueda_money_1k", "Mil de tómbola", "Gana 1.000 Y$ o más en una vuelta.", R),
+        (2_500, "rueda_money_2500", "Tómbola con premio", "Gana 2.500 Y$ o más en una vuelta.",
+         E),
+        (5_000, "rueda_money_5k", "Gordo de verbena", "Gana 5.000 Y$ o más en una vuelta.", L),
+        (15_000, "rueda_money_15k", "Lluvia de millones", "Gana 15.000 Y$ en una vuelta.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_money_total", [
+        (10_000, "rueda_cash_10k", "Hucha de feria",
+         "Gana 10.000 Y$ en total en la Rueda.", E),
+        (50_000, "rueda_cash_50k", "Plan de pensiones giratorio",
+         "Gana 50.000 Y$ en total en la Rueda.", L),
+        (100_000, "rueda_cash_100k", "La Rueda me paga el alquiler",
+         "Gana 100.000 Y$ en total en la Rueda.", M),
+    ], unit="money")  # fmt: skip
+    a += _tiers("rueda", "rueda_xp_total", [
+        (1, "rueda_xp_1", "Experiencia de feria", "Gana XP en la Rueda.", R),
+        (5_000, "rueda_xp_5k", "Máster en vueltas", "Gana 5.000 XP en total en la Rueda.", L),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_carton", [
+        (1, "rueda_carton_1", "Mudanza exprés", "Gana una Caja de cartón en la Rueda.", R),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_regalo", [
+        (1, "rueda_regalo_1", "Envuelto para regalo", "Gana una Caja de regalo en la Rueda.",
+         E),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_maletin", [
+        (1, "rueda_maletin_1", "Maletín sin declarar",
+         "Gana el Maletín del ministro en la Rueda.", L),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_chuche", [
+        (1, "rueda_chuche_1", "Dulce de feria", "Gana la Piruleta de feria en la Rueda.", R),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_pieza", [
+        (1, "rueda_pieza_1", "Recuerdo de la feria",
+         "Gana una pieza de la colección de la Feria.", R),
+        (10, "rueda_pieza_10", "Trastero de feriante",
+         "Gana 10 piezas de la colección de la Feria.", L),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_col", [
+        (4, "rueda_col_4", "Media feria",
+         "Ten 4 piezas distintas de la colección de la Feria.", L),
+    ])  # fmt: skip
+    a.append(
+        Achievement(
+            id="rueda_col_full",
+            name="Círculo cerrado",
+            description=(
+                f"Ten las {len(RUEDA_PIECES)} piezas de la colección de la Feria. "
+                "Regala el Tapete de la Feria."
+            ),
+            category="rueda",
+            rarity=M,
+            conditions=(("rueda_col", len(RUEDA_PIECES)),),
+            story=(
+                "Colección de la Feria completa. Te llevas el 🎪 Tapete de la Feria para las "
+                "mesas con fieltro del casino: búscalo en la mochila o con el botón 🎨."
+            ),
+        )
+    )
+    a += _tiers("rueda", "rueda_prize_expositor", [
+        (1, "rueda_expositor_1", "Pieza de museo", "Gana el expositor de la semana.", M),
+    ])  # fmt: skip
+    a.append(
+        Achievement(
+            id="rueda_all",
+            name="Le he dado la vuelta a todo",
+            description=(
+                "Saca en la Rueda 300, 600, 1.000 y 2.500 Y$, las dos de XP, la Caja de cartón, "
+                "la de regalo, la piruleta, una pieza, Otra vuelta e Inspección."
+            ),
+            category="rueda",
+            rarity=L,
+            conditions=tuple(
+                (f"rueda_prize_{key}", 1)
+                for key in (
+                    "y300",
+                    "y600",
+                    "y1000",
+                    "y2500",
+                    "xp250",
+                    "xp1000",
+                    "carton",
+                    "regalo",
+                    "chuche",
+                    "pieza",
+                    "otra",
+                    "nada",
+                )
+            ),  # fmt: skip
+        )
+    )
+    a += _tiers("rueda", "rueda_in_kind", [
+        (1, "rueda_especie", "Regalo con letra pequeña",
+         "Gana en la Rueda un premio que no es dinero: su valor cuenta en la Renta.", C),
+    ])  # fmt: skip
+    a[-1] = replace(
+        a[-1],
+        story=(
+            "Un premio que no es dinero también es renta. Hacienda lo valora por lo que vale "
+            "en el mercado (art. 37.1.g LIRPF), que aquí es su precio de catálogo, y lo suma "
+            "a la base de tu semana: lo verás en la declaración del lunes. En la vida real, "
+            "quien regala hace además un ingreso a cuenta del 19 % (art. 105 del Reglamento "
+            "del IRPF)."
+        ),
+    )
+    for stat, achievement_id, name, description, secret in (
+        ("rueda_midnight", "rueda_midnight", "Cenicienta al revés",
+         "Gira la Rueda en los primeros 5 minutos del día.", False),
+        ("rueda_lastminute", "rueda_lastminute", "Sobre la bocina",
+         "Gira la Rueda en los últimos 5 minutos del día.", False),
+        ("rueda_night", "rueda_night", "Insomnio de feria",
+         "Gira la Rueda entre las 2:00 y las 6:00.", False),
+        ("rueda_nochevieja", "rueda_nochevieja", "Doce uvas y una vuelta",
+         "Gira la Rueda en Nochevieja.", False),
+        ("rueda_canarias", "rueda_canarias", "Gira, gira, guanche",
+         "Gira la Rueda el 30 de mayo, Día de Canarias.", False),
+        ("rueda_viernes13", "rueda_viernes13", "Gato negro en la tómbola",
+         "Gira la Rueda un viernes 13.", True),
+        ("rueda_inocentes", "rueda_inocentes", "Comulgar con ruedas de molino",
+         "Gira la Rueda el 28 de diciembre.", True),
+        ("rueda_hamster", "rueda_hamster", "Tracción animal",
+         "Gira la Rueda con el hámster como mascota activa.", True),
+    ):  # fmt: skip
+        a += _tiers("rueda", stat, [(1, achievement_id, name, description, C, secret)])
 
     # 🔮 Predicciones (`predice`) ---------------------------------------------------------
     # Las preguntas de Polymarket tardan días o semanas en resolverse y cada sección tiene
@@ -26156,6 +26323,66 @@ def chicken_stats(game: ChickenGame, *, vehicle: str | None = None) -> StatDelta
         bump("chicken_lost_big", game.cents >= 1_000)
         if vehicle in CHICKEN_VEHICLE_KINDS:
             bump(f"chicken_hit_{vehicle}")
+    return delta
+
+
+def rueda_stats(
+    prize: str,
+    *,
+    when: datetime,
+    money: int = 0,
+    xp: int = 0,
+    in_kind: int = 0,
+    streak: int = 0,
+    again_today: int = 0,
+    after_again: bool = False,
+    pieces_owned: int = 0,
+    hamster: bool = False,
+) -> StatDelta:
+    """Contadores de una vuelta de la Rueda (`bot.cogs.rueda`).
+
+    Args:
+        prize: Clave del premio que ha salido (`rueda.PRIZES`).
+        when: Hora local de la vuelta.
+        money: Yapdollars brutos cobrados en dinero.
+        xp: XP ganada.
+        in_kind: Valor de catálogo de lo ganado en especie (cajas, piezas, títulos).
+        streak: Días seguidos girando, contando hoy.
+        again_today: Veces que ha salido «Otra vuelta» hoy, contando esta.
+        after_again: Si esta vuelta venía de una «Otra vuelta».
+        pieces_owned: Piezas distintas de la colección de la Feria que tiene ahora.
+        hamster: Si su mascota activa es el hámster.
+    """
+    delta = StatDelta(add={"rueda_spins": 1, f"rueda_prize_{prize}": 1})
+    add, peak = delta.add, delta.peak
+    if money > 0:
+        add["rueda_money_total"] = money
+        peak["rueda_money_max"] = money
+    if xp > 0:
+        add["rueda_xp_total"] = xp
+    if in_kind > 0:
+        add["rueda_in_kind"] = in_kind
+    if streak:
+        peak["rueda_streak_max"] = streak
+    if again_today:
+        peak["rueda_again_day"] = again_today
+    if pieces_owned:
+        peak["rueda_col"] = pieces_owned
+    if after_again and prize == "nada":
+        add["rueda_again_nothing"] = 1
+    minutes = when.hour * 60 + when.minute
+    for stat, condition in (
+        ("rueda_midnight", minutes < 5),
+        ("rueda_lastminute", minutes >= 23 * 60 + 55),
+        ("rueda_night", 2 <= when.hour < 6),
+        ("rueda_nochevieja", (when.month, when.day) == (12, 31)),
+        ("rueda_canarias", (when.month, when.day) == (5, 30)),
+        ("rueda_viernes13", when.weekday() == 4 and when.day == 13),
+        ("rueda_inocentes", (when.month, when.day) == (12, 28)),
+        ("rueda_hamster", hamster),
+    ):
+        if condition:
+            add[stat] = 1
     return delta
 
 

@@ -83,6 +83,7 @@ async def load_bot(tmp_path: Path) -> BotClient:
     await client.porras.initialize()
     await client.sports.initialize()
     await client.predice.initialize()
+    await client.rueda.initialize()
     await client.todo.initialize()
     await client.slots_repository.initialize()
     await client.picar.initialize()
@@ -293,6 +294,24 @@ async def press_coin_cash_out(client: BotClient, owner: MagicMock) -> Click:
 
     async def click(interaction: MagicMock) -> None:
         await view._cash_out(interaction)
+
+    return click
+
+
+async def press_rueda(client: BotClient, owner: MagicMock) -> Click:
+    """🎡 Girar la Rueda con el dibujo falso y sin esperar al final del GIF."""
+    cog = client.get_cog("Rueda")
+    module = module_of(client, "Rueda")
+    module.REVEAL_MARGIN_SECONDS = 0
+    module.REVEAL_PER_MB = 0
+    cog.renderer = MagicMock()
+    cog.renderer.spin = AsyncMock(return_value=module.Media(gif=b"GIF", png=b"PNG", seconds=0.0))
+    cog.renderer.board = AsyncMock(return_value=b"PNG")
+    cog.ahead = False
+    view, _ = await cog.open_panel(owner.guild, None, owner)
+
+    async def click(interaction: MagicMock) -> None:
+        await view._spin(interaction)
 
     return click
 
@@ -3229,6 +3248,7 @@ CASES: dict[str, Press] = {
     "pico: récords": press_picar_records,
     "moneda: cara": press_coin_flip,
     "moneda: cobrar": press_coin_cash_out,
+    "rueda: girar": press_rueda,
     "gallos: pelear contra la casa": press_gallos_fight,
     "gallos: entrenar": press_gallos_train,
     "gallos: aceptar un duelo": press_gallos_accept,

@@ -27,7 +27,7 @@ sola. Una especie sin un hueco (un pez no tiene cuello) no lo enseña en el arma
 
 **Añadir una prenda**: una fila en `OUTFITS` con una forma que ya exista o una forma
 nueva en la escena (y en `SHAPES`), mirarla en la hoja de muestras
-(`docs/muestras_mascotas.py`) sobre las 28 especies, y decidir su pasillo, precio e
+(`docs/muestras_mascotas.py`) sobre las 29 especies, y decidir su pasillo, precio e
 IGIC como cualquier artículo (Biblia, «Tienda»). La clave no se cambia nunca.
 """
 

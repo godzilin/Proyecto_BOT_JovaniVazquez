@@ -202,6 +202,7 @@ from bot.services.robuso import DAILY as ROBUSO_DAILY
 from bot.services.robuso import ECHOES as ROBUSO_ECHOES
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, OUTSIDE_BETS, RoundOutcome, Wager, parse_bet
+from bot.services.rueda import PRIZES as RUEDA_PRIZES
 from bot.services.shop_uses import USES as SHOP_USES
 from bot.services.slots import REEL_STRIPS, Kind, spin_at
 from bot.services.slots import pot_share as slots_pot_share
@@ -231,6 +232,12 @@ HOUSING_EVENT_KEYS = (
 )  # fmt: skip
 
 PRODUCED_STATS = {
+    # 🎪 Rueda (`rueda_stats`)
+    "rueda_spins", "rueda_streak_max", "rueda_again_day", "rueda_again_nothing",
+    "rueda_money_max", "rueda_money_total", "rueda_xp_total", "rueda_col", "rueda_in_kind",
+    "rueda_midnight", "rueda_lastminute", "rueda_night", "rueda_nochevieja", "rueda_canarias",
+    "rueda_viernes13", "rueda_inocentes", "rueda_hamster",
+    *(f"rueda_prize_{p.key}" for p in RUEDA_PRIZES),
     # 👗 Armario, razas, fotos, paseos y visitas de las mascotas (`pet_*_stats` de la 9.43)
     "pet_dressed", "pet_outfits_owned", "pet_full_look", "pet_dress_cucaracha",
     "pet_dress_cabra_corona", "pet_dress_piedra_chistera", "pet_dress_pulpo_gafas",
@@ -1778,6 +1785,10 @@ def test_el_resumen_y_las_categorias_calculan_lo_derivado_una_sola_vez(
 
     monkeypatch.setattr(service_module, "with_derived", counted)
     monkeypatch.setattr(cog_module, "with_derived", counted)
+    # Si otra prueba del mismo proceso cargó el bot real, `load_extension` volvió a ejecutar el
+    # cog y `summary_embed` (importado arriba) mira las variables del módulo de antes.
+    for function in (summary_embed, category_embed):
+        monkeypatch.setitem(function.__globals__, "with_derived", counted)
     # Los mensajes importados solo cuentan a través de lo derivado (`messages_total`).
     profile = Profile({"messages": 50, "messages_imported": 45}, {})
     embed = summary_embed("Diego", None, profile, {}, 3)

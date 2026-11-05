@@ -2013,6 +2013,17 @@ def xp_bonus(bot: commands.Bot, guild_id: int, user_id: int, *, voice: bool) -> 
     return 1.0
 
 
+def active_species(bot: commands.Bot, guild_id: int, user_id: int) -> str | None:
+    """Clave de la especie de la mascota activa (`hamster`), o `None`. Sale de memoria.
+
+    La Rueda la mira para el cameo del hámster, que corre dentro de la rueda.
+    """
+    if (cog := find_cog(bot, Mascotas)) is None:
+        return None
+    state = cog.active.get((guild_id, user_id))
+    return state.species if state is not None else None
+
+
 async def cameo(
     bot: commands.Bot, guild_id: int, user_id: int, moment: Moment | None = None
 ) -> str | None:
