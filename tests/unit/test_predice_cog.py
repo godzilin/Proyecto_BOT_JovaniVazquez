@@ -1681,3 +1681,16 @@ async def test_pending_sin_el_cog_o_con_un_fallo_no_lanza(
     monkeypatch.setattr(cog_module, "find_cog", lambda bot, cls: cog)
     cog.economy.predict_bets = AsyncMock(side_effect=OSError("disco"))  # type: ignore[method-assign]
     assert await pending(cog.bot, GUILD_ID, ANA) == []
+
+
+async def test_al_caducar_la_portada_apaga_tambien_los_desplegables(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path)
+    many = [make_event(f"x{n}", make_market(f"mx{n}", mid=0.5)) for n in range(10)]
+    cog.offers["economia"] = build_sections({"economia": many}, now=NOW)["economia"]
+    view = open_view(cog)
+    view.message = MagicMock(edit=AsyncMock())
+
+    await view.on_timeout()
+
+    assert isinstance(widget(view, "predice:mas"), ui.Select)
+    assert all(w.disabled for w in widgets(view))

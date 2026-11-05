@@ -684,7 +684,7 @@ class PredictView(ui.LayoutView):
         if self.message is None:
             return
         for child in self.walk_children():
-            if isinstance(child, ui.Button | ui.Select) and child.url is None:
+            if isinstance(child, ui.Button | ui.Select) and getattr(child, "url", None) is None:
                 child.disabled = True
         try:
             await self.message.edit(view=self)

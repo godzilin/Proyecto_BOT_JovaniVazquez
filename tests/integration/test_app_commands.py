@@ -32,6 +32,7 @@ EXPECTED_COMMANDS = {
     "tragas",
     "caballo",
     "deportes",
+    "predice",
     "bacara",
     "gallos",
     "4enraya",
