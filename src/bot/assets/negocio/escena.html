@@ -319,6 +319,31 @@ function smallIcon(key, cx, cy, r, color) {
     fillRR(-r * 0.55, -r * 0.05, r * 1.1, r * 0.95, r * 0.3, color);
     for (let i = 0; i < 4; i++) fillRR(-r * 0.55 + i * r * 0.28, -r * (i === 1 || i === 2 ? 0.95 : 0.8), r * 0.22, r * 1.0, r * 0.11, color);
     g.save(); g.rotate(-0.8); fillRR(-r * 0.95, r * 0.05, r * 0.5, r * 0.24, r * 0.12, color); g.restore();
+  } else if (key === "clip") { // el portapapeles del encargado: la tabla, la pinza y tres renglones
+    const dk = "rgba(0,0,0,0.4)";
+    fillRR(-r * 0.72, -r * 0.72, r * 1.44, r * 1.74, r * 0.18, color);
+    fillRR(-r * 0.38, -r * 1.0, r * 0.76, r * 0.5, r * 0.14, color); g.fillStyle = dk; g.fillRect(-r * 0.2, -r * 0.86, r * 0.4, r * 0.2);
+    for (let i = 0; i < 3; i++) g.fillRect(-r * 0.42, -r * 0.14 + i * r * 0.36, i === 2 ? r * 0.5 : r * 0.84, r * 0.15);
+  } else if (key === "parcel") { // el reparto: un paquete con cinta y tres rayas de velocidad
+    fillRR(-r * 0.25, -r * 0.55, r * 1.2, r * 1.1, r * 0.14, color);
+    g.fillStyle = "rgba(0,0,0,0.38)"; g.fillRect(r * 0.25, -r * 0.55, r * 0.2, r * 0.42);
+    g.lineWidth = r * 0.17;
+    for (const [x0, x1, yy] of [[-0.95, -0.55, -0.28], [-1.0, -0.45, 0.08], [-0.85, -0.5, 0.44]]) { g.beginPath(); g.moveTo(x0 * r, yy * r); g.lineTo(x1 * r, yy * r); g.stroke(); }
+  } else if (key === "spray") { // el pulverizador de la limpieza, con su niebla
+    fillRR(-r * 0.4, -r * 0.1, r * 0.9, r * 1.1, r * 0.2, color);
+    g.fillRect(-r * 0.15, -r * 0.5, r * 0.4, r * 0.45);
+    fillRR(-r * 0.5, -r * 0.9, r * 1.4, r * 0.44, r * 0.14, color);
+    g.fillStyle = "rgba(0,0,0,0.38)"; g.fillRect(-r * 0.4, r * 0.2, r * 0.8, r * 0.34);
+    g.fillStyle = color; for (const [dx, dy] of [[-0.9, -0.85], [-1.0, -0.55], [-0.85, -0.25]]) { circle(dx * r, dy * r, r * 0.11); g.fill(); }
+  } else if (key === "box") { // la caja del almacén: la tapa, la cinta y el cuerpo
+    fillRR(-r * 0.95, -r * 0.6, r * 1.9, r * 1.5, r * 0.15, color);
+    g.fillStyle = "rgba(0,0,0,0.28)"; g.fillRect(-r * 0.95, -r * 0.6, r * 1.9, r * 0.42);
+    g.fillStyle = "rgba(0,0,0,0.38)"; g.fillRect(-r * 0.2, -r * 0.6, r * 0.4, r * 0.7);
+  } else if (key === "phone") { // el móvil del community manager, con un corazón en pantalla
+    fillRR(-r * 0.52, -r * 0.98, r * 1.04, r * 1.96, r * 0.24, color);
+    fillRR(-r * 0.36, -r * 0.72, r * 0.72, r * 1.22, r * 0.1, "rgba(0,0,0,0.4)");
+    g.fillStyle = color; g.beginPath(); g.moveTo(0, r * 0.18); g.bezierCurveTo(-r * 0.5, -r * 0.2, -r * 0.2, -r * 0.5, 0, -r * 0.24); g.bezierCurveTo(r * 0.2, -r * 0.5, r * 0.5, -r * 0.2, 0, r * 0.18); g.fill();
+    circle(0, r * 0.74, r * 0.1); g.fillStyle = "rgba(0,0,0,0.4)"; g.fill();
   }
   g.restore();
 }
@@ -1082,6 +1107,7 @@ function personLook(seed) {
 function person(cx, top, R, seed, o = {}) {
   const L = personLook(seed), cy = top + R, bw = R * 1.55 * L.wide, neckY = cy + R * 0.85;
   const bodyTop = neckY + R * 0.25, bodyBot = o.full ? o.floor - R * 2.1 : (o.cut ?? cy + R * 4.5);
+  if (o.shirt) L.shirt = o.shirt; // la chaqueta, la bata o la sudadera de un puesto
   const shade1 = shade(L.shirt, -0.18);
   // el pelo largo cae por detrás de los hombros
   if (L.style === 1 && !L.cap) fillRR(cx - R * 1.05, cy - R * 0.4, R * 2.1, R * 2.3, R * 0.5, L.hair);
@@ -1090,6 +1116,12 @@ function person(cx, top, R, seed, o = {}) {
     const legTop = bodyBot - 2, legW = bw * 0.36;
     rect(cx - bw * 0.42, legTop, legW, o.floor - legTop - R * 0.25, L.pants); rect(cx + bw * 0.06, legTop, legW, o.floor - legTop - R * 0.25, L.pants);
     fillRR(cx - bw * 0.5, o.floor - R * 0.32, legW + R * 0.3, R * 0.34, R * 0.15, "#2a2420"); fillRR(cx + bw * 0.04, o.floor - R * 0.32, legW + R * 0.3, R * 0.34, R * 0.15, "#2a2420");
+  }
+  // la mochila cúbica del repartidor, por detrás: asoma por los lados y por encima del hombro
+  if (o.role === "repartidor") {
+    const hw = bw / 2 + R * 0.62, bt = bodyTop - R * 0.3, bh = Math.min(R * 2.7, bodyBot - bt);
+    fillRR(cx - hw, bt, hw * 2, bh, R * 0.28, shade(o.accent || C.gold, -0.08));
+    rect(cx - hw + R * 0.1, bt + R * 0.55, hw * 2 - R * 0.2, R * 0.13, "rgba(255,255,255,0.5)");
   }
   // los brazos
   const armW = R * 0.5, armBot = o.full ? bodyBot - R * 0.2 : bodyBot;
@@ -1103,12 +1135,25 @@ function person(cx, top, R, seed, o = {}) {
   g.lineTo(cx + bw * 0.3, bodyTop); g.quadraticCurveTo(cx + bw / 2, bodyTop, cx + bw / 2, bodyTop + R * 0.35); g.lineTo(cx + bw / 2, bodyBot); g.closePath();
   g.fillStyle = L.shirt; g.fill();
   rect(cx + bw * 0.32, bodyTop + R * 0.2, bw * 0.18, bodyBot - bodyTop - R * 0.2, "rgba(0,0,0,0.08)");
+  if (o.role === "redes") ell(cx, neckY + R * 0.08, R * 0.92, R * 0.44, shade(L.shirt, -0.24)); // la capucha de la sudadera
   // el cuello de la ropa: camiseta, camisa, sudadera o pico
   rect(cx - R * 0.22, neckY - R * 0.1, R * 0.44, R * 0.4, shade(L.skin, -0.08));
   if (L.top === 0) { g.beginPath(); g.ellipse(cx, bodyTop, R * 0.38, R * 0.22, 0, 0, Math.PI); g.fillStyle = shade(L.skin, -0.08); g.fill(); }
   else if (L.top === 1) { poly([[cx - R * 0.42, bodyTop - 2], [cx, bodyTop + R * 0.45], [cx - R * 0.08, bodyTop + R * 0.5], [cx - R * 0.5, bodyTop + R * 0.12]], "#fff"); poly([[cx + R * 0.42, bodyTop - 2], [cx, bodyTop + R * 0.45], [cx + R * 0.08, bodyTop + R * 0.5], [cx + R * 0.5, bodyTop + R * 0.12]], "#fff"); for (let k = 1; k < 4; k++) dot(cx, bodyTop + R * 0.4 * k + R * 0.2, R * 0.05, "rgba(0,0,0,0.3)"); }
   else if (L.top === 2) { g.beginPath(); g.ellipse(cx, bodyTop + R * 0.05, R * 0.6, R * 0.32, 0, 0, Math.PI); g.fillStyle = shade1; g.fill(); line(cx - R * 0.16, bodyTop + R * 0.3, cx - R * 0.2, bodyTop + R * 1.0, "#fff", R * 0.06); line(cx + R * 0.16, bodyTop + R * 0.3, cx + R * 0.2, bodyTop + R * 1.0, "#fff", R * 0.06); }
   else { poly([[cx - R * 0.35, bodyTop - 1], [cx + R * 0.35, bodyTop - 1], [cx, bodyTop + R * 0.55]], shade(L.skin, -0.08)); }
+  // lo que lleva cada puesto encima de la camiseta
+  if (o.role === "repartidor") { // la cremallera y la banda reflectante
+    line(cx, bodyTop + R * 0.5, cx, bodyBot - 1, shade(L.shirt, -0.35), R * 0.08);
+    rect(cx - bw / 2, Math.min(bodyTop + R * 1.75, bodyBot - R * 0.5), bw, R * 0.2, "#f4e04a");
+  } else if (o.role === "limpieza") { // la bata abotonada
+    line(cx, bodyTop + R * 0.6, cx, bodyBot - 1, "rgba(255,255,255,0.35)", R * 0.05);
+    for (let k = 0; k < 3; k++) if (bodyTop + R * (0.95 + k * 0.55) < bodyBot - R * 0.2) dot(cx, bodyTop + R * (0.95 + k * 0.55), R * 0.07, "#fff");
+  } else if (o.role === "redes") { // los cordones y el bolsillo canguro
+    line(cx - R * 0.2, bodyTop + R * 0.4, cx - R * 0.24, bodyTop + R * 1.2, "#fff", R * 0.06); line(cx + R * 0.2, bodyTop + R * 0.4, cx + R * 0.24, bodyTop + R * 1.2, "#fff", R * 0.06);
+    const ky = bodyTop + R * 1.6, kh = Math.min(R * 0.9, bodyBot - ky);
+    if (kh > R * 0.3) fillRR(cx - bw * 0.3, ky, bw * 0.6, kh, R * 0.14, shade(L.shirt, -0.14));
+  }
   // el bolsillo del pecho (en la tienda, `o.pocket`; quien roba esconde algo ahí)
   if (o.pocket) {
     const px = cx - bw * 0.4, py = bodyTop + R * 0.8, pw = R * 0.62, ph = R * 0.55;
@@ -1136,6 +1181,17 @@ function person(cx, top, R, seed, o = {}) {
     fillRR(cx - ax, ay, ax * 2, ab - ay, R * 0.12, o.apron);
     fillRR(cx - ax * 0.45, ay + R * 0.45, ax * 0.9, R * 0.5, R * 0.08, o.pocketColor || shade(o.apron, -0.2));
   }
+  if (o.role === "encargado") { // el portapapeles prendido al pecho
+    const bx = cx + bw * 0.1, by = bodyTop + R * 0.8, pw = R * 0.82, ph = R * 1.1;
+    fillRR(bx, by, pw, ph, R * 0.1, "#8a5a2a"); fillRR(bx + R * 0.07, by + R * 0.17, pw - R * 0.14, ph - R * 0.25, R * 0.05, "#fff");
+    fillRR(bx + pw * 0.3, by - R * 0.08, pw * 0.4, R * 0.2, R * 0.05, "#c9ccd1");
+    for (let k = 0; k < 3; k++) line(bx + R * 0.16, by + R * 0.44 + k * R * 0.22, bx + pw - R * 0.16 - (k === 2 ? R * 0.22 : 0), by + R * 0.44 + k * R * 0.22, "rgba(0,0,0,0.32)", R * 0.05);
+  } else if (o.role === "rrhh") { // la acreditación colgada del cuello
+    const ty = Math.min(bodyTop + R * 1.55, bodyBot - R * 0.95), lc = o.accent || C.gold;
+    line(cx - R * 0.3, bodyTop - 1, cx - R * 0.02, ty, lc, R * 0.11); line(cx + R * 0.3, bodyTop - 1, cx + R * 0.02, ty, lc, R * 0.11);
+    fillRR(cx - R * 0.34, ty, R * 0.68, R * 0.92, R * 0.09, "#fff"); rr(cx - R * 0.34, ty, R * 0.68, R * 0.92, R * 0.09); stroke("rgba(0,0,0,0.28)", R * 0.04);
+    dot(cx, ty + R * 0.3, R * 0.13, "#c98e62"); fillRR(cx - R * 0.2, ty + R * 0.52, R * 0.4, R * 0.12, R * 0.05, "rgba(0,0,0,0.35)");
+  }
   // las orejas y la cabeza
   dot(cx - R * 0.95, cy + R * 0.08, R * 0.2, shade(L.skin, -0.06)); dot(cx + R * 0.95, cy + R * 0.08, R * 0.2, shade(L.skin, -0.06));
   if (L.earrings) { dot(cx - R * 0.95, cy + R * 0.32, R * 0.08, C.gold); dot(cx + R * 0.95, cy + R * 0.32, R * 0.08, C.gold); }
@@ -1160,6 +1216,14 @@ function person(cx, top, R, seed, o = {}) {
   else if (L.mouth === 1) { g.arc(cx, cy + R * 0.44, R * 0.2, 0.1, Math.PI - 0.1); }
   else { g.moveTo(cx - R * 0.22, cy + R * 0.48); g.quadraticCurveTo(cx, cy + R * 0.6, cx + R * 0.22, cy + R * 0.48); }
   g.strokeStyle = "#7a2e2a"; g.lineWidth = R * 0.08; g.lineCap = "round"; g.stroke(); g.lineCap = "butt";
+  if (o.role === "repartidor") { // el casco, con su franja
+    g.beginPath(); g.ellipse(cx, cy - R * 0.46, R * 1.04, R * 0.8, 0, Math.PI, TAU); g.closePath(); g.fillStyle = L.shirt; g.fill();
+    fillRR(cx - R * 1.04, cy - R * 0.6, R * 2.08, R * 0.14, R * 0.06, o.accent || "#f4e04a");
+    ell(cx - R * 0.35, cy - R * 0.95, R * 0.3, R * 0.12, "rgba(255,255,255,0.4)", -0.4);
+  } else if (o.role === "redes") { // los auriculares
+    g.beginPath(); g.arc(cx, cy - R * 0.05, R * 1.1, Math.PI * 1.07, Math.PI * 1.93); stroke("#2a2a30", R * 0.14);
+    for (const sx of [-1, 1]) { fillRR(cx + sx * R * 1.06 - R * 0.17, cy - R * 0.12, R * 0.34, R * 0.62, R * 0.12, "#2a2a30"); dot(cx + sx * R * 1.06, cy + R * 0.19, R * 0.06, o.accent || C.gold); }
+  }
   if (o.sweat) { g.beginPath(); const sx = cx + R * 0.78, sy = cy - R * 0.45; g.moveTo(sx, sy - R * 0.22); g.quadraticCurveTo(sx + R * 0.14, sy, sx, sy + R * 0.08); g.quadraticCurveTo(sx - R * 0.14, sy, sx, sy - R * 0.22); g.fillStyle = "#8fd0f0"; g.fill(); }
   return { headX: cx, headY: cy, R, look: L, arms: [cx - bw / 2 - armW * 0.25, cx + bw / 2 + armW * 0.25] };
 }
@@ -1830,12 +1894,12 @@ function rosette(cx, cy, r) {
 // La plantilla en la acera, con el delantal del negocio, y su línea de hoy encima en una nota.
 // Devuelve dónde empieza por la izquierda (para que las etiquetas no la pisen).
 function streetStaff(st, fx, fy, fw, fh) {
-  const seeds = (st.staff.seeds || []).slice(0, 6), n = seeds.length, step = 40, floor = fy + fh - 10;
+  const seeds = (st.staff.seeds || []).slice(0, 6), roles = st.staff.roles || [], n = seeds.length, step = 40, floor = fy + fh - 10;
   const x1 = fx + fw - 34, x0 = x1 - (n - 1) * step;
   seeds.forEach((seed, i) => {
     const cx = x0 + i * step, lift = i % 2 ? 0 : 6; // a dos alturas, para que no parezca una fila de soldados
     ell(cx, floor - lift + 1, 17, 4, "rgba(0,0,0,0.25)");
-    person(cx, floor - lift - 84, 10.5, seed || 1, { full: true, floor: floor - lift, apron: st.main || C.atl, pocketColor: st.accent || C.gold });
+    person(cx, floor - lift - 84, 10.5, seed || 1, { full: true, floor: floor - lift, ...roleOpts(roles[i], st) });
   });
   if (st.staff.line) {
     const lw = Math.min(fw - 28, width(st.staff.line, F.d(16)) + 52), lx = Math.min(x0 - 22, fx + fw - 14 - lw), ly = floor - 136;
@@ -2548,13 +2612,43 @@ function moodFace(mood, cx, cy, r) {
   if (mood === "quemado") for (const sx of [-1, 1]) line(cx + sx * r * 0.6, cy - r * 0.34, cx + sx * r * 0.16, cy - r * 0.52, ink, r * 0.12);
   g.lineCap = "butt";
 }
-// El retrato de un empleado o candidato: su busto (de `seed`) con el delantal del negocio.
+// Los puestos (el dependiente no tiene insignia ni etiqueta): su nombre, el sello corto, el icono y el color.
+const ROLE = {
+  encargado: { name: "Encargado de turno", short: "ENCARGADO", icon: "clip", color: "#1f6fb2" },
+  repartidor: { name: "Repartidor", short: "REPARTO", icon: "parcel", color: "#e0661c" },
+  gerente: { name: "Gerente", short: "GERENTE", icon: "case", color: C.gold, ink: C.ink },
+  limpieza: { name: "Limpieza", short: "LIMPIEZA", icon: "spray", color: "#13867f" },
+  reponedor: { name: "Mozo de almacén", short: "ALMACÉN", icon: "box", color: "#8a5a2a" },
+  redes: { name: "Community manager", short: "REDES", icon: "phone", color: C.bug },
+  rrhh: { name: "Recursos humanos", short: "RR. HH.", icon: "people", color: "#7a5aa8" },
+};
+// La ropa de cada puesto para `person`: delantal del negocio, chaqueta, bata turquesa, delantal marrón, sudadera…
+function roleOpts(role, st) {
+  const main = st.main || C.atl, accent = st.accent || C.gold;
+  switch (role) {
+    case "gerente": return { apron: main, pocketColor: accent, tie: main };
+    case "encargado": return { apron: main, pocketColor: accent, role };
+    case "repartidor": return { shirt: main, accent, role };
+    case "limpieza": return { shirt: "#17a8a3", pocket: true, role };
+    case "reponedor": return { apron: "#8a5a2a", pocketColor: "#5e3c18", role };
+    case "redes": return { shirt: accent, accent: mix(accent, "#000000", 0.5), role };
+    case "rrhh": return { accent, role };
+    default: return { apron: main, pocketColor: accent };
+  }
+}
+// La insignia redonda de un puesto (el maletín del gerente, la mochila del repartidor…).
+function roleBadge(role, cx, cy, r) {
+  const d = ROLE[role]; if (!d) return;
+  dot(cx, cy, r, d.color); circle(cx, cy, r); stroke("#fff", 2.2); smallIcon(d.icon, cx, cy + r / 15, r * 8 / 15, d.ink || "#fff");
+}
+const roleName = (role, name) => name || (ROLE[role] ? ROLE[role].name : "");
+// El retrato de un empleado o candidato: su busto (de `seed`) con la ropa de su puesto (el delantal del negocio si es dependiente).
 function portrait(x, y, s, seed, st, age, role) {
-  const main = st.main || C.atl, boss = role === "gerente";
+  const main = st.main || C.atl;
   fillRR(x, y, s, s, 14, mix(main, "#ffffff", 0.82));
   g.save(); rr(x, y, s, s, 14); g.clip();
   rect(x, y + s * 0.62, s, s * 0.38, mix(main, "#ffffff", 0.7));
-  person(x + s / 2, y + s * 0.1, s * 0.25, seed || 1, { cut: y + s + 6, apron: main, pocketColor: st.accent || C.gold, tie: boss ? main : null });
+  person(x + s / 2, y + s * 0.1, s * 0.25, seed || 1, { cut: y + s + 6, ...roleOpts(role, st) });
   if (age != null) { // la edad, en una pastilla sobre la foto
     const t = `${age} años`, tw = width(t, F.d(14)) + 14;
     fillRR(x + 5, y + s - 25, tw, 20, 10, "rgba(20,28,36,0.72)");
@@ -2562,14 +2656,15 @@ function portrait(x, y, s, seed, st, age, role) {
   }
   g.restore();
   rr(x + 0.5, y + 0.5, s - 1, s - 1, 14); stroke("rgba(0,0,0,0.14)", 1.4);
-  if (boss) { dot(x + 14, y + 14, 15, C.gold); circle(x + 14, y + 14, 15); stroke("#fff", 2.2); smallIcon("case", x + 14, y + 15, 8, C.ink); }
+  roleBadge(role, x + 14, y + 14, 15);
 }
 // El nombre en una línea si cabe a `big`; si no, en dos a `small` (y si ni así, con «…»).
 function nameBlock(name, x, cy, w, big, small) {
   const [t, z] = fit(name, w, F.d, big, big - 3);
-  if (width(name, F.d(big - 3)) <= w) { T(t, x, cy, { font: F.d(z), color: C.ink }); return; }
+  if (width(name, F.d(big - 3)) <= w) { T(t, x, cy, { font: F.d(z), color: C.ink }); return 1; }
   const lines = wrap(name, w, F.d(small), 2);
   lines.forEach((l, i) => T(l, x, cy + (i - (lines.length - 1) / 2) * (small + 4), { font: F.d(small), color: C.ink }));
+  return lines.length;
 }
 // El distintivo del contrato: la clave en su color y lo que sigue al « · » (la prueba, el fin) al lado.
 function contractBadge(kind, text, x, y, maxW, size = 14) {
@@ -2586,12 +2681,12 @@ function contractBadge(kind, text, x, y, maxW, size = 14) {
   else rest.slice(0, 2).forEach((t, i) => fitText(t, x + w + 8, cy + (i ? 8 : -8), rw, F.m, 14, 11, { color: C.mute }));
 }
 // Tres barras de habilidad en columnas: el nombre y el valor encima, la barra debajo.
-function skillBars(skills, x, y, w) {
-  const items = (skills || []).slice(0, 3), gap = 12, cw = (w - gap * 2) / 3;
+function skillBars(skills, x, y, w, size = 15) {
+  const items = (skills || []).slice(0, 3), gap = size < 15 ? 8 : 12, cw = (w - gap * 2) / 3;
   items.forEach((s, i) => {
     const sx = x + i * (cw + gap), v = clamp(Number(s.value) || 0, 0, 100), col = SKILL_COLOR[s.key] || C.atl;
-    fitText(s.name || "", sx, y, cw - 30, F.m, 15, 12, { color: C.mute });
-    T(String(Math.round(v)), sx + cw, y, { font: F.d(15), color: C.ink, align: "right" });
+    fitText(s.name || "", sx, y, cw - (size < 15 ? 24 : 30), F.m, size, size < 15 ? 11 : 12, { color: C.mute });
+    T(String(Math.round(v)), sx + cw, y, { font: F.d(size), color: C.ink, align: "right" });
     fillRR(sx, y + 10, cw, 8, 4, "#ece2cc");
     if (v > 0) fillRR(sx, y + 10, Math.max(8, cw * v / 100), 8, 4, col);
   });
@@ -2620,10 +2715,22 @@ function humorRow(mood, humor, x, cy, w) {
   T(String(Math.round(v)), x + w, cy, { font: F.d(15), color: C.ink, align: "right" });
 }
 // El turno («Mañana · …» o «Tarde · …»), con su sol o su luna.
-function shiftLine(text, x, cy, maxW) {
-  const night = /^tarde/i.test(String(text || "")), boss = /^gerente/i.test(String(text || ""));
-  if (boss) smallIcon("case", x + 8, cy + 1, 7.5, C.atl); else if (night) glyph("moon", x + 8, cy, 8, "#7a3aa8"); else smallIcon("sun", x + 8, cy, 8, C.sunDk);
-  fitText(text || "", x + 22, cy, maxW - 22, F.m, 15, 12, { color: C.ink });
+// Medio sol (a la izquierda, con sus rayos) y media luna (a la derecha): la jornada partida.
+function splitIcon(cx, cy, r) {
+  g.beginPath(); g.arc(cx, cy, r * 0.62, Math.PI / 2, Math.PI * 1.5); g.closePath(); g.fillStyle = C.sunDk; g.fill();
+  for (const a of [Math.PI, Math.PI * 0.72, Math.PI * 1.28]) line(cx + Math.cos(a) * r * 0.82, cy + Math.sin(a) * r * 0.82, cx + Math.cos(a) * r * 1.08, cy + Math.sin(a) * r * 1.08, C.sunDk, r * 0.2);
+  g.beginPath(); g.arc(cx, cy, r * 0.62, -Math.PI / 2, Math.PI / 2); g.closePath(); g.fillStyle = "#7a3aa8"; g.fill();
+  g.save(); g.beginPath(); g.rect(cx, cy - r, r, r * 2); g.clip(); dot(cx + r * 0.42, cy - r * 0.12, r * 0.45, C.card); g.restore();
+}
+// `kind` (completa, partida, seis, media, gerente) y `night` dicen el icono; sin ellos, se lee del texto.
+// La partida lleva medio sol y media luna.
+function shiftLine(text, x, cy, maxW, kind, night) {
+  const s = String(text || ""), k = kind || (/^gerente/i.test(s) ? "gerente" : ""), late = night ?? /^tarde/i.test(s);
+  if (k === "gerente") smallIcon("case", x + 8, cy + 1, 7.5, C.atl);
+  else if (k === "partida") {
+    splitIcon(x + 8, cy, 8);
+  } else if (late) glyph("moon", x + 8, cy, 8, "#7a3aa8"); else smallIcon("sun", x + 8, cy, 8, C.sunDk);
+  fitText(s, x + 22, cy, maxW - 22, F.m, 15, 11, { color: C.ink });
 }
 // La selección: un marco naranja y un visto en la esquina (no solo el color).
 function selectedFrame(x, y, w, h) {
@@ -2638,14 +2745,24 @@ function staffCard(e, x, y, w, h, st) {
   card(x, y, w, h);
   const p = 12, fs = 80, rx = x + p + fs + 12, rw = x + w - p - rx, iw = w - 2 * p;
   portrait(x + p, y + p, fs, e.seed, st, e.age, e.role);
-  nameBlock(e.name || "", rx, y + 30, rw, 19, 17);
-  contractBadge(e.contract, e.contract_name, rx, y + 52, rw, 13);
+  const rd = e.role ? ROLE[e.role] : null; // el puesto, en su color, bajo el nombre (el dependiente no lo lleva)
+  if (rd) {
+    const lines = nameBlock(e.name || "", rx, y + 27, rw, 19, 15);
+    fitText(roleName(e.role, e.role_name), rx, y + (lines > 1 ? 51 : 45), rw, F.d, 14, 11, { color: shade(rd.color === C.gold ? "#b07a00" : rd.color, -0.15) });
+    contractBadge(e.contract, e.contract_name, rx, y + 60, rw, 13);
+  } else {
+    nameBlock(e.name || "", rx, y + 30, rw, 19, 17);
+    contractBadge(e.contract, e.contract_name, rx, y + 52, rw, 13);
+  }
   glyph("calendar", rx + 8, y + 98, 7.5, C.mute);
   fitText(e.today || "", rx + 21, y + 98, rw - 21, F.m, 15, 12, { color: /no ha venido/i.test(e.today || "") ? C.redDk : C.ink });
   humorRow(e.mood, e.humor, x + p, y + 115, iw);
-  const ww = width(e.wage || "", F.d(15));
-  shiftLine(e.shift, x + p, y + 138, iw - Math.min(ww, iw * 0.55) - 10);
-  fitText(e.wage || "", x + w - p, y + 138, iw * 0.55, F.d, 15, 12, { color: C.ink, align: "right" });
+  // el horario se lee entero: si el sueldo no deja sitio, pierde « la noche»
+  let wage = e.wage || "";
+  if (22 + width(e.shift || "", F.m(15)) + width(wage, F.d(15)) + 10 > iw) wage = wage.replace(/\s+la noche$/i, "");
+  const ww = width(wage, F.d(15));
+  shiftLine(e.shift, x + p, y + 138, iw - Math.min(ww, iw * 0.55) - 10, e.horario_kind, e.night);
+  fitText(wage, x + w - p, y + 138, iw * 0.55, F.d, 15, 12, { color: C.ink, align: "right" });
   skillBars(e.skills, x + p, y + 159, iw);
   traitTags(e.traits, x + p, y + 193, iw);
   // los avisos, en una franja ámbar abajo
@@ -2691,11 +2808,18 @@ function accountPill(text, x, cy, icon, kind, maxW) {
   return w;
 }
 function paintPlantilla(st) {
-  shopHeader(st, "PLANTILLA", { sub: st.cap || "", h: 84 });
+  const pageW = st.page ? width(st.page, F.d(14)) + 38 : 0;
+  shopHeader(st, "PLANTILLA", { sub: st.cap || "", h: 84, rightW: width("PLANTILLA", F.t(30)) + 40 + (pageW ? pageW + 14 : 0) });
+  if (st.page) { // «Página 1 de 2», discreta, a la izquierda del título
+    const px0 = W - 26 - width("PLANTILLA", F.t(30)) - 16 - pageW;
+    fillRR(px0, 28, pageW, 28, 14, "rgba(4,20,40,0.38)"); rr(px0 + 0.5, 28.5, pageW - 1, 27, 13.5); stroke("rgba(255,255,255,0.25)", 1);
+    smallIcon("news", px0 + 17, 42, 7, "#fff");
+    T(st.page, px0 + 30, 42.5, { font: F.d(14), color: "#fff" });
+  }
   const team = (st.staff || []).slice(0, 6), gap = 12, cw = (W - 32 - gap * 2) / 3, ch = 236, y0 = 94;
   if (!team.length) hireSlot(16, y0, W - 32, ch * 2 + gap, true);
   team.forEach((e, i) => staffCard(e, 16 + (i % 3) * (cw + gap), y0 + Math.floor(i / 3) * (ch + gap), cw, ch, st));
-  if (team.length && team.length < 6) { const i = team.length; hireSlot(16 + (i % 3) * (cw + gap), y0 + Math.floor(i / 3) * (ch + gap), cw, ch, false); }
+  if (team.length && team.length < 6 && (st.room == null ? true : !!st.room)) { const i = team.length; hireSlot(16 + (i % 3) * (cw + gap), y0 + Math.floor(i / 3) * (ch + gap), cw, ch, false); }
   // las cuentas: nóminas, lo de hoy y lo que se debe
   let px = 16;
   const py = y0 + ch * 2 + gap + 22, pills = [[st.payroll, "coin", ""], [st.today, "calendar", ""], [st.debt, "warn", "red"]].filter(([t]) => t);
@@ -2707,34 +2831,36 @@ function paintPlantilla(st) {
 function candidateCard(c, x, y, w, h, st) {
   if (c.selected) selectedFrame(x, y, w, h);
   card(x, y, w, h);
-  const p = 12, fs = 88, rx = x + p + fs + 12, rw = x + w - p - rx, iw = w - 2 * p;
-  portrait(x + p, y + p, fs, c.seed, st, c.age);
-  nameBlock(c.name || "", rx, y + 32, rw, 19, 17);
+  const nar = w < 260; // con cuatro columnas (recursos humanos), la tarjeta es más estrecha
+  const p = 12, fs = nar ? 72 : 88, rx = x + p + fs + 12, rw = x + w - p - rx, iw = w - 2 * p;
+  portrait(x + p, y + p, fs, c.seed, st, c.age, c.role);
+  nameBlock(c.name || "", rx, y + (nar ? 30 : 32), rw, nar ? 17 : 19, nar ? 15 : 17);
   const pc = PROFILE_COLOR[c.profile] || C.mute;
-  dot(rx + 6, y + 70, 6, pc);
-  fitText(c.profile_name || "", rx + 18, y + 70, rw - 18, F.d, 15, 11, { color: pc });
-  let cy = y + p + fs + 12;
+  if (nar) { dot(x + p + 6, y + p + fs + 14, 6, pc); fitText(c.profile_name || "", x + p + 18, y + p + fs + 14, iw - 18, F.d, 14, 11, { color: pc }); }
+  else { dot(rx + 6, y + 70, 6, pc); fitText(c.profile_name || "", rx + 18, y + 70, rw - 18, F.d, 15, 11, { color: pc }); }
+  let cy = y + p + fs + (nar ? 28 : 12);
   if (c.part_time || c.bonus) { // lo que trae: solo media jornada y la bonificación
-    if (c.part_time) { chip("Solo media jornada", rx, y + 84, "amber", { size: 13, maxW: rw }); }
+    if (c.part_time) { if (nar) { chip("Solo media jornada", x + p, cy, "amber", { size: 13, maxW: iw }); cy += 33; } else chip("Solo media jornada", rx, y + 84, "amber", { size: 13, maxW: rw }); }
     if (c.bonus) {
-      const lines = wrap(c.bonus, iw - 40, F.m(14), 2), bh = 12 + lines.length * 18;
+      const lines = wrap(c.bonus, iw - 40, F.m(14), nar ? 3 : 2), bh = 12 + lines.length * 18;
       fillRR(x + p, cy, iw, bh, 10, "#e3f4e8"); rr(x + p + 0.5, cy + 0.5, iw - 1, bh - 1, 10); stroke("rgba(31,157,85,0.45)", 1.2);
       glyph("coin", x + p + 16, cy + bh / 2, 8, C.greenDk);
       lines.forEach((l, i) => T(l, x + p + 32, cy + 15 + i * 18, { font: F.m(14), color: C.greenDk }));
       cy += bh + 10;
     }
   }
-  skillBars(c.skills, x + p, cy + 8, iw);
-  cy += 38;
+  skillBars(c.skills, x + p, cy + 8, iw, nar ? 13 : 15);
+  cy += nar ? 34 : 38;
   // lo que pide, en una nota al pie: en una línea o partida por el « · »
-  const askW = iw - 40, askText = String(c.ask || "");
-  const ask = width(askText, F.d(15)) <= askW ? [askText] : askText.split(" · ").slice(0, 2).map((l, i, a) => ellipsize(i < a.length - 1 ? l + " ·" : l, askW, F.d(15)));
-  const askH = 14 + ask.length * 18, ay = y + h - p - askH;
+  const askW = iw - 40, askText = String(c.ask || ""), af = nar ? 14 : 15, al = nar ? 17 : 18;
+  const ask = width(askText, F.d(af)) <= askW ? [askText] : askText.split(" · ").slice(0, 2).map((l, i, a) => (nar ? l : ellipsize(i < a.length - 1 ? l + " ·" : l, askW, F.d(15))));
+  const askH = 14 + ask.length * al, ay = y + h - p - askH;
   // los rasgos: el nombre y lo que hace, solo si cabe entero (si no, solo los nombres)
   const traits = (c.traits || []).slice(0, 2), tw = iw - 18, font = F.r(14);
   const texts = traits.map((t) => wrap(t.text || "", tw, font, 3));
   const need = texts.reduce((a, l) => a + 19 + l.length * 16, 0) + 6 * (traits.length - 1);
-  if (texts.every((l) => l.length <= 2 && !l.some((s) => s.endsWith("…"))) && need <= ay - 8 - cy) {
+  if (nar) { if (cy + 24 <= ay - 6) traitTags(traits, x + p, cy + 12, iw, 13); }
+  else if (texts.every((l) => l.length <= 2 && !l.some((s) => s.endsWith("…"))) && need <= ay - 8 - cy) {
     let ty = cy;
     traits.forEach((t, i) => {
       starPath(x + p + 6, ty + 8, 6, C.gold);
@@ -2745,7 +2871,7 @@ function candidateCard(c, x, y, w, h, st) {
   } else traitTags(traits, x + p, cy + 10, iw);
   fillRR(x + p, ay, iw, askH, 10, "#fbf6ea"); rr(x + p + 0.5, ay + 0.5, iw - 1, askH - 1, 10); stroke(C.line, 1.2);
   glyph("coin", x + p + 16, ay + askH / 2, 8.5, C.atl);
-  ask.forEach((l, i) => T(l, x + p + 32, ay + askH / 2 + (i - (ask.length - 1) / 2) * 18, { font: F.d(15), color: C.ink }));
+  ask.forEach((l, i) => fitText(l, x + p + 32, ay + askH / 2 + (i - (ask.length - 1) / 2) * al, askW, F.d, af, 11, { color: C.ink }));
   if (c.selected) selectedMark(x + w - 4, y + 4);
 }
 // «Bruto: 5.860 Y$ la noche» → la etiqueta pequeña encima y la cifra grande debajo.
@@ -2779,13 +2905,23 @@ function offerPanel(o, x, y, w, h) {
   sectionLabel("La oferta", lx, y + 26);
   // `offer.kind` es la clave del contrato; `offer.contract`, su nombre
   const kind = o.kind || (o.black ? "b" : /^indef/i.test(o.contract || "") ? "indefinido" : "temporal");
-  contractBadge(kind, o.contract, lx, y + 44, 220, 20);
-  shiftLine(o.shift, lx, y + 106, 230);
-  const boss = o.role === "gerente", tx = x + 268, tw = (o.black || boss ? 520 : 680) / 3 - 10;
+  const rd = o.role ? ROLE[o.role] : null, boss = o.role === "gerente";
+  const showRole = !!rd && o.black; // con contrato en B manda «SIN ALTA»: el puesto va en la columna de la izquierda
+  if (showRole) {
+    contractBadge(kind, o.contract, lx, y + 34, 220, 20);
+    shiftLine(o.shift, lx, y + 88, 230, o.horario_kind, o.night);
+    roleBadge(o.role, lx + 10, y + 114, 10);
+    fitText(roleName(o.role, o.role_name), lx + 26, y + 114.5, 200, F.d, 15, 11, { color: shade(rd.color === C.gold ? "#b07a00" : rd.color, -0.15) });
+  } else {
+    contractBadge(kind, o.contract, lx, y + 44, 220, 20);
+    shiftLine(o.shift, lx, y + 106, 230, o.horario_kind, o.night);
+  }
+  const tx = x + 268, tw = (o.black || rd ? 520 : 680) / 3 - 10;
   [[o.gross, C.ink], [o.net, C.greenDk], [o.cost, C.redDk]].forEach(([t, col], i) => offerTile(t, tx + i * (tw + 10), y + 16, tw, 74, col));
   if (o.bonus) tag(o.bonus, tx, y + h - 42, "green", "down", 16, 3 * tw + 20);
   if (o.black) blackStamp(x + w - 92, y + h / 2);
   else if (boss) managerStamp(x + w - 92, y + h / 2);
+  else if (rd) roleStamp(o.role, x + w - 96, y + h / 2);
 }
 // El sello de la oferta de gerente: azul, torcido, con el maletín.
 function managerStamp(cx, cy) {
@@ -2795,11 +2931,20 @@ function managerStamp(cx, cy) {
   TX("GERENTE", 14, -1, { font: F.t(26), color: C.atl, align: "center" });
   g.restore();
 }
+// El sello de la oferta de cualquier otro puesto: su icono y su etiqueta corta, en el color del puesto.
+function roleStamp(role, cx, cy) {
+  const d = ROLE[role], col = shade(d.color, -0.12);
+  g.save(); g.translate(cx, cy); g.rotate(-0.12);
+  rr(-86, -30, 172, 60, 8); stroke(col, 4); rr(-78, -22, 156, 44, 5); stroke(col, 1.6);
+  smallIcon(d.icon, -58, 1, 11, col);
+  fitText(d.short, 14, -1, 108, F.t, 26, 17, { color: col, align: "center" });
+  g.restore();
+}
 function paintCandidatos(st) {
   shopHeader(st, "CANDIDATOS", { sub: SECTOR_NAME[st.sector] || "" });
   sectionLabel("Los de hoy", 18, 114);
   if (st.room) chip(st.room, W - 16, 100, /libre/i.test(st.room) ? "green" : "red", { align: "right", size: 15 });
-  const list = (st.candidates || []).slice(0, 3), gap = 14, cw = (W - 32 - gap * 2) / 3, cy = 136, ch = 316;
+  const list = (st.candidates || []).slice(0, 4), cols = list.length > 3 ? 4 : 3, gap = cols === 4 ? 10 : 14, cw = (W - 32 - gap * (cols - 1)) / cols, cy = 136, ch = 316;
   list.forEach((c, i) => candidateCard(c, 16 + i * (cw + gap), cy, cw, ch, st));
   if (!list.length) {
     dashedCard(16, cy, W - 32, ch);

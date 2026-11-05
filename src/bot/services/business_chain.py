@@ -364,9 +364,10 @@ RESTOCK_DAYS = 1.5
 RESTOCK_MIN_LOTS = 1
 
 
-def restock_target(product: Product, sold: int) -> int:
-    """Unidades que el gerente quiere tener de `product` si ayer se vendieron `sold`."""
-    return max(product.pack * RESTOCK_MIN_LOTS, math.ceil(sold * RESTOCK_DAYS))
+def restock_target(product: Product, sold: int, days: float = RESTOCK_DAYS) -> int:
+    """Unidades que el gerente quiere tener de `product` si ayer se vendieron `sold` (para
+    `days` días; el mozo de almacén repone lo fresco para uno)."""
+    return max(product.pack * RESTOCK_MIN_LOTS, math.ceil(sold * days))
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,9 +393,11 @@ def restock(
     budget: int,
     *,
     price: Any,
+    days: float = RESTOCK_DAYS,
 ) -> list[Restock]:
-    """Lo que repone el gerente: hasta el objetivo de cada producto (`restock_target`), de la
-    nave primero (gratis) y lo que falte del mayorista, mientras llegue `budget`.
+    """Lo que repone el gerente: hasta el objetivo de cada producto (`restock_target`, para
+    `days` días), de la nave primero (gratis) y lo que falte del mayorista, mientras llegue
+    `budget`.
 
     Va de lo que más se vende a lo que menos. `price(product, units)` da lo que cuestan esas
     unidades al mayorista con su IGIC. No cambia nada: devuelve el plan.
@@ -404,7 +407,7 @@ def restock(
     money = budget
     for item in sorted(products, key=lambda p: -sold.get(p.key, 0)):
         have = stock.get(item.key, 0)
-        need = restock_target(item, sold.get(item.key, 0)) - have
+        need = restock_target(item, sold.get(item.key, 0), days) - have
         if need <= 0:
             continue
         take = min(need, left.get(item.key, 0))

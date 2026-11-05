@@ -559,7 +559,7 @@ async def test_contratar_formar_y_despedir_desde_el_panel(tmp_path: Path) -> Non
     candidate = business_cog.service.candidates(business)[0]
     await panel._pick_candidate(click(), str(candidate["key"]))
     await panel._pick_contract(click(), "temporal")
-    await panel._pick_shift(click(), "tarde:2")
+    await panel._pick_horario(click(), "56")
     check_limits(panel)
     assert any(label.startswith("✍️ Contratar") for label in labels(panel))
     await button(panel, "✍️ Contratar").callback(click())
@@ -651,7 +651,7 @@ async def test_la_cadena_la_nave_y_el_gerente_desde_el_panel(tmp_path: Path) -> 
     assert business is not None
     pick = next(c for c in service.candidates(business) if not c["part_time"])
     await panel._pick_candidate(click(), str(pick["key"]))
-    await panel._pick_contract(click(), staff.MANAGER)
+    await panel._pick_role(click(), staff.MANAGER)
     check_limits(panel)
     await button(panel, "✍️ Contratar").callback(click())
     business = await service.business(GUILD, OWNER, first)

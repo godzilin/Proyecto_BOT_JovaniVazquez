@@ -89,6 +89,8 @@ REPUTATION_DRIFT = 1.0
 #: Turnos de clientes base que da de sí un barrio al día por sector (el cupo de la
 #: demanda): ni con el mejor negocio se saca más de un barrio.
 DAILY_POOL_TURNS = 8
+#: Lo que suman como mucho la campaña y el community manager a los clientes y al cupo.
+BOOST_CAP = 0.5
 #: Noches sin pagar el alquiler tras las que el casero rescinde el contrato.
 EVICTION_NIGHTS = 3
 #: Fianza del local en mensualidades (art. 36.1 de la Ley 29/1994, uso distinto de vivienda).
@@ -242,7 +244,11 @@ class Business:
             (`economy.company_account`) aunque ese local cierre. 0 si es de autónomo.
         sold_days: Unidades vendidas de cada producto por día (ISO), los últimos días: el
             gerente repone según lo que se vendió (fase 5).
-        vacancies: Las bajas que tiene que cubrir el gerente: `{"jornada", "shift"}`.
+        vacancies: Las bajas que tiene que cubrir el gerente: `{"jornada", "shift"}` y, desde
+            la 9.41.0, `role` y `franjas`.
+        support: Lo que dejó la plantilla de apoyo la última noche cerrada para el día
+            siguiente (9.41.0, `business_staff.support`): `clients` (el community manager) y
+            `patience` (la limpieza).
     """
 
     user_id: int
@@ -298,6 +304,7 @@ class Business:
     company_id: int = 0
     sold_days: dict[str, dict[str, int]] = field(default_factory=dict)
     vacancies: list[dict[str, Any]] = field(default_factory=list)
+    support: dict[str, float] = field(default_factory=dict)
     id: int = 0
 
     @property
@@ -550,19 +557,27 @@ def sale_price(product: Product, price_level: str) -> int:
     return int(round(product.price * PRICE_BY_KEY[price_level].ticket, -1))
 
 
-def spoil(business: Business) -> dict[str, int]:
+def spoil(business: Business, keep: float = 0.0) -> dict[str, int]:
     """Quita del stock lo que se pierde esta noche y devuelve las unidades perdidas.
 
-    Las mejoras que enfrían (`Equipment.spoil`) evitan una parte.
+    Las mejoras que enfrían (`Equipment.spoil`) evitan una parte, y el mozo de almacén otra
+    (`keep`, `business_staff.Support.keep`), con el tope de toda la merma.
     """
+    lost = spoil_units(business, keep)
+    for key, gone in lost.items():
+        business.stock[key] = business.stock.get(key, 0) - gone
+    return lost
+
+
+def spoil_units(business: Business, keep: float = 0.0) -> dict[str, int]:
+    """Lo que se perdería esta noche (sin quitarlo del stock), con las mejoras y `keep`."""
     lost: dict[str, int] = {}
-    keep = min(1.0, sum(e.spoil for e in business.installed))
+    keep = min(1.0, sum(e.spoil for e in business.installed) + keep)
     for product in business.sector_info.products:
         units = business.stock.get(product.key, 0)
         share = product.spoil * (1 - keep)
         gone = math.ceil(units * share) if share and units else 0
         if gone:
-            business.stock[product.key] = units - gone
             lost[product.key] = gone
     return lost
 
@@ -589,9 +604,17 @@ def campaign_boost(business: Business, today: date) -> float:
     return campaign.boost
 
 
+def boost(business: Business, today: date | None) -> float:
+    """Lo que suman hoy a los clientes y al cupo la campaña y el community manager (lo que
+    publicó anoche, `Business.support`), con el tope de `BOOST_CAP`."""
+    campaign = campaign_boost(business, today) if today else 0.0
+    return min(BOOST_CAP, campaign + business.support.get("clients", 0.0))
+
+
 def pool_factor(business: Business, today: date) -> float:
-    """Lo que multiplica su parte del cupo del barrio: el tamaño del local y la campaña."""
-    return business.size_info.pool * (1 + campaign_boost(business, today))
+    """Lo que multiplica su parte del cupo del barrio: el tamaño del local, la campaña y el
+    community manager."""
+    return business.size_info.pool * (1 + boost(business, today))
 
 
 def _weighted(business: Business, value: Callable[[PriceLevel], float]) -> float:
@@ -617,13 +640,14 @@ def turn_clients(business: Business, hour: int, luck: float, today: date | None 
 
     `base × tema del barrio × hora × reputación × precio × local`, redondeado con un poco de
     azar (`luck`, de 0 a 1) para que dos turnos iguales no salgan clavados. El local suma
-    su tamaño, sus mejoras, la campaña de `today` y el «recomendado». Al menos uno.
+    su tamaño, sus mejoras, la campaña de `today` (y el community manager, `boost`) y el
+    «recomendado». Al menos uno.
     """
     sector, barrio = business.sector_info, business.barrio_info
     local = (
         business.size_info.clients
         * (1 + sum(e.clients for e in business.installed))
-        * (1 + (campaign_boost(business, today) if today else 0.0))
+        * (1 + boost(business, today))
         * (1 + (RECOMMENDED_BOOST if recommended(business) else 0.0))
     )
     expected = (

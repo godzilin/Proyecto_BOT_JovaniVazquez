@@ -417,7 +417,7 @@ async def test_el_gerente_repone_y_cubre_las_bajas(
     assert any("contrato" in run.manager for run in runs)
     after = await service.business(GUILD, USER)
     assert after is not None and not after.vacancies
-    shifts = [e["shift"] for e in staff.counter_staff(after)]
+    shifts = [e["shift"] for e in staff.seated(after)]
     assert shifts == ["tarde"]  # el sustituto entra en el turno del que se fue
 
 

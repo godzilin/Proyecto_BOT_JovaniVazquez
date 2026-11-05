@@ -95,6 +95,7 @@ from bot.services.entrance_sound import (
     read_opus_packets,
     render_slot,
     validate_volume,
+    wait_until_audible,
 )
 from bot.services.levels import TIMEZONE
 from bot.services.pets import Event, Moment
@@ -116,8 +117,8 @@ MAX_COOLDOWN_ENTRIES = 1000
 #: Clips troceados que se guardan en memoria (unos 60 KB cada uno a 5 s).
 CLIP_CACHE = 64
 CONNECT_TIMEOUT_SECONDS = 10.0
-#: Pausa tras conectar o moverse antes de emitir. Sin ella Discord puede
-#: comerse el principio del clip mientras termina de establecer la sesión de voz.
+#: Pausa tras conectar (y tras tener listo el cifrado de voz, `wait_until_audible`)
+#: antes de emitir. Sin ella Discord puede comerse el principio del clip.
 PRE_ROLL_SECONDS = 0.3
 #: Conversiones de audio simultáneas (cada una lanza un `ffmpeg`).
 MAX_CONCURRENT_JOBS = 2
@@ -1651,6 +1652,8 @@ class Entrance(commands.Cog):
             await voice.move_to(channel)
         else:
             return voice
+        # Sin esto el clip sale antes de que el cifrado de voz esté listo y no se oye.
+        await wait_until_audible(voice)
         await asyncio.sleep(PRE_ROLL_SECONDS)
         return voice
 

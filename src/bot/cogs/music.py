@@ -34,6 +34,7 @@ from discord.ext import commands
 
 from bot.cogs import achievements as logros
 from bot.services.achievements import StatDelta, music_queue_stats, music_volume_stats
+from bot.services.entrance_sound import wait_until_audible
 from bot.services.music import (
     DEFAULT_VOLUME_PERCENT,
     MAX_TRACK_DURATION_SECONDS,
@@ -267,6 +268,9 @@ class Music(commands.Cog):
                 # Ensordecido: Discord deja de enviar al bot el audio de los
                 # demás, que no necesita, y la bajada en voz cae a casi cero.
                 state.voice_client = await channel.connect(self_deaf=True)
+                # Hasta que el cifrado de voz está listo no se oye nada: sin
+                # esperar, cada canción perdía su primer segundo o dos.
+                await wait_until_audible(state.voice_client)
             except (discord.ClientException, TimeoutError) as error:
                 logger.warning(
                     "No se pudo conectar al canal de voz %s del servidor %s: %s",

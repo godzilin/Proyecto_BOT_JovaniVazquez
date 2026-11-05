@@ -215,12 +215,15 @@ def _paid(total: int, rng: random.Random) -> int:
     return -(-total // bill) * bill if total % bill else total + bill
 
 
-def make_clients(business: Business, count: int, seed: int) -> list[Client]:
+def make_clients(
+    business: Business, count: int, seed: int, *, thieves: bool = True
+) -> list[Client]:
     """La cola de un turno: `count` clientes como mucho, con lo que queda en el stock.
 
     En la cafetería y la tienda cada uno pide de lo que queda (si ya no queda nada, no
     viene nadie más). En el taller la avería no mira tu stock: si no tienes el recambio,
-    lo pierdes. Los habituales piden lo de siempre si está.
+    lo pierdes. Los habituales piden lo de siempre si está. Los pedidos a domicilio del
+    repartidor (`thieves=False`) no esconden nada: no hay bolsillo que mirar.
     """
     sector = business.sector_info
     rng = random.Random(seed)
@@ -262,7 +265,7 @@ def make_clients(business: Business, count: int, seed: int) -> list[Client]:
             break
         client.regular, client.order = regular, order
         if sector.game == "caja":
-            if regular is None and rng.random() < THIEF_CHANCE:
+            if thieves and regular is None and rng.random() < THIEF_CHANCE:
                 hidden = _pick(sector, stock, rng)
                 if hidden is not None:
                     client.hidden = hidden.key
@@ -301,10 +304,11 @@ class TurnGame:
         self.started = now
         self.deadline = now + TURN_SECONDS
         installed = business.installed
+        # Las mejoras y el local que dejó limpio anoche la limpieza (`Business.support`).
         self.patience = (
             self.sector.patience
             * (TIRED_PATIENCE if tired else 1.0)
-            * (1 + sum(e.patience for e in installed))
+            * (1 + sum(e.patience for e in installed) + business.support.get("patience", 0.0))
         )
         #: Lo que suman las mejoras a la propina de quien se atiende rápido.
         self.tip_bonus = sum(e.tips for e in installed)

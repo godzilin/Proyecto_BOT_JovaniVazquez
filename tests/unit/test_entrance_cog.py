@@ -729,3 +729,27 @@ def test_la_tabla_de_fichas_existe_tras_cargar(tmp_path: Path) -> None:
     with sqlite3.connect(tmp_path / "bot.db") as connection:
         tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master")}
     assert {"entrance_profiles", "entrance_slots"} <= tables
+
+
+async def test_la_entrada_no_suena_hasta_que_el_cifrado_esta_listo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog = voice_cog(tmp_path, None)
+    order: list[str] = []
+    voice = MagicMock()
+
+    async def connect(**_kwargs: object) -> MagicMock:
+        order.append("conecta")
+        return voice
+
+    async def audible(_voice: object) -> bool:
+        order.append("cifrado listo")
+        return True
+
+    channel = MagicMock()
+    channel.connect = connect
+    monkeypatch.setitem(Entrance._join.__globals__, "wait_until_audible", audible)
+    monkeypatch.setitem(Entrance._join.__globals__, "PRE_ROLL_SECONDS", 0)
+
+    assert await cog._join(channel, None) is voice
+    assert order == ["conecta", "cifrado listo"]
