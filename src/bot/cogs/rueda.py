@@ -328,10 +328,10 @@ class WheelView(ui.View):
             return None
         return plan[1]
 
-    async def paint(self, spin: Draw) -> Media:
-        """El GIF del giro de `spin` y el PNG del final."""
+    async def paint(self, spin: Draw, detail: str | None = None) -> Media:
+        """El GIF del giro de `spin` y el PNG del final (`detail`: la línea del cartel)."""
         prize = PRIZE_BY_KEY[spin.prize]
-        banner = banner_for(spin.prize, prize.kind, _detail(spin))
+        banner = banner_for(spin.prize, prize.kind, detail or _detail(spin))
         states, durations = spin_states(
             self.wedges, spin, banner, hamster=self.meta.get("pet") == "hamster"
         )
@@ -377,9 +377,11 @@ class WheelView(ui.View):
             await cog.repository.unclaim(self.guild.id, self.owner.id, row.day, row.spin)
             await notify(interaction, "No se ha podido dar el premio. La vuelta sigue pendiente.")
             return
+        detail = None
         if award.prize != spin.prize:
             # El expositor se agotó: el GIF tiene que enseñar lo que se ha dado de verdad.
             spin = Draw(spin.wedge, award.prize, spin.stop, spin.seed)
+            detail = "El expositor, en dinero"
             ready = None
         self.last = SpinRow(row.day, row.spin, spin, row.created_at, now)
         # Lo que queda hoy: otra vuelta si ha salido, si no, nada.
@@ -393,7 +395,7 @@ class WheelView(ui.View):
 
         async def painted() -> Media:
             media = await ready if ready is not None else None
-            return media if media is not None else await self.paint(spin)
+            return media if media is not None else await self.paint(spin, detail)
 
         media: Media
         if ready is not None and ready.done() and ready.result() is not None:
@@ -436,7 +438,8 @@ def rules_embed(wedges: tuple[Wedge, ...]) -> discord.Embed:
     for key, chance in sorted(odds.items(), key=lambda kv: -kv[1]):
         prize = PRIZE_BY_KEY[key]
         name = prize.name[0].upper() + prize.name[1:]
-        lines.append(f"{prize.emoji} {name}: **{chance * 100:.1f} %**".replace(".", ","))
+        percent = f"{chance * 100:.1f}".replace(".", ",")
+        lines.append(f"{prize.emoji} {name}: **{percent} %**")
     lines += [
         "",
         "Una vuelta al día, de 00:00 a 00:00 (hora canaria). Cada porción mide lo que pesa "

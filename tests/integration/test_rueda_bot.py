@@ -218,3 +218,12 @@ async def test_los_logros_de_la_rueda_se_alimentan(tmp_path: Path) -> None:
     assert stats.get("rueda_money_total") == 300
     assert stats.get("rueda_streak_max") == 1
     await client.close()
+
+
+def test_las_bases_dan_cada_premio_con_su_probabilidad() -> None:
+    from bot.cogs.rueda import rules_embed
+
+    text = rules_embed(layout()).description or ""
+    assert "300 Y$: **19,0 %**" in text
+    assert "1.000 Y$: **9,0 %**" in text, "las cifras de los premios no pierden el punto"
+    assert "El expositor de la semana: **0,2 %**" in text
