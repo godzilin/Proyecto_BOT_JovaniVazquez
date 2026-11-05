@@ -81,6 +81,7 @@ from bot.repositories.economy import (
     HOUSING_DEPOSIT_ACCOUNT_ID,
     POKER_POT_ACCOUNT_ID,
     PORRA_ACCOUNT_ID,
+    PREDICT_ACCOUNT_ID,
     SHOP_ACCOUNT_ID,
     SLOTS_POT_ACCOUNT_ID,
     STATE_ACCOUNT_ID,
@@ -128,6 +129,7 @@ SYSTEM_ACCOUNTS: dict[int, str] = {
     POKER_POT_ACCOUNT_ID: "bote_poker",
     HOUSING_DEPOSIT_ACCOUNT_ID: "fianzas",
     HOUSING_AUCTION_ACCOUNT_ID: "subastas_pisos",
+    PREDICT_ACCOUNT_ID: "predicciones",
 }
 
 
