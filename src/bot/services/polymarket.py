@@ -247,6 +247,7 @@ class Event:
         neg_risk: Los mercados son excluyentes entre sí (solo uno gana).
         tags: Los `slug` de sus etiquetas.
         image: URL de la imagen, vacía si falta.
+        volume_24h: Lo negociado en las últimas 24 horas (`volume24hr`), 0.0 si falta.
         active, closed: Banderas del evento.
         score: Marcador `(local, visitante)` si es un partido y lo hay.
         period: Fase del partido: `VFT` terminado, `NS` sin empezar, `SUS` suspendido...
@@ -264,6 +265,7 @@ class Event:
     neg_risk: bool
     tags: tuple[str, ...]
     image: str
+    volume_24h: float
     active: bool
     closed: bool
     score: tuple[int, int] | None
@@ -393,6 +395,7 @@ def _build_event(raw: Mapping[str, Any]) -> Event | None:
         neg_risk=raw.get("negRisk") is True,
         tags=tags,
         image=_text(raw.get("image")),
+        volume_24h=_number(raw.get("volume24hr")) or 0.0,
         active=raw.get("active") is True,
         closed=raw.get("closed") is True,
         score=parse_score(raw.get("score")),
@@ -428,33 +431,48 @@ class PolymarketClient:
         *,
         series_id: str | None = None,
         tag_id: int | None = None,
+        tag_slug: str | None = None,
         closed: bool | None = False,
         end_min: float | None = None,
         end_max: float | None = None,
+        order: str | None = None,
+        limit: int | None = None,
     ) -> list[Event]:
         """Eventos de Gamma que cumplen los filtros, todas las páginas.
 
-        Pagina de `PAGE_SIZE` en `PAGE_SIZE` hasta una página corta o `MAX_PAGES`. Los
-        filtros a `None` no se mandan. `end_min` y `end_max` son segundos UTC. Los
-        elementos que `parse_event` rechaza se saltan.
+        Pagina de `PAGE_SIZE` en `PAGE_SIZE` hasta una página corta, `MAX_PAGES` o
+        `limit` eventos. Los filtros a `None` no se mandan. `end_min` y `end_max` son
+        segundos UTC. Con `order` (un campo de Gamma, como `volume24hr`) los pide de mayor
+        a menor. Los elementos que `parse_event` rechaza se saltan.
+
+        `limit` importa porque cada evento llega con todos sus mercados: los 92 eventos
+        de la etiqueta `spain` pesaban 13 MB en noviembre de 2026.
         """
         params: dict[str, str] = {}
         if series_id is not None:
             params["series_id"] = series_id
         if tag_id is not None:
             params["tag_id"] = str(tag_id)
+        if tag_slug is not None:
+            params["tag_slug"] = tag_slug
         if closed is not None:
             params["closed"] = "true" if closed else "false"
         if end_min is not None:
             params["end_date_min"] = _iso(end_min)
         if end_max is not None:
             params["end_date_max"] = _iso(end_max)
+        if order is not None:
+            params["order"] = order
+            params["ascending"] = "false"
+        wanted = PAGE_SIZE * MAX_PAGES if limit is None else max(0, limit)
         found: list[Event] = []
-        for page in range(MAX_PAGES):
+        page = 0
+        while page < MAX_PAGES and page * PAGE_SIZE < wanted:
+            size = min(PAGE_SIZE, wanted - page * PAGE_SIZE)
             payload = await self._request(
                 "GET",
                 f"{GAMMA_URL}/events",
-                params={**params, "limit": str(PAGE_SIZE), "offset": str(page * PAGE_SIZE)},
+                params={**params, "limit": str(size), "offset": str(page * PAGE_SIZE)},
             )
             if not isinstance(payload, list):
                 raise PolymarketError("Polymarket devuelve algo que no es una lista de eventos")
@@ -463,8 +481,9 @@ class PolymarketClient:
                 for item in payload
                 if isinstance(item, Mapping) and (event := parse_event(item)) is not None
             )
-            if len(payload) < PAGE_SIZE:
+            if len(payload) < size:
                 break
+            page += 1
         return found
 
     async def event_by_slug(self, slug: str) -> Event | None:

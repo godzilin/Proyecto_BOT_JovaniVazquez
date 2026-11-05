@@ -683,3 +683,34 @@ async def test_los_fallos_de_red_y_de_json_se_convierten_en_polymarket_error_sin
 
 def test_el_modulo_no_expone_nada_de_discord() -> None:
     assert not hasattr(polymarket, "discord")
+
+
+async def test_events_por_etiqueta_ordenados_y_con_limite_pide_solo_lo_que_hace_falta() -> None:
+    page = [stub_event(n) for n in range(PAGE_SIZE)]
+    client, session = client_with(FakeReply(payload=page), FakeReply(payload=page[:30]))
+
+    result = await client.events(tag_slug="spain", order="volume24hr", limit=130)
+
+    assert [c["params"]["limit"] for c in session.calls] == ["100", "30"]
+    assert [c["params"]["offset"] for c in session.calls] == ["0", "100"]
+    assert session.calls[0]["params"]["tag_slug"] == "spain"
+    assert session.calls[0]["params"]["order"] == "volume24hr"
+    assert session.calls[0]["params"]["ascending"] == "false"
+    assert len(result) == 130
+
+
+async def test_events_con_limite_cero_no_pide_nada() -> None:
+    client, session = client_with(FakeReply(payload=[]))
+
+    assert await client.events(limit=0) == []
+    assert session.calls == []
+
+
+def test_el_evento_lee_su_volumen_de_24_horas_que_llega_como_numero_o_texto() -> None:
+    con_numero = parse_event({"id": "1", "title": "A", "volume24hr": 1234.5})
+    con_texto = parse_event({"id": "2", "title": "B", "volume24hr": "99.5"})
+    sin_volumen = parse_event({"id": "3", "title": "C"})
+
+    assert con_numero is not None and con_numero.volume_24h == 1234.5
+    assert con_texto is not None and con_texto.volume_24h == 99.5
+    assert sin_volumen is not None and sin_volumen.volume_24h == 0.0

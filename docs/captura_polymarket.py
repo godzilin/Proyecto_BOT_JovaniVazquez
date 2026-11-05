@@ -65,7 +65,7 @@ BOOK_LEVELS = 3
 
 EVENT_KEYS = (
     "id", "slug", "title", "description", "startTime", "endDate", "negRisk", "tags",
-    "image", "active", "closed", "score", "period", "ended", "live", "gameId", "markets",
+    "image", "volume24hr", "active", "closed", "score", "period", "ended", "live", "gameId", "markets",
 )
 MARKET_KEYS = (
     "id", "slug", "question", "description", "groupItemTitle", "outcomes",
