@@ -81,7 +81,9 @@ from bot.services.bus import picks_for as bus_picks_for
 from bot.services.business import recommended as business_recommended
 from bot.services.business_staff import COURSE_POINTS as STAFF_COURSE_POINTS
 from bot.services.business_staff import HALF_DAY as STAFF_HALF_DAY
+from bot.services.business_staff import HORARIOS as STAFF_HORARIOS
 from bot.services.business_staff import SENIOR_AGE as STAFF_SENIOR_AGE
+from bot.services.business_staff import horario_of as staff_horario_of
 from bot.services.casino_stats import GAMES as CASINO_GAMES
 from bot.services.chicken import ChickenGame
 from bot.services.chicken import Status as ChickenStatus
@@ -782,6 +784,12 @@ PISOS_ROOM_TENANTS_STAT = "pisos_room_tenants"
 #: Fase 4: un contador por reforma hecha; las distintas, en `with_derived`.
 PISOS_REFORM_PREFIX = "pisos_reform_"
 PISOS_REFORM_KINDS_STAT = "pisos_reform_kinds"
+#: 9.41.0: un contador por horario de la plantilla usado (al contratar o al cambiarlo, por su
+#: clave, `business_staff.HORARIOS`); los distintos, en `with_derived`.
+STAFF_HORARIO_PREFIX = "staff_horario_"
+STAFF_HORARIOS_STAT = "staff_horarios"
+#: 9.41.0: los puestos nuevos de la plantilla (los que se cuentan al contratar, uno a uno).
+STAFF_NEW_ROLES = ("encargado", "repartidor", "limpieza", "reponedor", "redes", "rrhh")
 #: 9.23.0: un contador por duración de contrato elegida; las distintas, en `with_derived`.
 PISOS_TERM_PREFIX = "pisos_term_"
 PISOS_TERMS_STAT = "pisos_terms"
@@ -21698,6 +21706,133 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "staff_unpaid_1", "Ya te pago el lunes",
          "Cierra una noche sin poder pagar la nómina a un empleado.", C, True),
     ])  # fmt: skip
+    # 9.41.0: los puestos nuevos y los horarios (staff_hire_stats, staff_reschedule_stats, los
+    # turnos y la noche). Uno de cada puesto por local; los horarios distintos son 21.
+    a += _tiers("negocio", "staff_hired_role_encargado", [
+        (1, "staff_role_encargado", "Mando en plaza",
+         "Contrata a un encargado de turno.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_role_repartidor", [
+        (1, "staff_role_repartidor", "Mochila cuadrada", "Contrata a un repartidor.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_role_limpieza", [
+        (1, "staff_role_limpieza", "Los chorros del oro",
+         "Contrata a alguien de limpieza.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_role_reponedor", [
+        (1, "staff_role_reponedor", "Primero en entrar, primero en salir",
+         "Contrata a un mozo de almacén.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_role_redes", [
+        (1, "staff_role_redes", "Stories del mostrador", "Contrata a un community manager.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_role_rrhh", [
+        (1, "staff_role_rrhh", "Felicidad en nómina",
+         "Contrata a alguien de recursos humanos.", C),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="staff_roles_all", name="El álbum de Panini de la plantilla",
+        description="Contrata alguna vez a un encargado de turno, un repartidor, alguien de "
+        "limpieza, un mozo de almacén, un community manager y alguien de recursos humanos.",
+        category="negocio", rarity=R,
+        conditions=tuple((f"staff_hired_role_{role}", 1) for role in STAFF_NEW_ROLES),
+    ))  # fmt: skip
+    a += _tiers("negocio", "staff_roles_max", [
+        (4, "staff_roles_4", "Plantilla con organigrama",
+         "Ten 4 puestos distintos a la vez en un local.", R),
+        (7, "staff_roles_7", "Siete puestos para siete hermanos",
+         "Ten 7 puestos distintos a la vez en un local (hace falta un local grande).", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_partida", [
+        (1, "staff_partida_1", "Jornada partida, espalda también",
+         "Contrata a alguien con jornada partida.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_seis", [
+        (1, "staff_seis_1", "Seis horitas de nada",
+         "Contrata a alguien con jornada de seis horas.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", STAFF_HORARIOS_STAT, [
+        (5, "staff_horarios_5", "Tetris de turnos",
+         "Usa 5 horarios distintos con tu plantilla, al contratar o al cambiarlos.", C),
+        (21, "staff_horarios_21", "Calendario de adviento laboral",
+         "Usa los 21 horarios de la plantilla, al contratar o al cambiarlos.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_rescheduled", [
+        (1, "staff_resched_1", "Reloj, no marques las horas",
+         "Cámbiale el horario a un empleado.", C),
+        (25, "staff_resched_25", "Doctor Who de los horarios",
+         "Cambia 25 veces el horario de tus empleados.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_rescheduled_more", [
+        (1, "staff_resched_more", "Más madera",
+         "Dale más horas a un empleado al cambiarle el horario.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_rescheduled_less", [
+        (1, "staff_resched_less", "Media jornada, media sonrisa",
+         "Consigue que un empleado acepte trabajar menos horas.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_refused_less", [
+        (1, "staff_refused_less", "Por ahí no paso",
+         "Propón menos horas a un empleado quemado y que no acepte.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_led_turns", [
+        (10, "staff_led_10", "Capitán del mostrador",
+         "Que tu plantilla haga 10 turnos con el encargado de turno en la misma franja.", C),
+        (500, "staff_led_500", "Oh capitán, mi capitán",
+         "Que tu plantilla haga 500 turnos con el encargado de turno en la misma franja.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_deliveries", [
+        (1, "staff_delivery_1", "Timbre, mochila y propina",
+         "Que tu repartidor lleve su primer pedido a domicilio.", C),
+        (100, "staff_delivery_100", "Cien timbres",
+         "Que tu repartidor lleve 100 pedidos a domicilio.", R),
+        (2500, "staff_delivery_2500", "El cartero siempre llama dos veces",
+         "Que tus repartidores lleven 2.500 pedidos a domicilio.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_delivery_sales", [
+        (100_000, "staff_delivery_100k", "Sin pasar por la app",
+         "Vende 100.000 Y$ a domicilio con tu repartidor.", R),
+        (1_000_000, "staff_delivery_1m", "Unicornio de la última milla",
+         "Vende 1.000.000 Y$ a domicilio con tus repartidores.", E),
+    ], unit="money")  # fmt: skip
+    a += _tiers("negocio", "staff_clean_nights", [
+        (1, "staff_clean_1", "Huele a lejía",
+         "Cierra una noche con el local recién limpiado por tu plantilla.", C),
+        (30, "staff_clean_30", "Ni una mota de calima",
+         "Cierra 30 noches con el local limpiado por tu plantilla.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_kept_units", [
+        (10, "staff_kept_10", "Salvados por la cámara",
+         "Que tu mozo de almacén salve 10 unidades de lo perecedero.", C),
+        (1000, "staff_kept_1000", "Ni un yogur caducado",
+         "Que tus mozos de almacén salven 1.000 unidades de lo perecedero.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_fresh_restocks", [
+        (1, "staff_fresh_1", "Pan de hoy para mañana",
+         "Que tu mozo de almacén reponga lo fresco una noche.", C),
+        (30, "staff_fresh_30", "La cadena del frío humana",
+         "Que tu mozo de almacén reponga lo fresco 30 noches.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_social_nights", [
+        (1, "staff_social_1", "Primer post, primer like",
+         "Que tu community manager publique un día entero.", C),
+        (30, "staff_social_30", "Algoritmo domesticado",
+         "Que tu community manager publique 30 días.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hr_nights", [
+        (1, "staff_hr_1", "La puerta siempre abierta",
+         "Que recursos humanos cuide de tu plantilla un día.", C),
+        (30, "staff_hr_30", "Clima laboral subtropical",
+         "Que recursos humanos cuide de tu plantilla 30 días.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_redes_taller", [
+        (1, "staff_redes_taller", "El taller en TikTok",
+         "Contrata a un community manager para un taller.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "staff_hired_rider_helados", [
+        (1, "staff_rider_helados", "Llega derretido",
+         "Contrata a un repartidor para una heladería.", C, True),
+    ])  # fmt: skip
     a += _tiers("negocio", "staff_art50", [
         (1, "staff_art50", "Se fue con el Estatuto bajo el brazo",
          "Que un empleado se vaya por no cobrar y pida la indemnización (art. 50 ET).", R, True),
@@ -22415,7 +22550,8 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     `horse_backed_kinds` y `horse_backed_max`, los caballos distintos por los
     que ha apostado y los boletos al que más; `pisos_barrios` y `pisos_kinds`, los
     barrios y los tipos de inmueble distintos en los que ha comprado, y `pisos_terms`,
-    las duraciones de contrato distintas (12, 24, 36, 48 y 60 días) que ha elegido.
+    las duraciones de contrato distintas (12, 24, 36, 48 y 60 días) que ha elegido, y
+    `staff_horarios`, los horarios distintos de la plantilla que ha usado.
     """
     full = dict(stats)
     full[MESSAGES_TOTAL_STAT] = full.get("messages", 0) + full.get("messages_imported", 0)
@@ -22529,6 +22665,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     )
     full[PISOS_TERMS_STAT] = sum(
         1 for term in (12, 24, 36, 48, 60) if stats.get(f"{PISOS_TERM_PREFIX}{term}", 0) > 0
+    )
+    full[STAFF_HORARIOS_STAT] = sum(
+        1 for h in STAFF_HORARIOS if stats.get(f"{STAFF_HORARIO_PREFIX}{h.key}", 0) > 0
     )
     full[PISOS_BUILDINGS_SEEN_STAT] = sum(
         1 for b in STREET_BUILDINGS if stats.get(f"{PISOS_BUILDING_PREFIX}{b.key}", 0) > 0
@@ -28628,10 +28767,18 @@ def _nonzero(add: Mapping[str, int]) -> dict[str, int]:
 
 
 def staff_turns_stats(turns: Iterable[StaffTurn]) -> StatDelta:
-    """Estadísticas de los turnos que jugó la plantilla (`BusinessService.staff_turns`)."""
+    """Estadísticas de los turnos que jugó la plantilla (`BusinessService.staff_turns`).
+
+    9.41.0: los turnos con el encargado de turno (`staff_led_turns`) y los pedidos a domicilio
+    del repartidor (`staff_deliveries`, `staff_delivery_sales`).
+    """
     turns = list(turns)
     played = [t.summary for t in turns if t.summary is not None]
+    away = [t.summary for t in turns if t.summary is not None and t.role == "repartidor"]
     add = {
+        "staff_led_turns": sum(1 for t in turns if t.summary is not None and t.led),
+        "staff_deliveries": sum(s.served for s in away),
+        "staff_delivery_sales": sum(s.sales for s in away),
         "staff_turns": len(played),
         "staff_clients": sum(s.served for s in played),
         "staff_sales": sum(s.sales for s in played),
@@ -28665,6 +28812,13 @@ def staff_night_stats(run: NightRun) -> StatDelta:
                 "staff_contract_end": events.count("fin_contrato"),
                 "staff_art50": events.count("art50"),
                 "staff_quit": events.count("dimision"),
+                # 9.41.0: la plantilla de apoyo que vino esa noche y lo que dejó.
+                "staff_clean_nights": int("limpieza" in run.support),
+                "staff_stock_nights": int("reponedor" in run.support),
+                "staff_social_nights": int("redes" in run.support),
+                "staff_hr_nights": int("rrhh" in run.support),
+                "staff_kept_units": run.kept,
+                "staff_fresh_restocks": int("fresco" in run.manager),
             }
         )
     )
@@ -28673,7 +28827,13 @@ def staff_night_stats(run: NightRun) -> StatDelta:
 
 
 def staff_hire_stats(business: Business, employee: Mapping[str, Any]) -> StatDelta:
-    """Estadísticas de quien contrata a un empleado (`BusinessService.hire`)."""
+    """Estadísticas de quien contrata a un empleado (`BusinessService.hire`).
+
+    9.41.0: su puesto (`staff_hired_role_<puesto>`), su horario (por clave, y si es partido o
+    de seis horas) y los puestos distintos que tiene el local a la vez.
+    """
+    role = employee.get("role", "")
+    schedule = staff_horario_of(dict(employee))
     add = {
         "staff_hired": 1,
         f"staff_hired_{employee['contract']}": 1,
@@ -28681,11 +28841,40 @@ def staff_hire_stats(business: Business, employee: Mapping[str, Any]) -> StatDel
         "staff_hired_bonus": int(employee["bonus"] > 0),
         "staff_hired_senior": int(employee["age"] >= STAFF_SENIOR_AGE),
         "staff_hired_young": int(employee["age"] <= 21),
+        "staff_hired_partida": int(schedule is not None and schedule.kind == "partida"),
+        "staff_hired_seis": int(schedule is not None and schedule.kind == "seis"),
+        "staff_hired_redes_taller": int(role == "redes" and business.sector == "taller"),
+        "staff_hired_rider_helados": int(role == "repartidor" and business.sector == "heladeria"),
     }
+    if role in STAFF_NEW_ROLES:
+        add[f"staff_hired_role_{role}"] = 1
+    if schedule is not None:
+        add[f"{STAFF_HORARIO_PREFIX}{schedule.key}"] = 1
     return StatDelta(
         add=_nonzero(add),
-        peak={"staff_size_max": len(business.staff), "staff_wage_max": employee["wage"]},
+        peak={
+            "staff_size_max": len(business.staff),
+            "staff_wage_max": employee["wage"],
+            "staff_roles_max": len({e.get("role", "") for e in business.staff}),
+        },
     )
+
+
+def staff_reschedule_stats(employee: Mapping[str, Any], plan: Any) -> StatDelta:
+    """Estadísticas de quien cambia el horario a un empleado (`BusinessService.reschedule`):
+    `plan` es el `business_staff.Reschedule`."""
+    add = {
+        "staff_rescheduled": 1,
+        "staff_rescheduled_more": int(plan.kind == "mas"),
+        "staff_rescheduled_less": int(plan.kind == "menos"),
+        f"{STAFF_HORARIO_PREFIX}{plan.horario.key}": 1,
+    }
+    return StatDelta(add=_nonzero(add))
+
+
+def staff_refused_stats() -> StatDelta:
+    """Estadísticas de quien propone menos horas a alguien quemado, que no acepta."""
+    return StatDelta(add={"staff_refused_less": 1})
 
 
 def staff_fire_stats(dismissal: Dismissal, refund: int) -> StatDelta:

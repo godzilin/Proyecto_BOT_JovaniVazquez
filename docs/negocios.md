@@ -27,6 +27,7 @@ Este documento recoge el sistema entero, sus cinco fases y cada una al detalle; 
 | 3 | Sociedad limitada: caja propia, Impuesto sobre Sociedades, sueldo de administrador o dividendos, quiebra limitada, compatibilidades por oficio, pluriactividad | 9.6.0 |
 | 4 | Empleados artificiales estilo inquilinos (rasgos, habilidades, formación, humor, contrato y despido), turnos pasivos, nómina completa con la cotización de la empresa, B con Inspección, bonificaciones, RIC y ZEC | 9.8.0 |
 | 5 | Cadenas: hasta 4 locales (con una sola sociedad para todos), una nave para importar de la Península con el AIEM y el IGIC de importación, gerentes que reponen y cubren las bajas, vender la sociedad | 9.11.0 |
+| 4 bis | Horarios (21, con la partida y el cambio de horario) y seis puestos más en la plantilla: encargado de turno, repartidor, limpieza, mozo de almacén, community manager y recursos humanos | 9.41.0 |
 
 Dónde engancha cada fase con lo de la 1:
 
@@ -1473,3 +1474,166 @@ Sin comprobar:
 - Las importaciones vienen de la Península: sin el arancel de la UE de lo que llega de fuera.
 - El reparto de la nave a los locales no cuesta.
 - La pérdida de vender la sociedad por debajo de lo que metiste no se compensa.
+
+
+## Horarios y puestos de la plantilla (9.41.0)
+
+Pedido el 05/11/2026: elegir qué jornada tiene cada empleado y muchos más tipos de empleados. Se propuso antes
+de hacerlo y se aceptó tal cual. Reglas en `business_staff.py` (`HORARIOS`, `ROLES`, `support`, `reschedule`),
+casos de uso en `negocio.py` (`hire` con `role` y `horario`, `reschedule`, `_staff_franja` y la noche), las
+pantallas en `business_view.py` y la escena, y el panel en `cogs/business.py`.
+
+### Los horarios (`HORARIOS`)
+
+- **21**, los que caben en un desplegable de Discord (admite 25):
+  - completa (8 horas), entrando a las 8, 10, 12, 14 o 16;
+  - partida (4 + 4 horas, con 4 de descanso): de 8 a 12 y de 16 a 20, de 10 a 14 y de 18 a 22, o de 12 a 16 y
+    de 20 a 24;
+  - seis horas, con sus 6 entradas posibles, y media jornada, con sus 7.
+- **Cada empleado guarda sus franjas** (`employee["franjas"]`, la clave es la lista: `"1256"`). Los contratados
+  antes salen de su turno y su jornada (`legacy_franjas`) y siguen igual: los cuatro horarios de antes están
+  entre los 21.
+- **El sueldo va por horas** (`ask` con sus franjas, como la media jornada de antes). El desplegable enseña lo
+  que pide en cada horario y cuántos clientes vienen esas horas en el sector (`afluencia`: 100 es la media del
+  día). Cambia mucho de un sector a otro: la heladería se llena de 14 a 18, la tienda de 10 a 12 y de 18 a 20, y
+  el taller por la mañana.
+- **La partida cansa:** −2 de humor cada noche (`PARTIDA_MOOD`). El Estatuto no pide un plus por ella (el art.
+  34 ET solo fija el descanso entre jornadas), así que el coste es el humor.
+- Quien solo quiere media jornada (el estudiante) solo ve las medias. El gerente no tiene horario.
+
+### Cambiar el horario (`reschedule`)
+
+- Desde 👥 Plantilla, con 🕒. Vale desde el día siguiente (el preaviso del art. 41.3 ET a la escala del juego):
+  la noche lo pone (`apply_reschedule`). No mueve dinero.
+- **Con las mismas horas** es una modificación sustancial de las condiciones (art. 41 ET): −3 de humor.
+- **Con más horas** cobra más en proporción (el bruto de cada franja se mantiene): +3.
+- **Con menos horas** tiene que aceptar, porque pasar a tiempo parcial es voluntario (art. 12.4.e ET): acepta con
+  50 de humor o más (`FEWER_HOURS_HUMOR`) y cobra menos (−6); quemado, no acepta.
+- La bonificación del parado de larga duración va por horas: se escala con la jornada nueva.
+
+### Los puestos (`ROLES`)
+
+| Puesto | Qué hace | Pide (frente a un dependiente que sepa lo mismo) | Sectores |
+|---|---|---|---|
+| 🙋 Dependiente | Atiende el mostrador en las franjas de su horario, con el minijuego | Lo mismo | Todos |
+| 📋 Encargado de turno | Atiende y, en sus franjas, los demás del mostrador fallan menos (`LEAD_MISS`, 45 % con trato 50) y ganan +1 de humor esa noche | +10 % | Todos |
+| 🛵 Repartidor | Lleva pedidos a domicilio en sus franjas: la mitad de los clientes que tendría un turno a esa hora (`DELIVERY_TURN`), de un cupo del barrio aparte (`DELIVERY_POOL`, la cuarta parte del de mostrador), sin listillos | Lo mismo | Todos menos el taller |
+| 🧑‍💼 Gerente | Repone el almacén y cubre las bajas (fase 5) | +20 % | Todos |
+| 🧽 Limpieza | +3 de reputación cada noche y +30 % de paciencia de los clientes al día siguiente | −10 % (nunca bajo el salario mínimo) | Todos |
+| 📦 Mozo de almacén | −60 % de la merma y, sin gerente (o si falta), repone lo perecedero para un día (`FRESH_DAYS`) | −10 % | Cafetería, tienda y heladería |
+| 📱 Community manager | Lo que publica trae al día siguiente un 30 % más de clientes y de cupo, como una campaña (con la campaña, un 50 % como mucho: `BOOST_CAP`) | +10 % | Todos |
+| 🗂️ Recursos humanos | Un candidato más cada día (los de siempre salen igual), lo malo del humor de los demás baja a la mitad y aprenden un 50 % más | Lo mismo | Todos |
+
+- **Lo que deja un puesto de apoyo** (`support`) es el de la tabla a jornada completa y con su habilidad a 50.
+  Va por sus horas (media jornada, la mitad) y por su habilidad (`strength`: 0,5 con 0, 1,5 con 100): acierto
+  la limpieza, rapidez el mozo y trato el community manager, recursos humanos y el encargado. Los cursos lo
+  suben.
+- **Lo de la noche y lo del día siguiente.** La limpieza y el community manager trabajan hoy y lo que dejan
+  sirve mañana (`Business.support`): el local limpio al abrir, lo que se publicó anoche.
+- **Uno de cada por local**, salvo los dependientes. **Todos menos el gerente ocupan puesto** (2, 4 o 6 según el
+  local): contratar a alguien de limpieza en un local pequeño es una decisión de verdad.
+- **Las faltas** de quien no atiende se deciden con la primera franja del día o, si no juega nadie, por la noche:
+  ese día no cobra y no deja su efecto.
+- **El gerente cubre las bajas** con el mismo puesto y el mismo horario de quien se fue.
+- **La escena** viste a cada uno según su puesto (bata, chaqueta con casco y mochila, sudadera con
+  auriculares…) con una insignia redonda, distinta por forma y no solo por color; la partida tiene su icono (medio
+  sol y media luna), la plantilla va por páginas de seis (la del elegido) y con recursos humanos los candidatos
+  van en cuatro columnas.
+
+### Dinero
+
+Nada nuevo en impuestos: las nóminas de cada puesto son las de siempre (`payslip`). Lo que compra el mozo de
+almacén va como lo del gerente: IGIC al Estado y gasto de la actividad. Lo que vende el repartidor entra como lo
+de la plantilla, con su retención a cuenta o en la caja de la sociedad. **El reparto a domicilio es una fuente
+nueva** con su tope (el cupo aparte del barrio, que comparten los negocios del sector).
+
+### Equilibrio
+
+`python docs/negocio_sim.py --puestos`: el barrio del medio de cada sector con el cupo, días 15 a 28, media de 6
+semillas, todo a 50. El simulador repone el stock como el jugador, así que del mozo solo mide la merma que salva.
+
+**El horario importa:** con un solo empleado, la mejor completa o partida deja mucho más que la completa de
+mañana de antes en casi todos los sectores.
+
+| Sector | Mejor horario | Neto al día | Completa de mañana |
+|---|---|---|---|
+| Cafetería | Partida 8-12 y 16-20 | 6.200 | 5.500 |
+| Tienda | Partida 8-12 y 16-20 | 5.400 | 200 |
+| Taller | Completa 8-16 | −800 | −800 |
+| Heladería | Completa 12-20 | 8.800 | 1.700 |
+| Ferretería | Partida 8-12 y 16-20 | 11.400 | 6.500 |
+
+**Lo que suma cada puesto**, frente al dueño a 4 turnos con un dependiente de tarde / dos dependientes de mañana y
+de tarde:
+
+| Sector | Repartidor (media tarde) | Limpieza (media) | Mozo (media) | Community manager (media / completa) | RR. HH. (media) |
+|---|---|---|---|---|---|
+| Cafetería | +2.000 / +2.500 | −2.700 / −1.800 | −1.900 / −2.000 | +400 / +600 · +800 / −200 | −2.500 / −2.300 |
+| Tienda | +2.000 / +2.900 | −2.200 / −2.800 | −1.500 / −1.700 | +1.000 / +1.200 · +1.700 / +1.800 | −2.800 / −3.500 |
+| Taller | — | +100 / +1.000 | — | +1.600 / 0 · +1.300 / +800 | −3.200 / −2.200 |
+| Heladería | +2.400 / +2.900 | −2.300 / −2.400 | −2.500 / −3.100 | −100 / 0 · +200 / +600 | −3.000 / −3.100 |
+| Ferretería | +3.100 / +4.000 | −2.400 / −2.800 | — | +900 / +1.100 · +2.900 / +2.800 | −2.700 / −3.000 |
+
+El encargado en vez de un dependiente, con tres a jornada completa (8-16, 10-18 y 16-24): +800 en la cafetería,
++1.200 en el taller y +500 en la heladería, y −800 en la tienda y −700 en la ferretería; el humor medio sube de
+3 a 10 puntos.
+
+- **El repartidor y el community manager** son los que más dejan: el primero abre un cupo nuevo y el segundo
+  agranda el de siempre. El community manager rinde como las campañas de la fase 2, algo menos, pero no hay que
+  pagarlo por adelantado.
+- **El encargado rinde donde los fallos cuestan caros** (la comanda perdida, la garantía del taller). En la caja
+  un fallo son 50 Y$ de cambio y no le compensa su 10 % de más.
+- **La limpieza salva negocios con mala fama.** Con las cinco estrellas no le queda nada que subir; con pocas, sí:
+  un dueño flojo en la cafetería gana 3.400 Y$ al día más con ella y acaba las cuatro semanas con 3,3 estrellas
+  en vez de 1,6.
+- **El mozo y recursos humanos son de comodidad**, como el gerente: el mozo repone lo fresco sin que lo hagas tú
+  y recursos humanos cuida a una plantilla grande (menos quemados, menos bajas, aprenden antes). Cuestan más de lo
+  que se ve en cuatro semanas.
+- **La partida** como tercer empleado pierde lo de cualquier tercero (el cupo ya está cubierto) y baja el humor
+  medio a 52-79 en cuatro semanas: hay que subirle el sueldo.
+
+### Pantallas
+
+- **Candidatos:** el desplegable del puesto (los que caben y no están cubiertos, con lo que pide en cada uno y lo
+  que hace), el contrato (el gerente, siempre indefinido) y el horario (con lo que pide, la afluencia y el aviso
+  de la partida).
+- **Plantilla:** cada uno con su puesto, su horario en corto y su insignia; 🕒 **Cambiarle el horario**, con el
+  sueldo y lo que pasa con cada uno; lo que deja el de apoyo elegido, en el texto.
+- **Muestras nuevas** en `docs/muestras_negocio.py` (`_puestos`): todos los puestos, las dos páginas de una
+  plantilla de siete, un cambio de horario pendiente, cuatro candidatos y las ofertas de un puesto de apoyo y de un
+  encargado con partida. Node y Chromium pintan lo mismo (`test_node_y_chromium_pintan_lo_mismo`).
+
+### Logros (37, 3 secretos)
+
+Contratar cada puesto nuevo y los seis alguna vez, cuatro y siete puestos distintos a la vez, la partida y las
+seis horas, 5 y 21 horarios distintos, cambiar el horario (1 y 25 veces, con más horas, con menos y que no acepte,
+secreto), los turnos con el encargado, los pedidos a domicilio y lo vendido, las noches de limpieza, community
+manager y recursos humanos, lo que salva y repone el mozo, y dos secretos: el community manager de un taller y el
+repartidor de una heladería. Cambiar de horario se puede forzar sin coste, así que sus logros son Comunes o Raros.
+
+### Normas usadas
+
+| Norma | Qué dice | Uso |
+|---|---|---|
+| Art. 41 ET | La modificación sustancial incluye la jornada, el horario y su distribución; la individual se notifica con 15 días | Cambiar el horario, desde el día siguiente y con su humor |
+| Art. 12.4.e ET | La conversión de tiempo completo a parcial es voluntaria para el trabajador | Menos horas, solo si acepta |
+| Art. 34 ET | La jornada y sus descansos; no prevé un plus por la jornada partida (queda para los convenios) | La partida cuesta humor, no dinero |
+| Ley 12/2021 (DA 23.ª ET) | Presunción de laboralidad de quien reparte | El repartidor es un empleado más, con su nómina |
+| Ley 5/2014 de Seguridad Privada | Solo una empresa de seguridad puede dar vigilancia | No hay vigilante en la plantilla |
+
+### Decidido por Claude (cambiable)
+
+- Los 21 horarios y la partida con −2 de humor cada noche.
+- Los seis puestos, sus efectos y lo que piden de más o de menos.
+- Que todos menos el gerente ocupen puesto y uno de cada por local.
+- El cupo a domicilio en la cuarta parte del de mostrador y los pedidos en la mitad de un turno.
+- El humor de cambiar el horario y el umbral de 50 para aceptar menos horas.
+
+### Sin comprobar o simplificado
+
+- La cotización por accidentes de todos los puestos es la del sector del negocio. El cuadro II de la DA 61.ª LGSS
+  tiene tipos propios para algunas ocupaciones (el personal de oficina, por ejemplo); no se pudo leer el BOE
+  desde la sesión.
+- El preaviso de 15 días de la modificación sustancial y la opción del trabajador de irse con 20 días por año
+  (art. 41.3 ET) no están: el cambio vale al día siguiente y cuesta humor.
+- Los horarios no miran el día de la semana: la demanda es la misma todos los días.

@@ -1161,7 +1161,7 @@ async def press_business_hire(client: BotClient, owner: MagicMock) -> Click:
     business = await service.business(GUILD_ID, owner.id)
     candidate = service.candidates(business)[0]
     panel.candidate = candidate["key"]
-    panel.offer.update(jornada=2 if candidate["part_time"] else 4)
+    panel.offer.update(horario="12" if candidate["part_time"] else "0123")
 
     async def click(interaction: MagicMock) -> None:
         await panel._hire(interaction)
@@ -1183,6 +1183,15 @@ async def press_business_course(client: BotClient, owner: MagicMock) -> Click:
 
     async def click(interaction: MagicMock) -> None:
         await panel._course(interaction, "acierto")
+
+    return click
+
+
+async def press_business_reschedule(client: BotClient, owner: MagicMock) -> Click:
+    panel = await staffed_panel(client, owner)
+
+    async def click(interaction: MagicMock) -> None:
+        await panel._reschedule(interaction, "56")
 
     return click
 
@@ -3125,6 +3134,7 @@ CASES: dict[str, Press] = {
     "negocio: despedir": press_business_fire,
     "negocio: pagar un curso": press_business_course,
     "negocio: subir el sueldo": press_business_raise,
+    "negocio: cambiar el horario": press_business_reschedule,
     "negocio: dotar la RIC": press_business_ric,
     "tienda: comprar": press_checkout,
     "tienda: ver la ficha": press_shop_sheet,

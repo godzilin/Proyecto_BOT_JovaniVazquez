@@ -335,8 +335,9 @@ def negocio_state(business: Business, *, foot: str, rivals: int = 0, chain_count
     Fase 2: `rating` (media de las reseñas, cuántas y si sale recomendado), `campaign` (la
     campaña de hoy y lo que le queda), `equipment` (las claves de las mejoras instaladas) y
     `size` (el tamaño del local y si es propio). Fase 4: `staff` (`None` sin plantilla, o
-    `{"count", "line", "seeds"}`: cuántos son, sus turnos de hoy en una línea y la semilla de
-    cada uno para dibujarlos), y «Esta noche» ya cuenta las nóminas.
+    `{"count", "line", "seeds", "roles"}`: cuántos son, sus turnos de hoy en una línea, la
+    semilla de cada uno para dibujarlos y, desde la 9.41.0, su puesto para vestirlos), y «Esta
+    noche» ya cuenta las nóminas.
     """
     bill = nightly_bill(business)
     tonight = bill.total
@@ -353,6 +354,7 @@ def negocio_state(business: Business, *, foot: str, rivals: int = 0, chain_count
                 f"{signed(done.get('sales', 0))}"
             ),
             "seeds": [e["key"] for e in business.staff],
+            "roles": [e.get("role", "") for e in business.staff],
         }
     week = sum(business.week_totals.values())
     tags = [PRICE_BY_KEY[business.price].name.split(" (")[0] + " de precio"]
@@ -849,9 +851,39 @@ def _traits(keys: list[str]) -> list[State]:
 
 
 def shift_text(shift: str, jornada: int) -> str:
-    """`Mañana · completa` o `Tarde · media`."""
+    """`Mañana · completa` o `Tarde · media` (los horarios de antes de la 9.41.0)."""
     whole = "completa" if jornada >= staff.FULL_DAY else "media"
     return f"{staff.SHIFT_NAMES[shift].capitalize()} · {whole}"
+
+
+def horario_text(employee: dict[str, Any], *, short: bool = False) -> str:
+    """Su horario: `Partida · 10:00-14:00 y 18:00-22:00` (o `Partida · 10-14 y 18-22 h`, en
+    corto); el gerente, `Gerente · completa`."""
+    schedule = staff.horario_of(employee)
+    if schedule is None:
+        return "Gerente · completa"
+    return schedule.short if short else schedule.label
+
+
+def _horario_state(schedule: staff.Horario | None) -> dict[str, Any]:
+    """Lo que necesita la escena para el icono del horario: `horario_kind` (`completa`,
+    `partida`, `seis`, `media` o `gerente`) y `night` (si empieza por la tarde)."""
+    if schedule is None:
+        return {"horario_kind": "gerente", "night": False}
+    return {"horario_kind": schedule.kind, "night": schedule.shift == "tarde"}
+
+
+def afluencia(sector: Any, schedule: staff.Horario) -> int:
+    """Lo que vienen los clientes en las franjas de un horario frente a la media del día, en %
+    (100 = la media de las ocho franjas): ayuda a elegir el horario de cada sector."""
+    curve = sector.curve
+    day = [curve[staff.demand_hour(f) % 24] for f in range(len(staff.SHIFTS["manana"]) * 2)]
+    mine = [curve[staff.demand_hour(f) % 24] for f in schedule.franjas]
+    return round(100 * (sum(mine) / len(mine)) / (sum(day) / len(day)))
+
+
+#: Tarjetas de la plantilla por página de la escena (dos filas de tres).
+STAFF_PAGE = 6
 
 
 def mood_name(humor: float) -> str:
@@ -866,6 +898,10 @@ def staff_card(employee: dict[str, Any], today: date, *, selected: bool = False)
     `contract_name` lo que pone, con el período de prueba o el día en que se acaba. `today`
     dice lo de hoy en una línea. `alerts`, lo que hay que mirar (dos como mucho). Fase 5:
     `role` es `gerente` o `""`; el gerente no tiene turno (`shift` dice «Gerente»).
+
+    9.41.0: `role` es la clave de su puesto (`business_staff.ROLES`) y `role_name` su nombre;
+    `shift` es su horario en corto (`Partida · 10-14 y 18-22 h`), con `horario_kind` y `night`
+    para el icono.
     """
     iso = today.isoformat()
     contract = CONTRACT_NAMES[employee["contract"]]
@@ -874,11 +910,11 @@ def staff_card(employee: dict[str, Any], today: date, *, selected: bool = False)
     if employee["until"]:
         end = date.fromisoformat(employee["until"])
         contract += f" · hasta el {DAYS[end.weekday()].lower()}"
-    manager = staff.is_manager(employee)
+    role = staff.role_of(employee)
     if employee["absent_day"] == iso:
         line = "Hoy no ha venido"
-    elif manager:
-        line = "Repone y cubre bajas"
+    elif not role.plays:
+        line = role.duty
     elif employee["grades_day"] == iso and employee["grades"]:
         turns = plural(len(employee["grades"]), "turno", "turnos")
         line = f"Hoy: {turns} · nota " + " ".join(employee["grades"])
@@ -887,6 +923,10 @@ def staff_card(employee: dict[str, Any], today: date, *, selected: bool = False)
     alerts = []
     if employee["unpaid"]:
         alerts.append(f"Se le deben {format_amount(employee['unpaid'])}")
+    if planned := employee.get("next"):
+        new = staff.HORARIO_BY_KEY.get(staff.horario_key(planned["franjas"]))
+        if new is not None:
+            alerts.append(f"Desde mañana: {new.short}")
     if employee["course"]:
         alerts.append(f"De curso: {staff.SKILL_NAMES[employee['course']].lower()}")
     worth = staff.worth(employee)
@@ -901,10 +941,10 @@ def staff_card(employee: dict[str, Any], today: date, *, selected: bool = False)
         "seed": employee["key"],
         "contract": employee["contract"],
         "contract_name": contract,
-        "shift": (
-            "Gerente · completa" if manager else shift_text(employee["shift"], employee["jornada"])
-        ),
-        "role": employee.get("role", ""),
+        "shift": horario_text(employee, short=True),
+        **_horario_state(staff.horario_of(employee)),
+        "role": role.key,
+        "role_name": role.name,
         "skills": _skills(employee["skills"], employee["traits"]),
         "humor": round(employee["humor"]),
         "mood": mood_name(employee["humor"]),
@@ -923,19 +963,31 @@ def plantilla_state(
 
     `cap` es cuántos hay de cuántos caben; `payroll`, lo que cuesta la plantilla esta noche;
     `debt`, lo que se le debe (o `None`); `today`, sus turnos de hoy.
+
+    9.41.0: caben más de seis (los puestos y el gerente), así que va por páginas de
+    `STAFF_PAGE`: la del elegido. `page` dice cuál (`Página 2 de 2`, o `None` con una sola) y
+    `room`, si queda un puesto libre (el hueco de contratar va en la última).
     """
     pay = staff.payroll(business, today)
     done = business.staff_today
     turns = plural(done.get("turns", 0), "turno", "turnos")
     clients = plural(done.get("clients", 0), "cliente", "clientes")
-    counter = len(staff.counter_staff(business))
-    cap = f"{counter} de {staff.cap(business.size)} puestos"
+    counter = len(staff.seated(business))
+    room = staff.cap(business.size)
+    cap = f"{counter} de {room} puestos"
     if staff.manager(business) is not None:
         cap += " · con gerente"
+    team = business.staff
+    index = next((i for i, e in enumerate(team) if e["id"] == selected), 0)
+    pages = max(1, -(-len(team) // STAFF_PAGE))
+    page = min(index // STAFF_PAGE, pages - 1)
+    shown = team[page * STAFF_PAGE : (page + 1) * STAFF_PAGE]
     return {
         "screen": "plantilla",
         **_style(business),
-        "staff": [staff_card(e, today, selected=e["id"] == selected) for e in business.staff],
+        "staff": [staff_card(e, today, selected=e["id"] == selected) for e in shown],
+        "page": f"Página {page + 1} de {pages}" if pages > 1 else None,
+        "room": counter < room and page == pages - 1,
         "cap": cap,
         "payroll": f"Nóminas de esta noche: {format_amount(pay.cost + pay.black)}",
         "debt": (
@@ -945,26 +997,31 @@ def plantilla_state(
         ),
         "today": f"Hoy: {turns} · {clients} · {signed(done.get('sales', 0))}",
         "foot": foot
-        or "Trabajan solos las franjas de su turno y cobran cada noche, con la cuota de la "
-        "empresa.",
+        or "Quien atiende trabaja solo en su horario; los de apoyo dejan su efecto cada día. "
+        "Cobran cada noche.",
     }
+
+
+def offer_horario(offer: dict[str, Any]) -> staff.Horario:
+    """El horario de una oferta: `horario` (9.41.0) o, en una de antes, `shift` y `jornada`."""
+    key = offer.get("horario") or staff.horario_key(
+        staff.legacy_franjas(offer.get("shift", "manana"), offer.get("jornada", staff.FULL_DAY))
+    )
+    return staff.HORARIO_BY_KEY.get(key, staff.HORARIOS[0])
 
 
 def offer_slip(
     candidate: dict[str, Any], offer: dict[str, Any], sector: str, today: date
 ) -> tuple[dict[str, Any], Any]:
-    """`(el empleado que saldría, su nómina de una noche)` con la oferta (`contract`,
-    `jornada`, `shift` y, desde la fase 5, `role`) y lo que pide."""
+    """`(el empleado que saldría, su nómina de una noche)` con la oferta (`contract`, `role`
+    y `horario`, o los `jornada` y `shift` de antes de la 9.41.0) y lo que pide."""
     role = offer.get("role", "")
-    jornada = staff.FULL_DAY if role else offer["jornada"]
-    wage = (
-        staff.manager_ask(candidate["skills"], candidate["traits"])
-        if role
-        else staff.ask(candidate["skills"], candidate["traits"], jornada)
-    )
+    schedule = offer_horario(offer)
+    wage = staff.role_ask(candidate["skills"], candidate["traits"], schedule.jornada, role)
     probe = staff.new_employee(
-        candidate, seq=0, contract=offer["contract"], jornada=jornada, shift=offer["shift"],
-        wage=wage, start=today, bonified=offer.get("bonified", True), role=role,
+        candidate, seq=0, contract=offer["contract"], jornada=schedule.jornada,
+        shift=schedule.shift, wage=wage, start=today, bonified=offer.get("bonified", True),
+        role=role, franjas=schedule.franjas,
     )  # fmt: skip
     return probe, staff.payslip(probe, sector, today)
 
@@ -986,6 +1043,10 @@ def candidatos_state(
     (`None` si no hay): el contrato (`kind`, la clave, y `contract`, su nombre), el turno, el
     bruto, lo que le llega, lo que cuesta a la empresa, la bonificación y si es en B (`black`).
     Fase 5: `role` (`gerente` o `""`) en la oferta; el gerente no tiene turno.
+
+    9.41.0: `role` es cualquier puesto (`business_staff.ROLES`), con `role_name`; `shift` es
+    el horario (`Partida · 10-14 y 18-22 h`), con `horario_kind` y `night`. Con recursos
+    humanos llegan cuatro candidatos.
     """
     cards = []
     for c in candidates:
@@ -1021,14 +1082,14 @@ def candidatos_state(
     chosen = next((c for c in candidates if c["key"] == selected), None)
     if chosen is not None and offer is not None:
         probe, slip = offer_slip(chosen, offer, business.sector, today)
-        role = offer.get("role", "")
+        role = staff.role_of(probe)
         deal = {
             "kind": offer["contract"],
             "contract": CONTRACT_NAMES[offer["contract"]],
-            "role": role,
-            "shift": (
-                "Gerente · completa" if role else shift_text(offer["shift"], offer["jornada"])
-            ),
+            "role": role.key,
+            "role_name": role.name,
+            "shift": horario_text(probe, short=True),
+            **_horario_state(staff.horario_of(probe)),
             "gross": f"Bruto: {format_amount(slip.gross)} la noche",
             "net": f"Le llega: {format_amount(slip.net)}",
             "cost": f"Te cuesta: {format_amount(slip.cost)}",
@@ -1037,7 +1098,7 @@ def candidatos_state(
             ),
             "black": offer["contract"] == "b",
         }
-    room = staff.cap(business.size) - len(staff.counter_staff(business))
+    room = staff.cap(business.size) - len(staff.seated(business))
     return {
         "screen": "candidatos",
         **_style(business),
@@ -1088,7 +1149,7 @@ def cadena_state(
                 "turns": plural(
                     business.turns_today + business.staff_today.get("turns", 0), "turno", "turnos"
                 ),
-                "staff": len(staff.counter_staff(business)),
+                "staff": len(staff.seated(business)),
                 "manager": staff.manager(business) is not None,
                 "alert": _alert(business),
                 "selected": business.id == selected,

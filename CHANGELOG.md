@@ -8,6 +8,13 @@ criterio.
 
 ## 9.x
 
+### 9.41.0 · 2026-11-05
+
+- Negocios: elige el horario de cada empleado (21: completa, partida, seis horas o media, con su hora de entrada) y cámbialo desde el día siguiente
+- Negocios: seis puestos nuevos en la plantilla: encargado de turno, repartidor, limpieza, mozo de almacén, community manager y recursos humanos
+- Negocios: la plantilla va por páginas cuando no cabe en una y, con recursos humanos, llegan cuatro candidatos al día
+- Logros: 37 nuevos de los puestos y los horarios en 🏪 Negocio
+
 ### 9.40.1 · 2026-11-05
 
 - Entradas, beernight y música: los sonidos ya se oyen; el bot esperaba poco al cifrado de voz de Discord y el audio salía antes de tiempo

@@ -265,6 +265,15 @@ PRODUCED_STATS = {
     "staff_fired_disciplinario", "staff_fired_objetivo", "staff_fired_improcedente",
     "staff_fired_b", "staff_severance", "staff_bonus_refund", "staff_raises",
     "staff_permanent", "staff_courses", "staff_course_spent", "staff_fundae", "staff_skill_max",
+    # Los puestos y los horarios (9.41.0).
+    "staff_hired_role_encargado", "staff_hired_role_repartidor", "staff_hired_role_limpieza",
+    "staff_hired_role_reponedor", "staff_hired_role_redes", "staff_hired_role_rrhh",
+    "staff_roles_max", "staff_hired_partida", "staff_hired_seis", "staff_horarios",
+    "staff_rescheduled", "staff_rescheduled_more", "staff_rescheduled_less",
+    "staff_refused_less", "staff_led_turns", "staff_deliveries", "staff_delivery_sales",
+    "staff_clean_nights", "staff_stock_nights", "staff_social_nights", "staff_hr_nights",
+    "staff_kept_units", "staff_hired_redes_taller", "staff_hired_rider_helados",
+    "staff_fresh_restocks",
     # Las cadenas (fase 5): locales, nave, importar, gerentes y vender la sociedad.
     "biz_locales_max", "biz_chain_sectors_max", "biz_chain_islands_max", "biz_chain_brand_max",
     "biz_nave_size_max", "biz_nave_fill_max", "biz_managers_max", "biz_sale_price_max",

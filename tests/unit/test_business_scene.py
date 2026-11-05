@@ -28,6 +28,7 @@ from bot.services import browser_scene, node_scene
 from bot.services.browser_scene import BrowserScene
 from bot.services.business_catalog import EMBLEMS, EQUIPMENT, FAULTS, SECTORS
 from bot.services.business_scene import SCENE, BusinessScene, H, W
+from bot.services.business_staff import ROLE_BY_KEY
 from bot.services.housing_catalog import THEMES
 from bot.services.work_catalog import JOBS
 
@@ -157,6 +158,19 @@ def test_las_muestras_cubren_cada_pantalla_y_las_variantes_del_contrato() -> Non
     assert any(e["role"] == "gerente" for e in cards)
     assert any(o.get("role") == "gerente" for o in offers)
     assert any(s["business"] and s["business"].get("more") for s in days)
+    # 9.41.0: cada puesto y cada clase de horario, las páginas, el cambio de horario pendiente
+    # y los cuatro candidatos de quien tiene recursos humanos.
+    assert {e["role"] for e in cards} == set(ROLE_BY_KEY)
+    assert {e["horario_kind"] for e in cards} == {"completa", "partida", "seis", "media", "gerente"}
+    assert {e["night"] for e in cards} == {True, False}
+    assert {s["page"] is None for s in teams} == {True, False}
+    assert {s["room"] for s in teams} == {True, False}
+    assert any(a.startswith("Desde mañana") for e in cards for a in e["alerts"])
+    assert any(len(s["candidates"]) == 4 for s in hiring)
+    assert {o["role"] for o in offers} >= {"", "gerente", "limpieza", "encargado"}
+    assert {o["horario_kind"] for o in offers} >= {"completa", "media", "partida", "gerente"}
+    assert any(set(s["staff"]["roles"]) >= {"", "encargado", "repartidor", "gerente"}
+               for s in shops if s.get("staff"))  # fmt: skip
 
 
 async def test_sin_node_ni_chromium_no_se_pinta_y_el_panel_va_en_texto() -> None:
