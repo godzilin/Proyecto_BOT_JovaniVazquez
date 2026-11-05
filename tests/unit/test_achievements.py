@@ -1779,6 +1779,10 @@ def test_el_resumen_y_las_categorias_calculan_lo_derivado_una_sola_vez(
 
     monkeypatch.setattr(service_module, "with_derived", counted)
     monkeypatch.setattr(cog_module, "with_derived", counted)
+    # Si otra prueba del mismo proceso cargó el bot real, `load_extension` volvió a ejecutar el
+    # cog y `summary_embed` (importado arriba) mira las variables del módulo de antes.
+    for function in (summary_embed, category_embed):
+        monkeypatch.setitem(function.__globals__, "with_derived", counted)
     # Los mensajes importados solo cuentan a través de lo derivado (`messages_total`).
     profile = Profile({"messages": 50, "messages_imported": 45}, {})
     embed = summary_embed("Diego", None, profile, {}, 3)
