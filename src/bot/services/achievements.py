@@ -190,6 +190,9 @@ from bot.services.poker import evaluate as poker_evaluate
 from bot.services.porras import MIN_BET as PORRA_MIN_BET
 from bot.services.porras import PROPOSITIONS as PORRA_PROPOSITIONS
 from bot.services.porras import allowed_games as porra_allowed_games
+from bot.services.predice import MAX_STAKE as PREDICT_MAX_STAKE
+from bot.services.predice import MIN_STAKE as PREDICT_MIN_STAKE
+from bot.services.predice import SECTIONS as PREDICT_SECTIONS
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, ZEROS, RoundOutcome
 from bot.services.shop_catalog import AISLES as SHOP_AISLES
@@ -397,6 +400,7 @@ CATEGORIES: tuple[Category, ...] = (
     # Fuera del grupo 🎰 Casino: su desplegable ya tiene las 25 opciones de Discord.
     Category("deportes", "⚽ Deportes"),
     Category("lottery", "🎟️ Loterías"),
+    Category("predice", "🔮 Predicciones"),
     Category("shop", "🛍️ Tienda"),
     Category("rastro", "🧺 Rastro"),
     Category("pisos", "🏠 Pisos"),
@@ -702,6 +706,15 @@ SPORTS_MARKETS = tuple(market.value for market in SportsMarket)
 #: las que es a lo seguro.
 SPORTS_LONG_ODDS = 500
 SPORTS_SAFE_ODDS = 130
+
+#: Prefijo de las predicciones de `predice` por sección (`bot.services.predice.SECTIONS`).
+PREDICT_SECTION_PREFIX = "predict_section_"
+#: Cuota desde la que una predicción es un tiro largo (×10, menos de un 10 % de verdad).
+PREDICT_LONG_ODDS = 1_000
+#: Cuota hasta la que una predicción es casi segura (×1,10, más de un 85 %).
+PREDICT_SAFE_ODDS = 110
+#: Días que una predicción ha tenido que esperar para contar como «de largo plazo».
+PREDICT_WAIT_DAYS = 14
 #: Goles de diferencia de una goleada.
 SPORTS_ROUT = 4
 #: Combinadas: cuota total (en centésimas) que cuenta como «pelotazo» (×100).
@@ -16247,6 +16260,206 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Pierde una combinada por la primera pata en jugarse, con las demás aún sin jugar.", C),
     ])  # fmt: skip
 
+    # 🔮 Predicciones (`predice`) ---------------------------------------------------------
+    # Las preguntas de Polymarket tardan días o semanas en resolverse y cada sección tiene
+    # unas pocas al día: quien juega a menudo hace unas 10 predicciones a la semana. Así,
+    # 10 son una semana (Raro), 50 un mes largo (Épico) y 250 unos seis meses (Legendario).
+    # Las cuotas acertadas salen de la probabilidad real (×10 es ~9 %, ×20 ~5 %) y lo que se
+    # fuerza a propósito (el mínimo, el all-in, una cifra) es Común o Raro.
+    a += _tiers("predice", "predict_bets", [
+        (1, "predict_bets_1", "Echar las cartas", "Haz tu primera predicción en `predice`.", C),
+        (10, "predict_bets_10", "Hombre del tiempo", "Haz 10 predicciones.", R),
+        (25, "predict_bets_25", "Regreso al futuro", "Haz 25 predicciones.", R),
+        (50, "predict_bets_50", "Línea 806 de madrugada", "Haz 50 predicciones.", E),
+        (100, "predict_bets_100", "Nostradamus con cuota", "Haz 100 predicciones.", E),
+        (250, "predict_bets_250", "Minority Report de barrio", "Haz 250 predicciones.", L),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_wins", [
+        (1, "predict_wins_1", "Me lo olía", "Acierta una predicción.", C),
+        (10, "predict_wins_10", "Lo dije en el grupo", "Acierta 10 predicciones.", R),
+        (25, "predict_wins_25", "Profecía autocumplida", "Acierta 25 predicciones.", E),
+        (50, "predict_wins_50", "El Ministerio del Tiempo", "Acierta 50 predicciones.", L),
+        (100, "predict_wins_100", "Casandra, pero creída", "Acierta 100 predicciones.", L),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_losses", [
+        (10, "predict_losses_10", "Horóscopo de revista", "Falla 10 predicciones.", R),
+        (50, "predict_losses_50", "Bola de cristal empañada", "Falla 50 predicciones.", E),
+        (100, "predict_losses_100", "Encuesta del CIS", "Falla 100 predicciones.", L),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_staked", [
+        (10_000, "predict_staked_10k", "Comprar futuro",
+         "Apuesta 10.000 Y$ en total en predicciones.", C),
+        (100_000, "predict_staked_100k", "Fondo de futuros",
+         "Apuesta 100.000 Y$ en total en predicciones.", R),
+        (1_000_000, "predict_staked_1m", "Hipotecar el porvenir",
+         "Apuesta 1.000.000 Y$ en total en predicciones.", E),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_win_max", [
+        (1_000, "predict_win_1k", "Acierto con propina",
+         "Gana 1.000 Y$ netos con una sola predicción.", C),
+        (10_000, "predict_win_10k", "Visión de rayos X",
+         "Gana 10.000 Y$ netos con una sola predicción.", R),
+        (100_000, "predict_win_100k", "Visionario con cuenta corriente",
+         "Gana 100.000 Y$ netos con una sola predicción.", E),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_odds_won_max", [
+        (300, "predict_odds_3", "Pronóstico reservado", "Acierta una predicción a ×3 o más.", C),
+        (1_000, "predict_odds_10", "Batacazo en la noche electoral",
+         "Acierta una predicción a ×10 o más.", E),
+        (2_000, "predict_odds_20", "Cisne negro", "Acierta una predicción a ×20 o más.", L),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_win_streak_max", [
+        (3, "predict_streak_3", "Clarividente en serie", "Acierta 3 predicciones seguidas.", R),
+        (5, "predict_streak_5", "Quiniela de catorce", "Acierta 5 predicciones seguidas.", E),
+        (10, "predict_streak_10", "Pulpo Paul", "Acierta 10 predicciones seguidas.", L),
+    ])  # fmt: skip
+    section_names = {
+        "espana": (
+            ("predict_espana_1", "Marca España", C),
+            ("predict_espana_10", "Escrutinio de sofá", R),
+        ),
+        "mundo": (
+            ("predict_mundo_1", "Geopolítica de barra de bar", C),
+            ("predict_mundo_10", "Corresponsal en pijama", R),
+        ),
+        "economia": (
+            ("predict_economia_1", "Cripto, luego existo", C),
+            ("predict_economia_10", "Gurú de LinkedIn", R),
+        ),
+        "cultura": (
+            ("predict_cultura_1", "Spoiler del futuro", C),
+            ("predict_cultura_10", "Trending topic con antelación", R),
+        ),
+    }
+    for section in PREDICT_SECTIONS:
+        (first_id, first_name, first_rarity), (ten_id, ten_name, ten_rarity) = section_names[
+            section.key
+        ]
+        label = section.label.split(" ", 1)[1]
+        a += _tiers("predice", f"{PREDICT_SECTION_PREFIX}{section.key}", [
+            (1, first_id, first_name, f"Haz una predicción en la sección {label}.", first_rarity),
+            (10, ten_id, ten_name, f"Haz 10 predicciones en la sección {label}.", ten_rarity),
+        ])  # fmt: skip
+    a.append(
+        Achievement(
+            id="predict_all_sections",
+            name="Todólogo de tertulia",
+            description="Haz una predicción en cada sección de `predice`.",
+            category="predice",
+            rarity=R,
+            conditions=tuple(
+                (f"{PREDICT_SECTION_PREFIX}{section.key}", 1) for section in PREDICT_SECTIONS
+            ),
+        )
+    )
+    a += _tiers("predice", "predict_side_yes", [
+        (10, "predict_yes_10", "Optimista de manual", "Apuesta al Sí en 10 predicciones.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_side_no", [
+        (10, "predict_no_10", "El no por respuesta", "Apuesta al No en 10 predicciones.", R),
+    ])  # fmt: skip
+    a.append(
+        Achievement(
+            id="predict_both_sides",
+            name="Una de cal y otra de arena",
+            description="Apuesta al Sí en una predicción y al No en otra.",
+            category="predice",
+            rarity=C,
+            conditions=(("predict_side_yes", 1), ("predict_side_no", 1)),
+        )
+    )
+    a += _tiers("predice", "predict_win_no", [
+        (1, "predict_win_no", "Aguafiestas con premio", "Acierta una predicción apostando al No.",
+         C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_long", [
+        (1, "predict_long_1", "La fe mueve montañas",
+         "Apuesta a una opción que paga ×10 o más.", C),
+        (10, "predict_long_10", "Castillos en el aire",
+         "Apuesta 10 veces a opciones que pagan ×10 o más.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_safe", [
+        (1, "predict_safe_1", "Ir sobre seguro", "Apuesta a una opción que paga ×1,10 o menos.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_lost_safe", [
+        (1, "predict_lost_safe", "Lo dábamos por hecho",
+         "Falla una predicción que pagaba ×1,10 o menos.", R, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_all_in", [
+        (1, "predict_all_in", "Jugarse el porvenir", "Apuesta todo tu saldo a una predicción.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_min", [
+        (1, "predict_bet_min", "Diez yapdollars de fe",
+         f"Haz una predicción de {PREDICT_MIN_STAKE} Y$, lo mínimo.", C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_cap", [
+        (1, "predict_bet_cap", "El futuro, con techo",
+         f"Haz una predicción de {PREDICT_MAX_STAKE:,} Y$, el tope de un evento.".replace(",", "."),
+         R),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_666", [
+        (1, "predict_bet_666", "Profecía del Apocalipsis", "Haz una predicción de 666 Y$.",
+         C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_bet_69", [
+        (1, "predict_bet_69", "Pronóstico picante", "Haz una predicción de 69 Y$.", C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_early", [
+        (1, "predict_early", "Madrugar al futuro",
+         "Haz una predicción con más de 21 días de margen hasta que se cierre.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_last_hour", [
+        (1, "predict_last_hour", "Al filo de la profecía",
+         "Haz una predicción en su última hora antes de cerrarse.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_night", [
+        (1, "predict_night", "Insomnio con vistas al futuro",
+         "Haz una predicción entre las 2:00 y las 6:00.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_nochevieja", [
+        (1, "predict_nochevieja", "Las uvas del porvenir", "Haz una predicción en Nochevieja.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_canarias", [
+        (1, "predict_canarias", "Gofio y porvenir",
+         "Haz una predicción el Día de Canarias (30 de mayo).", C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_friday13", [
+        (1, "predict_friday13", "Mal fario, buena cuota", "Haz una predicción un viernes 13.",
+         C, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_refunds", [
+        (1, "predict_refunds_1", "Aquí paz y después gloria",
+         "Recupera lo apostado en una predicción anulada.", C, True),
+        (5, "predict_refunds_5", "Reembolso del destino",
+         "Recupera lo apostado en 5 predicciones anuladas.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_win_wait_days_max", [
+        (PREDICT_WAIT_DAYS, "predict_wait_14", "Más vale tarde que nunca",
+         f"Acierta una predicción que tardó {PREDICT_WAIT_DAYS} días o más en resolverse.", R),
+        (28, "predict_wait_28", "Profecía a plazo fijo",
+         "Acierta una predicción que tardó 28 días o más en resolverse.", E),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_lost_waited", [
+        (1, "predict_lost_waited", "Esperando a Godot",
+         f"Falla una predicción que tardó {PREDICT_WAIT_DAYS} días o más en resolverse.",
+         R, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_event_markets_max", [
+        (3, "predict_event_3", "Una vela a cada santo",
+         "Haz predicciones a 3 opciones distintas del mismo evento.", C),
+        (5, "predict_event_5", "Apostar a todos los caballos",
+         "Haz predicciones a 5 opciones distintas del mismo evento.", R, True),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_win_taxed", [
+        (1, "predict_win_taxed", "El futuro también tributa",
+         "Acierta una predicción y que Perro Sanxe te retenga parte del premio.", C),
+    ])  # fmt: skip
+    a += _tiers("predice", "predict_slips", [
+        (1, "predict_slips_1", "Consultar el oráculo", "Abre 🎟️ Mis predicciones.", C),
+        (25, "predict_slips_25", "Mirar el buzón cada cinco minutos",
+         "Abre 🎟️ Mis predicciones 25 veces.", R),
+    ])  # fmt: skip
+
     # 🏰 patrimonio (`perfil`), 💎 `fortunas` y 🧾 la factura de `hacienda` ------------------------
     # Mirar es una decisión: nada pasa de Raro. El patrimonio neto sí cuesta.
     a += _tiers("economy", "patrimonio_views", [
@@ -24883,6 +25096,113 @@ def sports_void_stats() -> StatDelta:
 def sports_slip_stats() -> StatDelta:
     """Ha mirado sus apuestas deportivas con 🎟️ Mis apuestas."""
     return StatDelta(add={"sports_slips": 1})
+
+
+def predict_bet_stats(
+    *,
+    stake: int,
+    odds: int,
+    side: int,
+    section: str,
+    balance_before: int,
+    lead: float,
+    when: datetime,
+    event_markets: int = 1,
+) -> StatDelta:
+    """Lo que cuenta una predicción (`predice`) al hacerla.
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota en centésimas.
+        side: 0 si apuesta al primer resultado (Sí), 1 si al segundo (No).
+        section: Sección del panel (`bot.services.predice.SECTIONS`).
+        balance_before: Saldo antes de apostar.
+        lead: Segundos que faltaban para que se cerraran las apuestas de esa pregunta.
+        when: Hora canaria de la apuesta.
+        event_markets: Preguntas distintas del mismo evento con predicción suya, contando
+            esta.
+    """
+    add = {
+        "predict_bets": 1,
+        "predict_staked": stake,
+        f"{PREDICT_SECTION_PREFIX}{section}": 1,
+        "predict_side_no" if side else "predict_side_yes": 1,
+    }
+
+    def bump(stat: str, condition: bool) -> None:
+        if condition:
+            add[stat] = 1
+
+    bump("predict_bet_long", odds >= PREDICT_LONG_ODDS)
+    bump("predict_bet_safe", odds <= PREDICT_SAFE_ODDS)
+    bump("predict_all_in", stake >= balance_before > 0)
+    bump("predict_bet_min", stake == PREDICT_MIN_STAKE)
+    bump("predict_bet_cap", stake == PREDICT_MAX_STAKE)
+    bump("predict_bet_666", stake == 666)
+    bump("predict_bet_69", stake == 69)
+    bump("predict_early", lead >= 21 * 86_400)
+    bump("predict_last_hour", lead <= 3_600)
+    bump("predict_night", 2 <= when.hour < 6)
+    bump("predict_nochevieja", (when.month, when.day) == (12, 31))
+    bump("predict_canarias", (when.month, when.day) == (5, 30))
+    bump("predict_friday13", when.weekday() == 4 and when.day == 13)
+    return StatDelta(add=add, peak={"predict_event_markets_max": event_markets})
+
+
+def predict_result_stats(
+    *,
+    stake: int,
+    odds: int,
+    side: int,
+    payout: int,
+    streak: int,
+    waited: float,
+    tax: int,
+) -> StatDelta:
+    """Lo que cuenta una predicción resuelta (sin lo común del casino).
+
+    Args:
+        stake: Lo apostado.
+        odds: Cuota en centésimas.
+        side: 0 si apostó al primer resultado (Sí), 1 si al segundo (No).
+        payout: Lo cobrado, apuesta incluida (0 si falló).
+        streak: Predicciones acertadas seguidas, contando esta (0 si ha fallado).
+        waited: Segundos entre apostar y resolverse.
+        tax: Lo que la resolución ha movido de la retención del juego (positivo si
+            retiene).
+    """
+    add = {"predict_settled": 1}
+    peak: dict[str, int] = {}
+    long_wait = waited >= PREDICT_WAIT_DAYS * 86_400
+    if payout:
+        add["predict_wins"] = 1
+        if side:
+            add["predict_win_no"] = 1
+        if tax > 0:
+            add["predict_win_taxed"] = 1
+        peak = {
+            "predict_win_max": payout - stake,
+            "predict_odds_won_max": odds,
+            "predict_win_streak_max": streak,
+            "predict_win_wait_days_max": int(waited // 86_400),
+        }
+    else:
+        add["predict_losses"] = 1
+        if odds <= PREDICT_SAFE_ODDS:
+            add["predict_lost_safe"] = 1
+        if long_wait:
+            add["predict_lost_waited"] = 1
+    return StatDelta(add=add, peak=peak)
+
+
+def predict_void_stats() -> StatDelta:
+    """Una predicción anulada (resuelta al 50 % o sin resolver a tiempo) y devuelta."""
+    return StatDelta(add={"predict_refunds": 1})
+
+
+def predict_slip_stats() -> StatDelta:
+    """Ha mirado sus predicciones con 🎟️ Mis predicciones."""
+    return StatDelta(add={"predict_slips": 1})
 
 
 def apuestas_stats(

@@ -104,6 +104,11 @@ Modelo de datos:
   cuánto, a qué cuota total y cómo acabó) y sus patas (partido, opción, cuota y cómo
   acabó cada una). Su dinero espera en el mismo depósito que las sencillas, y lo apostado
   en una combinada abierta cuenta en el tope de cada partido que toca.
+- `economy_wallets` con `user_id = PREDICT_ACCOUNT_ID`: el depósito de las predicciones
+  (`predice`). Guarda lo apostado a cada pregunta de Polymarket hasta que se resuelve.
+- `economy_predict_bets`: cada predicción (quién, a qué pregunta y opción, a qué cuota y
+  cuánto) y cómo acabó. Una por pregunta y persona, y lo de todas las preguntas de un
+  mismo evento no pasa del tope que diga quien apuesta.
 - `economy_gaming_tax`: el Impuesto sobre Actividades de Juego de cada porra
   (y, con `porra_id = 0`, la comisión de cada bote de la `timba`),
   a nombre de cada apostante (art. 48 de la Ley 13/2011), para `hacienda`.
@@ -226,6 +231,10 @@ SPORTS_ACCOUNT_ID = -900
 #: queda a su nombre (no se usa, no se luce y no cuenta en el patrimonio de nadie). No
 #: tiene monedero: compra y presta con la caja de la tienda (`SHOP_ACCOUNT_ID`).
 PAWN_ACCOUNT_ID = -1000
+
+#: `user_id` del depósito de las predicciones (`predice`): lo apostado a una pregunta de
+#: Polymarket espera aquí hasta que se resuelve (o se anula), como en `deportes`.
+PREDICT_ACCOUNT_ID = -1100
 
 #: Las cuentas de las sociedades limitadas de los negocios de `pala` (fase 3): la de un
 #: negocio es `COMPANY_ACCOUNT_BASE - id del negocio`. Negativas y lejos de las fijas y de
@@ -478,6 +487,22 @@ class SportsStakeCapError(Exception):
 
     Attributes:
         room: Lo que aún se puede apostar a ese partido.
+    """
+
+    def __init__(self, room: int) -> None:
+        super().__init__(f"Solo caben {room}")
+        self.room = room
+
+
+class PredictBetTakenError(Exception):
+    """El miembro ya tiene una predicción a esa pregunta: una por pregunta."""
+
+
+class PredictStakeCapError(Exception):
+    """La predicción pasaría el tope de lo apostado a un evento, sumando sus preguntas.
+
+    Attributes:
+        room: Lo que aún se puede apostar a ese evento.
     """
 
     def __init__(self, room: int) -> None:
@@ -784,6 +809,53 @@ class SportsBet:
 
 
 @dataclass(frozen=True, slots=True)
+class PredictBet:
+    """Una predicción de `predice`, tal y como se guarda.
+
+    Los textos se guardan en español tal y como se vieron al apostar: la pregunta puede
+    cambiar de traducción o desaparecer de Polymarket antes de resolverse.
+
+    Attributes:
+        id: Id de la fila (0 antes de guardarla).
+        channel_id: Canal donde se apostó: ahí sale el resultado.
+        event_id: Id del evento en Polymarket (el tope de lo apostado va por evento).
+        event_title: Título del evento.
+        market_id: Id del mercado en Polymarket (la pregunta que se resuelve).
+        question: La pregunta u opción apostada, como se enseñó.
+        side: Resultado elegido: 0 el primero del mercado (Sí), 1 el segundo (No).
+        side_label: Su nombre, como se enseñó («Sí», «No», «Más»…).
+        section: Sección del panel (`bot.services.predice.SECTIONS`).
+        odds: Cuota fijada al apostar, en centésimas.
+        stake: Lo apostado.
+        ends: Cuándo acaba el mercado según Polymarket (epoch): de ahí cuenta el plazo
+            para anularla si no se resuelve.
+        created_at: Cuándo se apostó (epoch).
+        status: `open`, `won`, `lost` o `void` (anulada y devuelta).
+        payout: Lo cobrado, apuesta incluida (lo devuelto si se anuló; 0 si falló).
+        settled_at: Cuándo se resolvió (epoch), o `None`.
+    """
+
+    id: int
+    guild_id: int
+    user_id: int
+    channel_id: int
+    event_id: str
+    event_title: str
+    market_id: str
+    question: str
+    side: int
+    side_label: str
+    section: str
+    odds: int
+    stake: int
+    ends: float
+    created_at: float
+    status: str = "open"
+    payout: int = 0
+    settled_at: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SportsLeg:
     """Una pata de una combinada de `deportes`: un partido y una opción.
 
@@ -901,6 +973,30 @@ def _sports_bet(row: sqlite3.Row) -> SportsBet:
         payout=int(row["payout"]),
         settled_at=None if row["settled_at"] is None else float(row["settled_at"]),
         market=str(row["market"]),
+    )
+
+
+def _predict_bet(row: sqlite3.Row) -> PredictBet:
+    """Una fila de `economy_predict_bets` como `PredictBet`."""
+    return PredictBet(
+        id=int(row["id"]),
+        guild_id=int(row["guild_id"]),
+        user_id=int(row["user_id"]),
+        channel_id=int(row["channel_id"]),
+        event_id=str(row["event_id"]),
+        event_title=str(row["event_title"]),
+        market_id=str(row["market_id"]),
+        question=str(row["question"]),
+        side=int(row["side"]),
+        side_label=str(row["side_label"]),
+        section=str(row["section"]),
+        odds=int(row["odds"]),
+        stake=int(row["stake"]),
+        ends=float(row["ends"]),
+        created_at=float(row["created_at"]),
+        status=str(row["status"]),
+        payout=int(row["payout"]),
+        settled_at=None if row["settled_at"] is None else float(row["settled_at"]),
     )
 
 
@@ -1726,6 +1822,34 @@ class EconomyRepository:
 
                 CREATE INDEX IF NOT EXISTS economy_sports_combo_legs_event
                     ON economy_sports_combo_legs (event_id);
+
+                CREATE TABLE IF NOT EXISTS economy_predict_bets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    event_id TEXT NOT NULL,
+                    event_title TEXT NOT NULL,
+                    market_id TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    side INTEGER NOT NULL CHECK (side IN (0, 1)),
+                    side_label TEXT NOT NULL,
+                    section TEXT NOT NULL,
+                    odds INTEGER NOT NULL CHECK (odds > 100),
+                    stake INTEGER NOT NULL CHECK (stake > 0),
+                    ends REAL NOT NULL,
+                    created_at REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    payout INTEGER NOT NULL DEFAULT 0,
+                    settled_at REAL,
+                    UNIQUE (guild_id, user_id, market_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS economy_predict_bets_open
+                    ON economy_predict_bets (status, ends);
+
+                CREATE INDEX IF NOT EXISTS economy_predict_bets_event
+                    ON economy_predict_bets (guild_id, user_id, event_id);
 
                 CREATE TABLE IF NOT EXISTS economy_gaming_tax (
                     guild_id INTEGER NOT NULL,
@@ -4155,6 +4279,293 @@ class EconomyRepository:
         finally:
             connection.close()
         return [_sports_bet(row) for row in rows]
+
+    # -- Predicciones (`predice`) ----------------------------------------------------
+
+    async def predict_bet(
+        self, bet: PredictBet, *, game: str, cap: int | None = None
+    ) -> tuple[PredictBet, int]:
+        """Cobra una predicción y la deja en su depósito, todo atómico.
+
+        Como `sports_bet`: el dinero sale ya del monedero, pero no entra en el día del
+        casino hasta que se resuelve (`settle_predict_bet`).
+
+        Args:
+            bet: La predicción sin guardar (`id` 0).
+            game: Prefijo de los motivos del libro (`predice:deposito`).
+            cap: Lo más que se puede apostar al evento, sumando sus preguntas (`None`,
+                sin tope).
+
+        Returns:
+            La predicción guardada, con su `id`, y el saldo de quien apuesta.
+
+        Raises:
+            PredictBetTakenError: Ya tiene una predicción a esa pregunta. No se cobra nada.
+            PredictStakeCapError: Pasaría el tope del evento. No se cobra nada.
+            InsufficientFundsError: No le llega.
+        """
+        return await self._run(self._predict_bet_sync, bet, game, cap)
+
+    def _predict_bet_sync(
+        self, bet: PredictBet, game: str, cap: int | None
+    ) -> tuple[PredictBet, int]:
+        if bet.stake <= 0 or bet.odds <= 100 or bet.side not in (0, 1):
+            raise ValueError("Predicción inválida.")
+        with self._transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT market_id, stake FROM economy_predict_bets
+                WHERE guild_id = ? AND user_id = ? AND event_id = ?
+                """,
+                (bet.guild_id, bet.user_id, bet.event_id),
+            ).fetchall()
+            if any(row["market_id"] == bet.market_id for row in rows):
+                raise PredictBetTakenError
+            taken = connection.execute(
+                """
+                SELECT 1 FROM economy_predict_bets
+                WHERE guild_id = ? AND user_id = ? AND market_id = ?
+                """,
+                (bet.guild_id, bet.user_id, bet.market_id),
+            ).fetchone()
+            if taken is not None:
+                # La misma pregunta guardada con otro evento (Polymarket la movió).
+                raise PredictBetTakenError
+            staked = sum(int(row["stake"]) for row in rows)
+            if cap is not None and staked + bet.stake > cap:
+                raise PredictStakeCapError(max(0, cap - staked))
+            balance = self._apply_in_transaction(
+                connection,
+                bet.guild_id,
+                bet.user_id,
+                (LedgerEntry(-bet.stake, f"{game}:deposito"),),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO economy_wallets (guild_id, user_id, balance)
+                VALUES (?, ?, 0)
+                """,
+                (bet.guild_id, PREDICT_ACCOUNT_ID),
+            )
+            self._apply_in_transaction(
+                connection,
+                bet.guild_id,
+                PREDICT_ACCOUNT_ID,
+                (LedgerEntry(bet.stake, f"{game}:deposito"),),
+            )
+            cursor = connection.execute(
+                """
+                INSERT INTO economy_predict_bets
+                    (guild_id, user_id, channel_id, event_id, event_title, market_id,
+                     question, side, side_label, section, odds, stake, ends, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    bet.guild_id,
+                    bet.user_id,
+                    bet.channel_id,
+                    bet.event_id,
+                    bet.event_title,
+                    bet.market_id,
+                    bet.question,
+                    bet.side,
+                    bet.side_label,
+                    bet.section,
+                    bet.odds,
+                    bet.stake,
+                    bet.ends,
+                    bet.created_at,
+                ),
+            )
+            return replace(bet, id=int(cursor.lastrowid or 0), status="open"), balance
+
+    async def settle_predict_bet(
+        self,
+        guild_id: int,
+        bet_id: int,
+        *,
+        payout: int,
+        game: str,
+        day: str,
+        now: float,
+        day_tax: Callable[[int], int],
+    ) -> tuple[PredictBet, BetSettlement] | None:
+        """Resuelve una predicción: vacía su depósito y paga, todo atómico.
+
+        Como `settle_sports_bet`: lo apostado vuelve del depósito y se juega en el día de
+        hoy junto al premio (`<juego>:apuesta` y `<juego>:premio`).
+
+        Args:
+            payout: Lo que cobra, apuesta incluida; 0 si ha fallado.
+
+        Returns:
+            La predicción resuelta y lo que ha movido en su día del casino, o `None` si ya
+            estaba resuelta (no se mueve nada).
+
+        Raises:
+            BalanceLimitError: Si el premio pasaría el saldo máximo. No se mueve nada.
+        """
+        return await self._run(
+            self._settle_predict_bet_sync, guild_id, bet_id, payout, game, day, now, day_tax
+        )
+
+    def _settle_predict_bet_sync(
+        self,
+        guild_id: int,
+        bet_id: int,
+        payout: int,
+        game: str,
+        day: str,
+        now: float,
+        day_tax: Callable[[int], int],
+    ) -> tuple[PredictBet, BetSettlement] | None:
+        if payout < 0:
+            raise ValueError("El premio no puede ser negativo.")
+        with self._transaction() as connection:
+            bet = self._open_predict_bet_in(connection, guild_id, bet_id)
+            if bet is None:
+                return None
+            self._apply_in_transaction(
+                connection,
+                guild_id,
+                PREDICT_ACCOUNT_ID,
+                (LedgerEntry(-bet.stake, f"{game}:deposito"),),
+            )
+            # Lo apostado vuelve al monedero fuera del día del casino y se juega dentro:
+            # el día solo ve la apuesta y el premio, no el depósito.
+            self._apply_in_transaction(
+                connection, guild_id, bet.user_id, (LedgerEntry(bet.stake, f"{game}:deposito"),)
+            )
+            entries = [LedgerEntry(-bet.stake, f"{game}:apuesta")]
+            if payout:
+                entries.append(LedgerEntry(payout, f"{game}:premio"))
+            result = self._settle_gamble_in(
+                connection,
+                guild_id,
+                bet.user_id,
+                entries,
+                day=day,
+                now=now,
+                adjust_tax=True,
+                day_tax=day_tax,
+            )
+            status = "won" if payout else "lost"
+            self._close_predict_bet_in(connection, bet, status, payout, now)
+            return replace(bet, status=status, payout=payout, settled_at=now), result
+
+    async def void_predict_bet(
+        self, guild_id: int, bet_id: int, *, game: str, now: float
+    ) -> tuple[PredictBet, int] | None:
+        """Anula una predicción y devuelve lo apostado, sin tocar el casino.
+
+        Returns:
+            La predicción anulada y el saldo de su dueño, o `None` si ya estaba resuelta.
+        """
+        return await self._run(self._void_predict_bet_sync, guild_id, bet_id, game, now)
+
+    def _void_predict_bet_sync(
+        self, guild_id: int, bet_id: int, game: str, now: float
+    ) -> tuple[PredictBet, int] | None:
+        with self._transaction() as connection:
+            bet = self._open_predict_bet_in(connection, guild_id, bet_id)
+            if bet is None:
+                return None
+            self._apply_in_transaction(
+                connection,
+                guild_id,
+                PREDICT_ACCOUNT_ID,
+                (LedgerEntry(-bet.stake, f"{game}:deposito"),),
+            )
+            # Dinero propio que vuelve: ni casino ni embargo (Biblia, «Embargo de la deuda»).
+            balance = self._apply_in_transaction(
+                connection,
+                guild_id,
+                bet.user_id,
+                (LedgerEntry(bet.stake, f"{game}:devolucion"),),
+            )
+            self._close_predict_bet_in(connection, bet, "void", bet.stake, now)
+            return replace(bet, status="void", payout=bet.stake, settled_at=now), balance
+
+    @staticmethod
+    def _open_predict_bet_in(
+        connection: sqlite3.Connection, guild_id: int, bet_id: int
+    ) -> PredictBet | None:
+        row = connection.execute(
+            """
+            SELECT * FROM economy_predict_bets
+            WHERE guild_id = ? AND id = ? AND status = 'open'
+            """,
+            (guild_id, bet_id),
+        ).fetchone()
+        return _predict_bet(row) if row is not None else None
+
+    @staticmethod
+    def _close_predict_bet_in(
+        connection: sqlite3.Connection, bet: PredictBet, status: str, payout: int, now: float
+    ) -> None:
+        connection.execute(
+            """
+            UPDATE economy_predict_bets SET status = ?, payout = ?, settled_at = ?
+            WHERE guild_id = ? AND id = ?
+            """,
+            (status, payout, now, bet.guild_id, bet.id),
+        )
+
+    async def open_predict_bets(self) -> list[PredictBet]:
+        """Las predicciones sin resolver de todos los servidores, por fin del mercado."""
+        return await self._run(self._open_predict_bets_sync)
+
+    def _open_predict_bets_sync(self) -> list[PredictBet]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM economy_predict_bets WHERE status = 'open' ORDER BY ends, id"
+            ).fetchall()
+        finally:
+            connection.close()
+        return [_predict_bet(row) for row in rows]
+
+    async def predict_event_bets(
+        self, guild_id: int, user_id: int, event_id: str
+    ) -> list[PredictBet]:
+        """Las predicciones de alguien a un evento, una por pregunta."""
+        return await self._run(self._predict_event_bets_sync, guild_id, user_id, event_id)
+
+    def _predict_event_bets_sync(
+        self, guild_id: int, user_id: int, event_id: str
+    ) -> list[PredictBet]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM economy_predict_bets
+                WHERE guild_id = ? AND user_id = ? AND event_id = ?
+                ORDER BY id
+                """,
+                (guild_id, user_id, event_id),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [_predict_bet(row) for row in rows]
+
+    async def predict_bets(self, guild_id: int, user_id: int, *, limit: int) -> list[PredictBet]:
+        """Las predicciones de alguien: abiertas primero y luego las últimas resueltas."""
+        return await self._run(self._predict_bets_sync, guild_id, user_id, limit)
+
+    def _predict_bets_sync(self, guild_id: int, user_id: int, limit: int) -> list[PredictBet]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM economy_predict_bets WHERE guild_id = ? AND user_id = ?
+                ORDER BY status = 'open' DESC, COALESCE(settled_at, created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (guild_id, user_id, limit),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [_predict_bet(row) for row in rows]
 
     # -- Declaración semanal -------------------------------------------------------
 
@@ -8272,6 +8683,7 @@ class EconomyRepository:
                 "economy_porra_settled",
                 "economy_sports_bets",
                 "economy_sports_combos",
+                "economy_predict_bets",
                 "economy_gaming_tax",
                 "economy_market_tax",
                 "economy_housing_tax",

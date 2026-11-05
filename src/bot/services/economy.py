@@ -56,6 +56,9 @@ from bot.repositories.economy import (
     PorraClosedError,
     PorraPayment,
     PorraSideError,
+    PredictBet,
+    PredictBetTakenError,
+    PredictStakeCapError,
     SavingsRun,
     SlotsSettlement,
     SportsBet,
@@ -169,6 +172,9 @@ __all__ = [
     "PorraPayment",
     "PorraSideError",
     "PokerSettlement",
+    "PredictBet",
+    "PredictBetTakenError",
+    "PredictStakeCapError",
     "SlotsSettlement",
     "SportsBet",
     "SportsCombo",
@@ -1015,6 +1021,93 @@ class EconomyService:
     async def sports_bets(self, guild_id: int, user_id: int, *, limit: int) -> list[SportsBet]:
         """Las apuestas de `deportes` de alguien: abiertas primero y luego las últimas."""
         return await self.repository.sports_bets(guild_id, user_id, limit=limit)
+
+    async def predict_bet(
+        self, bet: PredictBet, *, game: str, cap: int | None = None
+    ) -> tuple[PredictBet, int]:
+        """Apuesta a una pregunta de `predice`; el dinero espera en su depósito.
+
+        Tratamiento fiscal: juego, como `deportes` y el resto del casino. Es una apuesta de
+        contrapartida (art. 3.c de la Ley 13/2011: se apuesta contra el operador a una
+        cuota fijada al apostar, aquí sacada del precio de Polymarket), y su premio es
+        ganancia patrimonial de la base general (art. 33.1 LIRPF) cuyas pérdidas solo
+        compensan ganancias de juego (art. 33.5.d). Sin gravamen especial de las loterías
+        (disposición adicional 33.ª LIRPF) ni IAJ aparte: el operador es la casa del bot,
+        que no existe. Al apostar no se toca el día del casino: la ganancia o pérdida se
+        imputa cuando se sabe el resultado (art. 14.1.c LIRPF), en `settle_predict_bet`.
+
+        Args:
+            bet: La predicción sin guardar.
+            game: Prefijo de los motivos del libro.
+            cap: Lo más que se puede apostar al evento, sumando sus preguntas
+                (`bot.services.predice.MAX_STAKE`; `None`, sin tope).
+
+        Returns:
+            La predicción guardada y el saldo de quien apuesta.
+
+        Raises:
+            PredictBetTakenError: Ya tiene una predicción a esa pregunta.
+            PredictStakeCapError: Pasaría el tope del evento (`room`, lo que cabe).
+            InsufficientFundsError: No le llega.
+        """
+        return await self.repository.predict_bet(bet, game=game, cap=cap)
+
+    async def settle_predict_bet(
+        self, guild_id: int, bet_id: int, *, payout: int, game: str
+    ) -> tuple[PredictBet, BetSettlement] | None:
+        """Resuelve una predicción con su premio (0 si ha fallado).
+
+        Tratamiento fiscal: juego (ver `predict_bet`). Lo apostado y lo cobrado entran a la
+        vez en el día del casino de hoy y ajustan su retención como `settle_bet`. El premio
+        sale de la nada y lo apostado desaparece, como en el resto del casino: lo compensa
+        el margen de las cuotas (`bot.services.predice.RTP`).
+
+        Returns:
+            La predicción resuelta y lo movido en el día del casino, o `None` si ya estaba
+            resuelta.
+
+        Raises:
+            BalanceLimitError: Si el premio pasaría el saldo máximo. No se mueve nada.
+        """
+        now = self._clock()
+        return await self.repository.settle_predict_bet(
+            guild_id,
+            bet_id,
+            payout=payout,
+            game=game,
+            day=local_day(now).isoformat(),
+            now=now,
+            day_tax=gambling_day_tax,
+        )
+
+    async def void_predict_bet(
+        self, guild_id: int, bet_id: int, *, game: str
+    ) -> tuple[PredictBet, int] | None:
+        """Anula una predicción (resuelta al 50 % o sin resolver a tiempo) y la devuelve.
+
+        Tratamiento fiscal: ninguno. Es el dinero propio que vuelve sin que haya habido
+        juego, así que no entra en el casino ni se embarga.
+
+        Returns:
+            La predicción anulada y el saldo de su dueño, o `None` si ya estaba resuelta.
+        """
+        return await self.repository.void_predict_bet(
+            guild_id, bet_id, game=game, now=self._clock()
+        )
+
+    async def open_predict_bets(self) -> list[PredictBet]:
+        """Las predicciones sin resolver de todos los servidores."""
+        return await self.repository.open_predict_bets()
+
+    async def predict_event_bets(
+        self, guild_id: int, user_id: int, event_id: str
+    ) -> list[PredictBet]:
+        """Las predicciones de alguien a un evento, una por pregunta."""
+        return await self.repository.predict_event_bets(guild_id, user_id, event_id)
+
+    async def predict_bets(self, guild_id: int, user_id: int, *, limit: int) -> list[PredictBet]:
+        """Las predicciones de alguien: abiertas primero y luego las últimas resueltas."""
+        return await self.repository.predict_bets(guild_id, user_id, limit=limit)
 
     async def sports_staked(
         self, guild_id: int, user_id: int, event_ids: list[str]

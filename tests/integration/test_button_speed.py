@@ -81,6 +81,7 @@ async def load_bot(tmp_path: Path) -> BotClient:
     await client.poker.initialize()
     await client.porras.initialize()
     await client.sports.initialize()
+    await client.predice.initialize()
     await client.todo.initialize()
     await client.slots_repository.initialize()
     await client.picar.initialize()
@@ -858,6 +859,68 @@ async def press_sports_slip(client: BotClient, owner: MagicMock) -> Click:
     button = next(
         c for c in view.walk_children() if getattr(c, "custom_id", None) == "deportes:mis"
     )
+
+    async def click(interaction: MagicMock) -> None:
+        await button.callback(interaction)
+
+    return click
+
+
+def predice_panel(client: BotClient, owner: MagicMock):  # noqa: ANN201
+    """El panel de `predice` en la ficha de una pregunta, con Polymarket sustituido."""
+    import json
+    import time
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from bot.services.polymarket import parse_event
+    from bot.services.predice import build_sections
+
+    raw = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures" / "polymarket" / "elecciones.json")
+        .read_text(encoding="utf-8")
+    )  # fmt: skip
+    base = next(
+        e
+        for e in map(parse_event, raw)
+        if e is not None and e.title.startswith("Spain General Election: PP + Vox")
+    )
+    now = time.time()
+    end = now + 3 * 86_400
+    market = replace(
+        base.markets[0], end=end, game_start=None, bid=0.61, ask=0.63, prices=(0.62, 0.38)
+    )
+    event = replace(base, start=None, end=end, markets=(market,))
+    cog = client.get_cog("Predice")
+    cog.offers = build_sections({"espana": [event]}, now=now)
+    cog.offers_at = now
+    cog.client = SimpleNamespace(quote=AsyncMock(return_value=(0.61, 0.63)))
+    view = module_of(client, "Predice").PredictView(cog, owner_id=OWNER_ID, section="espana")
+    view.event_id = event.id
+    view.rebuild()
+    return view, event, market
+
+
+async def press_predice_stake(client: BotClient, owner: MagicMock) -> Click:
+    from bot.services.predice import options
+
+    view, _, market = predice_panel(client, owner)
+    option = options(market, market.mid)[0]
+    modal = module_of(client, "Predice").StakeModal(view, view.selected(), market, option)
+    modal.amount._value = "50"  # lo que Discord rellena al enviar
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.channel_id = 77
+        await modal.on_submit(interaction)
+
+    return click
+
+
+async def press_predice_slip(client: BotClient, owner: MagicMock) -> Click:
+    view, _, _ = predice_panel(client, owner)
+    view.event_id = None  # el botón está en la portada
+    view.rebuild()
+    button = next(c for c in view.walk_children() if getattr(c, "custom_id", None) == "predice:mis")
 
     async def click(interaction: MagicMock) -> None:
         await button.callback(interaction)
@@ -3091,6 +3154,8 @@ CASES: dict[str, Press] = {
     "deportes: apostar en el formulario": press_sports_stake,
     "deportes: apostar una combinada": press_sports_combo,
     "deportes: mis apuestas": press_sports_slip,
+    "predice: apostar en el formulario": press_predice_stake,
+    "predice: mis predicciones": press_predice_slip,
     "ruleta: apostar": press_roulette,
     "blackjack: repartir": press_blackjack,
     "blackjack: seguro": press_blackjack_insurance,

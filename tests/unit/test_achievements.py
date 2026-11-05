@@ -93,6 +93,7 @@ from bot.services.achievements import (
     PORRA_PROP_PREFIX,
     PORRA_PROPS,
     PORRA_STATS,
+    PREDICT_SECTION_PREFIX,
     REACT_KINDS_STAT,
     REACT_PREFIX,
     REACTED_PREFIX,
@@ -146,6 +147,10 @@ from bot.services.achievements import (
     newly_unlocked,
     pachinko_autoplay_stats,
     pachinko_stats,
+    predict_bet_stats,
+    predict_result_stats,
+    predict_slip_stats,
+    predict_void_stats,
     progress,
     roulette_stats,
     slots_autoplay_stats,
@@ -192,6 +197,7 @@ from bot.services.pets_catalog import SPECIES as PET_SPECIES
 from bot.services.picar_physics import Run as PicarRun
 from bot.services.picar_world import MINERALS as PICAR_MINERALS
 from bot.services.poker import Rank as PokerRank
+from bot.services.predice import SECTIONS as PREDICT_SECTIONS
 from bot.services.robuso import DAILY as ROBUSO_DAILY
 from bot.services.robuso import ECHOES as ROBUSO_ECHOES
 from bot.services.robuso import ROBUSO_ID
@@ -992,6 +998,16 @@ PRODUCED_STATS = {
     "sports_combo_full_win", "sports_combo_last_leg", "sports_combo_first_leg",
     "sports_combo_refunds", "sports_combo_odds_max", "sports_combo_legs_max",
     "sports_combo_win_max", "sports_combo_odds_won_max", "sports_combo_legs_won_max",
+    # 🔮 Predicciones (`predict_*_stats`; las pruebas del final comprueban cada una)
+    *(f"{PREDICT_SECTION_PREFIX}{section.key}" for section in PREDICT_SECTIONS),
+    "predict_bets", "predict_staked", "predict_side_yes", "predict_side_no",
+    "predict_bet_long", "predict_bet_safe", "predict_all_in", "predict_bet_min",
+    "predict_bet_cap", "predict_bet_666", "predict_bet_69", "predict_early",
+    "predict_last_hour", "predict_night", "predict_nochevieja", "predict_canarias",
+    "predict_friday13", "predict_event_markets_max", "predict_settled", "predict_wins",
+    "predict_losses", "predict_win_no", "predict_win_taxed", "predict_win_max",
+    "predict_odds_won_max", "predict_win_streak_max", "predict_win_wait_days_max",
+    "predict_lost_safe", "predict_lost_waited", "predict_refunds", "predict_slips",
     # 🎸 Robuso (cogs/robuso.py y los ecos de services/robuso.py; test_robuso.py las suma)
     *ROBUSO_ECHOES.values(), *ROBUSO_DAILY, f"{VOICE_WITH_PREFIX}{ROBUSO_ID}",
     "robuso_hk_new_year", "robuso_silence_max", "robuso_voice_gap_max", "robuso_hk_vc_minutes",
@@ -2505,3 +2521,109 @@ def test_la_coleccion_de_jovani_pide_todos_los_looks_de_serie() -> None:
     assert BY_ID["jovani_looks_12"].conditions == (("jovani_looks", len(BUILTIN_LOOKS)),)
     looks = {key for a in AVAILABLE for key, _ in a.conditions if key.startswith("jovani_look_")}
     assert looks == {f"jovani_look_{look.key}" for look in BUILTIN_LOOKS if look.key != "normal"}
+
+
+# -- Predicciones (`predice`) -----------------------------------------------------------
+
+
+def _predict_bet(**over: object) -> StatDelta:
+    args = {
+        "stake": 100, "odds": 200, "side": 0, "section": "espana",
+        "balance_before": 1_000, "lead": 3 * 86_400, "when": at(12),
+    }  # fmt: skip
+    return predict_bet_stats(**{**args, **over})
+
+
+def test_una_prediccion_normal_solo_cuenta_lo_basico() -> None:
+    delta = _predict_bet()
+    assert delta.add == {
+        "predict_bets": 1,
+        "predict_staked": 100,
+        f"{PREDICT_SECTION_PREFIX}espana": 1,
+        "predict_side_yes": 1,
+    }
+    assert delta.peak == {"predict_event_markets_max": 1}
+
+
+def test_una_prediccion_al_no_cuenta_el_no_y_no_el_si() -> None:
+    delta = _predict_bet(side=1, section="mundo", event_markets=3)
+    assert delta.add["predict_side_no"] == 1
+    assert "predict_side_yes" not in delta.add
+    assert delta.add[f"{PREDICT_SECTION_PREFIX}mundo"] == 1
+    assert delta.peak["predict_event_markets_max"] == 3
+
+
+@pytest.mark.parametrize(
+    ("over", "stat"),
+    [
+        ({"odds": 1_000}, "predict_bet_long"),
+        ({"odds": 110}, "predict_bet_safe"),
+        ({"stake": 1_000}, "predict_all_in"),
+        ({"stake": 10}, "predict_bet_min"),
+        ({"stake": 50_000, "balance_before": 90_000}, "predict_bet_cap"),
+        ({"stake": 666}, "predict_bet_666"),
+        ({"stake": 69}, "predict_bet_69"),
+        ({"lead": 3_600}, "predict_last_hour"),
+        ({"lead": 21 * 86_400}, "predict_early"),
+        ({"when": at(3)}, "predict_night"),
+        ({"when": at(12, month=12, day=31)}, "predict_nochevieja"),
+        ({"when": at(12, month=5, day=30)}, "predict_canarias"),
+        ({"when": at(12, month=2, day=13)}, "predict_friday13"),
+    ],
+)
+def test_las_predicciones_con_guasa_suman_su_estadistica(over: dict, stat: str) -> None:
+    assert _predict_bet(**over).add[stat] == 1
+
+
+def test_los_limites_de_las_predicciones_no_se_pasan_de_largo() -> None:
+    assert "predict_bet_long" not in _predict_bet(odds=999).add
+    assert "predict_bet_safe" not in _predict_bet(odds=111).add
+    assert "predict_last_hour" not in _predict_bet(lead=3_601).add
+    assert "predict_early" not in _predict_bet(lead=21 * 86_400 - 1).add
+    assert "predict_night" not in _predict_bet(when=at(6)).add
+    assert "predict_all_in" not in _predict_bet(stake=100, balance_before=0).add
+
+
+def _predict_result(**over: object) -> StatDelta:
+    args = {
+        "stake": 100, "odds": 200, "side": 0, "payout": 200, "streak": 1,
+        "waited": 2 * 86_400, "tax": 0,
+    }  # fmt: skip
+    return predict_result_stats(**{**args, **over})
+
+
+def test_un_acierto_de_prediccion_suma_ganancia_cuota_racha_y_espera() -> None:
+    delta = _predict_result(odds=250, payout=250, streak=3, waited=15 * 86_400)
+    assert delta.add == {"predict_settled": 1, "predict_wins": 1}
+    assert delta.peak == {
+        "predict_win_max": 150, "predict_odds_won_max": 250, "predict_win_streak_max": 3,
+        "predict_win_wait_days_max": 15,
+    }  # fmt: skip
+
+
+def test_un_acierto_al_no_y_con_retencion_cuenta_los_dos() -> None:
+    delta = _predict_result(side=1, tax=12)
+    assert delta.add["predict_win_no"] == 1
+    assert delta.add["predict_win_taxed"] == 1
+    assert "predict_win_taxed" not in _predict_result(tax=-5).add
+
+
+def test_un_fallo_de_prediccion_cuenta_el_seguro_y_la_espera_larga() -> None:
+    plain = _predict_result(payout=0)
+    assert plain.add == {"predict_settled": 1, "predict_losses": 1}
+    assert plain.peak == {}
+    safe = _predict_result(payout=0, odds=110, waited=14 * 86_400)
+    assert safe.add["predict_lost_safe"] == 1
+    assert safe.add["predict_lost_waited"] == 1
+    assert "predict_lost_waited" not in _predict_result(payout=0, waited=14 * 86_400 - 1).add
+
+
+def test_anular_o_mirar_las_predicciones_tiene_su_contador() -> None:
+    assert predict_void_stats().add == {"predict_refunds": 1}
+    assert predict_slip_stats().add == {"predict_slips": 1}
+
+
+def test_las_predicciones_tienen_logros_de_sobra_y_uno_de_cada_seis_secreto() -> None:
+    mine = [a for a in CATALOG if a.category == "predice"]
+    assert len(mine) >= 40
+    assert sum(a.secret for a in mine) >= len(mine) // 7
