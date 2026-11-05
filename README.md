@@ -316,10 +316,16 @@ python -m bot
   cucaracha cuando te quedas a cero, el gato callejero al cobrar el IMV, la
   cotorra al subir de nivel, el lagarto gigante de El Hierro el Día de
   Canarias… Puedes tener todas las que quieras; una va contigo.
-  - El panel deja acariciarla, jugar con ella y darle de comer lo que tengas
-    en la mochila (cada una tiene su comida favorita; la cabra se come
-    cualquier cosa, Modelo 100 incluido), ponerle nombre y elegir cuál te
-    acompaña. Los demás solo miran.
+  - El panel enseña un retrato dibujado de la mascota (su especie, su raza,
+    su ropa, su fondo y su cara del momento) y deja acariciarla, jugar con
+    ella, darle de comer lo que tengas en la mochila (cada una tiene su comida
+    favorita; la cabra se come cualquier cosa, Modelo 100 incluido), sacarla
+    de paseo, llevarla de visita a la mascota de otro, ponerle nombre y elegir
+    cuál te acompaña. Los demás solo miran.
+  - 👗 Vestir: 68 prendas y fondos (sombreros, gafas, collares, capas,
+    fondos de Las Canteras o del Teide…) que se ven puestos antes de
+    comprarlos. 🧬 Raza: 52 razas de pago. 📔 Álbum: fotos que se hacen
+    solas en los momentos importantes. 📸 Enseñar: el retrato, al canal.
   - Cuidar sube el vínculo, que nunca baja. Da poco a propósito: hasta +5 %
     de XP con la que llevas, trucos nuevos a nivel 3, 6 y 9, y a veces un
     regalo del colmado. No hay castigo por no cuidarla.
@@ -1446,6 +1452,9 @@ src/bot/
 │   ├── skin_images.py   # Imágenes propias de las skins: comprobar y limpiar lo que se sube
 │   ├── pets.py          # Reglas de las mascotas: vínculo, cuidados, momentos y cameos
 │   ├── pets_catalog.py  # Especies de mascota: personalidad, frases y trucos
+│   ├── pets_looks.py    # Dibujo de cada especie en el retrato y sus razas
+│   ├── pet_wardrobe.py  # Ropa y fondos del retrato de las mascotas
+│   ├── pet_scene.py     # Retrato de `mascota` con canvas: Node y, si no, Chromium
 │   ├── roulette.py      # Reglas de la ruleta americana (apuestas y pagos)
 │   ├── blackjack.py     # Reglas del blackjack (zapato, manos, banca, pagos)
 │   ├── war.py           # Reglas de la Guerra: comparar cartas, rendición, guerra y lateral

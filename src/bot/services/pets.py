@@ -30,6 +30,7 @@ y nunca dos veces seguidas en menos de `CAMEO_GAP` segundos.
 
 from __future__ import annotations
 
+import calendar
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -71,6 +72,8 @@ class Event(StrEnum):
     BUSINESS = "business"
     #: Mirar la ficha de Jovani (`jovani`).
     JOVANI = "jovani"
+    #: Hoy hace un año (o más) que la mascota activa llegó a casa.
+    PET_BIRTHDAY = "pet_birthday"
 
 
 class Mood(StrEnum):
@@ -88,6 +91,7 @@ MOOD: dict[Event, Mood] = {
     Event.ACHIEVEMENT: Mood.GOOD,
     Event.LOTTERY_WIN: Mood.GOOD,
     Event.BIRTHDAY: Mood.GOOD,
+    Event.PET_BIRTHDAY: Mood.GOOD,
     Event.LOSE: Mood.BAD,
     Event.BUST: Mood.BAD,
     Event.TAX: Mood.BAD,
@@ -95,7 +99,9 @@ MOOD: dict[Event, Mood] = {
 }
 #: Momentos en los que la mascota activa sale siempre. Subir de nivel y los
 #: logros pasan a menudo: ahí sale de vez en cuando, como en una jugada normal.
-NOTABLE: frozenset[Event] = frozenset({Event.BIG_WIN, Event.BUST, Event.LOTTERY_WIN})
+NOTABLE: frozenset[Event] = frozenset(
+    {Event.BIG_WIN, Event.BUST, Event.LOTTERY_WIN, Event.PET_BIRTHDAY}
+)
 #: Premio a partir del cual ganar es «pelotazo», aunque la apuesta fuera grande.
 BIG_WIN_MIN = 1_000
 #: Veces la apuesta que hay que ganar para que sea pelotazo.
@@ -204,6 +210,9 @@ class Care(StrEnum):
     PET = "acariciar"
     PLAY = "jugar"
     FEED = "comer"
+    WALK = "pasear"
+    #: Llevarla a casa de la mascota activa de otro miembro (suman las dos).
+    VISIT = "visitar"
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +234,8 @@ CARE_RULES: dict[Care, CareRule] = {
     Care.PET: CareRule(points=1, daily=3, cooldown=10 * 60),
     Care.PLAY: CareRule(points=2, daily=2, cooldown=60 * 60),
     Care.FEED: CareRule(points=3, daily=2, cooldown=3 * 60 * 60),
+    Care.WALK: CareRule(points=3, daily=1, cooldown=6 * 60 * 60),
+    Care.VISIT: CareRule(points=2, daily=1, cooldown=60 * 60),
 }
 #: Vínculo extra al darle su comida favorita.
 FAVOURITE_BONUS = 3
@@ -252,6 +263,8 @@ class PetState:
         today: Cuidados de ese día que han sumado vínculo, por tipo.
         last: Último cuidado de cada tipo (epoch), para las esperas.
         totals: Cuidados de cada tipo desde siempre.
+        breed: Raza que lleva (`bot.services.pets_looks`); vacío, la de serie.
+        celebrated: Último año en que se celebró su aniversario (0, nunca).
     """
 
     id: int
@@ -265,6 +278,8 @@ class PetState:
     today: dict[str, int] = field(default_factory=dict)
     last: dict[str, float] = field(default_factory=dict)
     totals: dict[str, int] = field(default_factory=dict)
+    breed: str = ""
+    celebrated: int = 0
 
     @property
     def level(self) -> int:
@@ -353,7 +368,36 @@ CARE_LINES: dict[Care, tuple[str, ...]] = {
         "«¿Con pulpa? ¡Sin pulpa!». {pet} se come {food} igual.",
         "{pet} se come {food} y pide la cuenta.",
     ),
+    Care.WALK: (
+        "{pet} da una vuelta a la manzana y vuelve con ganas de siesta.",
+        "{pet} saluda a todo el vecindario. A la del cuarto, dos veces.",
+        "{pet} se para en cada esquina. Cien metros en una hora: récord personal.",
+        "{pet} se cruza con la paloma de la Plaza Mayor. Se miran con respeto y siguen.",
+        "{pet} vuelve del paseo con una hoja enganchada y mucha dignidad.",
+        "{pet} tira de la correa hacia el guachinche. Sabe algo que tú no.",
+        "{pet} pasea por la avenida como si fuera la alfombra roja de Cannes.",
+        "{pet} encuentra un palo perfecto y no lo suelta en todo el camino.",
+        "{pet} vuelve a casa con más sueño que tú. «{sound}».",
+        "{pet} huele una farola durante diez minutos. Está leyendo el periódico del barrio.",
+    ),
+    # Lo que se dice de la visita sin nombrar a la otra (la de verdad, `VISIT_LINES`).
+    Care.VISIT: (
+        "{pet} vuelve de visita con ganas de siesta.",
+        "{pet} vuelve de visita oliendo a otra casa.",
+        "{pet} lo ha pasado bien fuera. «{sound}».",
+    ),
 }
+#: Frases de una visita: `{pet}` es la que visita y `{host}`, la de la casa.
+VISIT_LINES: tuple[str, ...] = (
+    "{pet} y {host} se olisquean, juegan un rato y acaban durmiendo la siesta en el sofá.",
+    "{pet} llega a casa de {host} y se come lo que había en su cuenco.",
+    "{pet} y {host} se pasan la tarde persiguiéndose por el pasillo.",
+    "{host} le enseña sus juguetes a {pet}. No le presta ninguno.",
+    "{pet} y {host} se miran un buen rato. Luego, como si nada.",
+    "{pet} y {host} montan una fiesta. Los vecinos llaman al presidente de la comunidad.",
+    "{pet} se queda a merendar en casa de {host}.",
+    "{host} recibe a {pet} con mucha educación.",
+)
 FAVOURITE_LINE = "{pet} pierde la cabeza con {food}: ¡su comida favorita!"
 NO_FOOD_LINE = "{pet} no come. Le dejas la comida al lado y no pasa nada. Te lo agradece igual."
 TRICK_LINE = "🎪 {pet} hace un truco: {trick}"
@@ -390,6 +434,29 @@ def care_text(
     return text
 
 
+#: Frases de una foto enseñada en el canal (`{pet}`, el nombre).
+SHOW_LINES: tuple[str, ...] = (
+    "{pet} posa sin que se lo pidan.",
+    "foto del día de {pet}.",
+    "{pet}, en su mejor ángulo.",
+    "{pet} mira a cámara como si cobrara por ello.",
+    "{pet} quiere esta foto en el grupo de la familia.",
+    "{pet} ha ensayado esta pose toda la semana.",
+    "{pet} sale bien hasta en las fotos movidas.",
+    "{pet} pide salir sin filtro.",
+)
+
+
+def show_text(rng: random.Random, *, name: str) -> str:
+    """La frase de una foto enseñada, con el nombre en negrita."""
+    return rng.choice(SHOW_LINES).format(pet=f"**{name}**")
+
+
+def visit_text(rng: random.Random, *, name: str, host: str) -> str:
+    """La frase de una visita, con los dos nombres en negrita."""
+    return rng.choice(VISIT_LINES).format(pet=f"**{name}**", host=f"**{host}**")
+
+
 def streak_after(last_day: str, streak: int, today: str) -> int:
     """Racha de días seguidos cuidando alguna mascota tras cuidar hoy.
 
@@ -416,6 +483,78 @@ def pick_gift(prices: list[int], rng: random.Random) -> int:
     """Índice del regalo que trae la mascota."""
     weights = [gift_weight(p) for p in prices]
     return rng.choices(range(len(prices)), weights=weights, k=1)[0]
+
+
+# -- Aniversario, cara del retrato y álbum ---------------------------------------------
+
+
+def anniversary_years(adopted_at: float, now: float) -> int:
+    """Años que cumple hoy en casa (0 si hoy no es su aniversario o no llega a uno).
+
+    Quien llegó un 29 de febrero lo celebra el 28 los años que no son bisiestos.
+    """
+    if adopted_at <= 0:
+        return 0
+    born = datetime.fromtimestamp(adopted_at, TIMEZONE).date()
+    today = datetime.fromtimestamp(now, TIMEZONE).date()
+    years = today.year - born.year
+    if years < 1:
+        return 0
+    month, day = born.month, born.day
+    if (month, day) == (2, 29) and not calendar.isleap(today.year):
+        day = 28
+    return years if (today.month, today.day) == (month, day) else 0
+
+
+def portrait_mood(state: PetState, now: float, *, party: bool = False, cared: bool = False) -> str:
+    """La cara del retrato (`bot.services.pet_scene.MOODS`).
+
+    De madrugada (0:00 a 6:00) duerme; en su aniversario, fiesta; recién cuidada o
+    cuidada hoy, contenta; si no, su cara de siempre. Nunca triste: descuidar no resta,
+    tampoco en el dibujo.
+
+    Args:
+        party: Si es su aniversario.
+        cared: Si se acaba de cuidar (sale contenta aunque sea de noche).
+    """
+    if party:
+        return "fiesta"
+    if cared:
+        return "contenta"
+    if datetime.fromtimestamp(now, TIMEZONE).hour < 6:
+        return "dormida"
+    if state.day == care_day(now) and any(state.today.values()):
+        return "contenta"
+    return "tranquila"
+
+
+class Photo(StrEnum):
+    """Por qué se hizo una foto del álbum. El valor es estable (base de datos y logros)."""
+
+    LEVEL = "nivel"
+    ANNIVERSARY = "aniversario"
+    DRESSED = "vestida"
+    SHOW = "foto"
+    VISIT = "visita"
+
+
+#: Niveles de vínculo que dejan foto en el álbum.
+ALBUM_LEVELS: frozenset[int] = frozenset({3, 6, 9, 10})
+#: Fotos que guarda el álbum de cada mascota; al pasar, se borra la más vieja.
+ALBUM_SIZE = 30
+
+
+def photo_caption(reason: Photo, when: float, *, level: int = 0, years: int = 0) -> str:
+    """El pie de una foto del álbum («Nivel 6 · 12/10/2026»)."""
+    date = datetime.fromtimestamp(when, TIMEZONE).strftime("%d/%m/%Y")
+    what = {
+        Photo.LEVEL: f"Nivel {level}",
+        Photo.ANNIVERSARY: f"{years} año{'s' if years != 1 else ''} en casa",
+        Photo.DRESSED: "Primer modelito",
+        Photo.SHOW: "Posado",
+        Photo.VISIT: "De visita",
+    }[reason]
+    return f"{what} · {date}"
 
 
 # -- Nombres --------------------------------------------------------------------------
@@ -453,6 +592,12 @@ CAMEO_GAP = 45
 #: Frases de cualquier especie para cada momento. `{pet}` es el nombre y
 #: `{sound}`, el ruido que hace la especie.
 GENERIC_LINES: dict[Event, tuple[str, ...]] = {
+    Event.PET_BIRTHDAY: (
+        "🎂 Hoy hace un año más que {pet} llegó a casa. Le toca tarta.",
+        "🎂 {pet} cumple aniversario contigo. Lo celebra a su manera: {sound}.",
+        "🎂 Aniversario de {pet} en casa. Ni {collector} le quita la fiesta.",
+        "🎂 {pet} lleva un año más aguantándote. Eso merece una foto.",
+    ),
     Event.BUST: (
         "{pet} mira tu saldo, te mira a ti y se va a buscar un dueño con IMV.",
         "{pet} se tumba encima de tu cartera vacía. Al menos está calentita.",

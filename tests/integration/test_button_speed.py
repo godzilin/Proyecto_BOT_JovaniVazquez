@@ -18,6 +18,7 @@ from __future__ import annotations
 import itertools
 import sqlite3
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import ModuleType
@@ -1399,6 +1400,114 @@ async def press_pets_food_shop(client: BotClient, owner: MagicMock) -> Click:
 
     async def click(interaction: MagicMock) -> None:
         await callback(interaction)
+
+    return click
+
+
+async def pets_panel(client: BotClient, owner: MagicMock, *keys: str) -> object:
+    """Panel de `mascota` con un gato (y lo que pida `keys` de la tienda) en la mochila."""
+    await client.pets.initialize()
+    tienda = client.get_cog("Tienda")
+    await tienda.stock_up(GUILD_ID)
+    for key in ("mascota_gato", *keys):
+        item = await client.shop.item_by_key(GUILD_ID, key)
+        await client.shop.grant(GUILD_ID, owner.id, item, time.time())
+    return await client.get_cog("Mascotas").panel(owner.guild, owner, owner)
+
+
+async def press_pets_walk(client: BotClient, owner: MagicMock) -> Click:
+    from bot.services.pets import Care
+
+    panel = await pets_panel(client, owner)
+    callback = panel._care(Care.WALK)
+
+    async def click(interaction: MagicMock) -> None:
+        await callback(interaction)
+
+    return click
+
+
+def _pets_goto(mode_name: str) -> Press:
+    async def press(client: BotClient, owner: MagicMock) -> Click:
+        from bot.cogs.pets import Mode
+
+        panel = await pets_panel(client, owner, "ropa_chistera")
+        callback = panel._goto(Mode(mode_name))
+
+        async def click(interaction: MagicMock) -> None:
+            await callback(interaction)
+
+        return click
+
+    return press
+
+
+async def press_pets_dress(client: BotClient, owner: MagicMock) -> Click:
+    from bot.services.pet_wardrobe import Slot
+
+    panel = await pets_panel(client, owner, "ropa_chistera")
+    cog = client.get_cog("Mascotas")
+
+    async def click(interaction: MagicMock) -> None:
+        await cog.dress(interaction, panel, Slot.HEAD, "chistera")
+
+    return click
+
+
+async def press_pets_try_on(client: BotClient, owner: MagicMock) -> Click:
+    """Elegir una prenda que no se tiene: abre su caja (tienda) y la enseña puesta."""
+    from bot.services.pet_wardrobe import Slot
+
+    panel = await pets_panel(client, owner)
+    cog = client.get_cog("Mascotas")
+
+    async def click(interaction: MagicMock) -> None:
+        await cog.dress(interaction, panel, Slot.HEAD, "comprar:gorra")
+
+    return click
+
+
+async def press_pets_pay(client: BotClient, owner: MagicMock) -> Click:
+    panel = await pets_panel(client, owner)
+    await client.economy.grant(GUILD_ID, owner.id, amount=10_000, reason="prueba")
+    cog = client.get_cog("Mascotas")
+    opener = fake_interaction(owner)
+    opener.guild = owner.guild
+    opener.channel = MagicMock()
+    await cog.choose_breed(opener, panel, "comprar:siames")
+    assert panel.checkout is not None
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.guild = owner.guild
+        await panel._pay(interaction)
+
+    return click
+
+
+async def press_pets_show(client: BotClient, owner: MagicMock) -> Click:
+    panel = await pets_panel(client, owner)
+
+    async def click(interaction: MagicMock) -> None:
+        await panel._show(interaction)
+
+    return click
+
+
+async def press_pets_visit(client: BotClient, owner: MagicMock) -> Click:
+    from bot.cogs.pets import VisitPicker
+
+    panel = await pets_panel(client, owner)
+    cog = client.get_cog("Mascotas")
+    host = MagicMock(spec=discord.Member)
+    host.id, host.bot, host.display_name, host.mention = 11, False, "Ana", "<@11>"
+    item = await client.shop.item_by_key(GUILD_ID, "mascota_perro")
+    await client.shop.grant(GUILD_ID, host.id, item, time.time())
+    await cog.adopted(GUILD_ID, host, None, item)
+    picker = VisitPicker(cog, panel)
+    picker.select._values = [host]  # type: ignore[attr-defined]
+
+    async def click(interaction: MagicMock) -> None:
+        await picker._picked(interaction)
 
     return click
 
@@ -3175,6 +3284,15 @@ CASES: dict[str, Press] = {
     "pala: dar un regalo": press_pala_gift,
     "pala: ir a los regalos de la tienda": press_pala_gift_shop,
     "mascota: atajo a la comida de la tienda": press_pets_food_shop,
+    "mascota: pasear": press_pets_walk,
+    "mascota: abrir el armario": _pets_goto("armario"),
+    "mascota: abrir las razas": _pets_goto("raza"),
+    "mascota: abrir el álbum": _pets_goto("album"),
+    "mascota: ponerle una prenda": press_pets_dress,
+    "mascota: probarse una prenda de la tienda": press_pets_try_on,
+    "mascota: comprar y poner una raza": press_pets_pay,
+    "mascota: enseñar la foto": press_pets_show,
+    "mascota: elegir a quién visitar": press_pets_visit,
     "pala: caja de un regalo": press_pala_buy_gift,
     "pala: comprar y dar un regalo": press_pala_pay_gift,
     "pala: excusa familiar": press_pala_dodge,
