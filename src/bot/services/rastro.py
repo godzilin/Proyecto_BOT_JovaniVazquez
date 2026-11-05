@@ -17,7 +17,9 @@ Qué se vende (`untradeable`): los coleccionables (`objeto`), títulos incluidos
 los tapetes de las mesas con fieltro. No se venden las mascotas (tienen vínculo y
 se adoptan), los roles ni los potenciadores, ni las skins que no son tapetes, ni
 las que se ganan con un logro o son de todos (venderlas sería vender el logro), ni
-las de imagen propia (llevan la foto de su dueño).
+las de imagen propia (llevan la foto de su dueño). La ropa de las mascotas se vende
+como cualquier coleccionable, salvo la que regala un logro; las razas no, que van con
+la mascota.
 
 **Para no tener sin ganárselo lo que pide esfuerzo,** quien compra tiene que poder
 comprarlo en la tienda: el nivel mínimo y el límite por persona del artículo se le
@@ -59,6 +61,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from bot.services.pet_wardrobe import outfit_of
+from bot.services.pets_looks import is_breed
 from bot.services.shop import MAX_PRICE, Kind, parse_price
 from bot.services.skins import GAMES, TAPETE, Skin, skin_of_item
 from bot.services.taxes import capital_gain_tax, itp
@@ -94,6 +98,11 @@ def untradeable(kind: Kind, catalog_key: str | None) -> str | None:
     """Por qué no se puede vender un objeto de la mochila, o `None` si se puede."""
     if kind is not Kind.TROPHY:
         return "En el Rastro solo se venden coleccionables y tapetes."
+    if is_breed(catalog_key):
+        return "La raza va con la mascota: no se vende."
+    outfit = outfit_of(catalog_key)
+    if outfit is not None and outfit.achievement is not None:
+        return "Esa prenda se gana, no se compra: venderla sería vender el logro."
     skin = skin_of_item(catalog_key)
     if skin is None:
         return None

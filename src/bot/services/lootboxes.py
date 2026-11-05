@@ -8,10 +8,12 @@ venden en sus meses, como las skins con `season`. La caja botín de siempre
 
 **Qué sale.** Piezas de colección (`Piece`): coleccionables de existencias ilimitadas
 que solo se consiguen en cajas. Están repartidas en colecciones (`COLLECTIONS`):
-ocho normales de 8 piezas y tres de temporada de 6, con rareza Común, Rara,
+nueve normales de 8 piezas y tres de temporada de 6, con rareza Común, Rara,
 Épica, Legendaria y Mítica (`Rarity`). Una pieza es un artículo `Kind.TROPHY`
 oculto en el escaparate, como las skins de logro, y su precio de catálogo es su
-valor: el de referencia en el Rastro y el del patrimonio. Además, el maletín y el
+valor: el de referencia en el Rastro y el del patrimonio. Las piezas del 👗 Armario de
+mascota son además ropa que se pone a las mascotas (`bot.services.pet_wardrobe`, las
+prendas con `box`): sus filas salen de allí. Además, el maletín y el
 cofre dan con probabilidad muy baja un **tapete** de los que se compran en la tienda
 (`tapetes_for`); si quien abre ya lo tiene (uno por persona), se vuelve a sortear
 entre los coleccionables.
@@ -41,6 +43,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
 
+from bot.services.pet_wardrobe import BOX_COLLECTION, BOX_OUTFITS
 from bot.services.skins import SKINS, Season, Skin
 
 
@@ -443,6 +446,18 @@ COLLECTIONS: tuple[Collection, ...] = (
     ), Season("Aniversario", frozenset({10}))),
 )
 # fmt: on
+
+#: El Armario de mascota: sus piezas son las prendas de caja del armario de las mascotas,
+#: con los precios de las demás colecciones por rareza (el retorno de las cajas no cambia).
+COLLECTIONS += (
+    _collection(
+        BOX_COLLECTION,
+        "👗",
+        "Armario de mascota",
+        "animales",
+        tuple((o.key, o.emoji, o.name, o.description, o.box or "C", o.price) for o in BOX_OUTFITS),
+    ),
+)
 
 PIECES: tuple[Piece, ...] = tuple(p for c in COLLECTIONS for p in c.pieces)
 PIECE_BY_KEY: dict[str, Piece] = {p.key: p for p in PIECES}

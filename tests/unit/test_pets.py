@@ -20,6 +20,7 @@ import discord
 import pytest
 from discord import ui
 from interaction_fakes import fake_interaction
+from render_fakes import FakePetScene
 
 from bot.cogs.pets import FoodPicker, Mascotas, PetPanel
 from bot.repositories.economy import EconomyRepository
@@ -398,7 +399,7 @@ async def make_cog(tmp_path: Path, clock: Clock, rng: random.Random | None = Non
     await shop.stock_catalog(GUILD, CATALOG, NOW)
     bot = MagicMock()
     bot.get_cog.return_value = None  # sin logros en estas pruebas
-    cog = Mascotas(bot, pets, shop, clock=clock, rng=rng or random.Random(3))
+    cog = Mascotas(bot, pets, shop, clock=clock, rng=rng or random.Random(3), scene=FakePetScene())
     await cog.cog_load()
     return cog, economy
 

@@ -51,7 +51,9 @@ from bot.services.lootboxes import (
     is_piece,
     tapetes_for,
 )
+from bot.services.pet_wardrobe import outfit_of
 from bot.services.pets_catalog import SPECIES, species_of
+from bot.services.pets_looks import is_breed
 from bot.services.porras import BINOCULARS_KEY, NOTEBOOK_KEY
 from bot.services.rueda_catalog import PIECES as WHEEL_PIECES
 from bot.services.rueda_catalog import TITLES as WHEEL_TITLES
@@ -148,10 +150,16 @@ def test_surtido_cabe_en_los_limites_de_la_tienda() -> None:
             assert not entry.visible and entry.kind is Kind.TROPHY and entry.use is None
         elif entry.key in RETIRED_ITEMS:
             assert not entry.visible, "lo que ya no se vende se siembra oculto"
+        elif (outfit := outfit_of(entry.key)) is not None:
+            # La ropa de mascota de logro no se vende: va oculta.
+            assert entry.visible is outfit.for_sale, entry.key
+        elif is_breed(entry.key):
+            # Las razas se compran desde el panel de la mascota, no en el escaparate.
+            assert not entry.visible and entry.per_user == 1, entry.key
         else:
             assert entry.visible, (
-                "solo mascotas, skins, piezas, regalos de ONG, lo de la Rueda y lo retirado "
-                "van ocultos"
+                "solo mascotas, skins, piezas, regalos de ONG, ropa de logro, razas, lo de la "
+                "Rueda y lo retirado van ocultos"
             )
         if entry.food:
             assert entry.kind is Kind.TROPHY, entry.key
@@ -657,7 +665,9 @@ async def test_escaparate_se_llena_solo_y_cabe_en_cada_pestana_y_pasillo(tmp_pat
     view.prefs.tab, view.prefs.aisle = "uso", None
     assert {use_of(i.catalog_key) is not None for i in view.shown} == {True}
     view.prefs.tab = "mascota"
-    assert view.shown and {i.kind for i in view.shown} == {Kind.PET}
+    # Las mascotas y su ropa (la ropa es un objeto, pero se busca con ellas).
+    assert view.shown and {i.kind for i in view.shown} <= {Kind.PET, Kind.TROPHY}
+    assert all(i.kind is Kind.PET or outfit_of(i.catalog_key) for i in view.shown)
 
 
 async def test_pasillo_desde_el_desplegable(tmp_path: Path) -> None:

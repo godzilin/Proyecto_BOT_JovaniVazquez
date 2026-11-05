@@ -238,6 +238,12 @@ PRODUCED_STATS = {
     "rueda_midnight", "rueda_lastminute", "rueda_night", "rueda_nochevieja", "rueda_canarias",
     "rueda_viernes13", "rueda_inocentes", "rueda_hamster",
     *(f"rueda_prize_{p.key}" for p in RUEDA_PRIZES),
+    # 👗 Armario, razas, fotos, paseos y visitas de las mascotas (`pet_*_stats` de la 9.43)
+    "pet_dressed", "pet_outfits_owned", "pet_full_look", "pet_dress_cucaracha",
+    "pet_dress_cabra_corona", "pet_dress_piedra_chistera", "pet_dress_pulpo_gafas",
+    "pet_dress_gato_parche", "pet_dress_canarias", "pet_dress_theme", "pet_breeds_owned",
+    "pet_breed_changes", "pet_breed_rock", "pet_shows", "pet_shows_dressed", "pet_shows_night",
+    "pet_photos", "pet_walked", "pet_visits", "pet_hosted", "pet_years",
     # 🏪 Negocio propio de pala (`business_stats` y las acciones del negocio)
     "biz_opened", "biz_turns", "biz_turns_cafeteria", "biz_turns_tienda", "biz_turns_taller",
     "biz_sales", "biz_tips", "biz_best_turn", "biz_clients_turn_max", "biz_stars_max",
