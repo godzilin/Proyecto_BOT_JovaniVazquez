@@ -21807,6 +21807,12 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1000, "staff_kept_1000", "Ni un yogur caducado",
          "Que tus mozos de almacén salven 1.000 unidades de lo perecedero.", E),
     ])  # fmt: skip
+    a += _tiers("negocio", "staff_fresh_restocks", [
+        (1, "staff_fresh_1", "Pan de hoy para mañana",
+         "Que tu mozo de almacén reponga lo fresco una noche.", C),
+        (30, "staff_fresh_30", "La cadena del frío humana",
+         "Que tu mozo de almacén reponga lo fresco 30 noches.", E),
+    ])  # fmt: skip
     a += _tiers("negocio", "staff_social_nights", [
         (1, "staff_social_1", "Primer post, primer like",
          "Que tu community manager publique un día entero.", C),
@@ -28812,6 +28818,7 @@ def staff_night_stats(run: NightRun) -> StatDelta:
                 "staff_social_nights": int("redes" in run.support),
                 "staff_hr_nights": int("rrhh" in run.support),
                 "staff_kept_units": run.kept,
+                "staff_fresh_restocks": int("fresco" in run.manager),
             }
         )
     )

@@ -273,6 +273,7 @@ PRODUCED_STATS = {
     "staff_refused_less", "staff_led_turns", "staff_deliveries", "staff_delivery_sales",
     "staff_clean_nights", "staff_stock_nights", "staff_social_nights", "staff_hr_nights",
     "staff_kept_units", "staff_hired_redes_taller", "staff_hired_rider_helados",
+    "staff_fresh_restocks",
     # Las cadenas (fase 5): locales, nave, importar, gerentes y vender la sociedad.
     "biz_locales_max", "biz_chain_sectors_max", "biz_chain_islands_max", "biz_chain_brand_max",
     "biz_nave_size_max", "biz_nave_fill_max", "biz_managers_max", "biz_sale_price_max",

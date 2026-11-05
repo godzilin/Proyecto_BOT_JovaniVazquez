@@ -3693,10 +3693,13 @@ class BusinessService:
           nave de su isla primero y luego del mayorista, con lo que haya en la caja (como una
           compra del dueño: IGIC al Estado y gasto de la actividad).
         - **Cubrir las bajas** (`Business.vacancies`): a quien se fue o acabó su contrato le
-          sustituye el mejor candidato del día siguiente, indefinido y con lo que pide.
+          sustituye el mejor candidato del día siguiente, con su puesto y su horario,
+          indefinido y con lo que pide.
+        - **Sin gerente** (o si falta), el mozo de almacén que ha venido repone solo lo
+          perecedero, para un día (`business_staff.FRESH_DAYS`), del mayorista (9.41.0).
 
         Returns:
-            Lo que hizo: `repuso`, `nave`, `contrato` o `falta`.
+            Lo que hizo: `repuso`, `nave`, `contrato`, `falta` o, el mozo, `fresco`.
         """
         events: list[str] = []
         next_day = day + timedelta(days=1)
@@ -3706,25 +3709,37 @@ class BusinessService:
 
         def prepare(connection: sqlite3.Connection) -> tuple[Business | None, BusinessMove]:
             business = self.repository.business_in(connection, guild_id, user_id, biz)
-            boss = staff.manager(business) if business is not None else None
-            if business is None or boss is None or boss["start"] > day.isoformat():
+            if business is None:
                 return None, BusinessMove(user_id=user_id)
-            if boss["absent_day"] == day.isoformat():
+            boss = staff.manager(business)
+            if boss is not None and boss["start"] > day.isoformat():
+                boss = None
+            if boss is not None and boss["absent_day"] == day.isoformat():
                 events.append("falta")
+                boss = None
+            mozo = staff.holder(business, "reponedor")
+            fresh = boss is None and mozo is not None and staff.present(mozo, day)
+            if boss is None and not fresh:
                 return None, BusinessMove(user_id=user_id)
-            name = boss["name"].split()[0]
+            worker = boss if boss is not None else mozo
+            assert worker is not None
+            name = worker["name"].split()[0]
             account = _account(business)
             row = connection.execute(
                 "SELECT balance FROM economy_wallets WHERE guild_id = ? AND user_id = ?",
                 (guild_id, account if account is not None else user_id),
             ).fetchone()
             budget = int(row[0]) if row else 0
-            nave = self.repository.nave_in(connection, guild_id, user_id)
+            nave = self.repository.nave_in(connection, guild_id, user_id) if not fresh else None
             near = nave if nave is not None and nave.island == business.barrio_info.island else None
+            products = business.sector_info.products
+            if fresh:
+                products = tuple(p for p in products if p.spoil)
             plan = chain.restock(
-                business.stock, business.sector_info.products, business.sold_on(day),
+                business.stock, products, business.sold_on(day),
                 near.stock if near is not None else None, budget,
                 price=lambda p, units: sum(wholesale(p, units)),
+                days=staff.FRESH_DAYS if fresh else chain.RESTOCK_DAYS,
             )  # fmt: skip
             payments: list[BusinessCost] = []
             brought = bought = 0
@@ -3751,7 +3766,17 @@ class BusinessService:
                 self.repository.save_nave_in(connection, guild_id, near)
                 events.append("nave")
             if payments:
-                events.append("repuso")
+                events.append("fresco" if fresh else "repuso")
+            if fresh:
+                if bought:
+                    business.tell(
+                        f"📦 {name} ha repuesto lo fresco para mañana: {bought} unidades del "
+                        "mayorista."
+                    )
+                self.repository.save_in(connection, guild_id, business)
+                return business, BusinessMove(
+                    user_id=user_id, payments=tuple(payments), account=account
+                )
             if brought or bought:
                 business.tell(
                     f"🧑‍💼 {name} ha repuesto el almacén: "
@@ -3814,7 +3839,7 @@ class BusinessService:
         except InsufficientFundsError:
             # Entre que miró la caja y que pagó, alguien la vació: lo intenta la noche que viene.
             logger.info("El gerente del negocio %s no pudo pagar la reposición", biz)
-            return [e for e in events if e not in ("repuso", "nave", "contrato")]
+            return [e for e in events if e not in ("repuso", "nave", "contrato", "fresco")]
         return events
 
     async def sale_offer(

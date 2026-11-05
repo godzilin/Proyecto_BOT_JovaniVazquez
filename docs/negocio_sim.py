@@ -18,6 +18,7 @@ Uso, desde la raíz del repo (`PYTHONIOENCODING=utf-8` en la consola de Windows)
     python docs/negocio_sim.py --sociedad    # autónomo o sociedad limitada (fase 3)
     python docs/negocio_sim.py --plantilla   # empleados (fase 4)
     python docs/negocio_sim.py --cadena      # importar con nave, el gerente y vender (fase 5)
+    python docs/negocio_sim.py --puestos     # horarios y puestos de la plantilla (9.41.0)
 
 Con `--fase2`, un jugador `bueno` en el barrio del medio de cada sector, con el cupo del
 barrio (`daily_pool`) y la amortización en el IRPF: lo que suma al día cada mejora, cada
@@ -36,6 +37,13 @@ Con `--cadena`, el barrio del medio de cada sector con el cupo: lo que gasta al 
 local en el mayorista, lo que se ahorraría importándolo (`business_chain.import_quote`, solo
 lo que no caduca), cuántos locales de ese sector pagan una nave pequeña en un barrio obrero,
 lo que cuesta un gerente y lo que pagaría un comprador por una cadena así (art. 37.1.b LIRPF).
+
+Con `--puestos`, el barrio del medio de cada sector con el cupo: el mejor horario para un
+empleado solo (de los 21 de `business_staff.HORARIOS`) y lo que suma o resta cada puesto nuevo
+(encargado de turno, repartidor, limpieza, mozo de almacén, community manager y recursos
+humanos) a dos plantillas (el dueño a 4 turnos con un dependiente de tarde, y dos dependientes
+de mañana y de tarde), con el humor medio al final. El simulador repone el stock como el
+jugador, así que del mozo de almacén solo mide la merma que salva, no su reposición.
 
 Jugadores: `perfecto` (todo bien y rápido), `bueno` (falla 1 de cada 8 clientes) y
 `flojo` (falla 1 de cada 3). Dedicación: 4 turnos al día (con curro a jornada completa) u
@@ -64,6 +72,7 @@ from bot.services.business import (  # noqa: E402
     Business,
     add_asset,
     amortize,
+    boost,
     daily_pool,
     drift,
     nightly_bill,
@@ -173,6 +182,8 @@ class Run:
     payback: float
     #: Unidades que gasta al día cada producto (media de los días 15 al final).
     units_day: dict[str, float] | None = None
+    #: El humor medio de la plantilla al final (`nan` sin plantilla).
+    humor: float = float("nan")
 
 
 #: El día 0 de la simulación (un lunes), para las campañas.
@@ -199,6 +210,8 @@ def simulate(
     """
     rng = random.Random(seed)
     business = Business(1, sector.key, barrio.key, "Sim", seed=seed, size=size)
+    # La plantilla va en el negocio: de ahí leen sus efectos (`business_staff.support`).
+    business.staff = list(staff)
     quote = opening_quote(sector, barrio, SIZES[size])
     setup_asset(business, quote.setup + quote.setup_igic)
     invested = 0
@@ -224,17 +237,32 @@ def simulate(
             business.campaign_until = (today + timedelta(days=item.days - 1)).isoformat()
             spent += item.cost + igic(item.cost)
         left = daily_pool(sector, barrio) * pool_factor(business, today) if pool else math.inf
+        away_left = (
+            daily_pool(sector, barrio) * staff_rules.DELIVERY_POOL * (1 + boost(business, today))
+            if pool
+            else math.inf
+        )
         used: dict[str, int] = {}
         sales = 0
+        iso = today.isoformat()
         shifts: list[tuple[int, dict | None, int]] = [(h, None, -1) for h in HOURS.get(turns, ())]
         for emp in staff:
-            if not staff_rules.absent(emp, seed, today):
+            if staff_rules.absent(emp, seed, today):
+                emp["absent_day"] = iso
+            elif staff_rules.plays(emp):
                 shifts += [(staff_rules.demand_hour(f), emp, f) for f in staff_rules.franjas(emp)]
+        helped = staff_rules.support(business, today)
         grades: dict[int, list[str]] = {}
         for hour, emp, franja in sorted(shifts, key=lambda s: s[0]):
-            count = min(turn_clients(business, hour, rng.random(), today), math.floor(left))
-            left -= count
-            clients = make_clients(business, count, rng.randrange(2**31))
+            away = emp is not None and staff_rules.role_of(emp).plays == "reparto"
+            count = turn_clients(business, hour, rng.random(), today)
+            if away:
+                count = min(max(1, round(count * staff_rules.DELIVERY_TURN)), math.floor(away_left))
+                away_left -= count
+            else:
+                count = min(count, math.floor(left))
+                left -= count
+            clients = make_clients(business, count, rng.randrange(2**31), thieves=not away)
             if not clients:
                 continue
             if emp is None:
@@ -243,9 +271,25 @@ def simulate(
                 while not game.finished(now):
                     now = play_client(game, now, rng, miss)
             else:
+                boss = next(
+                    (
+                        e
+                        for e in staff
+                        if e.get("role") == "encargado"
+                        and franja in staff_rules.franjas(e)
+                        and e["absent_day"] != iso
+                    ),
+                    None,
+                )
+                led = boss is not None and boss is not emp and not away
                 start = (day * 24 + hour) * 3600.0
-                game = staff_rules.play_turn(business, emp, clients, start=start, franja=franja)
-                staff_rules.learn(emp)
+                game = staff_rules.play_turn(
+                    business, emp, clients, start=start, franja=franja,
+                    lead=staff_rules.lead(boss) if led and boss is not None else 0.0,
+                )  # fmt: skip
+                staff_rules.learn(emp, boost=helped.learn)
+                if led:
+                    emp["led_day"] = iso
             summary = game.summary()
             if emp is not None:
                 grades.setdefault(emp["id"], []).append(summary.grade)
@@ -260,15 +304,21 @@ def simulate(
             sales += summary.sales
         need = {k: 0.7 * need.get(k, 0) + 0.3 * used.get(k, 0) for k in need}
         bill = nightly_bill(business).total
-        spoil(business)
+        spoil(business, helped.keep)
         if turns == 0:
             drift(business)
+        business.reputation = min(REPUTATION_MAX, business.reputation + helped.reputation)
+        business.support = {"clients": helped.clients, "patience": helped.patience}
         fee = (FLAT_RATE_FEE if day < 7 else SELF_EMPLOYED_FEE) if day % 7 == 0 else 0
         payroll = 0
         for emp in staff:
-            docked = staff_rules.absent(emp, seed, today)
+            docked = emp["absent_day"] == iso
             payroll += staff_rules.payslip(emp, sector.key, today, docked=docked).cost
-            staff_rules.night_mood(emp, paid=True, grades=grades.get(emp["id"], []))
+            staff_rules.night_mood(
+                emp, paid=True, grades=grades.get(emp["id"], []),
+                shield=0.0 if emp.get("role") == "rrhh" else helped.shield,
+                led=emp.get("led_day") == iso,
+            )  # fmt: skip
             emp["nights"] += 1
         day_net = sales - spent - bill - fee - payroll
         week_net += day_net - amortize(business)  # la amortización baja la base, no la caja
@@ -289,6 +339,7 @@ def simulate(
         opening=quote.total,
         payback=payback,
         units_day={k: v / max(1, len(nets)) for k, v in spent_units.items()},
+        humor=sum(e["humor"] for e in staff) / len(staff) if staff else float("nan"),
     )
 
 
@@ -400,18 +451,101 @@ def society(profits: tuple[int, ...]) -> None:
         )
 
 
-def hire(level: float, shift: str, seq: int, jornada: int = 4) -> dict:
-    """Un empleado de prueba con las tres habilidades a `level`, sin rasgos, indefinido."""
+def hire(
+    level: float, shift: str, seq: int, jornada: int = 4, *, role: str = "", horario: str = ""
+) -> dict:
+    """Un empleado de prueba con las tres habilidades a `level`, sin rasgos, indefinido.
+
+    Con `horario` (una clave de `business_staff.HORARIOS`) manda sobre `shift` y `jornada`;
+    `role` es su puesto, y cobra lo que pide en él (`business_staff.role_ask`).
+    """
     skills = dict.fromkeys(staff_rules.SKILLS, level)
     candidate = {
         "key": seq, "name": f"E{seq}", "age": 30, "profile": "general", "traits": [],
         "skills": skills,
     }  # fmt: skip
-    wage = staff_rules.ask(skills, (), jornada)
+    franjas = staff_rules.HORARIO_BY_KEY[horario].franjas if horario else None
+    if franjas is not None:
+        jornada = len(franjas)
+    wage = staff_rules.role_ask(skills, (), jornada, role)
     return staff_rules.new_employee(
         candidate, seq=seq, contract="indefinido", jornada=jornada, shift=shift, wage=wage,
-        start=DAY0,
+        start=DAY0, role=role, franjas=franjas,
     )  # fmt: skip
+
+
+def puestos(days: int) -> None:
+    """El mejor horario de cada sector y lo que suma cada puesto nuevo (9.41.0)."""
+
+    def team_run(
+        sector: Sector, barrio: Barrio, specs: list[tuple[str, str]], turns: int = 0
+    ) -> Run:
+        runs = []
+        for seed in SEEDS:
+            team = tuple(
+                hire(50, "manana", i + 1, role=role, horario=key)
+                for i, (role, key) in enumerate(specs)
+            )
+            runs.append(
+                simulate(sector, barrio, turns, PLAYERS["bueno"], days, seed, pool=True, staff=team)
+            )
+        return Run(
+            net_day=sum(r.net_day for r in runs) / len(runs),
+            stars=sum(r.stars for r in runs) / len(runs),
+            opening=runs[0].opening,
+            payback=float("nan"),
+            humor=sum(r.humor for r in runs) / len(runs),
+        )
+
+    print("Un empleado solo (todo a 50): los tres mejores horarios y la completa de mañana")
+    for sector in SECTORS:
+        barrio = barrios_for(sector)[1]
+        rows = sorted(
+            ((team_run(sector, barrio, [("", h.key)]), h) for h in staff_rules.HORARIOS),
+            key=lambda r: -r[0].net_day,
+        )
+        top = ", ".join(f"{h.label} {run.net_day:,.0f}" for run, h in rows[:3])
+        morning = next(run for run, h in rows if h.key == "0123")
+        print(f"  {sector.key:<10} {top} · completa de mañana {morning.net_day:,.0f}"
+              .replace(",", "."))  # fmt: skip
+    print()
+    extras: list[tuple[str, list[tuple[str, str]]]] = [
+        ("dependiente partida", [("", "1256")]),
+        ("repartidor media tarde", [("repartidor", "45")]),
+        ("repartidor de tarde", [("repartidor", "4567")]),
+        ("limpieza media", [("limpieza", "67")]),
+        ("mozo de almacén media", [("reponedor", "01")]),
+        ("community manager media", [("redes", "23")]),
+        ("community manager completa", [("redes", "0123")]),
+        ("recursos humanos media", [("rrhh", "23")]),
+    ]
+    print("Encargado en vez de un dependiente (tres a jornada completa: 8-16, 10-18 y 16-24)")
+    trio = [("", "0123"), ("", "1234"), ("", "4567")]
+    for sector in SECTORS:
+        barrio = barrios_for(sector)[1]
+        ref = team_run(sector, barrio, trio)
+        run = team_run(sector, barrio, [("encargado", "0123"), *trio[1:]])
+        print(f"  {sector.key:<10} {ref.net_day:>7,.0f} -> {run.net_day:>7,.0f} "
+              f"({run.net_day - ref.net_day:+,.0f}) · humor {ref.humor:.0f} -> {run.humor:.0f}"
+              .replace(",", "."))  # fmt: skip
+    print()
+    print("Lo que suma cada puesto al día (todo a 50), frente a dos plantillas: el dueño a 4")
+    print("turnos y un dependiente de tarde / dos dependientes, de mañana y de tarde")
+    bases = ((4, [("", "4567")]), (0, [("", "0123"), ("", "4567")]))
+    for sector in SECTORS:
+        barrio = barrios_for(sector)[1]
+        refs = [team_run(sector, barrio, specs, turns) for turns, specs in bases]
+        print(f"{sector.key:<10} {'(referencia)':<28} "
+              + " / ".join(f"{r.net_day:>7,.0f} ({r.stars:.1f}★)" for r in refs)
+              .replace(",", "."))  # fmt: skip
+        for label, more in extras:
+            if not staff_rules.ROLE_BY_KEY[more[0][0]].fits(sector.key):
+                continue
+            runs = [team_run(sector, barrio, [*specs, *more], turns) for turns, specs in bases]
+            print(f"{'':<10} {label:<28} "
+                  + " / ".join(f"{r.net_day - ref.net_day:>+7,.0f} (humor {r.humor:.0f})"
+                               for r, ref in zip(runs, refs, strict=True))
+                  .replace(",", "."))  # fmt: skip
 
 
 def plantilla(days: int) -> None:
@@ -511,7 +645,11 @@ def main() -> None:
     parser.add_argument("--sociedad", action="store_true", help="Autónomo o sociedad.")
     parser.add_argument("--plantilla", action="store_true", help="Empleados (fase 4).")
     parser.add_argument("--cadena", action="store_true", help="Nave, gerente y venta (fase 5).")
+    parser.add_argument("--puestos", action="store_true", help="Horarios y puestos (9.41.0).")
     args = parser.parse_args()
+    if args.puestos:
+        puestos(args.dias)
+        return
     if args.cadena:
         cadena(args.dias)
         return

@@ -8,6 +8,13 @@ criterio.
 
 ## 9.x
 
+### 9.41.0 · 2026-11-05
+
+- Negocios: elige el horario de cada empleado (21: completa, partida, seis horas o media, con su hora de entrada) y cámbialo desde el día siguiente
+- Negocios: seis puestos nuevos en la plantilla: encargado de turno, repartidor, limpieza, mozo de almacén, community manager y recursos humanos
+- Negocios: la plantilla va por páginas cuando no cabe en una y, con recursos humanos, llegan cuatro candidatos al día
+- Logros: 37 nuevos de los puestos y los horarios en 🏪 Negocio
+
 ### 9.40.0 · 2026-11-04
 
 - Pisos: la cartera enseña la renta, el IBI, los gastos y el neto de esta noche en lugar de los de los últimos 7 días; la renta es la misma cifra que `saldo` y el Euríbor pasa al pie

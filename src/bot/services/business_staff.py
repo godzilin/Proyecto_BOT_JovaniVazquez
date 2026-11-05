@@ -170,7 +170,7 @@ HORARIOS: tuple[Horario, ...] = (
 HORARIO_BY_KEY = {h.key: h for h in HORARIOS}
 #: Lo que baja el humor cada noche la jornada partida: ir, volver a casa y volver cansa. No
 #: hay plus en el Estatuto (art. 34 ET solo pide el descanso entre jornadas).
-PARTIDA_MOOD = -1.5
+PARTIDA_MOOD = -2.0
 
 
 def horario_key(franjas: tuple[int, ...] | list[int]) -> str:
@@ -243,7 +243,7 @@ CANDIDATES_PER_DAY = 3
 #: Encargado de turno: lo que bajan los fallos de los demás del mostrador en las franjas que
 #: trabaja (por su mano con la gente, `lead`) y lo que sube esa noche el humor de quienes
 #: coincidieron con él.
-LEAD_MISS = 0.30
+LEAD_MISS = 0.45
 LEAD_MOOD = 1.0
 #: Repartidor: el cupo a domicilio del barrio (esta parte del de mostrador del sector, el mismo
 #: para cualquier local, porque no depende de sus metros) y los pedidos de cada franja (esta
@@ -253,14 +253,16 @@ DELIVERY_POOL = 0.25
 DELIVERY_TURN = 0.5
 #: Limpieza: la reputación que sube cada noche que viene y la paciencia de los clientes al día
 #: siguiente (a jornada completa, con su acierto de 50).
-CLEAN_REPUTATION = 1.0
-CLEAN_PATIENCE = 0.15
+CLEAN_REPUTATION = 3.0
+CLEAN_PATIENCE = 0.30
 #: Mozo de almacén: la parte de la merma de cada noche que evita (se suma a la de las mejoras,
-#: con el tope de toda).
-STOCK_KEEP = 0.5
+#: con el tope de toda) y los días de lo que se vendió que repone de lo perecedero cada noche
+#: sin gerente (lo fresco, para un día: así se estropea menos).
+STOCK_KEEP = 0.6
+FRESH_DAYS = 1.0
 #: Community manager: lo que suma al día siguiente a los clientes de cada turno y a la parte
 #: del cupo del barrio, como una campaña (con la campaña, `business.BOOST_CAP` como mucho).
-SOCIAL_BOOST = 0.20
+SOCIAL_BOOST = 0.30
 #: Recursos humanos: lo que quita de lo malo del humor de los demás, lo que suma a lo que
 #: aprenden trabajando y los candidatos de más cada día.
 HR_SHIELD = 0.5
@@ -325,7 +327,7 @@ ROLES: tuple[Role, ...] = (
          "mismo minijuego que tú.", plays="mostrador", unique=False),
     Role("encargado", "Encargado de turno", "📋", "Atiende el mostrador y, en las franjas que "
          "trabaja, los demás fallan menos y acaban el día de mejor humor.", plays="mostrador",
-         premium=1.15, skill="trato"),
+         premium=1.1, skill="trato"),
     Role("repartidor", "Repartidor", "🛵", "Lleva pedidos a domicilio en las franjas de su "
          "horario, de un cupo de clientes aparte del barrio.", plays="reparto",
          sectors=DELIVERY_SECTORS),
@@ -333,18 +335,20 @@ ROLES: tuple[Role, ...] = (
          "bajas de la plantilla.", premium=MANAGER_PREMIUM, schedule=False,
          duty="Repone y cubre bajas"),
     Role("limpieza", "Limpieza", "🧽", "No atiende. Con el local limpio sube la reputación "
-         "cada noche y al día siguiente los clientes esperan más.", premium=0.9,
+         "cada noche y al día siguiente los clientes esperan más. Rinde sobre todo sin las cinco "
+         "estrellas.", premium=0.9,
          skill="acierto", effects=(("reputation", CLEAN_REPUTATION),
                                    ("patience", CLEAN_PATIENCE)),
          duty="Limpia el local"),
     Role("reponedor", "Mozo de almacén", "📦", "No atiende. Rota el género y cuida la cámara: "
-         "cada noche se estropea menos de lo perecedero.", sectors=PERISHABLE_SECTORS,
-         skill="rapidez", effects=(("keep", STOCK_KEEP),), duty="Rota el género"),
+         "cada noche se estropea menos de lo perecedero y, si no hay gerente, repone lo fresco "
+         "para el día siguiente.", premium=0.9, sectors=PERISHABLE_SECTORS, skill="rapidez",
+         effects=(("keep", STOCK_KEEP),), duty="Rota el género"),
     Role("redes", "Community manager", "📱", "No atiende. Lo que publica cada día trae al "
          "siguiente más clientes y más cupo del barrio, como una campaña.", premium=1.1,
          skill="trato", effects=(("clients", SOCIAL_BOOST),), duty="Publica en redes"),
     Role("rrhh", "Recursos humanos", "🗂️", "No atiende. Cada día llega un candidato más y la "
-         "plantilla se quema menos y aprende más rápido.", premium=1.15, skill="trato",
+         "plantilla se quema menos y aprende más rápido.", skill="trato",
          effects=(("shield", HR_SHIELD), ("learn", HR_LEARN)), duty="Cuida a la plantilla"),
 )  # fmt: skip
 ROLE_BY_KEY = {r.key: r for r in ROLES}
