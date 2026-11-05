@@ -2,7 +2,7 @@
 
 Este documento describe las funcionalidades actuales y futuras y cómo debe comportarse el bot desde el punto de vista de sus usuarios y administradores. Complementa la [Biblia del proyecto](./Biblia.txt), que define las normas técnicas y de calidad.
 
-La bienvenida/despedida descrita en la sección 3, los comandos `latencia`, `ayuda`, `perfil`, `ranking`, `magik`, `memes` y los 108 efectos de imagen, los comandos de música, los sonidos de entrada, la economía con la ruleta, el blackjack, la tragaperras, los Botes, el Crash, Minas, la Torre del dragón, la Guerra, el Pollo, cara o cruz, el autobús, Allá tú, el póker, la timba, los dados, el pachinko, el pico, las carreras de caballos, el bacará, las peleas de gallos, el 4 en raya, el backgammon, las porras, las apuestas deportivas, las predicciones (`ruleta`, `blackjack`/`.bj`, `tragas` (con la clásica y el Volcán), `cohete`, `minas`, `torre`, `guerra`, `pollo`, `moneda`, `guagua`, `allatu`, `poker`, `dados`, `pachinko`, `picar`, `caballo`, `bacara`, `backgammon`, `gallos`, `4enraya`, `porra`, `deportes`, `predice`, `saldo`, `imv`, `hacienda`, `renta`, `apuestas`, `patrimonio`, `fortunas`, `pisos`), los cumpleaños (`cumple`, `cumples`), la lista de tareas (`lista`), los comandos de administración, `babel` y `hongkong` están implementados. Las demás funciones son objetivos futuros salvo que se indique lo contrario.
+La bienvenida/despedida descrita en la sección 3, los comandos `latencia`, `ayuda`, `perfil`, `ranking`, `magik`, `memes` y los 108 efectos de imagen, los comandos de música, los sonidos de entrada, la economía con la ruleta, el blackjack, la tragaperras, los Botes, el Crash, Minas, la Torre del dragón, la Guerra, el Pollo, cara o cruz, la Rueda, el autobús, Allá tú, el póker, la timba, los dados, el pachinko, el pico, las carreras de caballos, el bacará, las peleas de gallos, el 4 en raya, el backgammon, las porras, las apuestas deportivas, las predicciones (`ruleta`, `blackjack`/`.bj`, `tragas` (con la clásica y el Volcán), `cohete`, `minas`, `torre`, `guerra`, `pollo`, `moneda`, `rueda`, `guagua`, `allatu`, `poker`, `dados`, `pachinko`, `picar`, `caballo`, `bacara`, `backgammon`, `gallos`, `4enraya`, `porra`, `deportes`, `predice`, `saldo`, `imv`, `hacienda`, `renta`, `apuestas`, `patrimonio`, `fortunas`, `pisos`), los cumpleaños (`cumple`, `cumples`), la lista de tareas (`lista`), los comandos de administración, `babel` y `hongkong` están implementados. Las demás funciones son objetivos futuros salvo que se indique lo contrario.
 
 ## 1. Objetivo
 
@@ -435,6 +435,40 @@ Cuando un comando falla, el bot responde con un mensaje breve y seguro en lugar 
 - Se anuncian en el canal los cobros de ×32 o más, la moneda de oro y todos los cantos.
 - Porras: además de las genéricas, 🪙 ¿llega a ×8? (`wins` en `Play.details`).
 - Logros: 55 en la sección 🪙 Cara o cruz de 🎰 Casino (partidas, lanzamientos, aciertos, cobros, fallos, cantos, rachas de 3 a 9, cobrar de ×4 a ×256, la moneda de oro, ganar 10.000 y 100.000 Y$, perder un ×16, canto con ×8 en juego, cobrar tras uno, fallar la primera, librarse del canto por una, Monárquico de toda la vida y Tarjeta de embarque del Falcon por acertar 5 seguidas al mismo lado, No es un cambio de opinión por alternar, Equidistante, lo perdido en cantos, madrugada, 12 de octubre, Nochevieja, viernes 13 y cobrar 666 Y$). Rarezas calibradas con `docs/auditoria_logros.py`.
+
+### 6 ter.6 ter quater. La Rueda: `rueda`
+
+- `rueda` abre la Rueda de cada miembro: una vuelta gratis al día (de 00:00 a 00:00, hora canaria), sin apuesta. Solo en los canales del casino. 🎡 **Girar** gira; si sale 🔁 Otra vuelta, el botón pasa a 🔁 Otra vuelta y se gira de nuevo en el acto. Hecha la vuelta, el botón dice cuánto falta para la siguiente. 📜 **Bases** enseña en privado la probabilidad de cada premio.
+- **Porciones del tamaño de su probabilidad** (`bot.services.rueda`). 32 porciones, cada una del ancho que pesa su premio sobre 1.000: lo que se ve es lo que hay. Los premios frecuentes van repartidos en varias porciones; los gordos son rayas finas (el expositor y los 15.000 Y$ miden 0,72°).
+
+  | Premio | Probabilidad |
+  |---|---|
+  | 300 Y$ | 19 % |
+  | 600 Y$ | 15 % |
+  | 250 XP | 12 % |
+  | 📦 Caja de cartón | 12 % |
+  | 1.000 Y$ | 9 % |
+  | 🍭 Piruleta de feria (se come) | 8 % |
+  | 🧩 Pieza de la colección de la Feria | 5,3 % |
+  | 🔎 Inspección (nada) | 5 % |
+  | 1.000 XP | 4 % |
+  | 2.500 Y$ · 🎁 Caja de regalo · 🔁 Otra vuelta | 3 % cada uno |
+  | 5.000 Y$ | 0,8 % |
+  | 💼 Maletín del ministro | 0,5 % |
+  | 15.000 Y$ · 🏆 El expositor | 0,2 % cada uno |
+
+  Sin niveles en el servidor, la rueda no tiene porciones de XP y el resto se reparte la rueda entera.
+- **Lo que vale una vuelta:** de media, 382 Y$ en efectivo (una cuarta parte del IMV máximo, que también cuesta un clic) y unos 650 Y$ más en especie a precio de catálogo. Lo fijan las pruebas de `tests/unit/test_rueda.py`.
+- **Objetos que solo da la Rueda** (`bot.services.rueda_catalog`, ocultos en 🎉 Fiestas y verbenas):
+  - 🏆 **El expositor:** seis títulos numerados (Eje de la Rueda, Giro de 360°, Alcaldía de la Feria, Trébol de cuatro hojas, Pedestal propio y Tómbola de honor), 10 de cada uno en el servidor. Cada lunes el expositor enseña uno distinto y se ve en la imagen con cuántos quedan. Se lucen junto al nombre y se venden en el Rastro; el Monte no los acepta. Si se agota el de la semana o ya lo tienes, se pagan 15.000 Y$.
+  - 🧩 **Colección de la Feria:** ocho piezas de Común a Mítica (del algodón de azúcar a la llave de la noria). Completarla regala el 🎪 Tapete de la Feria para las mesas con fieltro.
+  - 🍭 **Piruleta de feria:** se come; las mascotas la aceptan en `mascota`.
+  - 🐦‍⬛ **La urraca de la feria:** una mascota que no se vende y se posa, a veces (3 %), al girar la Rueda.
+- **Sorteado antes de girar.** La vuelta se sortea con `secrets` al abrir el panel y se guarda en la base (`rueda_spins`): reabrir el panel o reiniciar el bot no cambia lo que toca. Dos paneles abiertos a la vez solo cobran una vez.
+- **Imagen** (`bot.services.rueda_scene`, escena `assets/rueda/escena.html`, canvas pintado con Node y, si no, con Chromium o Pillow): una rueda de feria con su aro de bombillas, la lengüeta que choca con los clavos, el expositor de la semana en su vitrina y la racha. El giro es un GIF de 4 a 7 s (tirón, arranque y frenada larga; si va a parar cerca de una raya, una vuelta más y una frenada más lenta) y acaba con el cartel del premio y confeti en los buenos; después, un PNG. El GIF se pinta mientras se mira el panel, así que al pulsar solo queda subirlo. Con el hámster como mascota activa, sale corriendo en su ruedecita.
+- **Dinero e impuestos:** es un sorteo promocional, no juego del casino (no hay apuesta). El dinero se cobra con `pay_income` (ganancia patrimonial, art. 33.1 LIRPF) con su retención y la línea de Perro Sanxe. Las cajas, la piruleta, las piezas y los títulos son premios en especie: su precio de catálogo se apunta en la Renta de la semana sin retener nada (art. 37.1.g LIRPF; en la vida real, el ingreso a cuenta del art. 105 del Reglamento lo haría quien regala, que aquí no existe) y la declaración del lunes lo liquida. La XP se suma como la de los mensajes y paga la subida de nivel si la hay.
+- Se anuncian en el canal el expositor, los 15.000 y los 5.000 Y$ y el maletín.
+- Logros: 42 en la sección 🎪 Rueda de 🎰 Casino (vueltas de 1 a 365, rachas de 7 a 365 días, Inspección, Otra vuelta y dos el mismo día, Otra vuelta y luego Inspección, premios de 1.000 a 15.000 Y$, de 10.000 a 100.000 Y$ en total, XP, cada caja, la piruleta, piezas, media colección y la colección completa con el Tapete de la Feria, el expositor, sacar los doce premios normales, el primer premio en especie con su historia fiscal, los primeros y últimos cinco minutos del día, madrugada, Nochevieja, Día de Canarias, viernes 13, Inocentes y girar con el hámster) y *Todo lo que reluce* en 🐾 Mascotas por la urraca. Las rarezas salen de la probabilidad de cada premio (la mediana de días hasta que sale).
 
 ### 6 ter.6 ter bis. Autobús (Ride the Bus)
 

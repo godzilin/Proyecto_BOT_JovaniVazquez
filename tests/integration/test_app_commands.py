@@ -29,6 +29,7 @@ EXPECTED_COMMANDS = {
     "vaciar",
     "volumen",
     "ruleta",
+    "rueda",
     "tragas",
     "caballo",
     "deportes",

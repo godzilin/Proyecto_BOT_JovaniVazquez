@@ -6,4 +6,4 @@ cambio que entra en `main` la sube según la sección «Versiones» de
 `Biblia.txt` y añade su entrada a `CHANGELOG.md`.
 """
 
-__version__ = "9.42.0"
+__version__ = "9.43.0"

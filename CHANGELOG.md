@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.43.0 · 2026-11-05
+
+- Rueda: `rueda`, una vuelta gratis al día con dinero, XP, cajas, una colección propia y un título numerado de premio gordo que cambia cada semana
+- Rueda: la urraca de la feria, una mascota nueva que se posa a veces al girar, y el Tapete de la Feria por completar la colección
+- Logros: sección 🎪 Rueda con 42 logros
+
 ### 9.42.0 · 2026-11-05
 
 - Predicciones: `predice` para apostar a preguntas reales de Polymarket (las generales del 29 de noviembre, el mundo, la economía y la cripto, la cultura y la tecnología) con cuotas sacadas de su precio
