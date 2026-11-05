@@ -15,6 +15,10 @@ criterio.
 - Negocios: la plantilla va por páginas cuando no cabe en una y, con recursos humanos, llegan cuatro candidatos al día
 - Logros: 37 nuevos de los puestos y los horarios en 🏪 Negocio
 
+### 9.40.1 · 2026-11-05
+
+- Entradas, beernight y música: los sonidos ya se oyen; el bot esperaba poco al cifrado de voz de Discord y el audio salía antes de tiempo
+
 ### 9.40.0 · 2026-11-04
 
 - Pisos: la cartera enseña la renta, el IBI, los gastos y el neto de esta noche en lugar de los de los últimos 7 días; la renta es la misma cifra que `saldo` y el Euríbor pasa al pie

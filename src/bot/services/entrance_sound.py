@@ -54,6 +54,12 @@ FFMPEG_TIMEOUT_SECONDS = 30
 #: Duración de cada paquete Opus generado (`-frame_duration 20`).
 PACKET_SECONDS = 0.02
 
+#: Tope de espera a que el cifrado de extremo a extremo de la voz (DAVE) esté
+#: listo tras conectar o cambiar de canal (ver `wait_until_audible`).
+DAVE_READY_TIMEOUT_SECONDS = 5.0
+#: Cada cuánto se mira si ya está listo.
+DAVE_POLL_SECONDS = 0.05
+
 #: Cabeceras Ogg/Opus que no son audio y no deben enviarse a Discord.
 _OPUS_HEADER_PREFIXES = (b"OpusHead", b"OpusTags")
 
@@ -319,6 +325,40 @@ class OpusPacketSource(discord.AudioSource):
     def is_opus(self) -> bool:
         """Indica a `discord.py` que los datos ya están en Opus."""
         return True
+
+
+async def wait_until_audible(
+    voice: discord.VoiceClient, timeout: float = DAVE_READY_TIMEOUT_SECONDS
+) -> bool:
+    """Espera a que lo que mande el bot se pueda oír en el canal.
+
+    Discord cifra la voz de extremo a extremo (DAVE) en los canales de voz.
+    Al conectar (o al cambiar de canal) el bot tiene que acordar las claves
+    con los que están dentro, y eso tarda de medio segundo a un par de
+    segundos. Mientras tanto, `discord.py` manda el audio sin cifrar
+    (`VoiceClient._get_voice_packet` solo cifra con `can_encrypt`) y los
+    clientes lo tiran: el bot sale en verde, «hablando», y nadie oye nada. Un
+    clip de 3 s salía entero en ese hueco. Con DAVE apagado
+    (`dave_protocol_version == 0`) no hay nada que esperar.
+
+    Se mira el estado interno de la conexión de `discord.py` (no hay API
+    pública para esto); si cambia de nombre, no se espera y se sigue.
+
+    Returns:
+        `True` si ya se puede oír; `False` si se acabó el tope (se registra).
+    """
+    state = getattr(voice, "_connection", None)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        if not getattr(state, "dave_protocol_version", 0) or getattr(state, "can_encrypt", True):
+            return True
+        if loop.time() >= deadline:
+            logger.warning(
+                "El cifrado de voz no estuvo listo en %.1f s: puede que no se oiga", timeout
+            )
+            return False
+        await asyncio.sleep(DAVE_POLL_SECONDS)
 
 
 async def play_packets(voice: discord.VoiceClient, packets: list[bytes]) -> None:
