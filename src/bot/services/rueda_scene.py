@@ -28,14 +28,14 @@ from PIL import Image
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
 from bot.services.node_scene import NodeScene, patch_png
-from bot.services.rueda_render import H, Media, RuedaRenderer, W, encode
+from bot.services.rueda_render import OUT_H, OUT_W, Media, RuedaRenderer, encode
 
 SCENE = Path(__file__).resolve().parent.parent / "assets" / "rueda" / "escena.html"
 
 
 def assemble(patches: list[dict[str, Any]]) -> list[Image.Image]:
     """Fotogramas enteros a partir de los recuadros de la escena (`browser_scene.assemble`)."""
-    return browser_scene.assemble(patches, (W, H))
+    return browser_scene.assemble(patches, (OUT_W, OUT_H))
 
 
 class RuedaScene:

@@ -17,7 +17,8 @@ result_state). Aquí solo se pinta. Funciones que llama Python:
                         dibuja los fotogramas y devuelve, de cada uno, el
                         recuadro que ha cambiado y dónde va.
 
-Todo se dibuja al doble (S = 2) y se reduce justo a la mitad al exportar. Sin
+Todo se dibuja al doble (S = 2), se reduce justo a la mitad y de ahí a la medida de
+salida (meta.out, 3/4: pesa un tercio menos y Discord la enseña casi a ese tamaño). Sin
 azar suelto: el azar (bokeh, confeti) sale de una semilla y del fotograma, y
 no se guarda nada entre fotogramas salvo lo que se rehace en setup. Sin emojis:
 el Chromium del Docker no trae su fuente, los iconos son trazados.
@@ -44,6 +45,15 @@ const big = document.createElement("canvas"); big.width = W * S; big.height = H 
 const bctx = big.getContext("2d");
 const patch = document.createElement("canvas");
 const pctx = patch.getContext("2d");
+// Salida en dos pasos: a la mitad justa con calidad alta (`half`, W×H) y de ahí, si la
+// salida es más pequeña (`meta.out`), bilineal (`out`). Reducir a menos de la mitad de una
+// vez usa mipmaps y el primer fotograma tras `setup` sale con otro redondeo: el dibujo
+// repartido entre procesos dejaría de dar los mismos bytes.
+const half = document.createElement("canvas"); half.width = W; half.height = H;
+const hctx = half.getContext("2d", { willReadFrequently: true });
+const out = document.createElement("canvas"); out.width = W; out.height = H;
+const octx = out.getContext("2d", { willReadFrequently: true });
+let PREV_PIX = null;               // píxeles de salida del fotograma anterior
 
 let META = null, META_KEY = null;
 let BG = null, DISCS = null, FG = null, BULBS = [];
@@ -834,17 +844,38 @@ function paint(st) {
 }
 
 function snapshot(first) {
-  let [x0, y0, x1, y1] = first || !PREV ? [0, 0, W, H] : [
-    Math.min(DIRTY[0], PREV[0]), Math.min(DIRTY[1], PREV[1]),
-    Math.max(DIRTY[2], PREV[2]), Math.max(DIRTY[3], PREV[3]),
-  ];
-  PREV = DIRTY;
-  x0 = clamp(Math.floor(x0), 0, W); y0 = clamp(Math.floor(y0), 0, H);
-  x1 = clamp(Math.ceil(x1), x0 + 1, W); y1 = clamp(Math.ceil(y1), y0 + 1, H);
+  // Se reduce el fotograma entero y se compara con el anterior: solo viaja lo que cambia.
+  // Comparar píxeles (y no los recuadros pintados) vale igual para cualquier medida de salida.
+  hctx.imageSmoothingEnabled = true; hctx.imageSmoothingQuality = "high";
+  hctx.drawImage(big, 0, 0, W, H);
+  let src = half, ctx = hctx;
+  if (out.width !== W || out.height !== H) {
+    octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "low";
+    octx.drawImage(half, 0, 0, out.width, out.height);
+    src = out; ctx = octx;
+  }
+  const OW = src.width, OH = src.height;
+  const cur = new Uint32Array(ctx.getImageData(0, 0, OW, OH).data.buffer);
+  let x0 = 0, y0 = 0, x1 = OW, y1 = OH;
+  if (!first && PREV_PIX && PREV_PIX.length === cur.length) {
+    x0 = OW; y0 = OH; x1 = 0; y1 = 0;
+    for (let y = 0; y < OH; y++) {
+      const row = y * OW;
+      for (let x = 0; x < OW; x++) {
+        if (cur[row + x] !== PREV_PIX[row + x]) {
+          if (x < x0) x0 = x;
+          if (x >= x1) x1 = x + 1;
+          if (y < y0) y0 = y;
+          if (y >= y1) y1 = y + 1;
+        }
+      }
+    }
+    if (x1 <= x0) { x0 = 0; y0 = 0; x1 = 1; y1 = 1; }   // nada ha cambiado
+  }
+  PREV_PIX = cur;
   const w = x1 - x0, h = y1 - y0;
   patch.width = w; patch.height = h;
-  pctx.imageSmoothingEnabled = true; pctx.imageSmoothingQuality = "high";
-  pctx.drawImage(big, x0 * S, y0 * S, w * S, h * S, 0, 0, w, h);
+  pctx.drawImage(src, x0, y0, w, h, 0, 0, w, h);
   return { x: x0, y: y0, u: window.exportFrame(patch) };
 }
 
@@ -858,7 +889,9 @@ window.loadFonts = async () => {
 };
 window.setup = async (meta) => {
   const key = JSON.stringify(meta);
-  PREV = null;
+  PREV = null; PREV_PIX = null;
+  const [ow, oh] = meta?.out || [W, H];
+  if (out.width !== ow || out.height !== oh) { out.width = ow; out.height = oh; }
   if (key !== META_KEY) {
     META = meta; META_KEY = key;
     DISCS = { rich: paintDisc("rich"), lite: paintDisc("lite"), fast: paintDisc("fast") }; FG = paintFG(); BG = paintBG();

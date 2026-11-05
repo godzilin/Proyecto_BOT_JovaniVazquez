@@ -22,7 +22,7 @@ el maletín) hay **tensión** (`tension`): una vuelta más y una frenada más le
 
 **Fotogramas solo donde se notan.** Mientras la rueda va rápida, uno cada 50 ms
 (20 por segundo); cuando frena, cada fotograma dura lo que tarda en avanzar
-`SLOW_STEP` grados, hasta 130 ms. Es cámara lenta con fotogramas largos, no con
+`SLOW_STEP` grados, hasta 140 ms. Es cámara lenta con fotogramas largos, no con
 más fotogramas: así el GIF no engorda.
 
 **La aguja** es una lengüeta que chocan los clavos de los bordes de las porciones
@@ -49,6 +49,10 @@ from bot.services.rueda import PRIZE_BY_KEY, Draw, PrizeKind, Wedge, landing_ang
 from bot.utils.gif import local_palette_gif
 
 W, H = 600, 400
+#: Medida de la imagen que se sube: 3/4 de la lógica. El GIF pesa un tercio menos y Discord
+#: enseña la imagen de un embed casi a este tamaño. La escena pinta a `W`×`H` al doble, reduce
+#: a la mitad justa y de ahí a esto (`meta.out`).
+OUT_W, OUT_H = 450, 300
 #: Centro y radio de la rueda (a 1x); la escena los lee de `meta.geo`.
 CX, CY, RADIUS = 214, 206, 176
 
@@ -66,11 +70,11 @@ TOP_SPEED = 820.0
 POWER = 3.0
 TENSE_POWER = 3.8
 #: Duración buscada de la frenada (se ajusta con las vueltas).
-DECEL_SECONDS = 3.4
+DECEL_SECONDS = 3.0
 #: Grados que avanza la rueda en un fotograma lento, y lo más que dura uno.
-SLOW_STEP = 14.0
+SLOW_STEP = 20.0
 FAST_MS = 50
-SLOW_MAX_MS = 130
+SLOW_MAX_MS = 140
 #: Por encima de esta velocidad (°/s) los fotogramas son de `FAST_MS`.
 FAST_SPEED = 360.0
 #: Grados a una raya por debajo de los cuales hay tensión.
@@ -127,6 +131,7 @@ def meta_state(
     """
     return {
         "geo": {"cx": CX, "cy": CY, "r": RADIUS, "w": W, "h": H, "bulbs": BULBS},
+        "out": [OUT_W, OUT_H],
         "wedges": [
             {
                 "i": w.index,
@@ -446,7 +451,7 @@ def _font(size: int, *, title: bool = False) -> ImageFont.FreeTypeFont:
 
 
 def paint(meta: dict[str, Any], state: dict[str, Any]) -> Image.Image:
-    """Un fotograma con Pillow, a `W`×`H`: porciones de colores, aguja y cartel."""
+    """Un fotograma con Pillow, a `OUT_W`×`OUT_H`: porciones de colores, aguja y cartel."""
     img = Image.new("RGB", (W * S, H * S), (20, 12, 40))
     d = ImageDraw.Draw(img)
     cx, cy, r = CX * S, CY * S, RADIUS * S
@@ -481,7 +486,7 @@ def paint(meta: dict[str, Any], state: dict[str, Any]) -> Image.Image:
                fill=(255, 236, 160), anchor="mm")  # fmt: skip
         d.text((cx, cy + 102 * S), banner["sub"], font=_font(12), fill=(235, 230, 255),
                anchor="mm")  # fmt: skip
-    return img.reduce(S)
+    return img.reduce(S).resize((OUT_W, OUT_H), Image.Resampling.BILINEAR)
 
 
 def encode(frames: list[Image.Image], durations: Sequence[int]) -> Media:

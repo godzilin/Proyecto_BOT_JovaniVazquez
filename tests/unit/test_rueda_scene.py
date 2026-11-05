@@ -24,8 +24,12 @@ from bot.services.browser_scene import BrowserScene
 from bot.services.node_scene import NodeScene
 from bot.services.rueda import PRIZE_BY_KEY, Draw, draw, layout
 from bot.services.rueda_render import (
-    H,
-    W,
+    OUT_H as H,
+)
+from bot.services.rueda_render import (
+    OUT_W as W,
+)
+from bot.services.rueda_render import (
     banner_for,
     board_state,
     meta_state,

@@ -45,7 +45,6 @@ OWNER_ID = 10
 OTHER_ID = 20
 GAMES = (
     "Casino",
-    "Rueda",
     "Blackjack",
     "Tragaperras",
     "Botes",
@@ -1117,6 +1116,8 @@ async def test_la_rueda_llega_a_la_tienda_los_niveles_y_la_mascota_con_el_bot_re
             id=1, guild_id=GUILD_ID, user_id=OWNER_ID, species="hamster", name="", bond=0
         )
         assert module.mascotas.active_species(client, GUILD_ID, OWNER_ID) == "hamster"
+        client.get_cog("Renta").hint_for = AsyncMock(return_value="RENTA")
+        assert "RENTA" in (await module.renta.hint(client, GUILD_ID, OWNER_ID) or "")
     finally:
         await client.close()
 
