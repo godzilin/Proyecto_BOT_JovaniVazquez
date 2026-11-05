@@ -1694,3 +1694,17 @@ async def test_al_caducar_la_portada_apaga_tambien_los_desplegables(tmp_path: Pa
 
     assert isinstance(widget(view, "predice:mas"), ui.Select)
     assert all(w.disabled for w in widgets(view))
+
+
+async def test_un_evento_con_una_sola_opcion_con_nombre_ensena_la_opcion(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path)
+    one = make_event("o1", make_market("mo1", mid=0.4, group="22%+"), title="Vox % of vote?")
+    cog.offers["economia"] = build_sections({"economia": [one]}, now=NOW)["economia"]
+
+    assert "22%+ 40 %" in texts(open_view(cog))
+    event_page = open_view(cog, event_id="o1")
+    assert "**22%+** — 40 %" in texts(event_page)
+    assert "predice:opcion" in ids(event_page)
+    option_page = open_view(cog, event_id="o1", market_id="mo1")
+    assert "**22%+**" in texts(option_page)
+    assert "predice:si" in ids(option_page)
