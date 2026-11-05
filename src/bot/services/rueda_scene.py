@@ -28,7 +28,7 @@ from PIL import Image
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
 from bot.services.node_scene import NodeScene, patch_png
-from bot.services.rueda_render import H, W, Media, RuedaRenderer, encode
+from bot.services.rueda_render import H, Media, RuedaRenderer, W, encode
 
 SCENE = Path(__file__).resolve().parent.parent / "assets" / "rueda" / "escena.html"
 
