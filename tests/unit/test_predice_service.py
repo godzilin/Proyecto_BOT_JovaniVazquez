@@ -21,6 +21,7 @@ from bot.services.predice import (
     SECTIONS,
     VOID_AFTER,
     Confirmation,
+    Offer,
     Side,
     Verdict,
     blocked,
@@ -434,3 +435,20 @@ def test_los_limites_del_modulo_son_coherentes() -> None:
     assert predice.GAME == "predice"
     assert predice.MIN_STAKE < predice.MAX_STAKE
     assert MIN_ODDS < MAX_ODDS
+
+
+def test_un_evento_de_opciones_con_una_sola_viva_no_es_un_si_o_no() -> None:
+    winner = event_titled("elecciones", "Spain General Election Winner")
+    pp = next(m for m in winner.markets if m.group_title == "PP")
+    offer = Offer(winner, "espana", (pp,))
+
+    assert not offer.single
+
+
+def test_date_es_pasa_los_miles_a_punto_y_deja_los_decimales() -> None:
+    assert date_es("76,000") == "76.000"
+    assert date_es("↓ 1,250,000") == "↓ 1.250.000"
+    assert date_es("78,000-80,000") == "78.000-80.000"
+    assert date_es("GPT 6.1") == "GPT 6.1"
+    assert date_es("January 15, 2027") == "15 de enero de 2027"
+    assert date_es("12,5") == "12,5"
