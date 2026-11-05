@@ -1,0 +1,1390 @@
+<!doctype html>
+<!--
+Escena de `mascota`, dibujada con canvas: el retrato de una o dos mascotas. La pinta Node con Skia
+(assets/escena_node.cjs) y, si no hay Node, un Chromium sin ventana (ver bot/services/pet_scene.py).
+Si no hay ninguno, el panel sale en texto.
+
+No decide nada: Python le pasa el estado ya hecho (`pet_scene.portrait_state`, contrato en el
+docstring de ese módulo) y aquí solo se pinta. Mide 640 × 400. Funciones que llama Python:
+
+- loadFonts()                  espera a las fuentes (canvas no las carga solo).
+- setup(meta)                  sin estado entre imágenes: cada una se pinta entera.
+- renderFrames(states, first)  un PNG por estado: {x: 0, y: 0, u}.
+
+Cómo se dibuja. Todo va al doble (S = 2: lienzo de 1280 × 800) y se reduce a la mitad justa en un
+paso al copiar. Cada plan de cuerpo (`PLANS.gato`, `PLANS.perro`...) pinta una mascota sentada de
+frente en un espacio propio: el suelo en y = 0, el centro en x = 0 y unos 235 de alto (la cabeza,
+la mitad). La mascota se coloca con una traslación y una escala; los planes leen los parámetros de
+la raza (`pet.look`, `pets_looks.py`) y devuelven los ANCLAJES para las prendas, en el espacio del
+plan: `head` (centro de lo alto de la cabeza, ancho, inclinación), `eyes` (centro entre los ojos,
+separación), `neck` (centro, ancho) y `body` (centro, ancho, alto del tronco). `placeAnchors` los
+pasa a coordenadas del lienzo (con el espejo de la visita) y `drawOutfit(slot, drawing, anchor,
+pet)` los recibe, uno por prenda; hoy no pinta nada, es el sitio de las prendas. Los planes sin
+hueco (`PLAN_SLOTS`, como en pets_looks.py) devuelven ese anclaje a null. Con `meta.debug` o
+`state.debug` se pintan los anclajes: puntos y cajas de colores.
+
+Nada de Math.random: el azar de la decoración (corazones, confeti, brillos) sale de `rnd(semilla, i)`.
+Los textos del usuario se limpian de lo que la fuente no tiene (emojis) para no pintar cuadrados.
+Solo canvas 2D, sin filtros: Skia en Node y Chromium no siempre coinciden en ellos.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Montserrat"; src: url("../memes/fonts/MontserratBold.ttf"); font-weight: 700; }
+  @font-face { font-family: "RobotoM"; src: url("../memes/fonts/robotomedium.ttf"); }
+  @font-face { font-family: "RobotoR"; src: url("../memes/fonts/robotoregular.ttf"); }
+  html, body { margin: 0; padding: 0; background: transparent; }
+</style>
+</head>
+<body>
+<script>
+(() => {
+"use strict";
+const S = 2;
+const W = 640;
+const H = 400;
+const TAU = Math.PI * 2;
+const big = document.createElement("canvas"); big.width = W * S; big.height = H * S;
+const out = document.createElement("canvas"); out.width = W; out.height = H;
+const g = big.getContext("2d");
+const octx = out.getContext("2d");
+
+const MONT = "Montserrat, RobotoM, sans-serif";
+const BODY = "RobotoM, sans-serif";
+const SOFT = "RobotoR, sans-serif";
+const INK = "#2a1d33";
+
+// Huecos de ropa que tiene cada plan (los que no salen aquí, los cuatro). Igual que PLAN_SLOTS.
+const PLAN_SLOTS = {
+  pez: ["cabeza", "ojos"],
+  mosquito: ["cabeza", "ojos"],
+  pulpo: ["cabeza", "ojos", "cuello"],
+  cucaracha: ["cabeza", "ojos", "cuerpo"],
+};
+// Escala de cada plan para que todos ocupen lo mismo de alto (~60 % del retrato).
+const PLAN_SIZE = { tortuga: 1.1, rana: 1.2, piedra: 1.15, hamster: 1.18, pez: 1.08, lagarto: 1.05, pajaro: 1.04, caballo: 0.94 };
+const SLOT_ANCHOR = { cabeza: "head", ojos: "eyes", cuello: "neck", cuerpo: "body" };
+// Mitad del ancho de la sombra del suelo, por plan.
+const SHADOW = { gato: 92, perro: 96, hamster: 100, conejo: 92, huron: 74, oso: 118, cabra: 96,
+  caballo: 104, pajaro: 82, gallo: 92, pavo: 110, pez: 88, tortuga: 128, lagarto: 100, rana: 100,
+  pulpo: 120, piedra: 100, cucaracha: 96, mosquito: 76 };
+
+// -- Utilidades ------------------------------------------------------------------------------
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function rgb(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+  const n = m ? parseInt(m[1], 16) : 0x808080;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function toHex(r, gg, b) {
+  return "#" + [r, gg, b].map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
+}
+function mix(a, b, t) {
+  const A = rgb(a), B = rgb(b);
+  return toHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t);
+}
+function alpha(hex, a) { const [r, gg, b] = rgb(hex); return `rgba(${r},${gg},${b},${a})`; }
+function lum(hex) { const [r, gg, b] = rgb(hex); return (0.299 * r + 0.587 * gg + 0.114 * b) / 255; }
+// El tono de sombra (violeta suave) y el del contorno (más oscuro que el relleno, nunca negro puro).
+const shadeOf = (c) => mix(c, "#5a3a78", 0.26);
+const lineOf = (c) => mix(c, "#2b1630", lum(c) < 0.3 ? 0.5 : 0.66);
+const light = (c, t = 0.4) => mix(c, "#ffffff", t);
+const dark = (c, t = 0.3) => mix(c, "#2b1630", t);
+// Azar repetible: el mismo (semilla, i) da siempre lo mismo.
+function rnd(seed, i) {
+  let h = (Math.imul(seed | 0, 374761393) + Math.imul(i | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  h = Math.imul(h, 2246822519);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+// La fuente no trae emojis ni escrituras raras: se deja lo latino y la puntuación.
+function clean(text) {
+  const keep = (n) => (n >= 32 && n < 0x250) || (n >= 0x2010 && n <= 0x203a) || n === 0x20ac || n === 0x2212;
+  return Array.from(String(text ?? "")).filter((c) => keep(c.codePointAt(0))).join("").replace(/\s+/g, " ").trim();
+}
+function font(weight, size, family) { g.font = `${weight} ${size}px ${family}`; }
+function fitText(str, x, y, maxW, size, min, fam, color, align = "left", weight = "") {
+  let s = size;
+  font(weight, s, fam);
+  while (s > min && g.measureText(str).width > maxW) { s -= 1; font(weight, s, fam); }
+  g.fillStyle = color; g.textAlign = align; g.textBaseline = "alphabetic"; g.fillText(str, x, y);
+  return s;
+}
+function rr(x, y, w, h, r) {
+  const k = Math.max(0, Math.min(r, w / 2, h / 2));
+  g.moveTo(x + k, y); g.arcTo(x + w, y, x + w, y + h, k); g.arcTo(x + w, y + h, x, y + h, k);
+  g.arcTo(x, y + h, x, y, k); g.arcTo(x, y, x + w, y, k); g.closePath();
+}
+// Subtrayectos que se suman a lo que haya en el camino (sin la línea de enlace del ellipse).
+function ell(x, y, rx, ry, rot = 0) {
+  g.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
+  g.ellipse(x, y, Math.abs(rx), Math.abs(ry), rot, 0, TAU);
+  g.closePath();
+}
+function poly(pts, close = true) {
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+  if (close) g.closePath();
+}
+function fillEll(x, y, rx, ry, color, rot = 0) { g.beginPath(); ell(x, y, rx, ry, rot); g.fillStyle = color; g.fill(); }
+function fillPath(fn, color) { g.beginPath(); fn(); g.fillStyle = color; g.fill(); }
+function strokePath(fn, color, w, cap = "round") {
+  g.beginPath(); fn(); g.strokeStyle = color; g.lineWidth = w; g.lineCap = cap; g.lineJoin = "round"; g.stroke();
+}
+// Puntos de una curva de Bézier cúbica entre t0 y t1 (para colas y tentáculos).
+function bez(p0, p1, p2, p3, t0 = 0, t1 = 1, n = 16) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = t0 + (t1 - t0) * (i / n), u = 1 - t;
+    pts.push([
+      u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+      u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+    ]);
+  }
+  return pts;
+}
+
+// Una forma con contorno grueso de un tono más oscuro, sombra plana abajo a la derecha (cel) y,
+// si acaso, `inside()` para manchas: se pinta recortado a la forma. El contorno se traza primero
+// al doble de grueso y el relleno lo tapa por dentro, así una unión de elipses no enseña las
+// costuras.
+function blob(path, fill, o = {}) {
+  const lw = o.lw ?? 5;
+  const line = o.line ?? lineOf(fill);
+  g.save();
+  g.beginPath(); path(); g.lineWidth = lw * 2; g.strokeStyle = line; g.lineJoin = "round"; g.lineCap = "round"; g.stroke();
+  g.save();
+  g.beginPath(); path(); g.clip();
+  g.fillStyle = o.shade ?? shadeOf(fill);
+  g.fillRect(-500, -600, 1000, 800);
+  g.translate(o.dx ?? -6, o.dy ?? -8);
+  g.beginPath(); path(); g.fillStyle = fill; g.fill();
+  g.restore();
+  if (o.inside) {
+    g.save(); g.beginPath(); path(); g.clip(); o.inside(); g.restore();
+  }
+  g.restore();
+}
+// Un trazo grueso con contorno (cola, tentáculo): la línea, el relleno y una tira de sombra.
+function tube(pts, w, fill, o = {}) {
+  const lw = o.lw ?? 5;
+  const line = () => { g.beginPath(); poly(pts, false); };
+  g.save();
+  g.lineCap = "round"; g.lineJoin = "round";
+  line(); g.strokeStyle = o.line ?? lineOf(fill); g.lineWidth = w + lw * 2; g.stroke();
+  line(); g.strokeStyle = fill; g.lineWidth = w; g.stroke();
+  if (!o.flat) {
+    g.translate(w * 0.17, w * 0.2);
+    line(); g.strokeStyle = o.shade ?? shadeOf(fill); g.lineWidth = w * 0.4; g.stroke();
+  }
+  g.restore();
+}
+function heart(x, y, s, color, line = "#a02a52") {
+  g.save(); g.translate(x, y); g.scale(s, s);
+  g.beginPath();
+  g.moveTo(0, 8); g.bezierCurveTo(-14, -2, -10, -14, 0, -7); g.bezierCurveTo(10, -14, 14, -2, 0, 8);
+  g.closePath();
+  g.fillStyle = color; g.fill(); g.lineWidth = 2.2 / Math.max(s, 0.5); g.strokeStyle = line; g.lineJoin = "round"; g.stroke();
+  g.fillStyle = "rgba(255,255,255,0.7)"; g.beginPath(); ell(-4.5, -4.2, 2.4, 1.6, -0.6); g.fill();
+  g.restore();
+}
+function star(x, y, r, color, points = 4, inner = 0.4) {
+  g.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / points, rad = i % 2 ? r * inner : r;
+    g.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+  }
+  g.closePath(); g.fillStyle = color; g.fill();
+}
+
+// -- Caras --------------------------------------------------------------------------------------
+// Los ojos y la boca los dibuja cada plan con estos pintores. Las caras del momento (`c.mood`)
+// mandan sobre la de siempre: contenta (ojos en arco, sonrisa), dormida (ojos cerrados) y fiesta
+// (ojos en pico, boca abierta). La cara de siempre sale de `look.face`.
+
+function highlights(x, y, r) {
+  g.fillStyle = "#ffffff";
+  g.beginPath(); ell(x - r * 0.32, y - r * 0.36, r * 0.36, r * 0.36); g.fill();
+  g.beginPath(); ell(x + r * 0.34, y + r * 0.34, r * 0.17, r * 0.17); g.fill();
+}
+function eyeOpen(x, y, r, side, o) {
+  const kind = o.kind || "dulce";
+  const ink = o.ink || INK;
+  const rx = r * (o.wide ?? 1), ry = r * 1.18;
+  if (kind === "iris") {
+    g.beginPath(); ell(x, y, rx * 1.05, ry); g.fillStyle = o.iris; g.fill();
+    g.lineWidth = 3; g.strokeStyle = dark(o.iris, 0.6); g.stroke();
+    if (o.slit) fillEll(x, y, rx * 0.2, ry * 0.9, ink); else fillEll(x, y, rx * 0.58, ry * 0.66, ink);
+    highlights(x, y - 1, r * 0.9);
+  } else if (kind === "sclera") {
+    const sc = o.sclera || "#ffffff";
+    g.beginPath(); ell(x, y, rx * 1.12, ry * 1.05); g.fillStyle = sc; g.fill();
+    g.lineWidth = 3.4; g.strokeStyle = o.rim || dark(sc, 0.6); g.stroke();
+    const lk = o.look ? o.look(side) : [0, 0];
+    const px = x + lk[0] * r * 0.4, py = y + lk[1] * r * 0.4;
+    if (o.rect) {
+      g.save(); g.translate(px, py); g.rotate(o.rect(side));
+      g.beginPath(); rr(-r * 0.62, -r * 0.2, r * 1.24, r * 0.4, r * 0.16); g.fillStyle = ink; g.fill();
+      g.restore();
+      g.fillStyle = "#fff"; g.beginPath(); ell(px - r * 0.36, py - r * 0.04, r * 0.11, r * 0.11); g.fill();
+    } else {
+      fillEll(px, py, r * (o.pupil ?? 0.55), r * (o.pupil ?? 0.55) * 1.1, ink);
+      highlights(px, py, r * (o.pupil ?? 0.55) * 1.2);
+    }
+  } else {
+    g.beginPath(); ell(x, y, rx, ry); g.fillStyle = ink; g.fill();
+    highlights(x, y, r);
+  }
+  if (o.lid) {
+    const ey = kind === "sclera" ? ry * 1.05 : ry;
+    const edge = y - ey + 2 * ey * o.lid;
+    g.save(); g.beginPath(); ell(x, y, rx * 1.2, ey * 1.06); g.clip();
+    g.fillStyle = o.lidColor; g.fillRect(x - rx * 2, y - ey * 2, rx * 4, edge - (y - ey * 2));
+    g.beginPath(); g.moveTo(x - rx * 1.3, edge); g.lineTo(x + rx * 1.3, edge);
+    g.lineWidth = 3.4; g.strokeStyle = o.lidLine || lineOf(o.lidColor); g.stroke();
+    g.restore();
+  }
+}
+// ^ (contenta), ‿ (dormida), > < (fiesta)
+function eyeMood(x, y, r, side, mood, ink) {
+  g.beginPath();
+  if (mood === "contenta") g.arc(x, y + r * 0.45, r * 1.0, Math.PI * 1.12, Math.PI * 1.88);
+  else if (mood === "dormida") g.arc(x, y - r * 0.5, r * 1.0, Math.PI * 0.12, Math.PI * 0.88);
+  else {
+    g.moveTo(x - side * r * 0.75, y - r * 0.75); g.lineTo(x + side * r * 0.65, y); g.lineTo(x - side * r * 0.75, y + r * 0.75);
+  }
+  g.lineWidth = Math.max(4.4, r * 0.4); g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = ink; g.stroke();
+}
+// Los dos ojos centrados en (cx, cy). `o` lleva el estilo de la cara de siempre.
+function eyes(c, cx, cy, sep, r, o = {}) {
+  const ink = o.ink || INK;
+  for (const side of [-1, 1]) {
+    const x = cx + side * sep / 2;
+    if (c.mood !== "tranquila") eyeMood(x, cy, r, side, c.mood, o.moodInk || ink);
+    else if (o.wink === side) {
+      g.beginPath(); g.moveTo(x - r * 1.0, cy + r * 0.1); g.quadraticCurveTo(x, cy + r * 0.55, x + r * 1.0, cy + r * 0.1);
+      g.lineWidth = 4.6; g.lineCap = "round"; g.strokeStyle = ink; g.stroke();
+    } else eyeOpen(x, cy, r, side, o);
+  }
+  if (o.scar) {
+    const x = cx + o.scar * sep / 2;
+    strokePath(() => { g.moveTo(x - r * 0.5, cy - r * 1.9); g.lineTo(x + r * 0.5, cy + r * 1.6); }, "#f6ecf0", 5.6);
+    strokePath(() => { g.moveTo(x - r * 0.5, cy - r * 1.9); g.lineTo(x + r * 0.5, cy + r * 1.6); }, "#b64a62", 2.6);
+    for (const k of [-0.8, 0, 0.8]) {
+      strokePath(() => { g.moveTo(x - r * 0.7, cy + k * r * 0.9 - r * 0.2); g.lineTo(x + r * 0.4, cy + k * r * 0.9 + r * 0.25); }, "#b64a62", 2.4);
+    }
+  }
+}
+function brows(cx, cy, sep, w, ang, color, th = 5) {
+  for (const side of [-1, 1]) {
+    const x = cx + side * sep / 2;
+    strokePath(() => {
+      g.moveTo(x - w / 2, cy + side * ang * w / 2); g.lineTo(x + w / 2, cy - side * ang * w / 2);
+    }, color, th);
+  }
+}
+function cheeks(cx, cy, sep, r, color = "rgba(255,108,138,0.5)") {
+  for (const side of [-1, 1]) fillEll(cx + side * sep / 2, cy, r, r * 0.66, color);
+}
+// La boca. `kind` es la de siempre; las caras del momento la cambian. `x, y` es la comisura central.
+function mouth(c, x, y, w, kind, ink = INK, o = {}) {
+  const k = c.mood === "contenta" ? (o.happy || "smile") : c.mood === "fiesta" ? "open"
+    : c.mood === "dormida" ? "sleep" : kind;
+  if (k === "w") { // la boquita de gato, ω
+    strokePath(() => { g.moveTo(x - w, y - 2); g.quadraticCurveTo(x - w * 0.5, y + w * 0.7, x, y); g.quadraticCurveTo(x + w * 0.5, y + w * 0.7, x + w, y - 2); }, ink, 3.6);
+  } else if (k === "smile") {
+    strokePath(() => { g.moveTo(x - w, y - 2); g.quadraticCurveTo(x, y + w * 0.85, x + w, y - 2); }, ink, 3.8);
+  } else if (k === "flat") {
+    strokePath(() => { g.moveTo(x - w, y); g.lineTo(x + w, y); }, ink, 3.8);
+  } else if (k === "smirk") {
+    strokePath(() => { g.moveTo(x - w, y + 2); g.quadraticCurveTo(x, y + w * 0.55, x + w, y - w * 0.4); }, ink, 3.8);
+  } else if (k === "sleep") {
+    strokePath(() => { g.moveTo(x - w * 0.4, y); g.quadraticCurveTo(x, y + w * 0.35, x + w * 0.4, y); }, ink, 3.4);
+  } else if (k === "tongue") {
+    g.beginPath(); rr(x - w * 0.42, y - 2, w * 0.84, w * 1.15, w * 0.42); g.fillStyle = "#ff8fa8"; g.fill();
+    g.lineWidth = 3; g.strokeStyle = "#b64a62"; g.stroke();
+    strokePath(() => { g.moveTo(x, y + 2); g.lineTo(x, y + w * 0.6); }, "#d4607e", 2.4);
+    strokePath(() => { g.moveTo(x - w, y - 2); g.quadraticCurveTo(x - w * 0.5, y + w * 0.65, x, y - 1); g.quadraticCurveTo(x + w * 0.5, y + w * 0.65, x + w, y - 2); }, ink, 3.8);
+  } else if (k === "open") { // riendo: D grande con lengua
+    const h = w * 1.05;
+    const shape = () => {
+      g.moveTo(x - w, y - 2); g.quadraticCurveTo(x, y + 0, x + w, y - 2);
+      g.bezierCurveTo(x + w * 0.9, y + h * 1.25, x - w * 0.9, y + h * 1.25, x - w, y - 2); g.closePath();
+    };
+    g.save();
+    g.beginPath(); shape(); g.fillStyle = "#7a2236"; g.fill(); g.clip();
+    fillEll(x, y + h * 1.05, w * 0.6, h * 0.5, "#ff7f9c");
+    g.restore();
+    strokePath(shape, ink, 3.6);
+  }
+}
+function whiskers(x, y, len, color, n = 3, spread = 9) {
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < n; i++) {
+      const k = i - (n - 1) / 2;
+      strokePath(() => {
+        g.moveTo(x + side * 6, y + k * 4);
+        g.quadraticCurveTo(x + side * len * 0.6, y + k * spread * 0.9 - 4, x + side * len, y + k * spread * 1.5);
+      }, color, 2.6);
+    }
+  }
+}
+
+// Mueve la cabeza (la inclina y la baja al dormirse) alrededor del pivote del cuello. Devuelve
+// cómo se mueve un punto de la cabeza, para los anclajes.
+function headMove(c, px, py, fn) {
+  g.save();
+  g.translate(0, c.dy); g.translate(px, py); g.rotate(c.rot); g.translate(-px, -py);
+  fn();
+  g.restore();
+  const cos = Math.cos(c.rot), sin = Math.sin(c.rot);
+  return (x, y) => {
+    const dx = x - px, dy = y - py;
+    return [px + dx * cos - dy * sin, py + dx * sin + dy * cos + c.dy];
+  };
+}
+// Arma los anclajes de un plan: la cabeza y los ojos pasan por `map` (la inclinación).
+function anchors(c, map, head, eyesA, neck, body) {
+  const [hx, hy] = map(head[0], head[1]), [ex, ey] = map(eyesA[0], eyesA[1]);
+  return {
+    head: { x: hx, y: hy, w: head[2], tilt: c.rot },
+    eyes: { x: ex, y: ey, sep: eyesA[2] },
+    neck: { x: neck[0], y: neck[1] + c.dy * 0.5, w: neck[2] },
+    body: { x: body[0], y: body[1], w: body[2], h: body[3] },
+  };
+}
+// -- FIN DE LAS UTILIDADES --
+
+const PLANS = {};
+
+// Borde con bolitas (pelo rizado, melena): una elipse y un anillo de círculos.
+function fluff(cx, cy, rx, ry, n, b, phase = 0.3) {
+  ell(cx, cy, rx - b * 0.4, ry - b * 0.4);
+  for (let i = 0; i < n; i++) {
+    const a = i * TAU / n + phase;
+    ell(cx + Math.cos(a) * (rx - b * 0.55), cy + Math.sin(a) * (ry - b * 0.55), b * 1.25, b * 1.15);
+  }
+}
+const NOSE_PINK = "#e58a9b";
+const EAR_PINK = "#f4a3b4";
+
+// -- Plan gato ------------------------------------------------------------------------------
+// look: fur, belly, muzzle, stripes ("atigrado"), stripe, points (extremidades oscuras: siamés),
+// patches ([[color, x, y, rx, ry, rot]] en la cabeza), eye, flat (cara aplastada), fluffy (pelo
+// largo), nose, face ("chulo" | "tuerto").
+PLANS.gato = (c) => {
+  const L = c.look, fur = L.fur || "#9b7b59", belly = L.belly || light(fur, 0.55);
+  const pts = L.points, flat = !!L.flat, fluffy = !!L.fluffy;
+  const stripe = L.stripes === "atigrado" ? (L.stripe || dark(fur, 0.45)) : null;
+  const edge = pts || fur, muz = L.muzzle || belly, tuerto = L.face === "tuerto";
+  const hy = -165;
+  // cola, con anillos de rayas o la punta oscura
+  const tail = bez([58, -22], [136, -6], [150, -92], [108, -134]);
+  tube(tail, 24, edge);
+  if (stripe) for (const [a, b] of [[0.3, 0.38], [0.5, 0.58], [0.72, 0.8]]) tube(bez([58, -22], [136, -6], [150, -92], [108, -134], a, b, 3), 24, stripe, { lw: 0, flat: true });
+  if (pts) tube(bez([58, -22], [136, -6], [150, -92], [108, -134], 0.82, 1, 4), 24, pts, { lw: 0, flat: true });
+  // patas traseras
+  blob(() => { ell(-54, -14, 24, 16); ell(54, -14, 24, 16); }, edge);
+  // tronco y pecho
+  blob(() => ell(0, -62, 68, 62), fur, { inside() {
+    fillEll(0, -48, 38, 48, belly);
+    if (stripe) for (const k of [-1, 1]) for (let i = 0; i < 3; i++) strokePath(() => { g.moveTo(k * 66, -84 + i * 16); g.lineTo(k * 46, -80 + i * 16); }, stripe, 6);
+    if (L.bodyPatches) for (const p of L.bodyPatches) fillEll(p[1], p[2], p[3], p[4], p[0], p[5] || 0);
+  } });
+  if (fluffy) blob(() => { for (let i = 0; i < 6; i++) ell(-50 + i * 20, -104 + (i % 2) * 7, 21, 17); }, fur);
+  // patas delanteras
+  blob(() => { rr(-42, -82, 31, 74, 15); rr(11, -82, 31, 74, 15); ell(-26, -12, 21, 13); ell(26, -12, 21, 13); }, edge);
+  for (const k of [-1, 1]) for (const d of [-7, 7]) strokePath(() => { g.moveTo(k * 26 + d, -18); g.lineTo(k * 26 + d, -9); }, lineOf(edge), 2.6);
+  // cabeza
+  const map = headMove(c, 0, -112, () => {
+    for (const s of [-1, 1]) {
+      blob(() => { g.moveTo(s * 22, -224); g.quadraticCurveTo(s * 34, -260, s * 70, -266); g.quadraticCurveTo(s * 94, -240, s * 86, -176); g.closePath(); }, edge);
+      fillPath(() => { g.moveTo(s * 34, -228); g.quadraticCurveTo(s * 42, -250, s * 66, -254); g.quadraticCurveTo(s * 80, -232, s * 76, -190); g.closePath(); }, EAR_PINK);
+    }
+    blob(() => { if (fluffy) fluff(0, hy, 84, 66, 15, 10); else ell(0, hy, 82, 66); }, fur, { inside() {
+      if (!flat) fillEll(0, hy + 22, 36, 25, muz);
+      if (pts) { fillEll(0, hy + 24, 40, 30, pts); fillEll(0, hy + 2, 15, 34, pts); }
+      if (stripe) {
+        for (const x of [-20, 0, 20]) strokePath(() => { g.moveTo(x, hy - 66); g.lineTo(x * 0.8, hy - 38); }, stripe, 6.5);
+        for (const k of [-1, 1]) for (const dy of [-6, 14]) strokePath(() => { g.moveTo(k * 90, hy + dy); g.lineTo(k * 62, hy + dy + 2); }, stripe, 6);
+      }
+      for (const p of L.patches || []) fillEll(p[1], hy + p[2], p[3], p[4], p[0], p[5] || 0);
+    } });
+    const ey = flat ? hy + 8 : hy + 4, sep = flat ? 78 : 72;
+    cheeks(0, hy + 26, sep + 40, 11);
+    eyes(c, 0, ey, sep, flat ? 15.5 : 14, { kind: "iris", iris: L.eye || "#e3b53a", slit: true, lid: tuerto ? 0.25 : 0.45, lidColor: lum(fur) < 0.25 ? "#3a3036" : fur, wink: tuerto ? 1 : 0, scar: tuerto ? 1 : 0, moodInk: lum(fur) < 0.25 || (pts && lum(pts) < 0.3) ? "#2a1d33" : INK });
+    const ny = flat ? hy + 20 : hy + 14, ns = flat ? 0.8 : 1;
+    g.beginPath(); g.moveTo(-9 * ns, ny - 4 * ns); g.lineTo(9 * ns, ny - 4 * ns); g.quadraticCurveTo(7 * ns, ny + 6 * ns, 0, ny + 9 * ns); g.quadraticCurveTo(-7 * ns, ny + 6 * ns, -9 * ns, ny - 4 * ns);
+    g.fillStyle = L.nose || NOSE_PINK; g.fill(); g.lineWidth = 2.4; g.lineJoin = "round"; g.strokeStyle = dark(L.nose || NOSE_PINK, 0.5); g.stroke();
+    const my = ny + 12 * ns;
+    strokePath(() => { g.moveTo(0, ny + 9 * ns); g.lineTo(0, my - 2); }, INK, 2.6);
+    mouth(c, 0, my, 9, "w", INK);
+    whiskers(0, my - 6, 56, "rgba(64,44,74,0.5)", 3, 8);
+  });
+  return anchors(c, map, [0, -231, 164], [0, hy + 4, 72], [0, -108, 74], [0, -62, 136, 124]);
+};
+
+// -- Plan perro -----------------------------------------------------------------------------
+// look: coat, muzzle, ears ("caidas" | "largas" | "pie" | "rosa" | "rizos"), earColor, saddle (silla
+// oscura), chest, blaze, mask (hocico oscuro), brindle (rayas), jowls (mofletes), head ("ancha"),
+// body ("largo": teckel), curly (caniche), tip (punta de la cola), ruff (pelo del pecho), snout.
+PLANS.perro = (c) => {
+  const L = c.look, coat = L.coat || "#c8935a", lightC = L.muzzle || light(coat, 0.55);
+  const ears = L.ears || "caidas", earC = L.earColor || dark(coat, 0.22);
+  const long = L.body === "largo", curly = !!L.curly, wide = L.head === "ancha";
+  const hx = long ? -64 : 0, hy = long ? -138 : -160, hrx = wide ? 90 : 80, hry = wide ? 68 : 64;
+  const tipC = L.tip;
+  // cola
+  if (long) tube(bez([150, -62], [182, -70], [188, -110], [176, -130]), 18, coat);
+  else if (curly) blob(() => ell(100, -86, 18, 18), coat);
+  else {
+    tube(bez([58, -22], [112, -18], [124, -62], [104, -96]), 22, coat);
+    if (tipC) tube(bez([58, -22], [112, -18], [124, -62], [104, -96], 0.8, 1, 4), 22, tipC, { lw: 0, flat: true });
+  }
+  // cuerpo y patas
+  const body = () => { if (long) ell(40, -52, 126, 46); else if (curly) fluff(0, -62, 68, 62, 13, 13); else ell(0, -62, 70, 64); };
+  const hind = long ? [[112, -2]] : [[-52, -12], [52, -12]];
+  blob(() => { for (const [x, y] of hind) { if (long) rr(x - 16, y - 46, 32, 50, 12); ell(x, y - 4, 25, 15); } }, coat);
+  blob(body, coat, { inside() {
+    if (L.saddle) fillEll(long ? 60 : 0, long ? -80 : -102, long ? 98 : 64, long ? 26 : 44, L.saddle);
+    if (L.chest) fillEll(long ? -22 : 0, long ? -40 : -44, 34, long ? 34 : 40, L.chest);
+    if (L.brindle) for (let i = 0; i < 7; i++) strokePath(() => { const x = -56 + i * 19; g.moveTo(x, -112); g.lineTo(x + 12, -62); }, L.brindle, 6);
+  } });
+  if (L.ruff) blob(() => { for (let i = 0; i < 6; i++) ell(hx - 50 + i * 20, -104 + (i % 2) * 8, 21, 17); }, L.ruff);
+  const fx = long ? -30 : 0;
+  const legs = () => {
+    if (long) { rr(fx - 38, -52, 28, 50, 12); rr(fx + 6, -52, 28, 50, 12); ell(fx - 24, -8, 22, 13); ell(fx + 20, -8, 22, 13); }
+    else { rr(-42, -82, 31, 74, 15); rr(11, -82, 31, 74, 15); ell(-26, -10, 22, 13); ell(26, -10, 22, 13); }
+  };
+  if (curly) blob(() => { ell(-26, -10, 25, 17); ell(26, -10, 25, 17); rr(-40, -78, 28, 68, 14); rr(12, -78, 28, 68, 14); }, coat);
+  else blob(legs, L.legs || coat);
+  // cabeza
+  const map = headMove(c, hx, hy + 46, () => {
+    const earBehind = ears === "pie";
+    if (earBehind) for (const s of [-1, 1]) {
+      blob(() => { g.moveTo(hx + s * 24, hy - 50); g.quadraticCurveTo(hx + s * 44, hy - 120, hx + s * 62, hy - 108); g.quadraticCurveTo(hx + s * 88, hy - 60, hx + s * 78, hy - 22); g.closePath(); }, earC);
+      fillPath(() => { g.moveTo(hx + s * 36, hy - 52); g.quadraticCurveTo(hx + s * 48, hy - 100, hx + s * 60, hy - 94); g.quadraticCurveTo(hx + s * 76, hy - 58, hx + s * 68, hy - 30); g.closePath(); }, "#e8b4a0");
+    }
+    if (curly) {
+      for (const s of [-1, 1]) blob(() => fluff(hx + s * 88, hy + 22, 24, 42, 9, 11), coat);
+      blob(() => fluff(hx, hy - 58, 38, 26, 8, 12), coat);
+    }
+    blob(() => { if (curly) fluff(hx, hy, 76, 62, 14, 13); else ell(hx, hy, hrx, hry); }, coat, { inside() {
+      fillEll(hx, hy + 22, wide ? 52 : (L.snout ? 38 : 42), L.snout ? 36 : 30, L.mask || lightC);
+      if (L.blaze) fillEll(hx, hy - 6, 13, 46, L.blaze);
+      if (L.brindle) for (let i = 0; i < 6; i++) strokePath(() => { const x = hx - 50 + i * 20; g.moveTo(x, hy - 64); g.lineTo(x + 8, hy - 34); }, L.brindle, 5.5);
+      if (L.mask && !curly) fillEll(hx, hy + 16, 24, 22, L.mask);
+      for (const p of L.patches || []) fillEll(hx + p[1], hy + p[2], p[3], p[4], p[0], p[5] || 0);
+    } });
+    if (!curly && ears !== "pie") for (const s of [-1, 1]) {
+      if (ears === "caidas") blob(() => ell(hx + s * (hrx - 4), hy + 8, 25, 45, s * 0.28), earC);
+      else if (ears === "largas") blob(() => ell(hx + s * (hrx + 2), hy + 26, 28, 60, s * 0.14), earC);
+      else if (ears === "rosa") blob(() => ell(hx + s * 66, hy - 44, 27, 20, s * 0.55), earC);
+    }
+    if (L.jowls) for (const s of [-1, 1]) blob(() => ell(hx + s * 34, hy + 42, 19, 14), L.mask || lightC, { lw: 4 });
+    cheeks(hx, hy + 24, 2 * (hrx - 12), 11);
+    eyes(c, hx, hy - 4, wide ? 70 : 62, 12.5, { kind: "dulce", moodInk: lum(coat) < 0.25 ? "#f4eaf2" : INK });
+    if (L.face !== "serio" && (c.mood === "tranquila" || c.mood === "contenta")) brows(hx, hy - 24, wide ? 70 : 62, 20, -0.14, dark(coat, 0.4), 4);
+    // hocico
+    g.beginPath(); ell(hx, hy + 10, 15, 11); g.fillStyle = "#3a2a3a"; g.fill();
+    fillEll(hx - 5, hy + 7, 4.5, 2.8, "rgba(255,255,255,0.75)", -0.4);
+    strokePath(() => { g.moveTo(hx, hy + 17); g.lineTo(hx, hy + 28); }, "#3a2a3a", 3);
+    mouth(c, hx, hy + 28, 12, "tongue", "#3a2a3a", { happy: "tongue" });
+  });
+  return anchors(c, map, [hx, hy - hry - 2, hrx * 2], [hx, hy - 4, wide ? 70 : 62], [hx, hy + 50, 80], long ? [40, -52, 252, 92] : [0, -62, 140, 124]);
+};
+// -- Plan hamster ---------------------------------------------------------------------------
+// look: coat, belly, cap (gorro oscuro de la cabeza), stripe (raya del lomo), ring (antifaz),
+// cheek, inner (oreja).
+PLANS.hamster = (c) => {
+  const L = c.look, coat = L.coat || "#d9a35e", belly = L.belly || "#fff1dc";
+  const cap = L.cap, ring = L.ring, stripe = L.stripe, inner = L.inner || EAR_PINK;
+  blob(() => { ell(-48, -9, 26, 14); ell(48, -9, 26, 14); }, L.feet || belly);
+  const map = headMove(c, 0, -30, () => {
+    for (const s of [-1, 1]) {
+      blob(() => ell(s * 66, -166, 24, 24), cap || coat);
+      fillEll(s * 66, -165, 13, 13, inner);
+    }
+    blob(() => { ell(0, -90, 98, 88); ell(-64, -72, 40, 36); ell(64, -72, 40, 36); }, coat, { inside() {
+      fillEll(0, -48, 60, 46, belly);
+      fillEll(0, -92, 34, 24, belly);
+      if (cap) fillEll(0, -190, 110, 56, cap);
+      if (stripe) strokePath(() => { g.moveTo(0, -178); g.lineTo(0, -140); }, stripe, 14);
+      if (ring) for (const s of [-1, 1]) fillEll(s * 34, -112, 22, 26, ring, s * 0.3);
+    } });
+    cheeks(0, -88, 138, 13);
+    eyes(c, 0, -114, 66, 12, { kind: "dulce", moodInk: ring && lum(ring) < 0.3 ? "#f4eaf2" : INK, ink: ring && lum(ring) < 0.3 ? "#463d52" : INK });
+    g.beginPath(); ell(0, -96, 9, 6.5); g.fillStyle = L.nose || NOSE_PINK; g.fill(); g.lineWidth = 2; g.strokeStyle = dark(NOSE_PINK, 0.5); g.stroke();
+    strokePath(() => { g.moveTo(0, -90); g.lineTo(0, -85); }, INK, 2.4);
+    mouth(c, 0, -85, 8, "w", INK);
+    if (c.mood === "tranquila") { g.beginPath(); rr(-4, -82, 8, 9, 2); g.fillStyle = "#fffdf6"; g.fill(); g.lineWidth = 1.8; g.strokeStyle = "#8a7a8e"; g.stroke(); }
+    whiskers(0, -90, 50, "rgba(64,44,74,0.5)", 3, 7);
+    // las manitas con una pipa
+    blob(() => ell(0, -42, 20, 11), "#f1c27a", { lw: 3 });
+    strokePath(() => { g.moveTo(-10, -42); g.lineTo(10, -42); }, "#8a5a2a", 2.4);
+    for (const s of [-1, 1]) blob(() => ell(s * 22, -46, 12, 15), coat, { lw: 3.6 });
+  });
+  return anchors(c, map, [0, -178, 150], [0, -114, 66], [0, -70, 110], [0, -52, 150, 90]);
+};
+
+// -- Plan conejo ----------------------------------------------------------------------------
+// look: coat, belly, inner (oreja), ears ("largas" | "caidas" | "cortas"), mane (melena de león),
+// patches ([[color, x, y, rx, ry, rot]] en la cabeza), bodyPatches, blaze.
+PLANS.conejo = (c) => {
+  const L = c.look, coat = L.coat || "#9a979e", belly = L.belly || light(coat, 0.55), inner = L.inner || EAR_PINK;
+  const ears = L.ears || "largas";
+  blob(() => ell(72, -34, 16, 16), L.tail || "#fbf6ff");
+  blob(() => { ell(-58, -12, 31, 14); ell(58, -12, 31, 14); }, coat, { inside() { for (const p of L.feetPatches || []) fillEll(p[1], p[2], p[3], p[4], p[0]); } });
+  blob(() => ell(0, -62, 66, 62), coat, { inside() {
+    fillEll(0, -48, 38, 46, belly);
+    for (const p of L.bodyPatches || []) fillEll(p[1], p[2], p[3], p[4], p[0], p[5] || 0);
+  } });
+  blob(() => { rr(-38, -80, 28, 72, 14); rr(10, -80, 28, 72, 14); ell(-24, -10, 20, 12); ell(24, -10, 20, 12); }, coat);
+  const hy = -162;
+  const map = headMove(c, 0, -108, () => {
+    if (L.mane) blob(() => fluff(0, hy - 2, 100, 82, 17, 15), L.maneColor || dark(coat, 0.12));
+    if (ears === "largas") for (const s of [-1, 1]) {
+      blob(() => ell(s * 32, hy - 84, 21, 64, s * 0.16), L.earColor || coat);
+      fillEll(s * 32 + s * 4, hy - 82, 11, 48, inner, s * 0.16);
+    } else if (ears === "cortas") for (const s of [-1, 1]) {
+      blob(() => ell(s * 46, hy - 64, 19, 32, s * 0.4), L.earColor || coat);
+      fillEll(s * 47, hy - 62, 9, 22, inner, s * 0.4);
+    }
+    blob(() => ell(0, hy, 76, 64), coat, { inside() {
+      if (L.blaze) fillEll(0, hy - 12, 14, 48, L.blaze);
+      fillEll(0, hy + 26, 38, 28, L.muzzle || belly);
+      for (const p of L.patches || []) fillEll(p[1], hy + p[2], p[3], p[4], p[0], p[5] || 0);
+    } });
+    if (ears === "caidas") for (const s of [-1, 1]) {
+      blob(() => ell(s * 78, hy + 6, 25, 58, s * 0.18), L.earColor || dark(coat, 0.1));
+      fillEll(s * 80, hy + 12, 11, 40, inner, s * 0.18);
+    }
+    cheeks(0, hy + 26, 124, 12);
+    eyes(c, 0, hy - 2, 66, 12.5, { kind: "dulce", ink: L.eyeInk || INK });
+    g.beginPath(); g.moveTo(-7, hy + 14); g.lineTo(7, hy + 14); g.quadraticCurveTo(5, hy + 22, 0, hy + 24); g.quadraticCurveTo(-5, hy + 22, -7, hy + 14);
+    g.fillStyle = NOSE_PINK; g.fill(); g.lineWidth = 2.2; g.strokeStyle = dark(NOSE_PINK, 0.5); g.stroke();
+    strokePath(() => { g.moveTo(0, hy + 23); g.lineTo(0, hy + 31); }, INK, 2.6);
+    mouth(c, 0, hy + 31, 9, "w", INK);
+    if (c.mood === "tranquila" || c.mood === "contenta") { g.beginPath(); rr(-6, hy + 33, 12, 11, 2.4); g.fillStyle = "#fffdf6"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#8a7a8e"; g.stroke(); strokePath(() => { g.moveTo(0, hy + 34); g.lineTo(0, hy + 42); }, "#8a7a8e", 1.6); }
+    whiskers(0, hy + 24, 52, "rgba(64,44,74,0.5)", 3, 8);
+  });
+  return anchors(c, map, [0, hy - 64, 152], [0, hy - 2, 66], [0, -108, 74], [0, -62, 132, 124]);
+};
+
+// -- Plan huron ------------------------------------------------------------------------------
+// look: coat, belly, mask (antifaz), points (patas y cola oscuras), muzzle, eye (iris), inner.
+PLANS.huron = (c) => {
+  const L = c.look, coat = L.coat || "#cdb48e", belly = L.belly || light(coat, 0.45), mask = L.mask, pts = L.points || coat;
+  tube(bez([26, -16], [140, 0], [150, -110], [96, -150]), 24, pts);
+  blob(() => { ell(-30, -10, 24, 13); ell(30, -10, 24, 13); }, pts);
+  blob(() => ell(0, -84, 50, 82), coat, { inside() { fillEll(0, -70, 30, 66, belly); } });
+  blob(() => { ell(-38, -104, 15, 21, 0.3); ell(38, -104, 15, 21, -0.3); }, pts);
+  const hy = -192;
+  const map = headMove(c, 0, -140, () => {
+    for (const s of [-1, 1]) { blob(() => ell(s * 52, hy - 36, 17, 17), coat); fillEll(s * 52, hy - 36, 8, 8, L.inner || EAR_PINK); }
+    blob(() => ell(0, hy, 68, 54), coat, { inside() {
+      if (mask) fillEll(0, hy - 2, 66, 22, mask);
+      fillEll(0, hy + 20, 36, 26, L.muzzle || belly);
+      if (mask) fillEll(0, hy - 38, 16, 18, mask);
+      fillEll(0, hy - 24, 24, 12, L.crown || coat);
+    } });
+    cheeks(0, hy + 22, 110, 10);
+    eyes(c, 0, hy - 2, 60, 11, { kind: L.eye ? "iris" : "dulce", iris: L.eye, ink: L.eye ? "#2a1d33" : (mask && lum(mask) < 0.3 ? "#1d1424" : INK), moodInk: mask && lum(mask) < 0.3 ? "#f4eaf2" : INK });
+    g.beginPath(); ell(0, hy + 14, 8, 6); g.fillStyle = L.nose || NOSE_PINK; g.fill(); g.lineWidth = 2; g.strokeStyle = dark(NOSE_PINK, 0.5); g.stroke();
+    mouth(c, 0, hy + 28, 9, "w", INK);
+    whiskers(0, hy + 20, 46, "rgba(64,44,74,0.5)", 3, 7);
+  });
+  blob(() => { ell(-34, -96, 15, 18, 0.5); ell(34, -96, 15, 18, -0.5); }, pts);
+  return anchors(c, map, [0, hy - 54, 136], [0, hy - 2, 60], [0, -142, 62], [0, -84, 100, 166]);
+};
+
+// -- Plan oso (panda) -----------------------------------------------------------------------
+// look: light, dark, eyePatch, bamboo (bool), face ("ojeras").
+PLANS.oso = (c) => {
+  const L = c.look, light1 = L.light || "#fbfaf6", dk = L.dark || "#34303c", patch = L.eyePatch || dk;
+  blob(() => { ell(-62, -26, 40, 26); ell(62, -26, 40, 26); }, dk);
+  blob(() => ell(0, -74, 98, 72), light1);
+  if (L.bamboo !== false) {
+    tube([[-30, -34], [22, -150]], 13, "#7cc16a", { lw: 4 });
+    for (const t of [0.25, 0.55]) { const x = -30 + 52 * t, y = -34 - 116 * t; strokePath(() => { g.moveTo(x - 7, y - 1); g.lineTo(x + 7, y - 1); }, "#3f7a3a", 3.2); }
+    blob(() => { g.moveTo(22, -148); g.quadraticCurveTo(48, -176, 66, -160); g.quadraticCurveTo(52, -140, 22, -148); g.closePath(); }, "#8fd277", { lw: 3 });
+  }
+  for (const s of [-1, 1]) blob(() => ell(s * 80, -86, 26, 46, s * 0.35), dk);
+  const hy = -170;
+  const map = headMove(c, 0, -118, () => {
+    for (const s of [-1, 1]) blob(() => ell(s * 70, hy - 54, 27, 27), dk);
+    blob(() => ell(0, hy, 90, 70), light1, { inside() { fillEll(0, hy + 30, 40, 28, L.muzzle || light(light1, 0.3)); } });
+    for (const s of [-1, 1]) {
+      g.beginPath(); ell(s * 38, hy - 4, 21, 29, s * 0.5); g.fillStyle = patch; g.fill();
+    }
+    const dkInk = lum(patch) < 0.3;
+    eyes(c, 0, hy - 4, 76, 10.5, { kind: "dulce", ink: dkInk ? "#4a4256" : INK, lid: c.mood === "tranquila" ? 0.5 : 0, lidColor: patch, lidLine: dark(patch, 0.1), moodInk: dkInk ? "#f4eaf2" : INK });
+    if (c.mood === "tranquila") for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 38 - 13, hy + 24); g.quadraticCurveTo(s * 38, hy + 31, s * 38 + 13, hy + 24); }, mix(patch, "#8a7aa8", 0.5), 3);
+    cheeks(0, hy + 26, 128, 12);
+    g.beginPath(); g.moveTo(-12, hy + 12); g.quadraticCurveTo(0, hy + 6, 12, hy + 12); g.quadraticCurveTo(10, hy + 24, 0, hy + 25); g.quadraticCurveTo(-10, hy + 24, -12, hy + 12);
+    g.fillStyle = dk; g.fill();
+    fillEll(-4, hy + 13, 4, 2.4, "rgba(255,255,255,0.7)", -0.3);
+    strokePath(() => { g.moveTo(0, hy + 24); g.lineTo(0, hy + 32); }, lineOf(light1), 2.6);
+    mouth(c, 0, hy + 32, 11, "w", lineOf(light1));
+  });
+  return anchors(c, map, [0, hy - 70, 180], [0, hy - 4, 76], [0, -118, 100], [0, -74, 196, 144]);
+};
+
+// -- Plan cabra -----------------------------------------------------------------------------
+// look: coat, belly, horn, beard, ear, blaze, patches, bodyPatches, sclera, face ("loca").
+PLANS.cabra = (c) => {
+  const L = c.look, coat = L.coat || "#b8825a", belly = L.belly || light(coat, 0.5), horn = L.horn || "#e9dcc0";
+  const earC = L.ear || dark(coat, 0.1), beard = L.beard || dark(coat, 0.3);
+  blob(() => { g.moveTo(64, -86); g.lineTo(86, -122); g.lineTo(80, -70); g.closePath(); }, coat);
+  blob(() => ell(0, -64, 64, 62), coat, { inside() {
+    fillEll(0, -50, 38, 46, belly);
+    for (const p of L.bodyPatches || []) fillEll(p[1], p[2], p[3], p[4], p[0], p[5] || 0);
+  } });
+  blob(() => { rr(-38, -80, 26, 72, 12); rr(12, -80, 26, 72, 12); }, coat);
+  blob(() => { rr(-39, -22, 28, 18, 7); rr(11, -22, 28, 18, 7); }, L.hoof || "#4a3a40");
+  const hy = -166;
+  const map = headMove(c, 0, -110, () => {
+    for (const s of [-1, 1]) tube(bez([s * 28, hy - 48], [s * 40, hy - 104], [s * 70, hy - 114], [s * 88, hy - 88], 0, 1, 12), 17, horn);
+    for (const s of [-1, 1]) blob(() => ell(s * 82, hy - 6, 38, 15, s * 0.3), earC);
+    blob(() => { g.moveTo(-14, hy + 40); g.quadraticCurveTo(0, hy + 96, 14, hy + 40); g.closePath(); }, beard);
+    blob(() => ell(0, hy, 70, 62), coat, { inside() {
+      fillEll(0, hy + 26, 36, 30, L.muzzle || belly);
+      if (L.blaze) { fillEll(-14, hy - 10, 8, 50, L.blaze, 0.15); fillEll(14, hy - 10, 8, 50, L.blaze, -0.15); }
+      for (const p of L.patches || []) fillEll(p[1], hy + p[2], p[3], p[4], p[0], p[5] || 0);
+    } });
+    cheeks(0, hy + 26, 118, 10);
+    eyes(c, 0, hy - 4, 70, 15, { kind: "sclera", sclera: L.sclera || "#f6e9a2", rim: "#7a5a3a", rect: (s) => (s < 0 ? -0.55 : 0.25), look: (s) => (s < 0 ? [-0.8, -0.6] : [0.7, 0.5]), ink: "#2a1d33" });
+    g.beginPath(); ell(-9, hy + 22, 4.5, 3.4); ell(9, hy + 22, 4.5, 3.4); g.fillStyle = "#4a3040"; g.fill();
+    mouth(c, 0, hy + 40, 10, "smirk", INK);
+    if (c.mood === "tranquila") { g.beginPath(); rr(-4, hy + 44, 8, 11, 4); g.fillStyle = "#ff8fa8"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#b64a62"; g.stroke(); }
+  });
+  return anchors(c, map, [0, hy - 62, 140], [0, hy - 4, 68], [0, -112, 70], [0, -64, 128, 124]);
+};
+
+// -- Plan caballo ---------------------------------------------------------------------------
+// look: coat, mane, blaze, socks, belly, dapples (círculos más claros y oscuros), sheen (brillo),
+// muzzle.
+PLANS.caballo = (c) => {
+  const L = c.look, coat = L.coat || "#9a5a32", mane = L.mane || "#3a2418", muz = L.muzzle || mix(coat, "#e8c8a8", 0.35);
+  tube(bez([74, -74], [128, -64], [140, -20], [118, 8]), 20, mane);
+  blob(() => ell(0, -64, 88, 62), coat, { inside() {
+    if (L.dapples) for (let i = 0; i < 16; i++) fillEll(-70 + rnd(11, i) * 140, -108 + rnd(12, i) * 80, 9, 7, i % 2 ? light(coat, 0.3) : dark(coat, 0.15));
+    if (L.sheen) strokePath(() => { g.moveTo(-50, -96); g.quadraticCurveTo(-20, -108, 14, -98); }, L.sheen, 6);
+  } });
+  blob(() => { rr(-50, -82, 30, 76, 13); rr(20, -82, 30, 76, 13); }, coat, { inside() { if (L.socks) { fillEll(-35, -6, 30, 22, L.socks); fillEll(35, -6, 30, 22, L.socks); } } });
+  blob(() => { rr(-51, -20, 32, 18, 7); rr(19, -20, 32, 18, 7); }, "#4a3a40");
+  // melena a los lados del cuello
+  for (const s of [-1, 1]) blob(() => { g.moveTo(s * 30, -252); g.quadraticCurveTo(s * 84, -238, s * 78, -150); g.quadraticCurveTo(s * 72, -100, s * 50, -98); g.lineTo(s * 32, -190); g.closePath(); }, mane);
+  blob(() => rr(-34, -204, 68, 116, 20), coat);
+  const hy = -206;
+  const map = headMove(c, 0, -120, () => {
+    for (const s of [-1, 1]) blob(() => { g.moveTo(s * 18, hy - 62); g.quadraticCurveTo(s * 30, hy - 112, s * 44, hy - 104); g.quadraticCurveTo(s * 60, hy - 80, s * 46, hy - 50); g.closePath(); }, coat);
+    blob(() => { g.moveTo(-46, hy - 22); g.bezierCurveTo(-50, hy - 74, 50, hy - 74, 46, hy - 22); g.bezierCurveTo(44, hy + 30, 42, hy + 52, 36, hy + 62); g.quadraticCurveTo(0, hy + 78, -36, hy + 62); g.bezierCurveTo(-42, hy + 52, -44, hy + 30, -46, hy - 22); g.closePath(); }, coat, { inside() {
+      if (L.blaze) fillEll(0, hy - 6, 11, 60, L.blaze);
+      fillEll(0, hy + 54, 40, 28, muz);
+    } });
+    cheeks(0, hy + 22, 84, 9);
+    eyes(c, 0, hy - 10, 74, 12.5, { kind: "dulce", lid: 0.28, lidColor: coat, ink: lum(coat) < 0.25 ? "#120c18" : INK, moodInk: lum(coat) < 0.25 ? "#f4eaf2" : INK });
+    if (c.mood === "tranquila") for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 37 + s * 10, hy - 20); g.lineTo(s * 37 + s * 20, hy - 26); g.moveTo(s * 37 + s * 8, hy - 15); g.lineTo(s * 37 + s * 19, hy - 17); }, "#2a1d33", 2.6);
+    g.beginPath(); ell(-12, hy + 50, 5, 7, 0.3); ell(12, hy + 50, 5, 7, -0.3); g.fillStyle = "#3a2a3a"; g.fill();
+    mouth(c, 0, hy + 66, 12, "smile", "#3a2a3a");
+    // el flequillo
+    blob(() => { g.moveTo(-40, hy - 60); g.quadraticCurveTo(-10, hy - 86, 30, hy - 66); g.quadraticCurveTo(46, hy - 36, 22, hy - 16); g.quadraticCurveTo(26, hy - 40, 6, hy - 44); g.quadraticCurveTo(-10, hy - 30, -22, hy - 8); g.quadraticCurveTo(-30, hy - 40, -40, hy - 60); g.closePath(); }, mane);
+  });
+  return anchors(c, map, [0, hy - 70, 100], [0, hy - 10, 74], [0, -118, 70], [0, -64, 176, 124]);
+};
+// -- Pájaros -----------------------------------------------------------------------------------
+// El pico: arriba el superior y abajo la mandíbula, con lo que se abre. `kind`: "corto", "ganchudo"
+// o "grande" (guacamayo). `x, y` es la raíz del pico, entre los ojos y la boca.
+function beakDraw(x, y, kind, color, open, c) {
+  const k = kind === "grande" ? 1.4 : kind === "ganchudo" ? 1.22 : 0.62;
+  const up = () => {
+    if (kind === "corto") { g.moveTo(x - 12, y); g.quadraticCurveTo(x, y - 12, x + 12, y); g.quadraticCurveTo(x + 6, y + 18, x, y + 22); g.quadraticCurveTo(x - 6, y + 18, x - 12, y); }
+    else { g.moveTo(x - 17 * k, y - 4); g.quadraticCurveTo(x, y - 26 * k, x + 17 * k, y - 4); g.quadraticCurveTo(x + 21 * k, y + 28 * k, x + 4 * k, y + 38 * k); g.quadraticCurveTo(x - 6 * k, y + 22 * k, x - 17 * k, y - 4); }
+    g.closePath();
+  };
+  const len = kind === "corto" ? 22 : 30 * k;
+  if (open > 0) {
+    const my = y + len * 0.55 + open * 0.3;
+    g.beginPath(); ell(x, my, 17 * k, 4 * k + open * 0.6); g.fillStyle = "#7a2236"; g.fill();
+    fillEll(x, my + open * 0.3, 8 * k, 3.4 * k, "#ff7f9c");
+    blob(() => ell(x, y + len * 0.55 + open * 1.1 + 6 * k, 12 * k, 6 * k), shadeOf(color), { lw: 3.5 });
+  }
+  blob(up, color, { lw: 4 });
+  fillEll(x - 5 * k, y + 3, 2.4, 2.4, dark(color, 0.55));
+  fillEll(x + 5 * k, y + 3, 2.4, 2.4, dark(color, 0.55));
+  fillEll(x - 7 * k, y - 6 * k, 5 * k, 2.6 * k, "rgba(255,255,255,0.4)", -0.5);
+}
+
+// -- Plan pajaro -----------------------------------------------------------------------------
+// look: body, head, belly, wing, tail, beak, beakKind ("corto" | "ganchudo" | "grande"), crest +
+// crestColor (cacatúa), facePatch (cara blanca del loro), neckPatch ([color, color]: paloma), bars
+// (franjas del ala), eye (iris), face ("parlanchin": pico abierto), cheek.
+PLANS.pajaro = (c) => {
+  const L = c.look, body = L.body || "#f2cf3a", headC = L.head || body, belly = L.belly || light(body, 0.5), wing = L.wing || dark(body, 0.14);
+  const beak = L.beak || "#f0902e";
+  // cola asomando por detrás
+  for (const s of [-1, 1]) blob(() => ell(s * 26, -16, 13, 34, s * 0.4), L.tail || wing);
+  // patas
+  for (const s of [-1, 1]) {
+    strokePath(() => { g.moveTo(s * 22, -26); g.lineTo(s * 22, -10); }, L.feet || "#e89a4a", 6);
+    strokePath(() => { for (const d of [-12, 0, 12]) { g.moveTo(s * 22, -10); g.lineTo(s * 22 + d, -2); } }, L.feet || "#e89a4a", 5);
+  }
+  blob(() => ell(0, -78, 66, 70), body, { inside() { fillEll(0, -58, 42, 50, belly); } });
+  for (const s of [-1, 1]) blob(() => ell(s * 64, -82, 21, 48, s * 0.12), wing, { inside() {
+    if (L.bars) for (const y of [-96, -78]) strokePath(() => { g.moveTo(s * 64 - 22, y); g.lineTo(s * 64 + 22, y); }, L.bars, 5);
+    if (L.wingTip) fillEll(s * 64, -42, 24, 12, L.wingTip);
+  } });
+  const hy = -172;
+  const map = headMove(c, 0, -116, () => {
+    if (L.crest) for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i - 2) * 0.36;
+      blob(() => ell(Math.cos(a) * 62, hy - 48 + Math.sin(a) * 42 - 12, 11, 34, a + Math.PI / 2 + 0.15 * (i - 2)), L.crestColor || "#f5d24a", { lw: 3.6 });
+    }
+    blob(() => ell(0, hy, 72, 64), headC, { inside() {
+      if (L.facePatch) for (const s of [-1, 1]) fillEll(s * 40, hy + 6, 28, 26, L.facePatch);
+      if (L.faceLines) for (const s of [-1, 1]) for (const d of [0, 1, 2]) strokePath(() => { g.moveTo(s * 20, hy + 4 + d * 8); g.quadraticCurveTo(s * 38, hy + 12 + d * 8, s * 58, hy + 6 + d * 8); }, L.faceLines, 2.4);
+      if (L.neckPatch) { fillEll(-44, hy + 46, 26, 18, L.neckPatch[0], 0.5); fillEll(44, hy + 46, 26, 18, L.neckPatch[1], -0.5); }
+      if (L.headTop) fillEll(0, hy - 50, 60, 24, L.headTop);
+    } });
+    cheeks(0, hy + 24, 110, 11, L.cheek || "rgba(255,108,138,0.5)");
+    const ink = lum(headC) < 0.25 ? "#120c18" : INK;
+    eyes(c, 0, hy - 2, 76, 11.5, { kind: L.eye ? "iris" : "dulce", iris: L.eye, ink, moodInk: lum(headC) < 0.25 || (L.facePatch && lum(L.facePatch) > 0.8 && c.mood === "tranquila") ? "#2a1d33" : INK });
+    const open = c.mood === "fiesta" ? 11 : (c.mood === "tranquila" && L.face === "parlanchin" ? 12 : 0);
+    beakDraw(0, hy + 14, L.beakKind || "corto", beak, open, c);
+  });
+  return anchors(c, map, [0, hy - 64, 146], [0, hy - 2, 76], [0, -116, 90], [0, -76, 138, 108]);
+};
+
+// -- Plan gallo ------------------------------------------------------------------------------
+// look: body, hackle (plumas del cuello), wing, tail (3 colores), comb, beak, legs.
+PLANS.gallo = (c) => {
+  const L = c.look, body = L.body || "#c8742f", hackle = L.hackle || light(body, 0.25), wing = L.wing || dark(body, 0.25);
+  const tail = L.tail || [dark(body, 0.3), body, hackle], comb = L.comb || "#d92f3a";
+  // plumas de la cola, abiertas detrás
+  [-160, -136, -112, -68, -44, -20].forEach((deg, i) => {
+    const a = deg * Math.PI / 180;
+    blob(() => ell(Math.cos(a) * 92, -104 + Math.sin(a) * 100, 20, 66, a + Math.PI / 2), tail[i % tail.length], { lw: 4 });
+  });
+  // patas
+  for (const s of [-1, 1]) {
+    strokePath(() => { g.moveTo(s * 26, -30); g.lineTo(s * 26, -8); }, L.legs || "#e8a23a", 9);
+    strokePath(() => { for (const d of [-16, 0, 16]) { g.moveTo(s * 26, -8); g.lineTo(s * 26 + d, 0); } }, L.legs || "#e8a23a", 6);
+  }
+  blob(() => ell(0, -82, 76, 74), body, { inside() { fillEll(0, -64, 46, 52, light(body, 0.18)); } });
+  for (const s of [-1, 1]) blob(() => ell(s * 70, -86, 22, 50, s * 0.18), wing);
+  const hy = -176;
+  const map = headMove(c, 0, -122, () => {
+    blob(() => { ell(0, hy + 48, 66, 34); }, hackle);
+    // cresta
+    blob(() => { for (const [x, r] of [[-30, 16], [-10, 21], [12, 22], [32, 16]]) ell(x, hy - 56, r, r + 4); }, comb);
+    blob(() => ell(0, hy, 66, 60), body, { inside() { fillEll(0, hy - 38, 56, 28, hackle); } });
+    // barbillas
+    blob(() => { g.moveTo(-12, hy + 40); g.quadraticCurveTo(0, hy + 84, 12, hy + 40); g.closePath(); }, comb);
+    for (const s of [-1, 1]) fillEll(s * 62, hy + 14, 10, 15, comb);
+    cheeks(0, hy + 22, 104, 10);
+    eyes(c, 0, hy - 4, 66, 11.5, { kind: "sclera", sclera: "#fff4c2", rim: dark(comb, 0.2), pupil: 0.46 });
+    if (c.mood === "tranquila") brows(0, hy - 22, 66, 28, 0.55, dark(comb, 0.5), 7);
+    beakDraw(0, hy + 14, "corto", L.beak || "#f0b02e", c.mood === "fiesta" ? 12 : 0, c);
+  });
+  return anchors(c, map, [0, hy - 64, 132], [0, hy - 4, 66], [0, -126, 84], [0, -82, 152, 148]);
+};
+
+// -- Plan pavo (real) ------------------------------------------------------------------------
+// look: body, neck, tail, rim, ring, spot (ojo de la cola), crest.
+PLANS.pavo = (c) => {
+  const L = c.look, body = L.body || "#2a5fb0", neck = L.neck || body, tail = L.tail || "#2d8f86";
+  const rim = L.rim || "#d9b44a", ring = L.ring || "#2a6fb0", spot = L.spot || "#1a2a60";
+  // abanico
+  for (let i = 0; i < 15; i++) {
+    const a = Math.PI * (1.04 + 0.92 * i / 14), cx = Math.cos(a) * 106, cy = -92 + Math.sin(a) * 94, rot = a + Math.PI / 2;
+    blob(() => ell(cx, cy, 19, 52, rot), tail, { lw: 3.4, dx: -3, dy: -4 });
+    const ex = Math.cos(a) * 138, ey = -92 + Math.sin(a) * 126;
+    fillEll(ex, ey, 14, 17, rim, rot); fillEll(ex, ey, 9.5, 12, ring, rot); fillEll(ex, ey + 1, 5, 6.5, spot, rot);
+  }
+  for (const s of [-1, 1]) { strokePath(() => { g.moveTo(s * 18, -26); g.lineTo(s * 18, -8); }, "#b8a898", 7); strokePath(() => { for (const d of [-12, 0, 12]) { g.moveTo(s * 18, -8); g.lineTo(s * 18 + d, 0); } }, "#b8a898", 5); }
+  blob(() => ell(0, -66, 56, 62), body, { inside() { fillEll(0, -52, 34, 44, light(body, 0.22)); } });
+  blob(() => rr(-22, -170, 44, 80, 20), neck);
+  const hy = -190;
+  const map = headMove(c, 0, -130, () => {
+    for (const x of [-26, -13, 0, 13, 26]) {
+      const h = 42 + (2 - Math.abs(x / 13)) * 8;
+      strokePath(() => { g.moveTo(x * 0.3, hy - 40); g.quadraticCurveTo(x * 0.9, hy - 40 - h * 0.6, x * 1.25, hy - 40 - h); }, L.crest || dark(neck, 0.35), 3.6);
+      fillEll(x * 1.25, hy - 42 - h, 6.5, 6.5, L.crest || neck);
+    }
+    blob(() => ell(0, hy, 56, 50), neck, { inside() { fillEll(0, hy + 20, 26, 20, light(neck, 0.15)); } });
+    for (const s of [-1, 1]) { fillEll(s * 26, hy - 12, 17, 7, "#ffffff", s * 0.3); fillEll(s * 26, hy + 10, 14, 5, "#ffffff", -s * 0.2); }
+    cheeks(0, hy + 20, 88, 9);
+    eyes(c, 0, hy - 2, 52, 9.5, { kind: "dulce" });
+    beakDraw(0, hy + 10, "corto", "#b8b0a8", c.mood === "fiesta" ? 8 : 0, c);
+  });
+  return anchors(c, map, [0, hy - 48, 108], [0, hy - 2, 52], [0, -134, 44], [0, -66, 112, 124]);
+};
+
+// -- Plan pez -----------------------------------------------------------------------------------
+// look: body, fin, belly, patches ([[color, x, y, rx, ry, rot]]), stripes ([x]: franjas blancas),
+// stripeColor, scales (bool), tailKind ("abanico" | "largo"), whiskers (bigotes del koi), sheen.
+PLANS.pez = (c) => {
+  const L = c.look, body = L.body || "#ff6a3d", fin = L.fin || light(body, 0.25), belly = L.belly || light(body, 0.45);
+  const by = -132, long = L.tailKind === "largo";
+  // arena, alga y burbujas
+  blob(() => ell(0, -6, 92, 18), "#e8d4a0", { lw: 3 });
+  for (const [x, y, r] of [[-40, -8, 5], [30, -4, 4], [60, -9, 6]]) fillEll(x, y, r, r * 0.75, "#b8a07a");
+  for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 80, -10); g.quadraticCurveTo(s * 100, -46, s * 82, -84); g.quadraticCurveTo(s * 70, -50, s * 80, -10); }, "#4aa86a", 6);
+  // cola
+  const tw = long ? 122 : 94, bottom = long ? -16 : -36;
+  const veil = () => {
+    g.moveTo(-84, by + 20);
+    g.bezierCurveTo(-tw - 24, by + 50, -tw - 10, by + 100, -tw * 0.8, bottom);
+    const n = 4, x0 = -tw * 0.8, x1 = tw * 0.8;
+    for (let i = 0; i < n; i++) { const a = x0 + (x1 - x0) * i / n, b = x0 + (x1 - x0) * (i + 1) / n; g.quadraticCurveTo((a + b) / 2, bottom + 28, b, bottom); }
+    g.bezierCurveTo(tw + 10, by + 100, tw + 24, by + 50, 84, by + 20);
+    g.closePath();
+  };
+  blob(veil, fin, { lw: 4, inside() {
+    for (let i = 0; i <= 6; i++) strokePath(() => { g.moveTo(0, by + 40); g.lineTo(-tw * 0.8 + 2 * tw * 0.8 * i / 6, bottom + 14); }, alpha(dark(fin, 0.4), 0.4), 2.4);
+  } });
+  // aleta de arriba
+  blob(() => { g.moveTo(-34, by - 66); g.quadraticCurveTo(-30, by - 112, -6, by - 92); g.quadraticCurveTo(10, by - 124, 22, by - 88); g.quadraticCurveTo(44, by - 100, 40, by - 62); g.closePath(); }, fin, { lw: 4 });
+  const map = headMove(c, 0, by + 70, () => {
+    for (const s of [-1, 1]) blob(() => { g.moveTo(s * 86, by + 6); g.quadraticCurveTo(s * 126, by - 2, s * 124, by + 42); g.quadraticCurveTo(s * 100, by + 46, s * 82, by + 32); g.closePath(); }, fin, { lw: 4 });
+    blob(() => ell(0, by, 94, 84), body, { inside() {
+      fillEll(0, by + 40, 66, 40, belly);
+      if (L.scales) for (let r = 0; r < 3; r++) for (let k = -2; k <= 2; k++) strokePath(() => { g.arc(k * 30 + (r % 2) * 15, by + 38 + r * 16, 14, 0.15 * Math.PI, 0.85 * Math.PI); }, alpha(dark(body, 0.4), 0.45), 2.4);
+      for (const p of L.patches || []) fillEll(p[1], by + p[2], p[3], p[4], p[0], p[5] || 0);
+      for (const x of L.stripes || []) { g.fillStyle = L.stripeColor || "#ffffff"; g.fillRect(x - 11, by - 100, 22, 200); g.fillStyle = "#3a2a3a"; g.fillRect(x - 14, by - 100, 3, 200); g.fillRect(x + 11, by - 100, 3, 200); }
+      if (L.sheen) fillEll(-30, by - 46, 34, 16, L.sheen, -0.4);
+    } });
+    cheeks(0, by + 24, 130, 12);
+    eyes(c, 0, by - 8, 70, 18, { kind: "dulce" });
+    // boquita en o
+    g.beginPath(); ell(0, by + 34, 9, 8); g.fillStyle = c.mood === "fiesta" ? "#7a2236" : mix(body, "#ff8fa8", 0.5); g.fill(); g.lineWidth = 3; g.strokeStyle = dark(body, 0.5); g.stroke();
+    if (c.mood === "contenta") { strokePath(() => { g.moveTo(-14, by + 32); g.quadraticCurveTo(0, by + 46, 14, by + 32); }, dark(body, 0.55), 3.4); }
+    if (L.whiskers) for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 14, by + 32); g.quadraticCurveTo(s * 40, by + 56, s * 34, by + 76); }, dark(body, 0.4), 3.6);
+  });
+  for (const [x, y, r] of [[96, -214, 7], [114, -184, 5], [84, -184, 4]]) { g.beginPath(); ell(x, y, r, r); g.fillStyle = "rgba(220,240,255,0.55)"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#7aaed0"; g.stroke(); }
+  return anchors(c, map, [0, by - 86, 150], [0, by - 8, 70], [0, by + 70, 100], [0, by, 188, 168]);
+};
+
+// -- Plan tortuga ------------------------------------------------------------------------------
+// look: shell, scute (dibujo del caparazón), skin, rim, ear (raya roja de las orejas), line (rayas
+// amarillas), blotches (manchas oscuras de la mora).
+PLANS.tortuga = (c) => {
+  const L = c.look, shell = L.shell || "#5e9a4a", scute = L.scute || dark(shell, 0.4), skin = L.skin || "#8ab45a", rim = L.rim || light(skin, 0.35);
+  const dome = () => { g.moveTo(-136, -26); g.bezierCurveTo(-144, -214, 144, -214, 136, -26); g.quadraticCurveTo(0, -6, -136, -26); g.closePath(); };
+  blob(() => { ell(-92, -16, 36, 20); ell(92, -16, 36, 20); }, skin);
+  blob(dome, shell, { inside() {
+    fillPath(() => { g.moveTo(-136, -26); g.quadraticCurveTo(0, -4, 136, -26); g.lineTo(136, -44); g.quadraticCurveTo(0, -24, -136, -44); g.closePath(); }, rim);
+    g.lineWidth = 4; g.strokeStyle = scute; g.lineJoin = "round";
+    g.beginPath(); for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + i * TAU / 6; g.lineTo(Math.cos(a) * 38, -136 + Math.sin(a) * 30); } g.closePath(); g.stroke();
+    for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + i * TAU / 6; g.beginPath(); g.moveTo(Math.cos(a) * 38, -136 + Math.sin(a) * 30); g.lineTo(Math.cos(a) * 84, -136 + Math.sin(a) * 66); g.stroke(); }
+    for (const p of L.blotches || []) fillEll(p[1], p[2] - 28, p[3], p[4], p[0], p[5] || 0);
+  } });
+  const hy = -72;
+  const map = headMove(c, 0, -46, () => {
+    blob(() => ell(0, hy, 62, 54), skin, { inside() {
+      if (L.ear) for (const s of [-1, 1]) fillEll(s * 52, hy + 4, 14, 22, L.ear, s * 0.2);
+      if (L.line) for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 20, hy - 46); g.lineTo(s * 36, hy + 36); }, L.line, 4);
+    } });
+    cheeks(0, hy + 20, 100, 10);
+    eyes(c, 0, hy - 6, 52, 11, { kind: "dulce" });
+    mouth(c, 0, hy + 22, 15, "smile", INK);
+  });
+  return anchors(c, map, [0, hy - 54, 124], [0, hy - 6, 52], [0, -40, 70], [0, -98, 270, 150]);
+};
+
+// -- Plan lagarto ------------------------------------------------------------------------------
+// look: skin, belly, spots ([color]), spotAt ("flancos" | "cabeza" | "ambos"), eye (iris).
+PLANS.lagarto = (c) => {
+  const L = c.look, skin = L.skin || "#7a8a4a", belly = L.belly || light(skin, 0.45), spotC = L.spots;
+  tube(bez([40, -24], [120, -4], [160, -50], [128, -96]), 22, skin);
+  tube(bez([128, -96], [118, -112], [100, -118], [92, -108]), 14, skin);
+  blob(() => { ell(-48, -10, 28, 14); ell(48, -10, 28, 14); }, skin);
+  blob(() => ell(0, -72, 60, 72), skin, { inside() {
+    fillEll(0, -60, 34, 56, belly);
+    if (spotC && L.spotAt !== "cabeza") for (const s of [-1, 1]) for (let i = 0; i < 4; i++) fillEll(s * (46 - (i % 2) * 6), -104 + i * 18, 6, 6, spotC);
+    if (L.blotches) for (const s of [-1, 1]) for (let i = 0; i < 3; i++) fillEll(s * 30, -100 + i * 24, 12, 8, L.blotches);
+  } });
+  for (const s of [-1, 1]) {
+    blob(() => ell(s * 56, -70, 14, 30, s * -0.3), skin);
+    for (const d of [-1, 0, 1]) fillEll(s * (62 + d * 6), -42 + Math.abs(d) * 2, 5, 5, light(skin, 0.1));
+  }
+  const hy = -168;
+  const map = headMove(c, 0, -118, () => {
+    for (const s of [-1, 1]) blob(() => ell(s * 40, hy - 40, 23, 23), skin);
+    blob(() => ell(0, hy, 78, 56), skin, { inside() {
+      fillEll(0, hy + 30, 50, 24, belly);
+      if (spotC && L.spotAt !== "flancos") for (const s of [-1, 1]) for (let i = 0; i < 3; i++) fillEll(s * (30 + i * 12), hy - 20 + i * 8, 5, 5, spotC);
+      for (let i = -3; i <= 3; i++) fillEll(i * 15, hy - 52 + Math.abs(i) * 3, 5, 6, dark(skin, 0.18));
+    } });
+    // ojos en lo alto
+    eyes(c, 0, hy - 40, 80, 14, { kind: "iris", iris: L.eye || "#e8a830", slit: false, lid: 0.25, lidColor: skin });
+    cheeks(0, hy + 14, 128, 11);
+    mouth(c, 0, hy + 20, 26, "smile", INK);
+    for (const [x, y] of [[-10, hy - 4], [10, hy - 4]]) fillEll(x, y, 2.6, 2.2, dark(skin, 0.5));
+    if (c.mood === "tranquila") strokePath(() => { g.moveTo(0, hy + 38); g.lineTo(0, hy + 52); g.lineTo(-6, hy + 60); g.moveTo(0, hy + 52); g.lineTo(6, hy + 60); }, "#e0507a", 3.4);
+  });
+  return anchors(c, map, [0, hy - 64, 156], [0, hy - 40, 80], [0, -118, 64], [0, -68, 120, 142]);
+};
+
+// -- Plan rana (coquí) ---------------------------------------------------------------------------
+// look: skin, belly, stripe, pads, eye (iris), spots.
+PLANS.rana = (c) => {
+  const L = c.look, skin = L.skin || "#8a6a44", belly = L.belly || light(skin, 0.5), pads = L.pads || "#f0d27a";
+  for (const s of [-1, 1]) {
+    blob(() => ell(s * 86, -48, 42, 30, s * 0.5), skin);
+    for (const d of [-1, 0, 1]) { blob(() => ell(s * (84 + d * 20), -9 + Math.abs(d) * 3, 11, 9), pads, { lw: 3 }); }
+  }
+  blob(() => ell(0, -70, 84, 62), skin, { inside() {
+    fillEll(0, -46, 52, 44, belly);
+    if (L.spots) for (let i = 0; i < 6; i++) fillEll(-50 + i * 20, -112 + (i % 2) * 12, 7, 5, L.spots);
+  } });
+  for (const s of [-1, 1]) {
+    blob(() => ell(s * 30, -30, 14, 24, s * 0.1), skin);
+    for (const d of [-1, 1]) fillEll(s * 30 + d * 10, -8, 6, 6, pads);
+  }
+  const hy = -128;
+  const map = headMove(c, 0, -78, () => {
+    for (const s of [-1, 1]) blob(() => ell(s * 50, hy - 46, 27, 27), skin);
+    blob(() => ell(0, hy, 96, 58), skin, { inside() {
+      fillEll(0, hy + 26, 70, 26, belly);
+      if (L.stripe) fillEll(0, hy - 6, 11, 56, L.stripe);
+    } });
+    eyes(c, 0, hy - 46, 100, 14, { kind: "iris", iris: L.eye || "#e8b840", slit: false });
+    cheeks(0, hy + 14, 150, 11);
+    for (const x of [-8, 8]) fillEll(x, hy - 12, 2.4, 2, dark(skin, 0.55));
+    mouth(c, 0, hy + 10, 50, "smile", dark(skin, 0.6), { happy: "smile" });
+  });
+  return anchors(c, map, [0, hy - 74, 170], [0, hy - 46, 100], [0, -88, 110], [0, -72, 170, 120]);
+};
+// -- Plan pulpo ------------------------------------------------------------------------------------
+// look: body, belly (ventosas), spots, rings (anillos azules), ringColor.
+PLANS.pulpo = (c) => {
+  const L = c.look, body = L.body || "#e0523a", belly = L.belly || light(body, 0.55);
+  const legs = [[-86, -1], [-60, -1], [-30, -1], [-6, -1], [6, 1], [30, 1], [60, 1], [86, 1]];
+  legs.forEach(([x0, dir], i) => {
+    const outX = x0 * 1.55 + (i % 2 ? 6 : -6), curl = dir * (28 + (i % 3) * 6);
+    const pts = bez([x0 * 0.7, -72], [x0 * 1.1, -52], [outX, -34], [outX + curl * 0.2, -10], 0, 1, 14).concat(bez([outX + curl * 0.2, -10], [outX + curl * 0.8, 0], [outX + curl * 1.15, -12], [outX + curl * 0.9, -24], 0.1, 1, 6));
+    tube(pts, 24, body);
+    for (let k = 1; k < 6; k += 2) { const p = pts[Math.min(pts.length - 1, k * 2 + 2)]; fillEll(p[0], p[1] + 2, 4.2, 3.4, belly); }
+  });
+  const hy = -150;
+  const map = headMove(c, 0, -80, () => {
+    blob(() => { g.moveTo(-90, hy + 20); g.bezierCurveTo(-98, hy - 120, 98, hy - 120, 90, hy + 20); g.bezierCurveTo(88, hy + 56, 48, hy + 66, 0, hy + 66); g.bezierCurveTo(-48, hy + 66, -88, hy + 56, -90, hy + 20); g.closePath(); }, body, { inside() {
+      for (let i = 0; i < 9; i++) {
+        const x = -62 + rnd(21, i) * 124, y = hy - 70 + rnd(22, i) * 70;
+        if (L.rings) { fillEll(x, y, 12, 12, L.ringColor || "#2f7ae8"); fillEll(x, y, 7.5, 7.5, body); fillEll(x, y, 4, 4, "#2a50a8"); }
+        else if (L.spots) fillEll(x, y, 6 + rnd(23, i) * 6, 5 + rnd(24, i) * 5, L.spots);
+      }
+    } });
+    cheeks(0, hy + 30, 150, 12);
+    const brow = c.mood === "tranquila";
+    eyes(c, 0, hy - 2, 70, 17, { kind: "sclera", pupil: 0.5, look: () => [0.7, -0.6] });
+    if (brow) {
+      strokePath(() => { g.moveTo(-54, hy - 28); g.lineTo(-18, hy - 30); }, dark(body, 0.5), 6);
+      strokePath(() => { g.moveTo(16, hy - 34); g.quadraticCurveTo(36, hy - 52, 56, hy - 36); }, dark(body, 0.5), 6);
+    }
+    mouth(c, 0, hy + 40, 14, "smirk", dark(body, 0.65));
+  });
+  return anchors(c, map, [0, hy - 82, 176], [0, hy - 2, 70], [0, -76, 130], [0, -104, 180, 150]);
+};
+
+// -- Plan piedra ------------------------------------------------------------------------------------
+// look: base, speckle ([colores]), facets (bool: obsidiana), sheen, pores (bool: basalto), glitter
+// ([colores]), moss (color).
+PLANS.piedra = (c) => {
+  const L = c.look, base = L.base || "#9a9aa4";
+  const rock = () => {
+    g.moveTo(-98, -6); g.bezierCurveTo(-130, -66, -112, -150, -50, -176); g.bezierCurveTo(-6, -200, 66, -194, 96, -140);
+    g.bezierCurveTo(130, -78, 116, -26, 92, -6); g.quadraticCurveTo(0, 8, -98, -6); g.closePath();
+  };
+  blob(rock, base, { inside() {
+    if (L.speckle) for (let i = 0; i < 40; i++) fillEll(-100 + rnd(31, i) * 200, -190 + rnd(32, i) * 190, 2.4 + rnd(33, i) * 2.4, 2 + rnd(34, i) * 2, L.speckle[i % L.speckle.length]);
+    if (L.pores) for (let i = 0; i < 14; i++) fillEll(-90 + rnd(35, i) * 180, -170 + rnd(36, i) * 160, 3 + rnd(37, i) * 4, 2.6 + rnd(38, i) * 3, dark(base, 0.4));
+    if (L.facets) {
+      fillPath(() => poly([[-70, -160], [-20, -184], [10, -120], [-48, -96]]), mix(base, L.sheen || "#6a5aa0", 0.35));
+      fillPath(() => poly([[40, -170], [90, -130], [70, -80], [20, -110]]), mix(base, L.sheen || "#6a5aa0", 0.22));
+      fillPath(() => poly([[-90, -50], [-40, -70], [-20, -20], [-80, -12]]), mix(base, L.sheen || "#6a5aa0", 0.28));
+      strokePath(() => { g.moveTo(-60, -150); g.lineTo(-30, -172); }, "rgba(255,255,255,0.55)", 3);
+    }
+    // grietas
+    strokePath(() => { g.moveTo(60, -22); g.lineTo(70, -48); g.lineTo(58, -64); }, dark(base, 0.45), 3.4);
+    strokePath(() => { g.moveTo(-84, -88); g.lineTo(-66, -76); g.lineTo(-70, -60); }, dark(base, 0.45), 3.4);
+    if (L.glitter) for (let i = 0; i < 26; i++) star(-96 + rnd(41, i) * 192, -186 + rnd(42, i) * 176, 4 + rnd(43, i) * 5, L.glitter[i % L.glitter.length], 4, 0.3);
+  } });
+  if (L.moss) { blob(() => { ell(-26, -184, 22, 9); ell(2, -192, 24, 11); ell(30, -184, 18, 8); }, L.moss, { lw: 3.4 }); }
+  const hy = -140;
+  const map = headMove(c, 0, -60, () => {
+    // ojos saltones: dos globos que sobresalen
+    for (const s of [-1, 1]) {
+      g.beginPath(); ell(s * 38, hy - 22, 27, 29); g.fillStyle = "#ffffff"; g.fill(); g.lineWidth = 4; g.strokeStyle = "#5a4a62"; g.stroke();
+    }
+    const dirs = [[-0.5, 0.7], [0.8, -0.2]];
+    if (c.mood === "tranquila") for (const [i, s] of [-1, 1].entries()) {
+      const px = s * 38 + dirs[i][0] * 9, py = hy - 22 + dirs[i][1] * 10;
+      fillEll(px, py, 12.5, 13.5, "#2a1d33"); highlights(px, py, 15);
+    } else eyes(c, 0, hy - 22, 76, 12, {});
+    cheeks(0, hy + 20, 150, 12);
+    mouth(c, 0, hy + 32, 22, "smirk", "#5a4a62");
+  });
+  return anchors(c, map, [0, -204, 170], [0, hy - 22, 76], [0, -150, 120], [0, -94, 210, 176]);
+};
+
+// -- Plan cucaracha ---------------------------------------------------------------------------------
+// look: shell, edge (borde del escudo), ring (dibujo del escudo de la americana).
+PLANS.cucaracha = (c) => {
+  const L = c.look, shell = L.shell || "#6b3e26", edge = L.edge || "#b98a52", leg = dark(shell, 0.1);
+  for (const s of [-1, 1]) [-104, -70, -38].forEach((y0, i) => {
+    tube([[s * 52, y0], [s * (98 + i * 4), y0 - 26], [s * (122 + i * 6), i === 2 ? -2 : y0 + 40], [s * (128 + i * 6), -2]], 10, leg, { lw: 3.6 });
+  });
+  blob(() => ell(0, -84, 66, 84), shell, { inside() {
+    strokePath(() => { g.moveTo(0, -162); g.lineTo(0, -4); }, dark(shell, 0.45), 3.4);
+    strokePath(() => { g.moveTo(-34, -120); g.quadraticCurveTo(-42, -78, -28, -34); }, alpha("#ffffff", 0.35), 6);
+    strokePath(() => { g.moveTo(34, -120); g.quadraticCurveTo(42, -78, 28, -34); }, alpha("#ffffff", 0.18), 6);
+  } });
+  blob(() => ell(0, -142, 56, 28), edge, { inside() { fillEll(0, -140, 44, 19, shell); if (L.ring) { g.beginPath(); ell(0, -140, 34, 12); g.lineWidth = 3.4; g.strokeStyle = edge; g.stroke(); } } });
+  const hy = -184;
+  const map = headMove(c, 0, -140, () => {
+    for (const s of [-1, 1]) tube(bez([s * 24, hy - 38], [s * 36, hy - 92], [s * 92, hy - 86], [s * 128, hy - 40], 0, 1, 14), 6, leg, { lw: 3, flat: true });
+    blob(() => ell(0, hy, 66, 54), shell, { inside() { strokePath(() => { g.moveTo(-40, hy - 30); g.quadraticCurveTo(-18, hy - 42, 8, hy - 38); }, alpha("#ffffff", 0.35), 6); } });
+    cheeks(0, hy + 22, 106, 10);
+    eyes(c, 0, hy - 4, 68, 13, { kind: "sclera", sclera: "#fff6d6", pupil: 0.5, lid: 0.32, lidColor: shell, lidLine: dark(shell, 0.4), look: () => [0.3, 0.2] });
+    if (c.mood === "tranquila") { brows(0, hy - 28, 68, 26, 0.35, dark(shell, 0.5), 5); }
+    for (const s of [-1, 1]) strokePath(() => { g.moveTo(s * 14, hy + 28); g.quadraticCurveTo(s * 26, hy + 40, s * 20, hy + 46); }, dark(shell, 0.5), 5);
+    mouth(c, 0, hy + 32, 14, "smirk", "#f4e4d0");
+  });
+  return anchors(c, map, [0, hy - 54, 132], [0, hy - 4, 68], [0, -140, 80], [0, -84, 132, 168]);
+};
+
+// -- Plan mosquito -----------------------------------------------------------------------------------
+// look: body, belly, stripes (color de las rayas), head, eye (iris).
+PLANS.mosquito = (c) => {
+  const L = c.look, body = L.body || "#8a7a70", headC = L.head || body, bellyC = L.belly || light(body, 0.4), stripe = L.stripes;
+  // alas: transparentes, a los lados
+  for (const s of [-1, 1]) {
+    g.beginPath(); ell(s * 92, -150, 62, 24, s * -0.62); g.fillStyle = "rgba(226,238,255,0.6)"; g.fill();
+    g.lineWidth = 3.6; g.strokeStyle = lineOf("#9aaed0"); g.stroke();
+    strokePath(() => { g.moveTo(s * 50, -128); g.lineTo(s * 128, -174); }, "rgba(120,140,180,0.55)", 2);
+  }
+  // patas finas
+  for (const s of [-1, 1]) [-102, -92, -80].forEach((y0, i) => tube([[s * 26, y0], [s * (70 + i * 10), y0 - 30], [s * (90 + i * 14), -6 + i * 2]], 6, dark(body, 0.2), { lw: 2.8, flat: true }));
+  blob(() => ell(0, -44, 34, 46), body, { inside() {
+    fillEll(0, -34, 20, 34, bellyC);
+    if (stripe) for (const y of [-70, -52, -34, -16]) { g.fillStyle = stripe; g.fillRect(-40, y, 80, 7); }
+  } });
+  blob(() => ell(0, -100, 40, 34), body, { inside() { if (stripe) { g.fillStyle = stripe; g.fillRect(-4, -140, 8, 60); } } });
+  const hy = -172;
+  const map = headMove(c, 0, -118, () => {
+    for (const s of [-1, 1]) {
+      tube(bez([s * 16, hy - 44], [s * 30, hy - 86], [s * 58, hy - 94], [s * 78, hy - 78], 0, 1, 10), 5, dark(body, 0.25), { lw: 2.6, flat: true });
+      for (let i = 1; i < 4; i++) { const p = bez([s * 16, hy - 44], [s * 30, hy - 86], [s * 58, hy - 94], [s * 78, hy - 78], 0, 1, 4)[i]; strokePath(() => { g.moveTo(p[0], p[1]); g.lineTo(p[0] + s * 8, p[1] - 8); g.moveTo(p[0], p[1]); g.lineTo(p[0] + s * 4, p[1] + 9); }, dark(body, 0.25), 2.6); }
+    }
+    blob(() => ell(0, hy, 64, 56), headC, { inside() { if (stripe) { g.fillStyle = stripe; g.fillRect(-4, hy - 60, 8, 40); } } });
+    cheeks(0, hy + 18, 108, 10);
+    const dk = lum(headC) < 0.3;
+    eyes(c, 0, hy - 6, 58, 15, { kind: dk ? "iris" : "dulce", iris: L.eye || "#c9d4e8", ink: "#2a1d33", moodInk: dk ? "#f4eaf2" : INK });
+    // trompa
+    g.beginPath(); g.moveTo(-7, hy + 10); g.lineTo(7, hy + 10); g.lineTo(2.2, hy + 58); g.lineTo(-2.2, hy + 58); g.closePath();
+    g.fillStyle = "#d9d2e0"; g.fill(); g.lineWidth = 3.4; g.strokeStyle = "#4a3a52"; g.lineJoin = "round"; g.stroke();
+    fillEll(0, hy + 60, 3.2, 3.6, "#e0245e");
+  });
+  return anchors(c, map, [0, hy - 56, 128], [0, hy - 6, 58], [0, -112, 60], [0, -76, 90, 152]);
+};
+// -- FIN DE LOS PLANES --
+
+// -- Fondos ------------------------------------------------------------------------------------
+
+const FLOOR_Y = 292;
+// El salón de casa: pared, ventana con cortina, planta, cuadro, suelo de tablas y alfombra.
+function backdropHome(cols, night) {
+  const wall = cols[0] || "#f3e3c8", floor = cols[1] || "#c98f5a", accent = cols[2] || "#7a9e7e";
+  g.fillStyle = wall; g.fillRect(0, 0, W, H);
+  g.fillStyle = alpha(dark(wall, 0.25), 0.1);
+  for (let x = 0; x < W; x += 40) g.fillRect(x, 0, 20, FLOOR_Y);
+  // zócalo
+  g.fillStyle = mix(wall, floor, 0.28); g.fillRect(0, FLOOR_Y - 46, W, 46);
+  g.fillStyle = alpha("#ffffff", 0.4); g.fillRect(0, FLOOR_Y - 48, W, 4);
+  // suelo
+  g.fillStyle = floor; g.fillRect(0, FLOOR_Y, W, H - FLOOR_Y);
+  g.fillStyle = dark(floor, 0.18); g.fillRect(0, FLOOR_Y, W, 6);
+  g.strokeStyle = alpha(dark(floor, 0.4), 0.35); g.lineWidth = 2;
+  for (let r = 0; r < 4; r++) {
+    const y = FLOOR_Y + 6 + r * 26;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    for (let x = ((r * 97) % 150) - 30; x < W; x += 150) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 26); g.stroke(); }
+  }
+  // ventana
+  const wx = 62, wy = 38, ww = 132, wh = 150;
+  const sky = g.createLinearGradient(0, wy, 0, wy + wh);
+  if (night) { sky.addColorStop(0, "#1b2250"); sky.addColorStop(1, "#46568f"); } else { sky.addColorStop(0, "#a9dcff"); sky.addColorStop(1, "#e6f6ff"); }
+  g.beginPath(); rr(wx, wy, ww, wh, 10); g.fillStyle = sky; g.fill();
+  g.save(); g.beginPath(); rr(wx, wy, ww, wh, 10); g.clip();
+  if (night) {
+    for (let i = 0; i < 9; i++) star(wx + 10 + rnd(5, i) * (ww - 20), wy + 10 + rnd(6, i) * 80, 2 + rnd(7, i) * 2.4, "#fff6c8", 4, 0.35);
+    fillEll(wx + 98, wy + 38, 17, 17, "#fff3c0"); fillEll(wx + 106, wy + 33, 15, 15, "#2a3470");
+  } else {
+    fillEll(wx + 40, wy + 40, 22, 11, "#ffffff"); fillEll(wx + 58, wy + 36, 17, 12, "#ffffff"); fillEll(wx + 100, wy + 70, 18, 9, "#ffffffcc");
+    fillEll(wx + 90, wy + wh, 70, 26, "#a8d49a");
+  }
+  g.restore();
+  g.lineWidth = 7; g.strokeStyle = "#fbf7ee"; g.beginPath(); rr(wx, wy, ww, wh, 10); g.stroke();
+  g.lineWidth = 5; g.beginPath(); g.moveTo(wx + ww / 2, wy); g.lineTo(wx + ww / 2, wy + wh); g.moveTo(wx, wy + wh * 0.5); g.lineTo(wx + ww, wy + wh * 0.5); g.stroke();
+  g.fillStyle = "#e9e1d0"; g.beginPath(); rr(wx - 10, wy + wh + 2, ww + 20, 9, 4); g.fill();
+  const cur = night ? dark(accent, 0.35) : accent;
+  for (const s of [0, 1]) {
+    const x0 = s ? wx + ww - 12 : wx - 22;
+    g.beginPath(); g.moveTo(x0, wy - 10); g.quadraticCurveTo(x0 + (s ? 24 : 10), wy + 60, x0 + (s ? 28 : 12) , wy + wh + 4); g.lineTo(x0 + 34, wy + wh + 4); g.quadraticCurveTo(x0 + 34, wy + 50, x0 + 34, wy - 10); g.closePath();
+    g.fillStyle = cur; g.fill(); g.lineWidth = 3; g.strokeStyle = dark(cur, 0.35); g.stroke();
+  }
+  g.fillStyle = dark(cur, 0.3); g.beginPath(); rr(wx - 30, wy - 18, ww + 60, 8, 4); g.fill();
+  // cuadro
+  g.beginPath(); rr(452, 46, 96, 66, 5); g.fillStyle = "#fffaf0"; g.fill(); g.lineWidth = 5; g.strokeStyle = dark(floor, 0.3); g.stroke();
+  g.fillStyle = night ? "#6c7eb0" : "#bfe3f0"; g.fillRect(458, 52, 84, 54);
+  g.fillStyle = night ? dark(accent, 0.3) : accent; g.beginPath(); g.moveTo(458, 106); g.quadraticCurveTo(484, 70, 506, 94); g.quadraticCurveTo(524, 76, 542, 106); g.closePath(); g.fill();
+  // planta, a la derecha
+  const px = 568, py = FLOOR_Y + 58;
+  const leaf = [dark(accent, 0.1), accent, light(accent, 0.2)];
+  for (let i = 0; i < 9; i++) {
+    const a = -Math.PI / 2 + (i - 4) * 0.34, len = 82 + (i % 3) * 18;
+    g.save(); g.translate(px, py - 48); g.rotate(a + Math.PI / 2);
+    g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(-20, -len * 0.5, 0, -len); g.quadraticCurveTo(20, -len * 0.5, 0, 0);
+    g.fillStyle = leaf[i % 3]; g.fill(); g.lineWidth = 3; g.strokeStyle = dark(accent, 0.5); g.stroke();
+    g.restore();
+  }
+  blob(() => { g.moveTo(px - 36, py - 52); g.lineTo(px + 36, py - 52); g.lineTo(px + 28, py + 4); g.lineTo(px - 28, py + 4); g.closePath(); }, "#d98a5f", { lw: 4 });
+  g.fillStyle = "#c8764d"; g.fillRect(px - 40, py - 62, 80, 14);
+  // alfombra
+  const rug = mix(accent, "#ffffff", 0.35);
+  g.beginPath(); ell(320, 352, 214, 38); g.fillStyle = rug; g.fill();
+  g.lineWidth = 4; g.strokeStyle = dark(accent, 0.15); g.stroke();
+  g.beginPath(); ell(320, 352, 186, 29); g.strokeStyle = alpha("#ffffff", 0.7); g.lineWidth = 3; g.setLineDash([10, 9]); g.stroke(); g.setLineDash([]);
+  if (night) { g.fillStyle = "rgba(14,18,56,0.4)"; g.fillRect(0, 0, W, H); }
+}
+// Cualquier otro fondo (hasta que se dibuje el suyo): un degradado con sus colores y un suelo.
+function backdropGradient(cols, night) {
+  const top = cols[0] || "#e8dcff", bottom = cols[1] || "#b9a4ea", accent = cols[2] || light(bottom, 0.4);
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, top); gr.addColorStop(1, bottom);
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 9; i++) fillEll(40 + rnd(3, i) * 560, 30 + rnd(4, i) * 200, 10 + rnd(5, i) * 26, 10 + rnd(5, i) * 26, alpha(light(accent, 0.5), 0.22));
+  fillEll(320, 352, 230, 44, alpha(dark(bottom, 0.3), 0.3));
+  fillEll(320, 346, 210, 34, alpha(light(accent, 0.45), 0.55));
+  if (night) { g.fillStyle = "rgba(14,18,56,0.4)"; g.fillRect(0, 0, W, H); }
+}
+function paintBackdrop(bd, night) {
+  const cols = Array.isArray(bd && bd.colors) ? bd.colors : [];
+  if (bd && bd.shape === "casa") backdropHome(cols, night); else backdropGradient(cols, night);
+}
+
+// -- Mascotas ------------------------------------------------------------------------------------
+
+// Aquí se pintarán las prendas: la otra tarea rellena el `switch`. `anchor` está en coordenadas del
+// lienzo (ver `placeAnchors`) y `pet` es el estado de la mascota (para su plan y su raza).
+function drawOutfit(slot, drawing, anchor, pet) {
+  if (!drawing || !anchor) return;
+  switch (slot) {
+    case "cabeza": // sombreros, gorros, coronas: sobre anchor.head (x, y de lo alto, w, tilt)
+    case "ojos": // gafas, antifaces: sobre anchor.eyes (x, y, sep)
+    case "cuello": // collares, pañuelos, pajaritas: sobre anchor.neck (x, y, w)
+    case "cuerpo": // capas, camisetas, trajes: sobre anchor.body (x, y, w, h)
+    default:
+      break;
+  }
+}
+// Los anclajes del plan, del espacio del plan al del lienzo. Un hueco que el plan no tiene va a null.
+function placeAnchors(A, plan, ox, gy, s, fx) {
+  const allowed = PLAN_SLOTS[plan] || Object.keys(SLOT_ANCHOR);
+  const res = {};
+  for (const [slot, key] of Object.entries(SLOT_ANCHOR)) {
+    const a = allowed.includes(slot) ? A[key] : null;
+    if (!a) { res[key] = null; continue; }
+    const p = { x: ox + fx * s * a.x, y: gy + s * a.y };
+    if (key === "head") { p.w = s * a.w; p.tilt = fx * a.tilt; }
+    if (key === "eyes") p.sep = s * a.sep;
+    if (key === "neck") p.w = s * a.w;
+    if (key === "body") { p.w = s * a.w; p.h = s * a.h; }
+    res[key] = p;
+  }
+  return res;
+}
+function drawPet(pet, st, ox, gy, s, flip, lean) {
+  const plan = PLANS[pet.plan] ? pet.plan : "gato";
+  const dorm = st.mood === "dormida";
+  const c = { look: pet.look || {}, mood: st.mood, dy: dorm ? 9 : 0, rot: dorm ? 0.12 : lean, seed: st.seed | 0, species: pet.species };
+  const fx = flip ? -1 : 1;
+  fillEll(ox, gy + 6, (SHADOW[plan] || 90) * s, 15 * s, "rgba(40,20,56,0.24)");
+  g.save();
+  g.translate(ox, gy); g.scale(fx * s, s);
+  g.lineJoin = "round"; g.lineCap = "round";
+  const A = PLANS[plan](c);
+  g.restore();
+  const placed = placeAnchors(A, plan, ox, gy, s, fx);
+  for (const [slot, key] of Object.entries(SLOT_ANCHOR)) {
+    const drawing = pet.outfit && pet.outfit[slot];
+    if (drawing) drawOutfit(slot, drawing, placed[key], pet);
+  }
+  return placed;
+}
+function debugAnchors(a) {
+  const dot = (x, y, color) => { g.beginPath(); ell(x, y, 3.5, 3.5); g.fillStyle = color; g.fill(); };
+  g.save(); g.lineWidth = 1.6;
+  if (a.head) {
+    g.save(); g.translate(a.head.x, a.head.y); g.rotate(a.head.tilt);
+    g.strokeStyle = "#e0245e"; g.beginPath(); g.moveTo(-a.head.w / 2, 0); g.lineTo(a.head.w / 2, 0); g.stroke(); g.restore();
+    dot(a.head.x, a.head.y, "#e0245e");
+  }
+  if (a.eyes) {
+    g.strokeStyle = "#1769e0"; g.beginPath(); g.moveTo(a.eyes.x - a.eyes.sep / 2, a.eyes.y); g.lineTo(a.eyes.x + a.eyes.sep / 2, a.eyes.y); g.stroke();
+    dot(a.eyes.x - a.eyes.sep / 2, a.eyes.y, "#1769e0"); dot(a.eyes.x + a.eyes.sep / 2, a.eyes.y, "#1769e0"); dot(a.eyes.x, a.eyes.y, "#7aa8ff");
+  }
+  if (a.neck) {
+    g.strokeStyle = "#16a34a"; g.strokeRect(a.neck.x - a.neck.w / 2, a.neck.y - 5, a.neck.w, 10); dot(a.neck.x, a.neck.y, "#16a34a");
+  }
+  if (a.body) {
+    g.strokeStyle = "#f59e0b"; g.setLineDash([6, 4]); g.strokeRect(a.body.x - a.body.w / 2, a.body.y - a.body.h / 2, a.body.w, a.body.h); g.setLineDash([]);
+    dot(a.body.x, a.body.y, "#f59e0b");
+  }
+  g.restore();
+}
+
+// -- Decoración del momento --------------------------------------------------------------------
+
+function paintHearts(a, seed) {
+  if (!a || !a.head) return;
+  const { x, y, w } = a.head;
+  const spots = [[-0.58, 6, 1.55], [0.62, -12, 2.05], [0.2, -50, 1.3]];
+  spots.forEach(([kx, dy, k], i) => {
+    const jx = (rnd(seed, i) - 0.5) * 10, jy = (rnd(seed, i + 9) - 0.5) * 8;
+    heart(clamp(x + kx * w + jx, 20, W - 20), clamp(y + dy + jy, 20, H - 20), k, i === 1 ? "#ff5d8f" : "#ff7aa5");
+  });
+}
+function paintZ(a) {
+  if (!a || !a.head) return;
+  const { x, y, w } = a.head;
+  const mark = (str, px, py, size) => {
+    font("700", size, MONT); g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineJoin = "round"; g.lineWidth = 6; g.strokeStyle = "#2c3a7a"; g.strokeText(str, px, py);
+    g.fillStyle = "#ffffff"; g.fillText(str, px, py);
+  };
+  const px = clamp(x + w * 0.5 + 6, 30, W - 50);
+  mark("z", px, clamp(y - 2, 24, H), 24);
+  mark("Z", clamp(px + 22, 30, W - 30), clamp(y - 34, 24, H), 34);
+}
+// El confeti va en dos capas: la mayoría detrás de la mascota y unos pocos delante.
+function paintConfetti(seed, front) {
+  const cols = ["#ff5d8f", "#ffd23f", "#3ec1d3", "#7bd957", "#a06cf0", "#ff8a3d"];
+  for (let i = 0; i < 64; i++) {
+    if ((i % 5 < 3) === front) continue;
+    const x = rnd(seed, i * 5) * W, y = rnd(seed, i * 5 + 1) * (H - 60), a = rnd(seed, i * 5 + 2) * TAU, col = cols[Math.floor(rnd(seed, i * 5 + 3) * cols.length)];
+    g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = col;
+    const kind = i % 4;
+    if (kind === 0) { g.beginPath(); g.rect(-8, -4, 16, 8); g.fill(); }
+    else if (kind === 1) { g.beginPath(); ell(0, 0, 5.5, 5.5); g.fill(); }
+    else if (kind === 2) { g.beginPath(); g.moveTo(-8, 6); g.lineTo(0, -8); g.lineTo(8, 6); g.closePath(); g.fill(); }
+    else strokePath(() => { g.moveTo(-15, 0); g.quadraticCurveTo(-7, -11, 0, 0); g.quadraticCurveTo(7, 11, 15, 0); }, col, 4.4);
+    g.restore();
+  }
+}
+function paintPlate(plate) {
+  const name = clean(plate.name), line = clean(plate.line);
+  font("700", 22, MONT);
+  const w1 = g.measureText(name).width;
+  font("", 13, SOFT);
+  const w2 = g.measureText(line).width;
+  const w = clamp(Math.max(w1, w2) + 40, 150, 290), h = line ? 56 : 40, x = 16, y = H - 16 - h;
+  g.save();
+  g.beginPath(); rr(x + 2, y + 4, w, h, 14); g.fillStyle = "rgba(40,20,56,0.25)"; g.fill();
+  g.beginPath(); rr(x, y, w, h, 14); g.fillStyle = "#fffaf0"; g.fill(); g.lineWidth = 3; g.strokeStyle = "#7a5a6e"; g.stroke();
+  fillEll(x + 14, y + h / 2, 3.4, 3.4, "#e58a9b");
+  fitText(name, x + 26, y + (line ? 27 : 28), w - 40, 22, 12, MONT, "#3b2a40", "left", "700");
+  if (line) fitText(line, x + 26, y + 45, w - 40, 13, 9, SOFT, "#7a6a80", "left");
+  g.restore();
+}
+function paintCake(x, gy) {
+  fillEll(x, gy + 5, 58, 11, "rgba(40,20,56,0.24)");
+  blob(() => ell(x, gy - 6, 54, 12), "#f4ecff", { lw: 3 });
+  blob(() => { rr(x - 38, gy - 44, 76, 38, 6); }, "#ffd9e3", { lw: 4 });
+  blob(() => { rr(x - 28, gy - 74, 56, 32, 6); }, "#fff1d6", { lw: 4 });
+  strokePath(() => { g.moveTo(x - 38, gy - 28); g.quadraticCurveTo(x - 20, gy - 20, x, gy - 28); g.quadraticCurveTo(x + 20, gy - 36, x + 38, gy - 28); }, "#ff7fa6", 5);
+  fillEll(x, gy - 76, 20, 6, "#ffffff");
+  for (const dx of [-14, 0, 14]) fillEll(x + dx, gy - 80, 5, 5, "#e0245e");
+  g.beginPath(); rr(x - 3, gy - 104, 6, 26, 2); g.fillStyle = "#6ec6e8"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#2a6a88"; g.stroke();
+  fillEll(x, gy - 114, 11, 14, "rgba(255,214,90,0.4)");
+  g.beginPath(); g.moveTo(x, gy - 122); g.quadraticCurveTo(x + 8, gy - 112, x, gy - 105); g.quadraticCurveTo(x - 8, gy - 112, x, gy - 122); g.fillStyle = "#ffb02e"; g.fill();
+  fillEll(x, gy - 110, 2.6, 4, "#fff3b0");
+}
+
+// -- Entrada -------------------------------------------------------------------------------------
+
+function paintPortrait(st, plate, debug) {
+  const night = st.mood === "dormida";
+  paintBackdrop(st.backdrop, night);
+  const pets = Array.isArray(st.pets) ? st.pets.slice(0, 2) : [];
+  const duo = pets.length === 2;
+  const gy = 345;
+  const shift = st.cake ? (duo ? -130 : -90) : 0;
+  const spots = duo ? [[190 + shift, 0.74, false, 0.1], [450 + shift, 0.74, true, 0.1]] : [[320 + shift, 1, false, 0]];
+  if (st.mood === "fiesta") paintConfetti(st.seed | 0, false);
+  if (st.cake) paintCake(duo ? 520 : 480, gy);
+  const placed = pets.map((pet, i) => drawPet(pet, st, spots[i][0], gy, spots[i][1] * (PLAN_SIZE[pet.plan] || 1), spots[i][2], spots[i][3]));
+  for (const a of placed) {
+    if (st.mood === "contenta") paintHearts(a, st.seed | 0);
+    if (st.mood === "dormida") paintZ(a);
+  }
+  if (st.mood === "fiesta") paintConfetti(st.seed | 0, true);
+  if (debug) for (const a of placed) debugAnchors(a);
+  if (plate && st.plate) paintPlate(st.plate);
+}
+// El retrato dentro de un marco de foto instantánea, algo inclinado, con el texto abajo.
+function paintPolaroid(st, debug) {
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#dcd6cc"); bg.addColorStop(1, "#bcb4a8");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const fw = 416, fh = 336, pw = 376, ph = 236;
+  g.save();
+  g.translate(320, 198); g.rotate(-0.04);
+  g.beginPath(); rr(-fw / 2 + 4, -fh / 2 + 8, fw, fh, 6); g.fillStyle = "rgba(50,40,30,0.3)"; g.fill();
+  g.beginPath(); rr(-fw / 2, -fh / 2, fw, fh, 6); g.fillStyle = "#fffdf8"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#d9d2c4"; g.stroke();
+  const px = -pw / 2, py = -fh / 2 + 20;
+  g.save();
+  g.beginPath(); g.rect(px, py, pw, ph); g.clip();
+  const k = pw / 528;
+  g.translate(px + pw / 2, py + ph / 2); g.scale(k, k); g.translate(-320, -196);
+  paintPortrait({ ...st, plate: null }, false, debug);
+  g.restore();
+  g.lineWidth = 2; g.strokeStyle = "rgba(60,40,60,0.25)"; g.strokeRect(px, py, pw, ph);
+  fitText(clean(st.caption), 0, py + ph + 50, fw - 56, 24, 12, MONT, "#4a3a50", "center", "700");
+  g.restore();
+}
+function sceneFrame(st, debug) {
+  g.setTransform(S, 0, 0, S, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.lineCap = "round"; g.lineJoin = "round"; g.globalAlpha = 1; g.setLineDash([]);
+  if (st.caption) paintPolaroid(st, debug); else paintPortrait(st, true, debug);
+  octx.clearRect(0, 0, W, H);
+  octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
+  octx.drawImage(big, 0, 0, W * S, H * S, 0, 0, W, H);
+  return { x: 0, y: 0, u: window.exportFrame(out) };
+}
+
+let META = {};
+window.exportFrame ??= (canvas) => canvas.toDataURL("image/png");
+window.loadFonts = async () => {
+  await Promise.all([document.fonts.load("700 20px Montserrat"), document.fonts.load("20px RobotoM"), document.fonts.load("20px RobotoR")]);
+  await document.fonts.ready;
+  return true;
+};
+window.setup = async (meta) => { META = meta || {}; return true; };
+window.renderFrames = (states, first = 0) => states.map((st) => {
+  if (!st || typeof st !== "object" || !Array.isArray(st.pets)) throw new Error("Estado del retrato incompleto");
+  return sceneFrame(st, !!(META.debug || st.debug));
+});
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+"""Hojas de muestras de los retratos de las mascotas, para mirarlos de un vistazo.
+
+Pinta con `PetScene` (`assets/mascotas/escena.html`) y monta con Pillow hojas de miniaturas
+de 320 × 200 con la etiqueta debajo, en la carpeta que se le pasa. Sirve para revisar una
+especie nueva, una raza o una prenda antes de entregarla («Añadir una especie» en
+`bot/services/pets_looks.py`). Sale:
+
+- `razas_N.png`: cada especie con cada una de sus razas, en cara `tranquila`.
+- `caras.png`: seis especies variadas en las cuatro caras (tranquila, contenta, dormida, fiesta).
+- `extras.png`: una visita (dos mascotas), el marco de foto del álbum (`caption`), la tarta
+  del aniversario (`cake`) y la placa con un nombre largo.
+
+Uso, desde la raíz del repo (necesita `node` y `npm ci` hecho):
+
+    python docs/muestras_mascotas.py /tmp/muestras
+    python docs/muestras_mascotas.py /tmp/muestras --debug          # marca los anclajes
+    python docs/muestras_mascotas.py /tmp/muestras --especie gato,loro
+
+`--debug` pinta los anclajes de las prendas: cabeza (rojo: línea del ancho, inclinada), ojos
+(azul), cuello (verde: caja) y tronco (naranja: caja discontinua). `--especie` limita las hojas
+de razas a esas especies (claves de `LOOKS`, separadas por comas). Solo escribe en la carpeta.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import io
+import sys
+from pathlib import Path
+from typing import Any
+
+from PIL import Image, ImageDraw, ImageFont
+
+HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE / "src"))
+
+from bot.services.pet_scene import PetScene, pet_entry, portrait_state  # noqa: E402
+from bot.services.pets_looks import LOOKS  # noqa: E402
+
+FONT = HERE / "src" / "bot" / "assets" / "memes" / "fonts" / "robotomedium.ttf"
+THUMB = (320, 200)
+LABEL_H = 24
+COLUMNS = 4
+ROWS_PER_SHEET = 4
+#: Seis especies de planes distintos para ver las cuatro caras.
+MOOD_SPECIES = ("gato", "perro", "loro", "cabra", "pulpo", "pedrusco")
+MOODS = ("tranquila", "contenta", "dormida", "fiesta")
+
+Item = tuple[str, dict[str, Any]]
+
+
+def _entry(species: str, breed_key: str | None = None) -> dict[str, Any]:
+    return pet_entry(species, LOOKS[species].breed(breed_key), {})
+
+
+def _sheet(tiles: list[tuple[str, bytes]], columns: int = COLUMNS) -> Image.Image:
+    """Monta miniaturas con su etiqueta debajo."""
+    rows = -(-len(tiles) // columns)
+    cell_h = THUMB[1] + LABEL_H
+    sheet = Image.new("RGB", (columns * THUMB[0], rows * cell_h), "#2b2433")
+    draw = ImageDraw.Draw(sheet)
+    font = ImageFont.truetype(str(FONT), 14)
+    for i, (label, png) in enumerate(tiles):
+        x, y = (i % columns) * THUMB[0], (i // columns) * cell_h
+        thumb = Image.open(io.BytesIO(png)).convert("RGB").resize(THUMB, Image.Resampling.LANCZOS)
+        sheet.paste(thumb, (x, y))
+        draw.text((x + 8, y + THUMB[1] + 4), label, fill="#f2e9f7", font=font)
+    return sheet
+
+
+async def _paint(scene: PetScene, items: list[Item], debug: bool) -> list[tuple[str, bytes]]:
+    states = [state | ({"debug": True} if debug else {}) for _, state in items]
+    pngs = await scene.paint(states)
+    if pngs is None:
+        raise SystemExit("Ni Node ni Chromium pueden pintar la escena")
+    return [(label, png) for (label, _), png in zip(items, pngs, strict=True)]
+
+
+def _breed_items(only: set[str] | None) -> list[Item]:
+    items: list[Item] = []
+    for species, look in LOOKS.items():
+        if only and species not in only:
+            continue
+        for breed in look.breeds:
+            state = portrait_state([_entry(species, breed.key)], mood="tranquila", seed=3)
+            items.append((f"{species} · {breed.name}", state))
+    return items
+
+
+def _mood_items() -> list[Item]:
+    return [
+        (f"{species} · {mood}", portrait_state([_entry(species)], mood=mood, seed=5))
+        for species in MOOD_SPECIES
+        for mood in MOODS
+    ]
+
+
+def _extra_items() -> list[Item]:
+    gato, perro = _entry("gato", "siames"), _entry("perro", "beagle")
+    long_plate = {"name": "Su Excelencia Don Bigotes Tercero", "line": "Gato callejero · Nivel 12"}
+    return [
+        ("visita (dos mascotas)", portrait_state([gato, perro], mood="contenta", seed=7)),
+        (
+            "álbum (caption)",
+            portrait_state([_entry("loro", "guacamayo")], caption="Nivel 6 · 12/10/2026", seed=2),
+        ),
+        (
+            "tarta (cake)",
+            portrait_state([_entry("caniche", "blanco")], mood="fiesta", cake=True, seed=4),
+        ),
+        (
+            "placa con nombre largo",
+            portrait_state([_entry("gato_callejero", "negro")], plate=long_plate, seed=1),
+        ),
+    ]
+
+
+async def main_async(folder: Path, debug: bool, only: set[str] | None) -> list[Path]:
+    """Pinta y guarda las hojas; devuelve sus rutas."""
+    folder.mkdir(parents=True, exist_ok=True)
+    scene = PetScene()
+    written: list[Path] = []
+    try:
+        per_sheet = COLUMNS * ROWS_PER_SHEET
+        tiles = await _paint(scene, _breed_items(only), debug)
+        for n, start in enumerate(range(0, len(tiles), per_sheet), 1):
+            path = folder / f"razas_{n}.png"
+            _sheet(tiles[start : start + per_sheet]).save(path)
+            written.append(path)
+        if not only:
+            path = folder / "caras.png"
+            _sheet(await _paint(scene, _mood_items(), debug)).save(path)
+            written.append(path)
+            path = folder / "extras.png"
+            _sheet(await _paint(scene, _extra_items(), debug)).save(path)
+            written.append(path)
+    finally:
+        await scene.close()
+    return written
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("carpeta", type=Path, help="donde dejar las hojas")
+    parser.add_argument("--debug", action="store_true", help="marca los anclajes de las prendas")
+    parser.add_argument("--especie", help="solo las razas de estas especies, separadas por comas")
+    args = parser.parse_args()
+    only = {s.strip() for s in args.especie.split(",")} if args.especie else None
+    for path in asyncio.run(main_async(args.carpeta, args.debug, only)):
+        print(path)
+
+
+if __name__ == "__main__":
+    main()
