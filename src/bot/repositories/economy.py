@@ -8683,6 +8683,7 @@ class EconomyRepository:
                 "economy_porra_settled",
                 "economy_sports_bets",
                 "economy_sports_combos",
+                "economy_predict_bets",
                 "economy_gaming_tax",
                 "economy_market_tax",
                 "economy_housing_tax",
