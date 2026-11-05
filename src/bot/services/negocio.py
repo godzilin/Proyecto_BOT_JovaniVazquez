@@ -80,6 +80,7 @@ from bot.services.business import (
     add_reviews,
     amortize,
     book_value,
+    boost,
     clean_name,
     closing_offer,
     daily_pool,
@@ -94,6 +95,7 @@ from bot.services.business import (
     setup_asset,
     size_for,
     spoil,
+    spoil_units,
     stock_value,
     turn_clients,
     turn_reputation,
@@ -153,6 +155,10 @@ MAX_LOTS = 20
 
 class BusinessError(Exception):
     """Algo que impide la acción; el mensaje es para el usuario."""
+
+
+class StaffRefusedError(BusinessError):
+    """Un empleado no acepta trabajar menos horas (art. 12.4.e ET): va con su logro."""
 
 
 def _account(business: Business) -> int | None:
@@ -342,6 +348,11 @@ class NightRun:
             que llegó y `desahucio` si el casero la rescindió. Va en el primer local de la noche.
         manager: Lo que hizo el gerente del local (fase 5): `repuso`, `nave` (trajo de la
             nave), `contrato` (cubrió una baja) o `falta`.
+        support: Los puestos de apoyo que vinieron ese día (9.41.0): sus claves (`limpieza`,
+            `reponedor`, `redes`, `rrhh`).
+        kept: Las unidades de lo perecedero que salvó esa noche el mozo de almacén.
+        cleaned: La reputación que subió esa noche la limpieza.
+        rescheduled: Cuántos empezaron un horario nuevo al día siguiente.
     """
 
     user_id: int
@@ -361,6 +372,10 @@ class NightRun:
     turns: tuple[StaffTurn, ...] = ()
     nave: tuple[str, ...] = ()
     manager: tuple[str, ...] = ()
+    support: tuple[str, ...] = ()
+    kept: int = 0
+    cleaned: float = 0.0
+    rescheduled: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +411,8 @@ class StaffTurn:
         franja: La franja (0-7).
         summary: Lo que pasó con sus clientes, o `None` si no hubo turno.
         absent: Si faltó sin justificar.
+        role: Su puesto (`business_staff.ROLES`): `""`, `encargado` o `repartidor`.
+        led: Si atendió con el encargado de turno en la misma franja (sin contarle a él).
     """
 
     user_id: int
@@ -405,6 +422,8 @@ class StaffTurn:
     franja: int
     summary: TurnSummary | None = None
     absent: bool = False
+    role: str = ""
+    led: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1703,37 +1722,51 @@ class BusinessService:
         wage: int | None = None,
         biz: int | None = None,
         role: str = "",
+        horario: str | None = None,
     ) -> tuple[Business, dict[str, Any]]:
         """Contrata a un candidato de hoy. No mueve dinero: la nómina se paga cada noche.
 
-        Con `role` = `business_staff.MANAGER` (fase 5) entra de gerente: uno por local, con
-        alta y a jornada completa; no atiende, pero cada noche repone y cubre las bajas
-        (`_manage`), y pide lo de un encargado (`business_staff.manager_ask`).
+        `role` es su puesto (`business_staff.ROLES`, 9.41.0): el dependiente (`""`), el
+        encargado de turno, el repartidor, el gerente o uno de apoyo (limpieza, mozo de
+        almacén, community manager, recursos humanos). Todos menos el dependiente son uno por
+        local, y todos menos el gerente ocupan uno de sus puestos (`business_staff.cap`).
+        Cada puesto pide lo suyo (`business_staff.role_ask`). El gerente (fase 5) va con alta
+        y a jornada completa; no atiende, pero cada noche repone y cubre las bajas
+        (`_manage`).
 
-        Empieza ya, en las franjas de su turno que aún no han acabado (el alta va antes de
-        empezar, art. 139 LGSS). Con contrato `indefinido` o `temporal` (art. 15.2 ET, 6
-        meses: `business_staff.TEMPORARY_NIGHTS` noches), los dos con período de prueba; o
-        en `b`, sin alta ni contrato.
+        `horario` es la clave de uno de `business_staff.HORARIOS`; sin él, el de antes de la
+        9.41.0 por su `jornada` y su `shift`. Empieza ya, en las franjas de su horario que aún
+        no han acabado (el alta va antes de empezar, art. 139 LGSS). Con contrato `indefinido`
+        o `temporal` (art. 15.2 ET, 6 meses: `business_staff.TEMPORARY_NIGHTS` noches), los
+        dos con período de prueba; o en `b`, sin alta ni contrato.
 
         Args:
             wage: El bruto de cada noche que se le ofrece (por defecto, lo que pide).
 
         Raises:
-            BusinessError: Sin negocio, sin sitio en el local, si el candidato ya no está o
-                si no acepta lo ofrecido.
+            BusinessError: Sin negocio, sin sitio en el local o con el puesto ya cubierto, si
+                el candidato ya no está o si no acepta lo ofrecido.
         """
         if contract not in ("indefinido", "temporal", "b"):
             raise BusinessError("Ese contrato no existe.")
-        if role not in ("", staff.MANAGER):
+        info = staff.ROLE_BY_KEY.get(role)
+        if info is None:
             raise BusinessError("Ese puesto no existe.")
         manager = role == staff.MANAGER
+        franjas: tuple[int, ...] | None = None
         if manager:
             if contract == "b":
                 raise BusinessError(
                     "El gerente compra en nombre del negocio: tiene que estar dado de alta."
                 )
             jornada = staff.FULL_DAY
-        if jornada not in (staff.FULL_DAY, staff.HALF_DAY):
+        elif horario is not None:
+            chosen = staff.HORARIO_BY_KEY.get(horario)
+            if chosen is None:
+                raise BusinessError("Ese horario no está en la lista.")
+            franjas, jornada, shift = chosen.franjas, chosen.jornada, chosen.shift
+        elif jornada not in (staff.FULL_DAY, staff.HALF_DAY):
+            # Sin horario, los cuatro de antes de la 9.41.0: completa o media, mañana o tarde.
             raise BusinessError("La jornada es completa o media.")
         if shift not in staff.SHIFTS:
             raise BusinessError("El turno es de mañana o de tarde.")
@@ -1744,14 +1777,9 @@ class BusinessService:
             if business is None:
                 raise BusinessError("No tienes negocio.")
             business.roll_over(today, week)
-            room = staff.cap(business.size)
-            if manager and staff.manager(business) is not None:
-                raise BusinessError("Este local ya tiene gerente.")
-            if not manager and len(staff.counter_staff(business)) >= room:
-                raise BusinessError(
-                    f"En un local {business.size_info.name.lower()} caben {room} empleados. "
-                    "Trasládate a uno mayor para contratar a más."
-                )
+            problem = staff.hire_problem(business, role)
+            if problem is not None:
+                raise BusinessError(problem)
             candidate = next(
                 (c for c in staff.candidates(business, today) if c["key"] == key), None
             )
@@ -1763,11 +1791,7 @@ class BusinessService:
                     f"{name} solo quiere media jornada"
                     + (": de gerente no le cuadra." if manager else ".")
                 )
-            asked = (
-                staff.manager_ask(candidate["skills"], candidate["traits"])
-                if manager
-                else staff.ask(candidate["skills"], candidate["traits"], jornada)
-            )
+            asked = staff.role_ask(candidate["skills"], candidate["traits"], jornada, role)
             pay = asked if wage is None else wage
             if pay < asked:
                 raise BusinessError(f"{name} pide al menos {asked} Y$ brutos cada noche.")
@@ -1778,6 +1802,7 @@ class BusinessService:
             employee = staff.new_employee(
                 candidate, seq=business.staff_seq, contract=contract, jornada=jornada,
                 shift=shift, wage=pay, start=today, bonified=bonified, role=role,
+                franjas=franjas,
             )  # fmt: skip
             # Las franjas de hoy que ya han acabado no las trabaja.
             employee["from_franja"] = staff.franjas_done(datetime.fromtimestamp(now, TIMEZONE).hour)
@@ -1832,6 +1857,42 @@ class BusinessService:
             return employee
 
         return await self._staff_change(guild_id, user_id, change, biz)
+
+    async def reschedule(
+        self,
+        guild_id: int,
+        user_id: int,
+        employee_id: int,
+        horario: str,
+        *,
+        biz: int | None = None,
+    ) -> tuple[Business, dict[str, Any], staff.Reschedule]:
+        """Le cambia el horario desde el día siguiente (`business_staff.reschedule`). No mueve
+        dinero: la nómina de esta noche es la de siempre y la nueva, la de su horario nuevo.
+
+        Con las mismas horas es una modificación sustancial (art. 41 ET) y le baja algo el
+        humor; con más horas cobra más; con menos tiene que aceptar (art. 12.4.e ET).
+
+        Raises:
+            StaffRefusedError: Si no acepta trabajar menos horas.
+            BusinessError: Si ya no trabaja contigo o el cambio no vale (`ValueError` de
+                `business_staff.reschedule`).
+        """
+        today = local_day(self._clock())
+
+        def change(business: Business) -> tuple[dict[str, Any], staff.Reschedule]:
+            employee = self._employee(business, employee_id)
+            try:
+                plan = staff.reschedule(employee, horario, today)
+            except staff.Refusal as error:
+                raise StaffRefusedError(str(error)) from error
+            except ValueError as error:
+                raise BusinessError(str(error)) from error
+            staff.plan_reschedule(employee, plan)
+            return employee, plan
+
+        business, (employee, plan) = await self._staff_change(guild_id, user_id, change, biz)
+        return business, employee, plan
 
     async def make_permanent(
         self, guild_id: int, user_id: int, employee_id: int, *, biz: int | None = None
@@ -2054,7 +2115,7 @@ class BusinessService:
         first = business.staff_done if business.staff_day == iso else 0
         played: list[StaffTurn] = []
         for franja in range(first, upto):
-            if not any(_works(e, iso, franja) for e in business.staff):
+            if not any(staff.works(e, iso, franja) for e in business.staff):
                 continue
             turns = await self._staff_franja(guild_id, user_id, day, franja, biz)
             if turns is None:
@@ -2068,7 +2129,11 @@ class BusinessService:
         """Una franja de la plantilla: cada uno en su sitio juega su turno con el minijuego.
 
         Las ventas entran en la caja como las del dueño (con su retención si es autónomo) y
-        los clientes salen del mismo cupo del barrio. `None` si el negocio ya no existe.
+        los clientes salen del mismo cupo del barrio; los del repartidor, del cupo a domicilio
+        (`business_staff.DELIVERY_POOL`), sin listillos. Con el encargado de turno en la
+        franja, los demás del mostrador fallan menos (`business_staff.LEAD_MISS`); con
+        recursos humanos, aprenden más. La primera franja del día decide también quién de la
+        plantilla de apoyo ha faltado. `None` si el negocio ya no existe.
         """
         holder: list[StaffTurn] = []
         iso = day.isoformat()
@@ -2094,41 +2159,79 @@ class BusinessService:
             ) - self.repository.pool_used_in(
                 connection, guild_id, business.barrio, business.sector, day
             )
+            delivery = staff.delivery_key(business.sector)
+            delivery_left = daily_pool(
+                business.sector_info, business.barrio_info
+            ) * staff.DELIVERY_POOL * (1 + boost(business, day)) - self.repository.pool_used_in(
+                connection, guild_id, business.barrio, delivery, day
+            )
+            # Las faltas de hoy: de quien juega esta franja y, con la primera, de la plantilla
+            # de apoyo (lo que deja RR. HH. ya cuenta hoy). El gerente, por la noche.
+            for employee in business.staff:
+                playing = staff.works(employee, iso, franja)
+                if not playing and not (staff.role_of(employee).effects):
+                    continue
+                if staff.roll_absence(employee, business.seed, day):
+                    business.tell(
+                        f"🚫 {employee['name']} no vino hoy y no avisó: es su falta número "
+                        f"{employee['absences']}. Hoy no cobra."
+                    )
+                    holder.append(
+                        StaffTurn(
+                            user_id, employee["name"], employee["id"], day, franja,
+                            absent=True, role=employee.get("role", ""),
+                        )
+                    )  # fmt: skip
+            helped = staff.support(business, day)
+            boss = next(
+                (
+                    e
+                    for e in business.staff
+                    if e.get("role") == "encargado"
+                    and staff.works(e, iso, franja)
+                    and e["absent_day"] != iso
+                ),
+                None,
+            )
             sales = sold = 0
             for employee in business.staff:
-                if not _works(employee, iso, franja):
+                if not staff.works(employee, iso, franja) or employee["absent_day"] == iso:
                     continue
                 name = employee["name"]
-                if employee["roll_day"] != iso:
-                    employee["roll_day"] = iso
-                    if staff.absent(employee, business.seed, day):
-                        employee["absent_day"] = iso
-                        employee["absences"] += 1
-                        business.tell(
-                            f"🚫 {name} no vino hoy y no avisó: es su falta número "
-                            f"{employee['absences']}. Hoy no cobra."
-                        )
-                        holder.append(
-                            StaffTurn(user_id, name, employee["id"], day, franja, absent=True)
-                        )
-                if employee["absent_day"] == iso:
-                    continue
+                role = staff.role_of(employee)
+                away = role.plays == "reparto"
+                led = boss is not None and employee is not boss and not away
                 rng = random.Random(f"{business.seed}:plantilla:{iso}:{franja}:{employee['id']}")
                 wanted = turn_clients(business, staff.demand_hour(franja), rng.random(), day)
+                if away:
+                    wanted = max(1, round(wanted * staff.DELIVERY_TURN))
+                left = delivery_left if away else pool_left
                 clients = make_clients(
-                    business, min(wanted, math.floor(pool_left)), rng.randrange(2**31)
-                )
+                    business, min(wanted, math.floor(left)), rng.randrange(2**31),
+                    thieves=not away,
+                )  # fmt: skip
                 if not clients:
-                    holder.append(StaffTurn(user_id, name, employee["id"], day, franja))
+                    holder.append(
+                        StaffTurn(user_id, name, employee["id"], day, franja, role=role.key)
+                    )
                     continue
-                pool_left -= len(clients)
+                if away:
+                    delivery_left -= len(clients)
+                else:
+                    pool_left -= len(clients)
                 self.repository.take_pool_in(
-                    connection, guild_id, business.barrio, business.sector, day, len(clients)
-                )
-                game = staff.play_turn(business, employee, clients, start=start, franja=franja)
+                    connection, guild_id, business.barrio, delivery if away else business.sector,
+                    day, len(clients),
+                )  # fmt: skip
+                game = staff.play_turn(
+                    business, employee, clients, start=start, franja=franja,
+                    lead=staff.lead(boss) if led and boss is not None else 0.0,
+                )  # fmt: skip
                 summary = game.summary()
                 _apply_turn(business, summary, f"{start}:{employee['id']}", day)
-                staff.learn(employee)
+                staff.learn(employee, boost=helped.learn)
+                if led:
+                    employee["led_day"] = iso
                 if employee["grades_day"] != iso:
                     employee["grades_day"], employee["grades"] = iso, []
                 employee["grades"].append(summary.grade)
@@ -2145,7 +2248,12 @@ class BusinessService:
                         business.staff_today[key] = business.staff_today.get(key, 0) + value
                 sales += summary.sales
                 sold += summary.sold_cost
-                holder.append(StaffTurn(user_id, name, employee["id"], day, franja, summary))
+                holder.append(
+                    StaffTurn(
+                        user_id, name, employee["id"], day, franja, summary, role=role.key,
+                        led=led,
+                    )
+                )  # fmt: skip
             business.staff_done = franja + 1
             self.repository.save_in(connection, guild_id, business)
             return business, BusinessMove(
@@ -2457,7 +2565,13 @@ class BusinessService:
             business = self.repository.business_in(connection, guild_id, user_id, business_id)
             if business is None or business.billed_day >= day.isoformat():
                 return None, BusinessMove(user_id=user_id)
-            _manager_absence(business, day)
+            _roll_support(business, day)
+            helped = staff.support(business, day)
+            helpers = tuple(
+                e["role"]
+                for e in business.staff
+                if staff.role_of(e).effects and staff.present(e, day)
+            )
             bill = nightly_bill(business)
             debt = business.rent_debt
             company = business.is_company
@@ -2528,9 +2642,20 @@ class BusinessService:
                     ("local", BusinessCost("negocio:terraza", taxes=(("tasa", bill.fees),)))
                 )
             due = debt + bill.total
-            spoiled = spoil(business)
+            # El mozo de almacén salva parte de la merma; la limpieza sube la reputación y, con
+            # el community manager, deja lo de mañana (`Business.support`).
+            would = sum(spoil_units(business).values())
+            spoiled = spoil(business, helped.keep)
+            kept = would - sum(spoiled.values())
             if business.last_open_day != day.isoformat():
                 drift(business)
+            cleaned = min(helped.reputation, REPUTATION_MAX - business.reputation)
+            business.reputation += max(0.0, cleaned)
+            business.support = {
+                key: round(value, 4)
+                for key, value in (("clients", helped.clients), ("patience", helped.patience))
+                if value
+            }
             business.billed_day = day.isoformat()
             amortized = amortize(business)
             if business.campaign and business.campaign_until <= day.isoformat():
@@ -2701,15 +2826,22 @@ class BusinessService:
                     )
                 if spoiled:
                     units = sum(spoiled.values())
-                    business.tell(f"🗑️ Se te estropearon {units} unidades de lo perecedero.")
-                staff_events.extend(_settle_staff(business, pay, missing, day, caught))
+                    business.tell(
+                        f"🗑️ Se te estropearon {units} unidades de lo perecedero"
+                        + (f" (el mozo de almacén salvó {kept})." if kept else ".")
+                    )
+                staff_events.extend(
+                    _settle_staff(business, pay, missing, day, caught, shield=helped.shield)
+                )
                 self.repository.save_in(connection, guild_id, business)
                 gone = business.unpaid_nights >= EVICTION_NIGHTS or lost_local
                 holder.append(
                     NightRun(user_id, business.name, day, due, local, spoiled,
                              evicted=gone, amortized=amortized, corporate=week_result,
                              loans=tuple(loan_events), payroll=pay.cost + pay.black,
-                             staff=tuple(staff_events), fine=sum(caught) if caught else 0)
+                             staff=tuple(staff_events), fine=sum(caught) if caught else 0,
+                             support=helpers, kept=kept, cleaned=max(0.0, cleaned),
+                             rescheduled=staff_events.count("horario"))
                 )  # fmt: skip
                 if gone:
                     evict.append("sin_local" if lost_local else "desahucio")
@@ -3639,12 +3771,19 @@ class BusinessService:
             )
             for vacancy in list(business.vacancies):
                 business.vacancies = business.vacancies[1:]
-                if len(staff.counter_staff(business)) >= staff.cap(business.size):
+                role = vacancy.get("role", "")
+                if staff.hire_problem(business, role) is not None:
+                    continue
+                own = tuple(vacancy.get("franjas") or ()) or staff.legacy_franjas(
+                    vacancy["shift"], vacancy["jornada"]
+                )
+                schedule = staff.HORARIO_BY_KEY.get(staff.horario_key(own))
+                if schedule is None:
                     continue
                 pool = [
                     c
                     for c in staff.candidates(business, next_day)
-                    if not (c["part_time"] and vacancy["jornada"] != staff.HALF_DAY)
+                    if not (c["part_time"] and schedule.jornada != staff.HALF_DAY)
                 ]
                 if not pool:
                     continue
@@ -3652,16 +3791,17 @@ class BusinessService:
                 business.staff_seq += 1
                 hired = staff.new_employee(
                     pick, seq=business.staff_seq, contract="indefinido",
-                    jornada=vacancy["jornada"], shift=vacancy["shift"],
-                    wage=staff.ask(pick["skills"], pick["traits"], vacancy["jornada"]),
-                    start=next_day, bonified=bonified,
+                    jornada=schedule.jornada, shift=schedule.shift,
+                    wage=staff.role_ask(pick["skills"], pick["traits"], schedule.jornada, role),
+                    start=next_day, bonified=bonified, role=role, franjas=schedule.franjas,
                 )  # fmt: skip
                 hired["from_franja"] = staff.franjas_done(hour) if next_day == today else 0
                 business.staff = [*business.staff, hired]
                 business.seen = [*business.seen, pick["key"]][-30:]
+                what = staff.ROLE_BY_KEY[role].name.lower()
                 business.tell(
-                    f"🧑‍💼 {name} ha contratado a {pick['name']} para el turno de "
-                    f"{staff.SHIFT_NAMES[vacancy['shift']]}: cubre una baja."
+                    f"🧑‍💼 {name} ha contratado a {pick['name']} de {what} "
+                    f"({schedule.label.lower()}): cubre una baja."
                 )
                 events.append("contrato")
             self.repository.save_in(connection, guild_id, business)
@@ -3839,29 +3979,33 @@ def _carry(company: dict[str, Any], week: str, base: int, sales: int) -> None:
 
 
 def _vacancy(business: Business, employee: dict[str, Any]) -> None:
-    """Si hay gerente, apunta la baja de quien se va para que la cubra (no la suya)."""
+    """Si hay gerente, apunta la baja de quien se va para que la cubra (no la suya): su
+    puesto y su horario."""
     if staff.is_manager(employee) or staff.manager(business) is None:
         return
     business.vacancies = [
         *business.vacancies,
-        {"jornada": employee["jornada"], "shift": employee["shift"]},
+        {
+            "jornada": employee["jornada"],
+            "shift": employee["shift"],
+            "role": employee.get("role", ""),
+            "franjas": list(staff.franjas(employee)),
+        },
     ]
 
 
-def _manager_absence(business: Business, day: date) -> None:
-    """Si el gerente falta `day` (no atiende franjas, así que se decide la noche, antes de la
-    nómina): ese día no cobra y no repone."""
-    boss = staff.manager(business)
-    iso = day.isoformat()
-    if boss is None or boss["start"] > iso or boss["roll_day"] == iso:
-        return
-    boss["roll_day"] = iso
-    if staff.absent(boss, business.seed, day):
-        boss["absent_day"] = iso
-        boss["absences"] += 1
+def _roll_support(business: Business, day: date) -> None:
+    """Las faltas de `day` de quien no atiende (el gerente y la plantilla de apoyo) que no se
+    decidieron ya con la primera franja del día: se deciden la noche, antes de la nómina. Ese
+    día no cobra y no deja su efecto (el gerente no repone)."""
+    for employee in business.staff:
+        role = staff.role_of(employee)
+        if role.plays or not staff.roll_absence(employee, business.seed, day):
+            continue
+        tail = "Esta noche nadie repone." if role.key == staff.MANAGER else "Hoy no cobra."
         business.tell(
-            f"🚫 {boss['name']} no vino hoy y no avisó: es su falta número {boss['absences']}. "
-            "Esta noche nadie repone."
+            f"🚫 {employee['name']} no vino hoy y no avisó: es su falta número "
+            f"{employee['absences']}. {tail}"
         )
 
 
@@ -3921,14 +4065,6 @@ def _zec_week(business: Business, group: list[Business]) -> tuple[int, str] | No
     return None
 
 
-def _works(employee: dict[str, Any], day: str, franja: int) -> bool:
-    """Si a `employee` le toca la franja `franja` del día `day` (ISO): es de su turno, ya había
-    empezado y, si entró ese día, la franja no había acabado al contratarle."""
-    if franja not in staff.franjas(employee) or employee["start"] > day:
-        return False
-    return employee["start"] != day or franja >= employee.get("from_franja", 0)
-
-
 def _apply_turn(business: Business, summary: TurnSummary, seed: str, day: date) -> list[Any]:
     """Lo que deja un turno en el negocio (del dueño o de un empleado): el stock que sale, la
     reputación, la fidelidad de los habituales, las ventas de la semana y las reseñas.
@@ -3968,16 +4104,21 @@ def _settle_staff(
     missing: dict[str, int],
     day: date,
     caught: tuple[int, int] | None,
+    *,
+    shield: float = 0.0,
 ) -> list[str]:
     """Lo que pasa con la plantilla al cerrar la noche, ya cobrada. Devuelve lo que ha pasado.
 
     - Lo pagado de los atrasos baja lo que se le debe a cada uno, del primero al último.
     - Lo que no llegó de las nóminas es de los últimos de la plantilla: se les debe.
-    - El humor de cada uno (`business_staff.night_mood`), sus cursos y su período de prueba.
+    - El humor de cada uno (`business_staff.night_mood`, con lo que quita recursos humanos,
+      `shield`, a todos menos a sí mismo, y lo que sube el encargado de turno a quien atendió
+      con él), sus cursos y su período de prueba.
     - Quien acaba el contrato temporal (12 días por año, art. 49.1.c ET) o se va: quemado, o
       sin cobrar con la indemnización del improcedente (art. 50 ET). Lo que se les debe va a
       los atrasos, que se pagan los primeros cada noche.
     - Si pasó la Inspección, quien estaba en B pasa a fijo.
+    - Quien cambió de horario empieza el nuevo al día siguiente (`horario`).
     """
     events: list[str] = []
     today = day.isoformat()
@@ -4002,7 +4143,13 @@ def _settle_staff(
             employee["b_paid"] = employee.get("b_paid", 0) + slip.gross
         employee["nights"] += 1
         grades = employee["grades"] if employee["grades_day"] == today else []
-        staff.night_mood(employee, paid=not take, grades=grades)
+        staff.night_mood(
+            employee,
+            paid=not take,
+            grades=grades,
+            shield=0.0 if employee.get("role") == "rrhh" else shield,
+            led=employee.get("led_day") == today,
+        )
     if caught is not None:
         fine, arrears = caught
         workers = staff.unregistered(business, day)
@@ -4066,6 +4213,11 @@ def _settle_staff(
                 # Se va enfadado y sin contrato: lo cuenta. La Inspección es más probable.
                 business.tipoff = (day + timedelta(days=1)).isoformat()
             continue
+        if staff.apply_reschedule(employee, day + timedelta(days=1)):
+            schedule = staff.horario_of(employee)
+            label = schedule.label.lower() if schedule is not None else ""
+            business.tell(f"🕒 Desde hoy, {name} trabaja con su horario nuevo: {label}.")
+            events.append("horario")
         keep.append(employee)
     business.staff = keep
     return events

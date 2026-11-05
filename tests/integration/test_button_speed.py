@@ -1161,7 +1161,7 @@ async def press_business_hire(client: BotClient, owner: MagicMock) -> Click:
     business = await service.business(GUILD_ID, owner.id)
     candidate = service.candidates(business)[0]
     panel.candidate = candidate["key"]
-    panel.offer.update(jornada=2 if candidate["part_time"] else 4)
+    panel.offer.update(horario="12" if candidate["part_time"] else "0123")
 
     async def click(interaction: MagicMock) -> None:
         await panel._hire(interaction)

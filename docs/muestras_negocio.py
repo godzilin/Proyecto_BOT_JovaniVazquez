@@ -733,19 +733,88 @@ def _phase3(today: date) -> dict[str, dict[str, Any]]:
 
 
 def _hire(business: Business, candidate: dict[str, Any], contract: str, **kw: Any) -> dict:
-    """Contrata a `candidate` con `new_employee`, como el cog (lo que pide, a su jornada)."""
+    """Contrata a `candidate` con `new_employee`, como el cog (lo que pide, a su jornada).
+
+    Con `role` y `horario` (9.41.0), en ese puesto y con ese horario.
+    """
     from bot.services import business_staff as staff
 
+    role = kw.pop("role", "")
+    horario = staff.HORARIO_BY_KEY.get(kw.pop("horario", ""))
     jornada = staff.HALF_DAY if candidate["part_time"] else kw.pop("jornada", staff.FULL_DAY)
+    if horario is not None:
+        jornada = horario.jornada
     business.staff_seq += 1
     employee = staff.new_employee(
         candidate, seq=business.staff_seq, contract=contract, jornada=jornada,
         shift=kw.pop("shift", "manana"),
-        wage=staff.ask(candidate["skills"], candidate["traits"], jornada),
-        start=kw.pop("start"),
+        wage=staff.role_ask(candidate["skills"], candidate["traits"], jornada, role),
+        start=kw.pop("start"), role=role,
+        franjas=horario.franjas if horario is not None else None,
     )  # fmt: skip
     business.staff.append(employee)
     return employee
+
+
+def _puestos(today: date) -> dict[str, dict[str, Any]]:
+    """Las muestras de los puestos y los horarios (9.41.0): todos los puestos, las dos páginas
+    de una plantilla de siete, un cambio de horario pendiente, cuatro candidatos (con recursos
+    humanos) y las ofertas de un puesto de apoyo y de un encargado con jornada partida."""
+    from bot.services import business_staff as staff
+    from bot.services.business_view import candidatos_state, plantilla_state
+
+    s: dict[str, dict[str, Any]] = {}
+    iso = today.isoformat()
+    week = today - timedelta(days=6)
+    shop = Business(
+        user_id=30, sector="tienda", barrio="schamann", name="Ultramarinos Pino", seed=8080,
+        reputation=74.0, day=iso, turns_today=1, size=2, palette=4, emblem=3,
+        sales_today=12_900, clients_today=21,
+    )  # fmt: skip
+    pool = [c for n in range(120) for c in staff.candidates(shop, today - timedelta(days=n))]
+    full = [c for c in pool if not c["part_time"]]
+    team = [
+        _hire(shop, full[0], "indefinido", start=week, horario="0123"),
+        _hire(shop, full[1], "indefinido", start=week, role="encargado", horario="1256"),
+        _hire(shop, full[2], "temporal", start=week, role="repartidor", horario="45"),
+        _hire(shop, full[3], "indefinido", start=week, role="limpieza", horario="67"),
+        _hire(shop, full[4], "indefinido", start=week, role="reponedor", horario="012"),
+        _hire(shop, full[5], "indefinido", start=week, role="redes", horario="23"),
+        _hire(shop, full[6], "indefinido", start=week, role=staff.MANAGER),
+    ]
+    team[0].update(grades=["A", "S"], grades_day=iso, led_day=iso)
+    team[1].update(grades=["S"], grades_day=iso, humor=81.0)
+    team[2].update(grades=["B"], grades_day=iso)
+    team[3]["absent_day"] = iso
+    shop.staff_today = {"turns": 4, "clients": 23, "sales": 15_800}
+    s["plantilla_puestos"] = plantilla_state(shop, today, selected=team[1]["id"])
+    s["plantilla_puestos_pagina_2"] = plantilla_state(shop, today, selected=team[6]["id"])
+    s["negocio_con_puestos"] = negocio_state(shop, foot="Abrir gasta 1 franja. Te quedan 3.")
+
+    cafe = Business(
+        user_id=31, sector="cafeteria", barrio="vegueta", name="Cafetería La Tertulia",
+        seed=9191, reputation=66.0, day=iso, size=1, palette=0, emblem=0,
+    )  # fmt: skip
+    pool = [c for n in range(120) for c in staff.candidates(cafe, today - timedelta(days=n))]
+    full = [c for c in pool if not c["part_time"]]
+    hr = _hire(cafe, full[0], "indefinido", start=week, role="rrhh", horario="0123")
+    moved = _hire(cafe, full[1], "temporal", start=week, horario="012")
+    staff.plan_reschedule(moved, staff.reschedule(moved, "0145", today))
+    _hire(cafe, full[2], "indefinido", start=today, horario="4567")
+    s["plantilla_rrhh_y_horario"] = plantilla_state(cafe, today, selected=moved["id"])
+    hoy = staff.candidates(cafe, today)
+    assert len(hoy) == staff.CANDIDATES_PER_DAY + staff.HR_CANDIDATES, hr
+    pick = next(c for c in hoy if not c["part_time"])
+    s["candidatos_cuatro_limpieza"] = candidatos_state(
+        cafe, hoy, today, selected=pick["key"],
+        offer={"contract": "indefinido", "role": "limpieza", "horario": "67"},
+    )  # fmt: skip
+    s["candidatos_encargado_partida"] = candidatos_state(
+        shop, staff.candidates(shop, today), today,
+        selected=staff.candidates(shop, today)[0]["key"],
+        offer={"contract": "temporal", "role": "encargado", "horario": "1256"},
+    )  # fmt: skip
+    return s
 
 
 def _phase4(today: date) -> dict[str, dict[str, Any]]:
@@ -817,6 +886,7 @@ def _phase4(today: date) -> dict[str, dict[str, Any]]:
     )  # fmt: skip
     s["negocio_con_plantilla"] = negocio_state(cafe, foot="Abrir gasta 1 franja. Te quedan 4.")
     s.update(_phase5(today))
+    s.update(_puestos(today))
     return s
 
 

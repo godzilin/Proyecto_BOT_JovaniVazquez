@@ -18,7 +18,15 @@ indefinido (o en B, sin alta), a jornada completa o media, de mañana o de tarde
   improcedente, con su indemnización (`severance`).
 - **Gerente** (fase 5, `MANAGER`): un empleado con ese puesto (`employee["role"]`) no atiende
   franjas; cada noche repone el stock y cubre las bajas (`business_chain.restock`). Pide más
-  (`manager_ask`) y no ocupa sitio en el mostrador (`cap` cuenta solo a los demás).
+  (`manager_ask`) y no ocupa sitio en el local (`cap` cuenta solo a los demás).
+- **Horarios** (9.41.0, `HORARIOS`): el dueño elige las franjas de cada uno entre 21 horarios
+  (completa, partida, seis horas o media, con su hora de entrada) y se los puede cambiar
+  después (`reschedule`, desde el día siguiente). La partida cansa (`PARTIDA_MOOD`).
+- **Puestos** (9.41.0, `ROLES`): además del dependiente y el gerente, el encargado de turno
+  (los demás fallan menos en sus franjas), el repartidor (pedidos a domicilio de un cupo aparte,
+  `DELIVERY_POOL`) y cuatro que no atienden y dejan su efecto cada día que vienen (`support`):
+  limpieza, mozo de almacén, community manager y recursos humanos. Uno de cada por local, salvo
+  los dependientes.
 
 Escalas, las de los sueldos de la `pala` (`WAGE_YAPDOLLARS_PER_EURO`, 100 Y$ el euro):
 
@@ -39,7 +47,7 @@ El estado de cada empleado es un diccionario de `Business.staff` (`new_employee`
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import date, timedelta
 from typing import Any
 
@@ -66,6 +74,119 @@ FIRST_HOUR = 8
 SHIFTS: dict[str, tuple[int, ...]] = {"manana": (0, 1, 2, 3), "tarde": (4, 5, 6, 7)}
 HALF_SHIFTS: dict[str, tuple[int, ...]] = {"manana": (1, 2), "tarde": (5, 6)}
 SHIFT_NAMES = {"manana": "mañana", "tarde": "tarde"}
+#: Franjas de la jornada de seis horas (las 3/4 de la completa).
+SIX_HOURS = 3
+
+
+@dataclass(frozen=True, slots=True)
+class Horario:
+    """Un horario de la plantilla: las franjas del día que trabaja (9.41.0).
+
+    La clave son sus franjas en orden (`"1256"`): se guarda en el empleado como lista
+    (`employee["franjas"]`) y no se cambia nunca. La clase sale de las franjas: cuatro
+    seguidas, completa; cuatro en dos tramos, partida; tres, seis horas; dos, media.
+    """
+
+    key: str
+    franjas: tuple[int, ...]
+
+    @property
+    def jornada(self) -> int:
+        """Franjas que trabaja (lo que mira el sueldo: `ask`)."""
+        return len(self.franjas)
+
+    @property
+    def blocks(self) -> tuple[tuple[int, int], ...]:
+        """Los tramos seguidos: `(primera franja, última)` de cada uno."""
+        out: list[tuple[int, int]] = []
+        for franja in self.franjas:
+            if out and franja == out[-1][1] + 1:
+                out[-1] = (out[-1][0], franja)
+            else:
+                out.append((franja, franja))
+        return tuple(out)
+
+    @property
+    def kind(self) -> str:
+        """`completa`, `partida`, `seis` o `media`."""
+        if self.jornada >= FULL_DAY:
+            return "partida" if len(self.blocks) > 1 else "completa"
+        return "seis" if self.jornada == SIX_HOURS else "media"
+
+    @property
+    def name(self) -> str:
+        """`Completa`, `Partida`, `Seis horas` o `Media`."""
+        return HORARIO_KINDS[self.kind]
+
+    @property
+    def hours(self) -> str:
+        """`8:00-16:00` o, la partida, `10:00-14:00 y 18:00-22:00`."""
+        return " y ".join(
+            f"{FIRST_HOUR + 2 * first}:00-{FIRST_HOUR + 2 * (last + 1)}:00"
+            for first, last in self.blocks
+        )
+
+    @property
+    def label(self) -> str:
+        """`Partida · 10:00-14:00 y 18:00-22:00`."""
+        return f"{self.name} · {self.hours}"
+
+    @property
+    def short(self) -> str:
+        """`Partida · 10-14 y 18-22 h`, para las tarjetas."""
+        hours = " y ".join(
+            f"{FIRST_HOUR + 2 * first}-{FIRST_HOUR + 2 * (last + 1)}" for first, last in self.blocks
+        )
+        return f"{self.name} · {hours} h"
+
+    @property
+    def shift(self) -> str:
+        """El turno de siempre (`manana` o `tarde`) en el que empieza: lo guardan los empleados
+        de antes de la 9.41.0 y lo enseñan las vacantes del gerente."""
+        return "manana" if self.franjas[0] < len(SHIFTS["manana"]) else "tarde"
+
+
+#: Cómo se llama cada clase de horario.
+HORARIO_KINDS = {
+    "completa": "Completa", "partida": "Partida", "seis": "Seis horas", "media": "Media",
+}  # fmt: skip
+
+
+def _horario(franjas: tuple[int, ...] | range) -> Horario:
+    franjas = tuple(franjas)
+    return Horario("".join(str(f) for f in franjas), franjas)
+
+
+#: Los horarios que se ofrecen, en el orden del desplegable (21 de las 25 opciones que
+#: admite Discord): completa entrando a las 8, 10, 12, 14 o 16; partida con dos tramos de
+#: cuatro horas y cuatro de descanso; seis horas y media jornada con cada entrada posible.
+#: Los cuatro de antes de la 9.41.0 (`SHIFTS` y `HALF_SHIFTS`) están entre ellos.
+HORARIOS: tuple[Horario, ...] = (
+    *(_horario(range(start, start + FULL_DAY)) for start in range(5)),
+    *(_horario(f) for f in ((0, 1, 4, 5), (1, 2, 5, 6), (2, 3, 6, 7))),
+    *(_horario(range(start, start + SIX_HOURS)) for start in range(6)),
+    *(_horario(range(start, start + HALF_DAY)) for start in range(7)),
+)
+HORARIO_BY_KEY = {h.key: h for h in HORARIOS}
+#: Lo que baja el humor cada noche la jornada partida: ir, volver a casa y volver cansa. No
+#: hay plus en el Estatuto (art. 34 ET solo pide el descanso entre jornadas).
+PARTIDA_MOOD = -1.5
+
+
+def horario_key(franjas: tuple[int, ...] | list[int]) -> str:
+    """La clave de un horario por sus franjas."""
+    return "".join(str(f) for f in sorted(franjas))
+
+
+def legacy_franjas(shift: str, jornada: int) -> tuple[int, ...]:
+    """Las franjas de un empleado de antes de la 9.41.0, por su turno y su jornada."""
+    return (SHIFTS if jornada >= FULL_DAY else HALF_SHIFTS)[shift]
+
+
+def horarios_for(part_time: bool) -> tuple[Horario, ...]:
+    """Los horarios que se le pueden ofrecer: a quien solo quiere media jornada, las medias."""
+    return tuple(h for h in HORARIOS if not part_time or h.jornada == HALF_DAY)
+
 
 #: Cotización a la Seguridad Social del régimen general en 2026 (Orden PJC/297/2026, arts. 4,
 #: 16 y 33; fracción del bruto). Del
@@ -116,6 +237,143 @@ MANAGER = "gerente"
 MANAGER_PREMIUM = 1.2
 #: Candidatos que llegan cada día.
 CANDIDATES_PER_DAY = 3
+
+# -- Puestos (9.41.0) -----------------------------------------------------------------
+
+#: Encargado de turno: lo que bajan los fallos de los demás del mostrador en las franjas que
+#: trabaja (por su mano con la gente, `lead`) y lo que sube esa noche el humor de quienes
+#: coincidieron con él.
+LEAD_MISS = 0.30
+LEAD_MOOD = 1.0
+#: Repartidor: el cupo a domicilio del barrio (esta parte del de mostrador del sector, el mismo
+#: para cualquier local, porque no depende de sus metros) y los pedidos de cada franja (esta
+#: parte de los clientes que tendría un turno a esa hora). Es una fuente de dinero nueva con su
+#: tope, como el cupo de siempre.
+DELIVERY_POOL = 0.25
+DELIVERY_TURN = 0.5
+#: Limpieza: la reputación que sube cada noche que viene y la paciencia de los clientes al día
+#: siguiente (a jornada completa, con su acierto de 50).
+CLEAN_REPUTATION = 1.0
+CLEAN_PATIENCE = 0.15
+#: Mozo de almacén: la parte de la merma de cada noche que evita (se suma a la de las mejoras,
+#: con el tope de toda).
+STOCK_KEEP = 0.5
+#: Community manager: lo que suma al día siguiente a los clientes de cada turno y a la parte
+#: del cupo del barrio, como una campaña (con la campaña, `business.BOOST_CAP` como mucho).
+SOCIAL_BOOST = 0.20
+#: Recursos humanos: lo que quita de lo malo del humor de los demás, lo que suma a lo que
+#: aprenden trabajando y los candidatos de más cada día.
+HR_SHIELD = 0.5
+HR_LEARN = 0.5
+HR_CANDIDATES = 1
+#: El tope de lo que quita RR. HH. de lo malo del humor.
+SHIELD_MAX = 0.8
+
+
+@dataclass(frozen=True, slots=True)
+class Role:
+    """Un puesto de la plantilla (`employee["role"]`).
+
+    Attributes:
+        key: Clave estable (`""` para el dependiente; la dibuja la escena).
+        name: Nombre.
+        emoji: Emoji de los menús.
+        text: Lo que hace, en una línea (lo ve el dueño).
+        plays: `mostrador` si atiende con el minijuego, `reparto` si lleva pedidos a domicilio
+            con él y `""` si no atiende.
+        premium: Lo que pide de más (o de menos) frente a un dependiente que sepa lo mismo.
+            Nunca por debajo del salario mínimo.
+        sectors: Sectores que lo pueden contratar (vacío: todos).
+        unique: Si solo hay uno por local.
+        skill: La habilidad que mueve su efecto (`strength`).
+        schedule: Si tiene horario. El gerente no: va a jornada completa y no ocupa sitio.
+        effects: Lo que deja cada día que viene, a jornada completa y con la habilidad a 50:
+            pares `(campo de Support, cantidad)`.
+        duty: Lo que hace cada día, en tres o cuatro palabras (la tarjeta de la plantilla).
+    """
+
+    key: str
+    name: str
+    emoji: str
+    text: str
+    plays: str = ""
+    premium: float = 1.0
+    sectors: tuple[str, ...] = ()
+    unique: bool = True
+    skill: str = ""
+    schedule: bool = True
+    effects: tuple[tuple[str, float], ...] = ()
+    duty: str = ""
+
+    def fits(self, sector: str) -> bool:
+        """Si un negocio de `sector` lo puede contratar."""
+        return not self.sectors or sector in self.sectors
+
+    @property
+    def seat(self) -> bool:
+        """Si ocupa uno de los puestos del local (`cap`): todos menos el gerente."""
+        return self.schedule
+
+
+#: Los sectores con algo que caduca (el mozo de almacén) y los que llevan a domicilio (el taller
+#: no: el coche no cabe en la mochila).
+PERISHABLE_SECTORS = ("cafeteria", "tienda", "heladeria")
+DELIVERY_SECTORS = ("cafeteria", "tienda", "heladeria", "ferreteria")
+
+ROLES: tuple[Role, ...] = (
+    Role("", "Dependiente", "🙋", "Atiende el mostrador en las franjas de su horario, con el "
+         "mismo minijuego que tú.", plays="mostrador", unique=False),
+    Role("encargado", "Encargado de turno", "📋", "Atiende el mostrador y, en las franjas que "
+         "trabaja, los demás fallan menos y acaban el día de mejor humor.", plays="mostrador",
+         premium=1.15, skill="trato"),
+    Role("repartidor", "Repartidor", "🛵", "Lleva pedidos a domicilio en las franjas de su "
+         "horario, de un cupo de clientes aparte del barrio.", plays="reparto",
+         sectors=DELIVERY_SECTORS),
+    Role(MANAGER, "Gerente", "🧑‍💼", "No atiende: cada noche repone el almacén y cubre las "
+         "bajas de la plantilla.", premium=MANAGER_PREMIUM, schedule=False,
+         duty="Repone y cubre bajas"),
+    Role("limpieza", "Limpieza", "🧽", "No atiende. Con el local limpio sube la reputación "
+         "cada noche y al día siguiente los clientes esperan más.", premium=0.9,
+         skill="acierto", effects=(("reputation", CLEAN_REPUTATION),
+                                   ("patience", CLEAN_PATIENCE)),
+         duty="Limpia el local"),
+    Role("reponedor", "Mozo de almacén", "📦", "No atiende. Rota el género y cuida la cámara: "
+         "cada noche se estropea menos de lo perecedero.", sectors=PERISHABLE_SECTORS,
+         skill="rapidez", effects=(("keep", STOCK_KEEP),), duty="Rota el género"),
+    Role("redes", "Community manager", "📱", "No atiende. Lo que publica cada día trae al "
+         "siguiente más clientes y más cupo del barrio, como una campaña.", premium=1.1,
+         skill="trato", effects=(("clients", SOCIAL_BOOST),), duty="Publica en redes"),
+    Role("rrhh", "Recursos humanos", "🗂️", "No atiende. Cada día llega un candidato más y la "
+         "plantilla se quema menos y aprende más rápido.", premium=1.15, skill="trato",
+         effects=(("shield", HR_SHIELD), ("learn", HR_LEARN)), duty="Cuida a la plantilla"),
+)  # fmt: skip
+ROLE_BY_KEY = {r.key: r for r in ROLES}
+#: Cómo se dice cada efecto de `Role.effects` en una línea: `(antes, después, en %)`.
+EFFECT_TEXTS: dict[str, tuple[str, str, bool]] = {
+    "reputation": ("+", " de reputación cada noche", False),
+    "patience": ("+", " de paciencia al día siguiente", True),
+    "keep": ("−", " de merma", True),
+    "clients": ("+", " de clientes y de cupo al día siguiente", True),
+    "shield": ("−", " de lo que quema a los demás", True),
+    "learn": ("+", " de lo que aprenden los demás", True),
+}
+
+
+def role_of(employee: dict[str, Any]) -> Role:
+    """El puesto de un empleado (los de antes de la 9.41.0 son dependientes o gerentes)."""
+    return ROLE_BY_KEY.get(employee.get("role", ""), ROLES[0])
+
+
+def effect_text(role: Role, strength: float = 1.0) -> str:
+    """Lo que deja un puesto de apoyo con esa fuerza (`strength`), en una línea, o `""`."""
+    parts = []
+    for key, base in role.effects:
+        sign, tail, percent = EFFECT_TEXTS[key]
+        value = base * strength
+        number = f"{round(value * 100)} %" if percent else f"{value:.1f}".replace(".", ",")
+        parts.append(f"{sign}{number}{tail}")
+    return ", ".join(parts)
+
 
 #: B: probabilidad de que la Inspección de Trabajo pase una noche si hay alguien sin alta, y
 #: la de la noche siguiente a que se vaya enfadado (lo denuncia).
@@ -333,18 +591,46 @@ def ask(skills: dict[str, float], traits: list[str] | tuple[str, ...], jornada: 
     for key in traits:
         factor *= TRAIT_BY_KEY[key].ask
     # A decenas hacia arriba: nunca por debajo del salario mínimo.
-    return -(-round(smi_night(jornada) * (1 + 0.5 * level) * factor) // 10) * 10
+    return _tens(smi_night(jornada) * (1 + 0.5 * level) * factor)
+
+
+def _tens(amount: float) -> int:
+    """A decenas hacia arriba."""
+    return -(-round(amount) // 10) * 10
+
+
+def role_ask(
+    skills: dict[str, float], traits: list[str] | tuple[str, ...], jornada: int, role: str = ""
+) -> int:
+    """Lo que pide cada noche para un puesto: lo de un dependiente que sepa lo mismo, por lo
+    que pide de más o de menos el puesto (`Role.premium`), a decenas hacia arriba y nunca por
+    debajo del salario mínimo. El gerente, a jornada completa."""
+    info = ROLE_BY_KEY.get(role, ROLES[0])
+    if not info.schedule:
+        jornada = FULL_DAY
+    base = ask(skills, traits, jornada)
+    if info.premium == 1.0:
+        return base
+    return max(_tens(smi_night(jornada)), _tens(base * info.premium))
+
+
+def candidates_per_day(business: Any, day: date) -> int:
+    """Cuántos candidatos llegan `day`: uno más si hay alguien de recursos humanos."""
+    iso = day.isoformat()
+    hr = any(e.get("role") == "rrhh" and e["start"] <= iso for e in business.staff)
+    return CANDIDATES_PER_DAY + (HR_CANDIDATES if hr else 0)
 
 
 def candidates(business: Any, day: date) -> list[dict[str, Any]]:
     """Los candidatos de hoy (siempre los mismos para el negocio y el día), sin los ya vistos.
 
     Cada uno: `key` (su semilla), `name`, `age`, `profile`, `traits`, `skills`, `ask` (a
-    jornada completa; la media pide la mitad) y `part_time`.
+    jornada completa; la media pide la mitad) y `part_time`. Con recursos humanos llega uno
+    más, y los de siempre salen igual (se sortean antes).
     """
     rng = random.Random(f"{business.seed}:candidatos:{day.isoformat()}")
     out = []
-    for _ in range(CANDIDATES_PER_DAY):
+    for _ in range(candidates_per_day(business, day)):
         key = rng.randrange(2**31)
         profile = rng.choices(PROFILES, weights=[p.weight for p in PROFILES])[0]
         age = rng.randint(*profile.ages)
@@ -378,19 +664,29 @@ def new_employee(
     start: date,
     bonified: bool = True,
     role: str = "",
+    franjas: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     """Un empleado recién contratado (`Business.staff`), que empieza a trabajar `start`.
 
     Args:
         contract: `indefinido`, `temporal` o `b` (sin alta ni contrato).
-        jornada: `FULL_DAY` o `HALF_DAY` franjas.
-        shift: `manana` o `tarde`.
+        jornada: `FULL_DAY` o `HALF_DAY` franjas (si no se dan `franjas`).
+        shift: `manana` o `tarde` (si no se dan `franjas`).
         wage: Bruto de cada noche.
         bonified: Si puede tener bonificación (al corriente con Hacienda y la Seguridad
             Social, art. 8 del RDL 1/2023, y sin despidos improcedentes de bonificados, art.
             11.4).
-        role: `MANAGER` para el gerente (fase 5); `""` para quien atiende.
+        role: La clave de su puesto (`ROLES`): `MANAGER` para el gerente, `""` para el
+            dependiente.
+        franjas: Las de su horario (`Horario.franjas`, 9.41.0); mandan sobre `jornada` y
+            `shift`. El gerente no tiene.
     """
+    if not ROLE_BY_KEY.get(role, ROLES[0]).schedule:
+        franjas, jornada = (), FULL_DAY
+    elif franjas is None:
+        franjas = legacy_franjas(shift, jornada)
+    else:
+        jornada, shift = len(franjas), _horario(franjas).shift
     profile = PROFILE_BY_KEY[candidate["profile"]]
     bonus = 0
     bonus_until = ""
@@ -412,6 +708,7 @@ def new_employee(
         "contract": contract,
         "jornada": jornada,
         "shift": shift,
+        "franjas": list(franjas),
         "wage": wage,
         "start": start.isoformat(),
         "trial_until": ((start + timedelta(days=TRIAL_NIGHTS - 1)).isoformat() if legal else ""),
@@ -437,6 +734,10 @@ def new_employee(
         "roll_day": "",
         "b_paid": 0,
         "role": role,
+        # El horario que tendrá desde el día siguiente (`reschedule`), o nada.
+        "next": {},
+        # El último día en que atendió en una franja con el encargado de turno.
+        "led_day": "",
     }
 
 
@@ -451,15 +752,150 @@ def is_manager(employee: dict[str, Any]) -> bool:
 def manager_ask(skills: dict[str, float], traits: list[str] | tuple[str, ...]) -> int:
     """Lo que pide cada noche de gerente: lo de un dependiente a jornada completa, con lo que
     pide de más un encargado (`MANAGER_PREMIUM`), a decenas hacia arriba."""
-    return -(-round(ask(skills, traits, FULL_DAY) * MANAGER_PREMIUM) // 10) * 10
+    return role_ask(skills, traits, FULL_DAY, MANAGER)
 
 
 def franjas(employee: dict[str, Any]) -> tuple[int, ...]:
-    """Las franjas del día en las que atiende (el gerente, ninguna: no está en el mostrador)."""
-    if is_manager(employee):
+    """Las franjas de su horario (el gerente, ninguna: no tiene horario).
+
+    Los contratados antes de la 9.41.0 no las guardan: salen de su turno y su jornada.
+    """
+    if not role_of(employee).schedule:
         return ()
-    table = SHIFTS if employee["jornada"] >= FULL_DAY else HALF_SHIFTS
-    return table[employee["shift"]]
+    stored = employee.get("franjas")
+    if stored:
+        return tuple(stored)
+    return legacy_franjas(employee["shift"], employee["jornada"])
+
+
+def horario_of(employee: dict[str, Any]) -> Horario | None:
+    """Su horario (`None` para el gerente)."""
+    own = franjas(employee)
+    if not own:
+        return None
+    return HORARIO_BY_KEY.get(horario_key(own)) or _horario(own)
+
+
+def plays(employee: dict[str, Any]) -> bool:
+    """Si juega las franjas de su horario: atiende el mostrador o reparte."""
+    return bool(role_of(employee).plays)
+
+
+def works(employee: dict[str, Any], day: str, franja: int) -> bool:
+    """Si le toca jugar la franja `franja` del día `day` (ISO): atiende o reparte, es de su
+    horario, ya había empezado y, si entró ese día, la franja no había acabado al contratarle."""
+    if not plays(employee) or franja not in franjas(employee) or employee["start"] > day:
+        return False
+    return employee["start"] != day or franja >= employee.get("from_franja", 0)
+
+
+def strength(employee: dict[str, Any]) -> float:
+    """La fuerza del efecto de un puesto de apoyo: su parte de la jornada completa por su
+    habilidad (`Role.skill`: 0,5 con 0, 1 con 50 y 1,5 con 100)."""
+    role = role_of(employee)
+    share = len(franjas(employee)) / FULL_DAY if role.schedule else 1.0
+    if not role.skill:
+        return share
+    return share * (0.5 + skill(employee, role.skill) / 100)
+
+
+def lead(employee: dict[str, Any]) -> float:
+    """La mano con la gente de un encargado de turno: 0,5 con trato 0, 1 con 50 y 1,5 con
+    100. Lo que bajan los fallos de los demás es `LEAD_MISS` por esto."""
+    return 0.5 + skill(employee, "trato") / 100
+
+
+def present(employee: dict[str, Any], day: date) -> bool:
+    """Si ha venido `day`: ya había empezado y no ha faltado (las faltas se deciden con su
+    primera franja del día o, a quien no atiende, con `roll_absence`)."""
+    iso = day.isoformat()
+    return employee["start"] <= iso and employee["absent_day"] != iso
+
+
+def roll_absence(employee: dict[str, Any], seed: int, day: date) -> bool:
+    """Decide una vez al día si falta `day` y lo apunta (`absent_day`, `absences`). Devuelve
+    si ha faltado hoy por esta tirada (la segunda vez del mismo día, `False`)."""
+    iso = day.isoformat()
+    if employee["roll_day"] == iso or employee["start"] > iso:
+        return False
+    employee["roll_day"] = iso
+    if not absent(employee, seed, day):
+        return False
+    employee["absent_day"] = iso
+    employee["absences"] += 1
+    return True
+
+
+@dataclass(frozen=True, slots=True)
+class Support:
+    """Lo que deja un día la plantilla de apoyo (los puestos que no atienden).
+
+    Attributes:
+        reputation: La que sube esa noche (limpieza).
+        patience: Lo que suma a la paciencia de los clientes al día siguiente (limpieza).
+        keep: La parte de la merma de esa noche que evita (mozo de almacén).
+        clients: Lo que suma al día siguiente a los clientes y al cupo (community manager).
+        shield: Lo que quita de lo malo del humor de los demás esa noche (RR. HH.).
+        learn: Lo que suma a lo que aprenden los demás ese día (RR. HH.).
+    """
+
+    reputation: float = 0.0
+    patience: float = 0.0
+    keep: float = 0.0
+    clients: float = 0.0
+    shield: float = 0.0
+    learn: float = 0.0
+
+
+SUPPORT_FIELDS = frozenset(f.name for f in fields(Support))
+
+
+def support(business: Any, day: date) -> Support:
+    """Lo que deja `day` la plantilla de apoyo que ha venido, cada uno con su fuerza."""
+    totals = dict.fromkeys(SUPPORT_FIELDS, 0.0)
+    for employee in business.staff:
+        role = role_of(employee)
+        if not role.effects or not present(employee, day):
+            continue
+        k = strength(employee)
+        for key, base in role.effects:
+            totals[key] += base * k
+    totals["shield"] = min(SHIELD_MAX, totals["shield"])
+    return Support(**totals)
+
+
+def delivery_key(sector: str) -> str:
+    """La clave del cupo a domicilio de un sector en `business_demand` (aparte del de
+    mostrador, y el mismo para todos los negocios del sector en el barrio)."""
+    return f"{sector}:reparto"
+
+
+def holder(business: Any, role: str) -> dict[str, Any] | None:
+    """Quien tiene un puesto en el local, o `None`."""
+    return next((e for e in business.staff if e.get("role", "") == role), None)
+
+
+def hire_problem(business: Any, role: str) -> str | None:
+    """Por qué no se puede contratar ahora a alguien de `role`, o `None` si se puede."""
+    info = ROLE_BY_KEY.get(role)
+    if info is None:
+        return "Ese puesto no existe."
+    if not info.fits(business.sector):
+        return f"Un negocio como el tuyo no necesita {info.name.lower()}."
+    if info.unique and holder(business, role) is not None:
+        return f"Este local ya tiene {info.name.lower()}."
+    room = cap(business.size)
+    if info.seat and len(seated(business)) >= room:
+        return (
+            f"En un local {business.size_info.name.lower()} caben {room} empleados. "
+            "Trasládate a uno mayor para contratar a más."
+        )
+    return None
+
+
+def roles_for(business: Any) -> tuple[Role, ...]:
+    """Los puestos que puede contratar el sector del negocio, en el orden del catálogo."""
+    return tuple(r for r in ROLES if r.fits(business.sector))
 
 
 def franja_hour(franja: int) -> int:
@@ -526,17 +962,27 @@ def _quote(employee: dict[str, Any], luxury: bool) -> int:
 
 
 def play_turn(
-    business: Any, employee: dict[str, Any], clients: list[Client], *, start: float, franja: int
+    business: Any,
+    employee: dict[str, Any],
+    clients: list[Client],
+    *,
+    start: float,
+    franja: int,
+    lead: float = 0.0,
 ) -> TurnGame:
     """Juega un turno entero del empleado con el minijuego del sector y lo devuelve acabado.
 
     Es el mismo `TurnGame` del dueño: la cola, la paciencia, el cambio, el diagnóstico y el
     presupuesto. El azar de sus fallos sale del turno (`start`, la franja y el empleado), así
     que el mismo turno da siempre lo mismo.
+
+    Args:
+        lead: La mano del encargado de turno que trabaja esa franja con él (`lead`; 0 si no
+            hay): sus fallos bajan `LEAD_MISS` por ella.
     """
     game = TurnGame(business, clients, now=start)
     rng = random.Random(f"{business.seed}:{employee['id']}:{start}:{franja}")
-    miss = miss_rate(employee, game.sector, franja)
+    miss = miss_rate(employee, game.sector, franja) * (1 - LEAD_MISS * lead)
     click = click_seconds(employee)
     trato = skill(employee, "trato") / 100
     quote = _quote(employee, game.luxury)
@@ -582,9 +1028,10 @@ def play_turn(
     return game
 
 
-def learn(employee: dict[str, Any], turns: int = 1) -> None:
-    """Lo que aprende trabajando `turns` turnos: cada habilidad, sobre lo que le falta."""
-    factor = 1.0
+def learn(employee: dict[str, Any], turns: int = 1, boost: float = 0.0) -> None:
+    """Lo que aprende trabajando `turns` turnos: cada habilidad, sobre lo que le falta. `boost`
+    es lo que suma recursos humanos (`Support.learn`)."""
+    factor = 1.0 + boost
     for key in employee["traits"]:
         factor *= TRAIT_BY_KEY[key].learn
     for key in SKILLS:
@@ -602,27 +1049,45 @@ WORTH_SLACK = 0.95
 
 
 def worth(employee: dict[str, Any]) -> int:
-    """Lo que pediría hoy por lo que sabe (a su jornada; de gerente, lo de un gerente)."""
-    if is_manager(employee):
-        return manager_ask(employee["skills"], employee["traits"])
-    return ask(employee["skills"], employee["traits"], employee["jornada"])
+    """Lo que pediría hoy por lo que sabe, en su puesto y a su jornada."""
+    return role_ask(
+        employee["skills"], employee["traits"], employee["jornada"], employee.get("role", "")
+    )
 
 
-def mood_change(employee: dict[str, Any], delta: float) -> float:
-    """Aplica un cambio de humor con sus rasgos y devuelve el humor nuevo (0-100)."""
+def mood_change(employee: dict[str, Any], delta: float, *, shield: float = 0.0) -> float:
+    """Aplica un cambio de humor con sus rasgos y devuelve el humor nuevo (0-100).
+
+    `shield` es lo que quita recursos humanos de lo malo (`Support.shield`).
+    """
     for key in employee["traits"]:
         trait = TRAIT_BY_KEY[key]
         delta *= trait.calm
         if delta < 0:
             delta *= trait.mood
+    if delta < 0:
+        delta *= 1 - min(SHIELD_MAX, shield)
     employee["humor"] = round(max(0.0, min(100.0, employee["humor"] + delta)), 2)
     return employee["humor"]
 
 
-def night_mood(employee: dict[str, Any], *, paid: bool, grades: list[str]) -> float:
-    """Lo que le cambia el humor una noche: el sueldo frente a lo que vale, sus turnos de hoy y
-    si ha cobrado. Devuelve el cambio (antes de los rasgos)."""
+def night_mood(
+    employee: dict[str, Any],
+    *,
+    paid: bool,
+    grades: list[str],
+    shield: float = 0.0,
+    led: bool = False,
+) -> float:
+    """Lo que le cambia el humor una noche: el sueldo frente a lo que vale, sus turnos de hoy,
+    si ha cobrado, la jornada partida (`PARTIDA_MOOD`) y si trabajó con el encargado de turno
+    (`led`, `LEAD_MOOD`). Devuelve el cambio (antes de los rasgos y de `shield`)."""
     delta = 0.0
+    schedule = horario_of(employee)
+    if schedule is not None and schedule.kind == "partida":
+        delta += PARTIDA_MOOD
+    if led:
+        delta += LEAD_MOOD
     value = worth(employee)
     if employee["wage"] >= value * 1.1:
         delta += 2.0
@@ -636,8 +1101,111 @@ def night_mood(employee: dict[str, Any], *, paid: bool, grades: list[str]) -> fl
         delta -= 1.0
     if not paid:
         delta -= 20.0
-    mood_change(employee, delta)
+    mood_change(employee, delta, shield=shield)
     return delta
+
+
+# -- Cambiar el horario (9.41.0) --------------------------------------------------------
+
+#: Lo que le cambia el humor que le cambies el horario: con las mismas horas (una
+#: modificación sustancial, art. 41 ET), con más (más sueldo) o con menos (si acepta).
+RESCHEDULE_MOOD = {"igual": -3.0, "mas": 3.0, "menos": -6.0}
+#: Humor desde el que acepta trabajar menos horas: pasar a tiempo parcial es voluntario
+#: (art. 12.4.e ET) y quemado no acepta cobrar menos.
+FEWER_HOURS_HUMOR = 50.0
+
+
+class Refusal(ValueError):
+    """No acepta el cambio de horario: menos horas con el humor por los suelos."""
+
+
+@dataclass(frozen=True, slots=True)
+class Reschedule:
+    """Un cambio de horario que vale desde el día siguiente.
+
+    Attributes:
+        horario: El horario nuevo.
+        wage: El bruto de cada noche con él (el de cada franja se mantiene).
+        kind: `igual`, `mas` o `menos` horas.
+        start: Día (ISO) desde el que vale.
+    """
+
+    horario: Horario
+    wage: int
+    kind: str
+    start: str
+
+
+def reschedule(employee: dict[str, Any], key: str, day: date) -> Reschedule:
+    """El cambio de su horario al de clave `key`, que vale desde el día siguiente a `day` (el
+    preaviso del art. 41.3 ET, a la escala del juego).
+
+    El bruto de cada franja se mantiene: con más horas cobra más y con menos, menos, pero nunca
+    menos de lo que pediría por esa jornada (`worth`).
+
+    Raises:
+        ValueError: Si es el gerente, el horario no existe o es el mismo o si solo quiere
+            media jornada; `Refusal` si no acepta trabajar menos (quemado).
+    """
+    name = employee["name"].split()[0]
+    current = horario_of(employee)
+    if current is None:
+        raise ValueError("El gerente no tiene horario: va a jornada completa.")
+    new = HORARIO_BY_KEY.get(key)
+    if new is None:
+        raise ValueError("Ese horario no está en la lista.")
+    if new.key == current.key:
+        raise ValueError(f"{name} ya trabaja en ese horario.")
+    if new.jornada != HALF_DAY and any(TRAIT_BY_KEY[t].part_time for t in employee["traits"]):
+        raise ValueError(f"{name} solo quiere media jornada.")
+    kind = (
+        "igual"
+        if new.jornada == current.jornada
+        else "mas"
+        if new.jornada > current.jornada
+        else "menos"
+    )
+    if kind == "menos" and employee["humor"] < FEWER_HOURS_HUMOR:
+        raise Refusal(
+            f"{name} no acepta trabajar menos horas: con lo quemado que está, no quiere cobrar "
+            "menos. Pasar a menos horas es voluntario (art. 12.4.e ET)."
+        )
+    wage = employee["wage"]
+    if kind != "igual":
+        floor = role_ask(
+            employee["skills"], employee["traits"], new.jornada, employee.get("role", "")
+        )
+        wage = max(floor, _tens(employee["wage"] * new.jornada / current.jornada))
+    start = (day + timedelta(days=1)).isoformat()
+    return Reschedule(new, wage, kind, start)
+
+
+def plan_reschedule(employee: dict[str, Any], change: Reschedule) -> None:
+    """Apunta el cambio (`employee["next"]`) y le cambia el humor ya: se entera hoy."""
+    employee["next"] = {
+        "franjas": list(change.horario.franjas),
+        "wage": change.wage,
+        "from": change.start,
+    }
+    mood_change(employee, RESCHEDULE_MOOD[change.kind])
+
+
+def apply_reschedule(employee: dict[str, Any], day: date) -> bool:
+    """Si su horario nuevo empieza `day` o antes, lo pone (franjas, jornada, turno, sueldo y
+    la bonificación, que va por horas). Devuelve si lo ha puesto."""
+    change = employee.get("next") or {}
+    if not change or change["from"] > day.isoformat():
+        return False
+    new = _horario(tuple(change["franjas"]))
+    old = len(franjas(employee)) or FULL_DAY
+    if employee["bonus"]:
+        employee["bonus"] = employee["bonus"] * new.jornada // old
+    employee["franjas"] = list(new.franjas)
+    employee["jornada"] = new.jornada
+    employee["shift"] = new.shift
+    employee["wage"] = change["wage"]
+    employee["next"] = {}
+    return True
 
 
 def absent(employee: dict[str, Any], seed: int, day: date) -> bool:
@@ -840,9 +1408,9 @@ def cap(size: int) -> int:
     return STAFF_CAP[max(0, min(len(STAFF_CAP) - 1, size))]
 
 
-def counter_staff(business: Any) -> list[dict[str, Any]]:
-    """Los que atienden (todos menos el gerente)."""
-    return [e for e in business.staff if not is_manager(e)]
+def seated(business: Any) -> list[dict[str, Any]]:
+    """Los que ocupan un puesto del local (`cap`): todos menos el gerente."""
+    return [e for e in business.staff if role_of(e).seat]
 
 
 def manager(business: Any) -> dict[str, Any] | None:

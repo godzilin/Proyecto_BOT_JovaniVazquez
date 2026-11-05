@@ -29,6 +29,11 @@ debajo, que también sirve de reserva si no hay Node ni Chromium. Pantallas:
 - **Fase 4:** 👥 **Plantilla**: los empleados, con su subida de sueldo, su curso, hacerle fijo
   y despedirle (con lo que cuesta cada forma), y los **candidatos** de hoy con el contrato,
   la jornada y el turno que se les ofrece.
+- **9.41.0:** al contratar se elige el **puesto** (dependiente, encargado de turno, repartidor,
+  gerente, limpieza, mozo de almacén, community manager o recursos humanos) y el **horario**
+  (21: completa, partida, seis horas o media, con la afluencia de cada uno en el sector); en
+  👥 Plantilla, 🕒 **cambiar el horario** desde mañana. Con más de seis, la escena va por
+  páginas (la del elegido).
 - **Fase 5, la cadena:** cada panel mira un local (`biz`). 🗺️ **Cadena** enseña todos, deja
   ir a otro y montar uno más (➕ Otro local, con el rótulo del de ahora), y abre la 🏭 **Nave**:
   alquilarla (o llevarla a una nave tuya de `pisos`), importar contenedores y dejarla. El
@@ -84,6 +89,8 @@ from bot.services.achievements import (
     staff_night_stats,
     staff_permanent_stats,
     staff_raise_stats,
+    staff_refused_stats,
+    staff_reschedule_stats,
     staff_turns_stats,
 )
 from bot.services.business import (
@@ -114,6 +121,7 @@ from bot.services.business_games import COINS, QUOTES, TurnGame
 from bot.services.business_scene import BusinessScene
 from bot.services.business_view import (
     CONTRACT_NAMES,
+    afluencia,
     almacen_state,
     cadena_state,
     campaign_state,
@@ -121,14 +129,15 @@ from bot.services.business_view import (
     cierre_state,
     cliente_state,
     cuentas_state,
+    horario_text,
     mejoras_state,
     montar_state,
     nave_state,
     negocio_state,
+    offer_horario,
     plantilla_state,
     preview_state,
     resenas_state,
-    shift_text,
     signed,
     size_text,
     sociedad_state,
@@ -147,6 +156,7 @@ from bot.services.negocio import (
     BusinessStatus,
     CompanyView,
     OwnLocal,
+    StaffRefusedError,
     Turn,
     TurnPlan,
     TurnResult,
@@ -215,12 +225,8 @@ DESPIDO = "despido"
 CADENA = "cadena"
 NAVE = "nave"
 VENTA = "venta"
-#: Horas de cada turno y jornada de la plantilla, para los desplegables.
-SHIFT_HOURS = {
-    ("manana", staff.FULL_DAY): "8:00-16:00", ("manana", staff.HALF_DAY): "10:00-14:00",
-    ("tarde", staff.FULL_DAY): "16:00-24:00", ("tarde", staff.HALF_DAY): "18:00-22:00",
-}  # fmt: skip
-#: Los contratos que se ofrecen: `(clave, nombre, descripción)`.
+#: Los contratos que se ofrecen: `(clave, nombre, descripción)`. Desde la 9.41.0 el gerente
+#: es un puesto (`business_staff.ROLES`), no un contrato.
 CONTRACTS: tuple[tuple[str, str, str], ...] = (
     ("indefinido", "Indefinido", "Con período de prueba; al parado de larga duración, bonificado"),
     ("temporal", "Temporal (6 meses)", "Se acaba solo y cotiza algo más de desempleo"),
@@ -230,8 +236,11 @@ CONTRACTS: tuple[tuple[str, str, str], ...] = (
         "Ni cotiza ni contrato. Si pasa la Inspección, multa de "
         f"{format_amount(staff.FINE_PER_WORKER)}",
     ),
-    ("gerente", "Gerente (indefinido)", "No atiende: repone el almacén y cubre las bajas"),
 )
+#: El horario que se ofrece de entrada: la completa de mañana; a quien solo quiere media
+#: jornada, la media de las 10.
+DEFAULT_HORARIO = staff.HORARIOS[0].key
+DEFAULT_HALF = staff.horario_key(staff.HALF_SHIFTS["manana"])
 
 
 def game_id(token: int, round_index: int, action: str) -> str:
@@ -403,7 +412,7 @@ class NegocioPanel(ui.LayoutView):
         self.employee: int | None = None
         self.candidate: int | None = None
         self.offer: dict[str, Any] = {
-            "contract": "indefinido", "jornada": staff.FULL_DAY, "shift": "manana", "role": "",
+            "contract": "indefinido", "role": "", "horario": DEFAULT_HORARIO,
         }  # fmt: skip
         #: Fase 5: el local que se mira (`None`: el primero), la cadena entera y su nave.
         self.biz: int | None = None
@@ -575,13 +584,29 @@ class NegocioPanel(ui.LayoutView):
         )
 
     def _offer(self, business: Business) -> dict[str, Any] | None:
-        """Lo que se ofrece al candidato elegido (la media jornada, si solo quiere esa)."""
+        """Lo que se ofrece al candidato elegido: el puesto, si aún se puede contratar; la media
+        jornada, si solo quiere esa (y de gerente, entonces, no); el gerente, indefinido."""
         candidate = self._candidate(business)
         if candidate is None:
             return None
-        if candidate["part_time"] and not self.offer["role"]:
-            self.offer["jornada"] = staff.HALF_DAY
+        roles = self._roles(business, candidate)
+        if roles and self.offer["role"] not in {r.key for r in roles}:
+            self.offer["role"] = roles[0].key
+        if candidate["part_time"] and offer_horario(self.offer).jornada != staff.HALF_DAY:
+            self.offer["horario"] = DEFAULT_HALF
+        if self.offer["role"] == staff.MANAGER:
+            self.offer["contract"] = "indefinido"
         return dict(self.offer)
+
+    def _roles(self, business: Business, candidate: dict[str, Any]) -> list[staff.Role]:
+        """Los puestos que se le pueden ofrecer hoy al candidato (los que caben en el local y
+        no están cubiertos; el de gerente no, si solo quiere media jornada)."""
+        return [
+            r
+            for r in staff.roles_for(business)
+            if staff.hire_problem(business, r.key) is None
+            and not (candidate["part_time"] and not r.schedule)
+        ]
 
     def _move_target(self) -> tuple[str, int, Any, bool] | None:
         """El local que se mira en 🚚 Traslado: `(barrio, tamaño, presupuesto, propio)`."""
@@ -959,7 +984,7 @@ class NegocioPanel(ui.LayoutView):
         today = self._today()
         pay = staff.payroll(business, today)
         lines = [
-            f"👥 **Plantilla** · {len(staff.counter_staff(business))} de "
+            f"👥 **Plantilla** · {len(staff.seated(business))} de "
             f"{staff.cap(business.size)} puestos · "
             f"nóminas de esta noche {format_amount(pay.cost + pay.black)}"
         ]
@@ -971,18 +996,26 @@ class NegocioPanel(ui.LayoutView):
                 for k in staff.SKILLS
             )
             mark = "▶️ " if employee["id"] == self.employee else ""
+            role = staff.role_of(employee)
             lines.append(
                 f"{mark}**{employee['name']}** ({employee['age']}) · "
-                f"{CONTRACT_NAMES[employee['contract']]} · "
-                + (
-                    "🧑‍💼 gerente"
-                    if staff.is_manager(employee)
-                    else shift_text(employee["shift"], employee["jornada"])
-                )
+                f"{role.emoji} {role.name.lower()} · {CONTRACT_NAMES[employee['contract']]} · "
+                + horario_text(employee)
                 + f" · {format_amount(employee['wage'])} la noche · humor "
                 f"{round(employee['humor'])} · "
                 f"{skills}"
             )
+            if role.effects and employee["id"] == self.employee:
+                lines.append(
+                    f"-# {role.emoji} {staff.effect_text(role, staff.strength(employee))}."
+                )
+            if (planned := employee.get("next")) and employee["id"] == self.employee:
+                new = staff.HORARIO_BY_KEY.get(staff.horario_key(planned["franjas"]))
+                if new is not None:
+                    lines.append(
+                        f"-# 🕒 Desde mañana: {new.label.lower()}, "
+                        f"{format_amount(planned['wage'])} la noche."
+                    )
         if business.wage_debt:
             lines.append(f"⚠️ Les debes {format_amount(business.wage_debt)}: se paga lo primero.")
         return lines
@@ -1006,19 +1039,19 @@ class NegocioPanel(ui.LayoutView):
             )
         candidate = self._candidate(business)
         offer = self._offer(business)
-        if candidate is not None and offer is not None and offer["role"]:
-            wage = staff.manager_ask(candidate["skills"], candidate["traits"])
-            lines.append(
-                f"✍️ Oferta: gerente, {CONTRACT_NAMES[offer['contract']].lower()} · "
-                f"{format_amount(wage)} brutos la noche. No atiende: repone y cubre las bajas."
+        if candidate is not None and offer is not None:
+            role = staff.ROLE_BY_KEY[offer["role"]]
+            schedule = offer_horario(offer)
+            wage = staff.role_ask(
+                candidate["skills"], candidate["traits"], schedule.jornada, role.key
             )
-        elif candidate is not None and offer is not None:
-            jornada = offer["jornada"]
-            wage = staff.ask(candidate["skills"], candidate["traits"], jornada)
+            when = "jornada completa" if not role.schedule else schedule.label.lower()
             lines.append(
-                f"✍️ Oferta: {CONTRACT_NAMES[offer['contract']]} · "
-                f"{shift_text(offer['shift'], jornada)} · {format_amount(wage)} brutos la noche"
+                f"✍️ Oferta: {role.emoji} {role.name.lower()}, "
+                f"{CONTRACT_NAMES[offer['contract']].lower()} · {when} · "
+                f"{format_amount(wage)} brutos la noche"
             )
+            lines.append(f"-# {role.text}")
         return lines
 
     def _despido_lines(self, business: Business) -> list[str]:
@@ -1601,11 +1634,12 @@ class NegocioPanel(ui.LayoutView):
         if business.staff:
             options = [
                 discord.SelectOption(
-                    label=f"{e['name']} · {CONTRACT_NAMES[e['contract']]}"[:100],
+                    label=f"{e['name']} · {staff.role_of(e).name}"[:100],
                     value=str(e["id"]),
+                    emoji=staff.role_of(e).emoji,
                     description=(
-                        ("Gerente" if staff.is_manager(e) else shift_text(e["shift"], e["jornada"]))
-                        + f" · {format_amount(e['wage'])} la noche"
+                        f"{CONTRACT_NAMES[e['contract']]} · {horario_text(e, short=True)} · "
+                        f"{format_amount(e['wage'])}"
                     )[:100],
                     default=e["id"] == self.employee,
                 )
@@ -1648,6 +1682,15 @@ class NegocioPanel(ui.LayoutView):
                         self._select("🎓 Pagarle un curso", courses, "curso", self._course)
                     )
                 )
+            if (hours := self._horario_options(employee)) is not None:
+                rows.append(
+                    ui.ActionRow(
+                        self._select(
+                            "🕒 Cambiarle el horario (desde mañana)", hours, "horario",
+                            self._reschedule,
+                        )
+                    )
+                )  # fmt: skip
             actions = ui.ActionRow()
             if employee["contract"] == "temporal":
                 actions.add_item(
@@ -1655,10 +1698,7 @@ class NegocioPanel(ui.LayoutView):
                 )
             actions.add_item(self._button("🚪 Despedir", self._to_dismiss, "despedir", style=red))
             rows.append(actions)
-        room = (
-            len(staff.counter_staff(business)) < staff.cap(business.size)
-            or staff.manager(business) is None
-        )
+        room = any(staff.hire_problem(business, r.key) is None for r in staff.roles_for(business))
         rows.append(
             ui.ActionRow(
                 self._button(
@@ -1669,6 +1709,37 @@ class NegocioPanel(ui.LayoutView):
             )
         )
         return rows
+
+    def _horario_options(self, employee: dict[str, Any]) -> list[discord.SelectOption] | None:
+        """Los horarios a los que se le puede cambiar (`None` al gerente, que no tiene), con
+        su sueldo y lo que pasa: con las mismas horas le baja algo el humor; con menos, tiene
+        que aceptar (art. 12.4.e ET)."""
+        current = staff.horario_of(employee)
+        if current is None:
+            return None
+        part_time = any(staff.TRAIT_BY_KEY[t].part_time for t in employee["traits"])
+        today = self._today()
+        options = []
+        for schedule in staff.horarios_for(part_time):
+            if schedule.key == current.key:
+                continue
+            try:
+                plan = staff.reschedule(employee, schedule.key, today)
+            except ValueError:
+                tail = "no acepta trabajar menos horas"
+            else:
+                tail = {
+                    "igual": "le baja algo el humor",
+                    "mas": "cobra más",
+                    "menos": "cobra menos",
+                }[plan.kind]
+                tail = f"{format_amount(plan.wage)} la noche · {tail}"
+            options.append(
+                discord.SelectOption(
+                    label=schedule.label[:100], value=schedule.key, description=tail[:100]
+                )
+            )
+        return options or None
 
     def _candidatos_rows(self, business: Business, home: ui.Button) -> list[ui.ActionRow]:
         green = discord.ButtonStyle.success
@@ -1699,49 +1770,68 @@ class NegocioPanel(ui.LayoutView):
         if candidate is None or offer is None:
             rows.append(ui.ActionRow(to_staff, home))
             return rows
-        picked = offer["role"] or offer["contract"]
-        contracts = [
-            discord.SelectOption(
-                label=name, value=key, description=text[:100], default=key == picked
-            )
-            for key, name, text in CONTRACTS
-        ]
-        rows.append(
-            ui.ActionRow(self._select("Contrato", contracts, "contrato", self._pick_contract))
-        )
-        manager = offer["role"] == staff.MANAGER
-        shifts = [
-            discord.SelectOption(
-                label=f"{shift_text(shift, jornada)} ({SHIFT_HOURS[shift, jornada]})",
-                value=f"{shift}:{jornada}",
-                default=shift == offer["shift"] and jornada == offer["jornada"],
-            )
-            for shift in staff.SHIFTS
-            for jornada in (staff.FULL_DAY, staff.HALF_DAY)
-            if not (candidate["part_time"] and jornada == staff.FULL_DAY)
-        ]
-        if not manager:
+        roles = self._roles(business, candidate)
+        role = staff.ROLE_BY_KEY[offer["role"]]
+        schedule = offer_horario(offer)
+
+        def asks(role_key: str, jornada: int) -> str:
+            """Lo que pide el candidato en un puesto y a una jornada."""
+            amount = staff.role_ask(candidate["skills"], candidate["traits"], jornada, role_key)
+            return format_amount(amount)
+
+        if roles:
+            puestos = [
+                discord.SelectOption(
+                    label=f"{r.name} · pide {asks(r.key, schedule.jornada)}"[:100],
+                    value=r.key,
+                    emoji=r.emoji,
+                    description=(staff.effect_text(r) or r.text)[:100],
+                    default=r.key == role.key,
+                )
+                for r in roles
+            ]
+            rows.append(ui.ActionRow(self._select("Puesto", puestos, "puesto", self._pick_role)))
+        if role.key != staff.MANAGER:
+            contracts = [
+                discord.SelectOption(
+                    label=name,
+                    value=key,
+                    description=text[:100],
+                    default=key == offer["contract"],
+                )
+                for key, name, text in CONTRACTS
+            ]
             rows.append(
-                ui.ActionRow(self._select("Jornada y turno", shifts, "turno", self._pick_shift))
+                ui.ActionRow(self._select("Contrato", contracts, "contrato", self._pick_contract))
             )
-        wage = (
-            staff.manager_ask(candidate["skills"], candidate["traits"])
-            if manager
-            else staff.ask(candidate["skills"], candidate["traits"], offer["jornada"])
-        )
-        room = (
-            staff.manager(business) is None
-            if manager
-            else len(staff.counter_staff(business)) < staff.cap(business.size)
-        )
+        if role.schedule:
+            sector = business.sector_info
+            hours = [
+                discord.SelectOption(
+                    label=h.label[:100],
+                    value=h.key,
+                    description=(
+                        f"Pide {asks(role.key, h.jornada)}"
+                        + (
+                            f" · clientes al {afluencia(sector, h)} % de la media"
+                            if role.plays
+                            else ""
+                        )
+                        + (" · cansa: baja el humor" if h.kind == "partida" else "")
+                    )[:100],
+                    default=h.key == schedule.key,
+                )
+                for h in staff.horarios_for(candidate["part_time"])
+            ]
+            rows.append(ui.ActionRow(self._select("Horario", hours, "turno", self._pick_horario)))
         rows.append(
             ui.ActionRow(
                 self._button(
-                    f"✍️ Contratar · {format_amount(wage)} la noche",
+                    f"✍️ Contratar · {asks(role.key, schedule.jornada)} la noche",
                     self._hire,
                     "contratar",
                     style=green,
-                    disabled=not room,
+                    disabled=not roles,
                 ),
                 to_staff,
                 home,
@@ -2198,18 +2288,49 @@ class NegocioPanel(ui.LayoutView):
         self.candidate = int(value) if value.isdigit() else None
         await self._go(interaction, CANDIDATOS)
 
-    async def _pick_contract(self, interaction: discord.Interaction, value: str) -> None:
-        if value == staff.MANAGER:
-            self.offer.update(contract="indefinido", role=staff.MANAGER, jornada=staff.FULL_DAY)
-        elif any(key == value for key, _name, _text in CONTRACTS):
-            self.offer.update(contract=value, role="")
+    async def _pick_role(self, interaction: discord.Interaction, value: str) -> None:
+        if value in staff.ROLE_BY_KEY:
+            self.offer["role"] = value
+            if value == staff.MANAGER:
+                self.offer["contract"] = "indefinido"
         await self._go(interaction, CANDIDATOS)
 
-    async def _pick_shift(self, interaction: discord.Interaction, value: str) -> None:
-        shift, _, jornada = value.partition(":")
-        if shift in staff.SHIFTS and jornada in (str(staff.FULL_DAY), str(staff.HALF_DAY)):
-            self.offer.update(shift=shift, jornada=int(jornada))
+    async def _pick_contract(self, interaction: discord.Interaction, value: str) -> None:
+        if any(key == value for key, _name, _text in CONTRACTS):
+            self.offer["contract"] = value
         await self._go(interaction, CANDIDATOS)
+
+    async def _pick_horario(self, interaction: discord.Interaction, value: str) -> None:
+        if value in staff.HORARIO_BY_KEY:
+            self.offer["horario"] = value
+        await self._go(interaction, CANDIDATOS)
+
+    async def _reschedule(self, interaction: discord.Interaction, value: str) -> None:
+        await ack(interaction)
+        try:
+            _business, employee, plan = await self.service.reschedule(
+                self.guild_id, self.owner.id, self.employee or 0, value, biz=self.biz
+            )
+        except StaffRefusedError as error:
+            await notify(interaction, str(error))
+            await self._track(staff_refused_stats())
+            return
+        except BusinessError as error:
+            await notify(interaction, str(error))
+            return
+        first = employee["name"].split()[0]
+        what = {
+            "igual": f"Las mismas horas en otro horario: a {first} le sienta regular.",
+            "mas": f"Más horas, más sueldo: {first} encantado.",
+            "menos": f"{first} acepta trabajar menos horas, y cobrar menos.",
+        }[plan.kind]
+        self.notes.append(
+            f"🕒 **{employee['name']}** trabaja desde mañana con el horario "
+            f"{plan.horario.label.lower()}, por {format_amount(plan.wage)} brutos la noche. "
+            f"{what}"
+        )
+        await self.show(interaction)
+        await self._track(staff_reschedule_stats(employee, plan))
 
     async def _hire(self, interaction: discord.Interaction) -> None:
         await ack(interaction)
@@ -2217,29 +2338,36 @@ class NegocioPanel(ui.LayoutView):
             await notify(interaction, "Elige antes a un candidato.")
             return
         offer = dict(self.offer)
+        schedule = offer_horario(offer)
         try:
             business, employee = await self.service.hire(
                 self.guild_id, self.owner.id, self.candidate, contract=offer["contract"],
-                jornada=offer["jornada"], shift=offer["shift"], biz=self.biz,
-                role=offer["role"],
+                jornada=schedule.jornada, shift=schedule.shift, biz=self.biz,
+                role=offer["role"], horario=schedule.key,
             )  # fmt: skip
         except BusinessError as error:
             await notify(interaction, str(error))
             return
         contract = CONTRACT_NAMES[employee["contract"]].lower()
+        role = staff.role_of(employee)
+        wage = format_amount(employee["wage"])
         if staff.is_manager(employee):
             self.notes.append(
                 f"✍️ **{employee['name']} es tu gerente**: {contract}, "
-                f"{format_amount(employee['wage'])} brutos cada noche. Desde esta noche repone el "
+                f"{wage} brutos cada noche. Desde esta noche repone el "
                 "almacén (de la nave primero) y cubre las bajas de la plantilla."
             )
         else:
-            hours = SHIFT_HOURS[employee["shift"], employee["jornada"]]
+            hours = horario_text(employee).lower()
+            today = (
+                "Hoy trabaja las franjas de su horario que quedan."
+                if role.plays
+                else f"Desde hoy: {staff.effect_text(role, staff.strength(employee))}."
+            )
             self.notes.append(
-                f"✍️ **{employee['name']} empieza a trabajar contigo**: {contract}, "
-                f"{shift_text(employee['shift'], employee['jornada']).lower()} ({hours}), "
-                f"{format_amount(employee['wage'])} brutos cada noche. Hoy trabaja las franjas de "
-                "su turno que quedan."
+                f"✍️ **{employee['name']} empieza a trabajar contigo** de "
+                f"{role.emoji} {role.name.lower()}: {contract}, {hours}, {wage} brutos cada "
+                f"noche. {today}"
             )
         if employee["bonus"]:
             self.notes.append(
@@ -2254,7 +2382,7 @@ class NegocioPanel(ui.LayoutView):
                 "con recargo."
             )
         self.candidate, self.employee = None, employee["id"]
-        self.offer["role"] = ""
+        self.offer.update(role="", contract="indefinido")
         self.screen = PLANTILLA
         await self._pet_note()
         await self.show(interaction)
