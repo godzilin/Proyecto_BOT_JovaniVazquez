@@ -1245,16 +1245,18 @@ Lo guardado se borra si el bot sale del servidor.
 
 ## 6 nonies. Jovaniverso: `universo`
 
-El bot dentro de una Activity de Discord: una página web que se abre en un iframe, por encima del chat o de la llamada. Es el comienzo de la 10.0, que llevará a la Activity un mundo con personaje propio, el casino como edificio y los trabajos. De momento es una prueba de concepto: entras, te reconoce y te enseña tu saldo.
+El bot dentro de una Activity de Discord: una página web que se abre en un iframe, por encima del chat o de la llamada. Es el comienzo de la 10.0, que llevará a la Activity un mundo con personaje propio, el casino como edificio y los trabajos. Primero fue una prueba de concepto (entras, te reconoce y te enseña tu saldo); ahora trae el mundo: Gran Canaria en 3D para pasear con tu robot.
 
-- `/universo` es el comando de entrada de la Activity: Discord lo crea al activar las Activities en el portal (con el nombre «launch») y el bot lo renombra al sincronizar los comandos (`bot.app.BotTree`). Lo abre Discord, sin pasar por el bot. Mientras las Activities no estén activadas, no existe.
+- `/universo` es el comando de entrada de la Activity: Discord lo crea al activar las Activities en el portal (con el nombre «launch») y el bot lo renombra al sincronizar los comandos (`bot.app.BotTree`); si Discord no lo ha creado, lo crea el bot. Lo abre Discord, sin pasar por el bot, y con él el Jovaniverso sale en el lanzador de apps (🚀) de los canales de texto y de voz. Mientras las Activities no estén activadas, no existe.
+- **El mundo:** Gran Canaria estilizada en 3D (Three.js, en el navegador de cada uno): el Pico de las Nieves y el Roque Nublo en el centro, la Caldera de Bandama, las Dunas y el Faro de Maspalomas, el puerto de Mogán, Las Canteras y un pueblo con plaza y drago donde se aparece (y donde irán el casino y el banco). Se mueve un robot animado (modelo CC0) con WASD o las flechas, Shift para correr y Espacio para saltar; la cámara gira arrastrando y se acerca con la rueda. En el móvil, como en Roblox: un joystick que aparece donde tocas en la mitad izquierda (empujarlo hasta el borde es correr), un botón de saltar y arrastrar con otro dedo para girar la cámara. Solo un jugador de momento.
+- **Paseo:** cada 15 s la página cuenta al servidor los metros, los saltos y los lugares pisados (`POST /api/paseo`). Como la página no es de fiar, el servidor recorta los metros a 12 m/s y los saltos a 2 por segundo desde el informe anterior, y solo acepta los lugares conocidos (`bot.services.universo.walk_report`). Solo alimenta logros.
 - `.universo` contesta con un botón 🌌 que abre la Activity. El botón es persistente: vale aunque el bot se reinicie. Sin `DISCORD_CLIENT_SECRET`, avisa de que el universo aún no está abierto.
 - La página hace login con Discord (OAuth2 de las Activities: el código del SDK se cambia por un token en el servidor, que es el único que tiene el secreto) y recibe una sesión firmada que dura 12 horas o hasta que el bot se reinicia. Con ella pide el perfil: nombre en el servidor, nombre del servidor y saldo. Solo lo ve quien es miembro del servidor donde se abre.
 - La página no decide nada: todo sale del servidor web del bot, dentro del mismo proceso, con la base de datos y los servicios de siempre. Lo que algún día mueva dinero se decidirá en el servidor con `EconomyService`.
 
 No mueve dinero. La mascota no sale: la página no es un mensaje de Discord ni enseña un resultado en el que pueda hablar.
 
-Logros (🎤 Jovani), 9: días distintos entrando (de 1 a 365), desde el móvil, desde el ordenador, desde los dos y un secreto de madrugada (de 3:00 a 5:59). Entrar varias veces el mismo día no suma. La plataforma la dice la página, así que esos logros son Comunes.
+Logros (🎤 Jovani), 30: días distintos entrando (de 1 a 365), desde el móvil, desde el ordenador, desde los dos, un secreto de madrugada (de 3:00 a 5:59) y el Día de Canarias. Entrar varias veces el mismo día no suma. La plataforma la dice la página, así que esos logros son Comunes. Paseando: metros recorridos (de 100 m a 1.000 km), saltos (1, 100 y 1.000), cada lugar de la isla, todos ellos y un secreto por meterse en el mar. Los metros cuestan tiempo de verdad por el recorte del servidor: 42 km son unos 80 minutos corriendo.
 
 Despliegue (servidor web, túnel y portal de Discord): README, «Jovaniverso (Activity)».
 

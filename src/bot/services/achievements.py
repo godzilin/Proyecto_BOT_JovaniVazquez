@@ -585,6 +585,22 @@ JOVANI_LOOKS_STAT = "jovani_looks"
 UNIVERSO_DAY_PREFIX = "universo_day_"
 #: Días distintos entrando en el universo; se calcula en `with_derived`.
 UNIVERSO_DAYS_STAT = "universo_days"
+#: Prefijo de cada lugar de Gran Canaria pisado en el universo (`universo_place_faro`).
+UNIVERSO_PLACE_PREFIX = "universo_place_"
+#: Lugares del mundo con su logro: clave (la de `bot.services.universo.PLACES`),
+#: nombre, descripción y si es secreto. El agua no entra en el de visitarlos todos.
+UNIVERSO_PLACES: tuple[tuple[str, str, str, bool], ...] = (
+    ("nieves", "Las Nieves sin nieve", "Sube a la cima del Pico de las Nieves.", False),
+    ("nublo", "Nublado con claros", "Llega al pie del Roque Nublo.", False),
+    ("bandama", "Caldo de caldera", "Asómate al borde de la Caldera de Bandama.", False),
+    ("dunas", "Dunas: segunda parte", "Pisa las Dunas de Maspalomas.", False),
+    ("faro", "Farolero", "Llega al Faro de Maspalomas.", False),
+    ("plaza", "Plaza fija", "Pasa por la plaza del pueblo.", False),
+    ("drago", "Drago Ball", "Acércate al drago de la plaza.", False),
+    ("muelle", "Mogán Freeman", "Sube al muelle de Mogán.", False),
+    ("canteras", "Cantera de campeones", "Pisa la playa de Las Canteras.", False),
+    ("agua", "Cortocircuito", "Métete en el mar del Jovaniverso.", True),
+)
 VOICE_STREAK_STAT = "voice_streak_max"
 VOICE_WITH_PREFIX = "voice_with_"
 VOICE_PEOPLE_STAT = "voice_people"
@@ -2726,6 +2742,45 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "universo_night", "Materia oscura",
          "Entra en el Jovaniverso entre las 3:00 y las 5:59.", C, True),
     ])  # fmt: skip
+    a += _tiers("jovani", "universo_canarias", [
+        (1, "universo_canarias", "Gofio en órbita",
+         "Entra en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
+    # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la página
+    # y el servidor los recorta a 12 m/s, así que cuestan tiempo de verdad: a 9 m/s
+    # corriendo, 42 km son 80 minutos y 1.000 km, más de 30 horas.
+    a += _tiers("jovani", "universo_meters", [
+        (100, "universo_meters_100", "Un pequeño paso para el robot",
+         "Recorre 100 metros en el Jovaniverso.", C),
+        (1_000, "universo_meters_1k", "Kilómetro cero", "Recorre 1 km en el Jovaniverso.", C),
+        (10_000, "universo_meters_10k", "Peregrino de Tunte",
+         "Recorre 10 km en el Jovaniverso.", R),
+        (42_195, "universo_meters_42k", "Corre, que se va la guagua",
+         "Recorre 42,195 km (un maratón) en el Jovaniverso.", E),
+        (200_000, "universo_meters_200k", "Transgrancanaria de sofá",
+         "Recorre 200 km en el Jovaniverso.", L),
+        (1_000_000, "universo_meters_1m", "La isla se me queda chica",
+         "Recorre 1.000 km en el Jovaniverso.", M),
+    ], unit="m")  # fmt: skip
+    a += _tiers("jovani", "universo_jumps", [
+        (1, "universo_jumps_1", "Salto del pastor", "Salta en el Jovaniverso.", C),
+        (100, "universo_jumps_100", "Pogo en la verbena", "Salta 100 veces en el Jovaniverso.", C),
+        (1_000, "universo_jumps_1k", "Rodillas de muelle",
+         "Salta 1.000 veces en el Jovaniverso.", R),
+    ])  # fmt: skip
+    for place, name, text, secret in UNIVERSO_PLACES:
+        a += _tiers("jovani", f"{UNIVERSO_PLACE_PREFIX}{place}", [
+            (1, f"{UNIVERSO_PLACE_PREFIX}{place}", name, text, C, secret),
+        ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_places_all", name="Canarión de pura cepa",
+        description="Visita todos los lugares de Gran Canaria en el Jovaniverso.",
+        category="jovani", rarity=C,
+        conditions=tuple(
+            (f"{UNIVERSO_PLACE_PREFIX}{place}", 1)
+            for place, *_ in UNIVERSO_PLACES if place != "agua"
+        ),
+    ))  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
     a.append(Achievement(
@@ -24995,6 +25050,25 @@ def universo_stats(platform: str | None, *, when: datetime) -> StatDelta:
         add[f"universo_{platform}"] = 1
     if 3 <= when.hour < 6:
         add["universo_night"] = 1
+    if when.month == 5 and when.day == 30:
+        add["universo_canarias"] = 1
+    return StatDelta(add=add)
+
+
+def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatDelta:
+    """Lo que suma un informe de paseo por el Jovaniverso, ya recortado por el
+    servidor (`bot.services.universo.walk_report`).
+
+    Args:
+        meters: Metros recorridos desde el informe anterior.
+        jumps: Saltos desde el informe anterior.
+        places: Lugares pisados (claves de `UNIVERSO_PLACES`).
+    """
+    add = {f"{UNIVERSO_PLACE_PREFIX}{place}": 1 for place in places}
+    if meters > 0:
+        add["universo_meters"] = meters
+    if jumps > 0:
+        add["universo_jumps"] = jumps
     return StatDelta(add=add)
 
 

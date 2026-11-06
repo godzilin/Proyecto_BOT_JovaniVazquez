@@ -15,7 +15,10 @@ los servicios de siempre. Este módulo tiene las dos piezas que dicen quién es 
 La clave de firma se sortea al arrancar el bot, así que un reinicio cierra todas las
 sesiones. La página vuelve a hacer login sola al abrirse, así que da igual.
 
-No mueve dinero ni guarda datos: solo identifica.
+También filtra lo que la página cuenta del paseo por el mundo (`walk_report`), que
+solo alimenta logros.
+
+No mueve dinero ni guarda datos.
 """
 
 from __future__ import annotations
@@ -223,3 +226,40 @@ def snowflake(value: object) -> int | None:
     if isinstance(value, str) and value.isdigit() and len(value) <= 20:
         return int(value)
     return None
+
+
+#: Lugares del mundo (Gran Canaria) que la página puede decir que has pisado. Cada
+#: uno es un logro (`universo_place_<clave>`); una clave que no está aquí no cuenta.
+PLACES = frozenset({
+    "nieves", "nublo", "bandama", "dunas", "faro", "plaza", "drago", "muelle", "canteras",
+    "agua",
+})  # fmt: skip
+#: Lo más rápido que se puede ir, en m/s. Correr va a 9; el margen cubre los saltos
+#: y el redondeo. La distancia la dice la página: más de esto por segundo no cuenta.
+MAX_SPEED = 12
+#: Saltos por segundo que se aceptan: un salto dura casi un segundo en el aire.
+MAX_JUMPS_PER_SECOND = 2
+
+
+def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, list[str]]:
+    """Lo que cuenta de un informe de paseo de la página: metros, saltos y lugares.
+
+    La página no es de fiar: los metros y los saltos se recortan a lo que da tiempo a
+    hacer en `elapsed` segundos (desde el informe anterior) y los lugares se filtran.
+    """
+
+    def count(value: object, limit: float) -> int:
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return 0
+        return min(value, int(limit))
+
+    seconds = max(elapsed, 0.0)
+    places = body.get("places")
+    seen = []
+    if isinstance(places, list):
+        seen = sorted({place for place in places if isinstance(place, str) and place in PLACES})
+    return (
+        count(body.get("meters"), seconds * MAX_SPEED),
+        count(body.get("jumps"), seconds * MAX_JUMPS_PER_SECOND),
+        seen,
+    )

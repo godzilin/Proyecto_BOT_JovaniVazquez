@@ -26,11 +26,16 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   (`bot.services.universo.DiscordOAuth`) y da una sesión firmada.
 - `POST /api/entrar` `{guild_id, channel_id, platform}` con la sesión en
   `Authorization: Bearer`: el perfil (nombre y saldo) y los logros de entrar.
+- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, places}`, con la sesión:
+  lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
+  anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
+  lo que da tiempo a hacer (`bot.services.universo.walk_report`).
 
 La página no decide nada: todo lo que enseña sale de aquí, y lo que algún día mueva
 dinero se decidirá aquí con `EconomyService`, nunca en el navegador.
 
-Logros: entrar (`universo_stats`, días distintos, móvil, ordenador y madrugada),
+Logros: entrar (`universo_stats`, días distintos, móvil, ordenador, madrugada y
+Día de Canarias) y pasear (`universo_walk_stats`, metros, saltos y lugares),
 categoría 🎤 Jovani. La mascota no sale: la página no es un mensaje de Discord y,
 de momento, no enseña ningún resultado en el que pueda hablar.
 """
@@ -52,7 +57,7 @@ from discord.ext import commands
 
 from bot import __version__
 from bot.cogs import achievements as logros
-from bot.services.achievements import universo_stats
+from bot.services.achievements import universo_stats, universo_walk_stats
 from bot.services.economy import format_amount
 from bot.services.levels import TIMEZONE
 from bot.services.universo import (
@@ -63,6 +68,7 @@ from bot.services.universo import (
     bearer,
     platform_of,
     snowflake,
+    walk_report,
 )
 
 if TYPE_CHECKING:
@@ -157,6 +163,9 @@ class Universo(commands.Cog, name="Universo"):
         # Logros que se apuntan después de contestar a la página: se guardan para que
         # el recolector no se los lleve a medias y para esperarlos al descargar.
         self._background: set[asyncio.Task[None]] = set()
+        # Último informe de paseo (o entrada) de cada miembro, en segundos de
+        # `time.monotonic`: dice cuánto ha podido andar desde entonces.
+        self._last_walk: dict[tuple[int, int], float] = {}
 
     @property
     def is_open(self) -> bool:
@@ -203,6 +212,7 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_get("/api/config", _config)
         app.router.add_post("/api/token", _token)
         app.router.add_post("/api/entrar", _entrar)
+        app.router.add_post("/api/paseo", _paseo)
         assets = self.static_dir / "assets"
         if assets.is_dir():
             app.router.add_static("/assets", assets)
@@ -241,16 +251,8 @@ class Universo(commands.Cog, name="Universo"):
             UniversoError: Sin sesión válida (401), sin servidor (400) o si quien
                 entra no es miembro del servidor donde se abre (403).
         """
-        user_id = self.signer.verify(session)
-        if user_id is None:
-            raise UniversoError("La sesión ha caducado. Vuelve a abrir el Jovaniverso.", 401)
-        guild_id = snowflake(body.get("guild_id"))
-        guild = self.bot.get_guild(guild_id) if guild_id is not None else None
-        if guild is None:
-            raise UniversoError("El Jovaniverso solo se abre dentro de un servidor del bot.")
-        member = guild.get_member(user_id)
-        if member is None or member.bot:
-            raise UniversoError("No eres miembro de este servidor.", 403)
+        guild, member = self._member(session, body)
+        self._last_walk[guild.id, member.id] = time.monotonic()
         balance = await self.bot.economy.balance(guild.id, member.id)
         channel_id = snowflake(body.get("channel_id"))
         channel = guild.get_channel_or_thread(channel_id) if channel_id is not None else None
@@ -267,6 +269,41 @@ class Universo(commands.Cog, name="Universo"):
             "balance_text": format_amount(balance),
             "version": __version__,
         }
+
+    def walk(self, session: str | None, body: dict[str, Any]) -> None:
+        """Apunta para los logros lo que la página dice que has paseado.
+
+        Solo cuenta lo que da tiempo a hacer desde el informe anterior (o desde que
+        entraste); si el bot se ha reiniciado entre medias, nada hasta el siguiente.
+
+        Raises:
+            UniversoError: Igual que `enter`.
+        """
+        guild, member = self._member(session, body)
+        now = time.monotonic()
+        last = self._last_walk.get((guild.id, member.id), now)
+        self._last_walk[guild.id, member.id] = now
+        meters, jumps, places = walk_report(body, now - last)
+        delta = universo_walk_stats(meters, jumps, places)
+        if delta.add:
+            channel_id = snowflake(body.get("channel_id"))
+            logros.note(self.bot, guild.id, member.id, delta, channel_id)
+
+    def _member(
+        self, session: str | None, body: dict[str, Any]
+    ) -> tuple[discord.Guild, discord.Member]:
+        """Servidor y miembro de una llamada de la página, comprobando la sesión."""
+        user_id = self.signer.verify(session)
+        if user_id is None:
+            raise UniversoError("La sesión ha caducado. Vuelve a abrir el Jovaniverso.", 401)
+        guild_id = snowflake(body.get("guild_id"))
+        guild = self.bot.get_guild(guild_id) if guild_id is not None else None
+        if guild is None:
+            raise UniversoError("El Jovaniverso solo se abre dentro de un servidor del bot.")
+        member = guild.get_member(user_id)
+        if member is None or member.bot:
+            raise UniversoError("No eres miembro de este servidor.", 403)
+        return guild, member
 
     @commands.command(name="universo")
     @commands.guild_only()
@@ -331,6 +368,13 @@ async def _entrar(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     body = await _json_body(request)
     return web.json_response(await cog.enter(bearer(request.headers.get("Authorization")), body))
+
+
+async def _paseo(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    body = await _json_body(request)
+    cog.walk(bearer(request.headers.get("Authorization")), body)
+    return web.json_response({"ok": True})
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]

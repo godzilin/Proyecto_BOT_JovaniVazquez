@@ -1344,8 +1344,11 @@ Puesta en marcha, una sola vez:
 3. **Portal de desarrolladores de Discord**, en la aplicación del bot:
    - OAuth2: copiar el Client Secret (o generarlo) para el paso 2, y en Redirects
      añadir `https://127.0.0.1`, que Discord pide para el login de las Activities.
-   - Activities > Settings: activarlas. Discord crea entonces el comando de entrada
-     («launch») y el bot lo renombra a `/universo` en el siguiente arranque. **Antes,
+   - Activities > Settings: activarlas. Discord suele crear entonces el comando de
+     entrada («launch») y el bot lo renombra a `/universo` en el siguiente arranque;
+     si Discord no lo ha creado, lo crea el bot (desde la 9.57.0). Con él, el
+     Jovaniverso sale en el lanzador de apps (🚀) de los canales de texto y de voz.
+     Discord puede tardar en enseñarlo: si no sale, recarga Discord (Ctrl+R). **Antes,
      el bot tiene que estar en la 9.46.0 o posterior**: con una versión anterior, la
      sincronización de comandos falla y el bot no arranca.
    - Activities > URL Mappings: `/` → `jovaniverso.<red>.ts.net`, sin `https://`.

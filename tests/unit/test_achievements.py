@@ -26,6 +26,7 @@ from bot.cogs.achievements import (
 from bot.repositories.achievements import AchievementRepository, Profile
 from bot.repositories.economy import EconomyRepository
 from bot.repositories.message_stats import MessageStatsRepository
+from bot.services import universo as universo_service
 from bot.services.achievements import (
     APUESTAS_PAGES,
     APUESTAS_PERIODS,
@@ -123,6 +124,8 @@ from bot.services.achievements import (
     SPORTS_PICK_PREFIX,
     SPORTS_PICKS,
     TOPIC_KINDS_STAT,
+    UNIVERSO_PLACE_PREFIX,
+    UNIVERSO_PLACES,
     UNLOCKED_STAT,
     VOICE_BESTIE_STAT,
     VOICE_GAME_PREFIX,
@@ -167,6 +170,7 @@ from bot.services.achievements import (
     sports_void_stats,
     total_reward,
     universo_stats,
+    universo_walk_stats,
     with_derived,
 )
 from bot.services.allatu import TABLES
@@ -341,7 +345,10 @@ PRODUCED_STATS = {
     # 🎤 Jovani (`jovani_stats` y `with_derived`)
     "jovani_days", "jovani_looks", "jovani_1337", "jovani_midnight", "jovani_friday13",
     # 🎤 Jovani: el Jovaniverso (`universo_stats` y `with_derived`)
-    "universo_days", "universo_mobile", "universo_desktop", "universo_night",
+    "universo_days", "universo_mobile", "universo_desktop", "universo_night", "universo_canarias",
+    # 🎤 Jovani: pasear por el Jovaniverso (`universo_walk_stats`)
+    "universo_meters", "universo_jumps",
+    *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
     *(f"jovani_look_{key}" for key in (
         "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",
         "canarias", "halloween", "navidad", "aniversario",
@@ -2606,6 +2613,30 @@ def test_la_madrugada_del_universo_va_de_las_tres_a_las_seis(hour: int, counts: 
     assert ("universo_night" in delta.add) is counts
 
 
+def test_el_dia_de_canarias_cuenta_en_el_universo() -> None:
+    delta = universo_stats(None, when=datetime(2027, 5, 30, 12, tzinfo=UTC))
+    assert delta.add["universo_canarias"] == 1
+
+
+def test_pasear_por_el_universo_suma_metros_saltos_y_lugares() -> None:
+    delta = universo_walk_stats(250, 3, ["faro", "agua"])
+    assert delta.add == {
+        "universo_meters": 250,
+        "universo_jumps": 3,
+        "universo_place_faro": 1,
+        "universo_place_agua": 1,
+    }
+    assert universo_walk_stats(0, 0, []).add == {}
+
+
+def test_los_lugares_del_universo_son_los_que_acepta_el_servidor() -> None:
+    assert {place for place, *_ in UNIVERSO_PLACES} == universo_service.PLACES
+    everything = dict(BY_ID["universo_places_all"].conditions)
+    assert set(everything) == {
+        f"{UNIVERSO_PLACE_PREFIX}{place}" for place in universo_service.PLACES if place != "agua"
+    }
+
+
 def test_el_agujero_de_gusano_pide_movil_y_ordenador() -> None:
     assert BY_ID["universo_both"].conditions == (("universo_mobile", 1), ("universo_desktop", 1))
 
@@ -2734,3 +2765,9 @@ def test_las_predicciones_tienen_logros_de_sobra_y_uno_de_cada_seis_secreto() ->
     mine = [a for a in CATALOG if a.category == "predice"]
     assert len(mine) >= 40
     assert sum(a.secret for a in mine) >= len(mine) // 7
+
+
+def test_los_metros_se_leen_en_km() -> None:
+    assert format_value(350, "m") == "350 m"
+    assert format_value(42_195, "m") == "42,2 km"
+    assert format_value(1_000_000, "m") == "1.000,0 km"

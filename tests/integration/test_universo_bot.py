@@ -100,6 +100,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
         name="Servidor de pruebas",
         get_member=members.get,
         get_channel_or_thread=lambda _id: None,
+        system_channel=None,
     )
     client.get_guild = lambda guild_id: guild if guild_id == GUILD_ID else None  # type: ignore[method-assign]
     web_client = TestClient(TestServer(cog.build_app()))
@@ -268,10 +269,18 @@ def tree_with(
     return tree, http
 
 
-async def test_sin_activities_se_sincroniza_como_siempre() -> None:
+async def test_sin_comando_de_entrada_el_bot_crea_universo() -> None:
     tree, http = tree_with([{"id": "1", "type": 1, "name": "ayuda"}])
     await tree.sync()
-    assert all(c.get("type") != 4 for c in http.calls[0])
+    (payload,) = http.calls
+    assert [c for c in payload if c.get("type") == 4] == [ENTRY_POINT]
+
+
+async def test_sin_activities_se_sincroniza_como_siempre() -> None:
+    tree, http = tree_with([{"id": "1", "type": 1, "name": "ayuda"}], fail_first=True)
+    await tree.sync()
+    assert len(http.calls) == 2
+    assert all(c.get("type") != 4 for c in http.calls[1])
 
 
 async def test_con_activities_el_comando_de_entrada_va_y_se_llama_universo() -> None:
@@ -297,3 +306,36 @@ async def test_si_discord_no_acepta_el_nombre_se_deja_su_comando_de_entrada() ->
     assert len(http.calls) == 2
     kept = [c for c in http.calls[1] if c.get("type") == 4]
     assert kept == [{"id": "77", "type": 4, "name": "launch", "description": "", "handler": 2}]
+
+
+async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+    await world.web.post("/api/entrar", json=body, headers=headers)
+    await asyncio.gather(*world.cog._background)
+    # Como si hubieran pasado 10 s desde que entró: caben 120 m y 20 saltos.
+    key = (GUILD_ID, USER_ID)
+    world.cog._last_walk[key] -= 10
+    response = await world.web.post(
+        "/api/paseo",
+        json={**body, "meters": 90, "jumps": 500, "places": ["faro", "faro", "luna", 7]},
+        headers=headers,
+    )
+    assert response.status == 200
+    cheat = await world.web.post(
+        "/api/paseo", json={**body, "meters": 10_000, "jumps": -3}, headers=headers
+    )
+    assert cheat.status == 200
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert 90 <= profile.stats["universo_meters"] < 92
+    assert profile.stats["universo_jumps"] == 20
+    assert profile.stats["universo_place_faro"] == 1
+    assert "universo_place_luna" not in profile.stats
+    assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
+
+
+async def test_pasear_sin_sesion_no_deja(world: World) -> None:
+    response = await world.web.post("/api/paseo", json={"guild_id": str(GUILD_ID), "meters": 5})
+    assert response.status == 401
