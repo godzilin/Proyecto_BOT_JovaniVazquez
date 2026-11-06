@@ -26,7 +26,7 @@ from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready, own_node
 
 from bot.services import browser_scene, node_scene
 from bot.services.browser_scene import BrowserScene
-from bot.services.business_catalog import EMBLEMS, EQUIPMENT, FAULTS, SECTORS
+from bot.services.business_catalog import EMBLEMS, EQUIPMENT, FAULTS, SECTOR_BY_KEY, SECTORS
 from bot.services.business_scene import SCENE, BusinessScene, H, W
 from bot.services.business_staff import ROLE_BY_KEY
 from bot.services.housing_catalog import THEMES
@@ -80,6 +80,25 @@ def test_las_muestras_cubren_cada_pantalla_y_las_variantes_del_contrato() -> Non
     assert any(p.get("level") for s in states.values() if s["screen"] == "almacen"
                for p in s["products"])  # fmt: skip
     assert any(s.get("usual") for s in clients) and any(s.get("thief") for s in clients)
+    # 9.48.0: lo de cada minijuego nuevo, con lo de siempre y sus trampas.
+    by_game = {
+        game: [s for s in clients if SECTOR_BY_KEY[s["sector"]].game == game]
+        for game in ("brasa", "encargos", "balanza", "revision", "foto")
+    }
+    for game, shown in by_game.items():
+        if game != "revision":  # en el móvil, lo de siempre no cambia lo que se ve
+            assert {bool(s.get("usual")) for s in shown} == {True, False}, game
+    assert {bool(s["dish"]) for s in by_game["brasa"]} == {True, False}
+    assert {s["usual"] or s["clue"] == "" for s in by_game["encargos"]} == {False, True}
+    assert {len(s["faults"]) for s in by_game["revision"]} == {1, 2, 3}
+    assert {f for s in by_game["revision"] for f in s["faults"]} == {
+        p.key for p in SECTOR_BY_KEY["moviles"].products
+    }
+    assert {s["protector"] for s in by_game["revision"]} == {True, False}
+    assert {s["hair"] for s in by_game["foto"]} == {"rapado", "corto", "medio", "largo"}
+    assert any(s["beard"] for s in by_game["foto"]) and any(
+        s["photo"] is None for s in by_game["foto"]
+    )
     assert {s.get("step") for s in clients} >= {"diagnostico", "presupuesto"}
     assert any(s["cash"] == "" for s in clients) and any(s["cash"] for s in clients)
     shops = [s for s in states.values() if s["screen"] == "negocio"]
