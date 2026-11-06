@@ -475,6 +475,11 @@ PRODUCED_STATS = {
     "pisos_mortgage_floor", "pisos_mortgage_ceiling", "pisos_aval_mortgage",
     "pisos_overburden", "pisos_effort_peak", "pisos_unicorn", "pisos_guarantee",
     "pisos_aval_rent", "pisos_promotions", "pisos_promoter_fees", "pisos_new_build",
+    # Solares (9.56.0, `housing_solar_stats` y el cierre de la noche)
+    "pisos_solars", "pisos_solars_done", "pisos_solar_units", "pisos_solar_spent",
+    "pisos_solar_icio", "pisos_bubble_hit", "pisos_solar_low", "pisos_solar_projects",
+    "pisos_solar_barrios", "pisos_solar_islands", *(f"pisos_solar_p_{k}" for k in (
+        "casa", "bloque3", "bloque5", "bloque7", "torre")),
     "pisos_own_build",
     "pisos_tax_alquiler",
     "pisos_tax_ganancia", "pisos_tax_over_rent", "pisos_level_changes", "pisos_evictions",

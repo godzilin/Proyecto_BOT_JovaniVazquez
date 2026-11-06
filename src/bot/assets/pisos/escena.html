@@ -15,8 +15,9 @@ Python:
 - renderFrames(states)       una pantalla entera por estado: {x: 0, y: 0, u}.
 
 Pantallas (`screen`): mapa, barrio, ficha, cartera, caja, vpo, gestion, candidatos, subastas, reformas, imprevistos, resenas, junta, plantas, dividir,
-calles (streets_state: el plano del barrio) y edificio (building_state: el edificio en corte). Miden 1000 × 640, salvo el barrio y las plantas
-(tarjetas en dos filas) y las calles (tres bandas), que miden 1000 × 760, dividir, 1000 × 700, y el edificio, 1000 × 1000 (hasta diez
+calles (streets_state: el plano del barrio; cada calle lleva la marca de su solar), solar (solar_state: un solar con su tabla de proyectos
+o su obra y el termómetro de la burbuja) y edificio (building_state: el edificio en corte). Miden 1000 × 640, salvo el barrio, las plantas
+(tarjetas en dos filas), las calles (tres bandas) y el solar, que miden 1000 × 760, dividir, 1000 × 700, y el edificio, 1000 × 1000 (hasta diez
 plantas) (`SCREEN_H`; el Pillow de reserva, `housing_render`, lo repite). Como no hay estado entre fotogramas, el dibujo se reparte entre procesos sin cambiar un píxel.
 
 El estilo es el de «Idealjovani», un portal de pisos parodiado: paleta canaria (atlántico,
@@ -47,7 +48,7 @@ const S = 2;
 // Todas miden 1000 de ancho. De alto, 640 salvo las de `SCREEN_H` (el barrio, con sus diez tarjetas en
 // dos filas, mide más): cada alto tiene sus lienzos y `paintScreen` pone `H` y `g` de la pantalla que toca.
 const W = 1000;
-const SCREEN_H = { barrio: 760, plantas: 760, dividir: 700, calles: 760, edificio: 1000 };
+const SCREEN_H = { barrio: 760, plantas: 760, dividir: 700, calles: 760, solar: 760, edificio: 1000 };
 let H = 640;
 
 const SURFACES = new Map();
@@ -339,6 +340,8 @@ function header(title, sub, o = {}) {
 }
 function footer(text) {
   TX("idealjovani", 20, H - 16, { font: F.t(19), color: C.sunDk, k: 0.34 });
+  // los emojis de los textos de Python no se pintan (el Chromium del Docker no trae su fuente): fuera
+  text = String(text || "").replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu, "").replace(/\s+/g, " ").trim();
   if (text) fitText(text, W / 2 + 40, H - 16, W - 340, F.r, 17, 13, { color: C.mute, align: "center" });
 }
 
@@ -3955,9 +3958,20 @@ function streetBand(s, b, theme, y) {
   const bds = (s.buildings || []).slice(0, 5), n = clamp(bds.length, 3, 5), { pad, prop, fw } = CALLE_FIT[n];
   const cw = (w - 2 * pad - (n - 1) * prop) / n;
   for (let j = 1; j < n; j++) streetProp(theme, x + pad + j * cw + (j - 0.5) * prop, gy, seed + j);
-  const pw = streetPlate(s.name, x + 14, y + 6, 470), bw = w - pw - 44, lines = wrap(s.blurb || "", bw, F.m(17), 2);
+  const sol = s.solar, pw = streetPlate(s.name, x + 14, y + 6, 470), bw = w - pw - 44 - (sol ? SOLAR_MARK_W + 10 : 0), lines = wrap(s.blurb || "", bw, F.m(17), 2);
   lines.forEach((l, i) => T(l, x + pw + 28, y + (lines.length === 1 ? 26 : 17) + i * 19, { font: F.m(17), color: C.ink }));
   bds.forEach((bd, j) => streetBuilding(bd, b, x + pad + j * (cw + prop), y + CALLE_SKY, cw, gy - y - CALLE_SKY, fw));
+  if (sol) solarMark(sol, x + w - SOLAR_MARK_W - 12, y + 6);
+}
+// La marca del solar de la calle, arriba a la derecha de su banda (el cielo, sin tapar ningún edificio): un icono
+// de valla, grúa o edificio y su texto; con borde azul si es tuyo.
+const SOLAR_MARK_W = 200;
+function solarMark(sol, x, y) {
+  const h = 38;
+  card(x, y, SOLAR_MARK_W, h, { r: 10, ...(sol.mine ? { stroke: C.blue } : {}) });
+  solarStatusIcon(sol, x + 22, y + h / 2 - 2, 20, sol.mine);
+  fitText(sol.text, x + 42, y + 14, SOLAR_MARK_W - 52, F.d, 14, 10, { color: sol.mine ? C.blue : C.ink });
+  fitText(`Solar N.º ${sol.number}${sol.mine ? " · tuyo" : ""}`, x + 42, y + 29, SOLAR_MARK_W - 52, F.m, 13, 10, { color: C.mute });
 }
 function paintCalles(st) {
   const b = st.barrio, theme = SKY[b.theme] ? b.theme : "centro";
@@ -4825,12 +4839,279 @@ function paintEdificio(st) {
   g.restore();
 }
 
+// SOLAR -----------------------------------------------------------------------------------
+
+// Un solar del barrio (solar_state): arriba las tres pestañas, el solar dibujado (descampado con valla y
+// cartel, obra con grúa y andamio, o el edificio acabado) con su ficha al lado, debajo la tabla de proyectos
+// (o la ficha de lo construido) y el termómetro de la burbuja. Los botones de Discord van debajo de la imagen:
+// las pestañas son el 1, 2 y 3 y los proyectos salen en el orden de la tabla.
+const SOLAR_TAB_Y = 164, SOLAR_TAB_H = 52, SOLAR_Y = 226, SOLAR_H = 220, SOLAR_LOW_Y = 458, SOLAR_LOW_H = 184, BUBBLE_Y = 650;
+const SOLAR_STATUS = { libre: ["LIBRE", "green"], obras: ["EN OBRAS", "amber"], hecho: ["HECHO", "blue"] };
+
+// Qué se construye: la clave del proyecto (`housing_solars.PROJECTS`) y sus plantas, que manda Python.
+function projectOf(item) {
+  const key = item && item.project_key, floors = (item && item.floors) || 1;
+  return { kind: key === "torre" || key === "casa" ? key : "bloque", floors };
+}
+// El icono de un proyecto, de trazos: una casa con su tejado, un bloque con tantas filas de ventanas como
+// plantas o una torre estrecha con su antena. `by` es el suelo y `hh` la altura.
+function solarGlyph(kind, floors, cx, by, hh, col) {
+  const dark = shade(col, -0.35);
+  if (kind === "casa") {
+    const w = hh * 1.1, h = hh * 0.55;
+    rect(cx - w / 2, by - h, w, h, col); poly([[cx - w / 2 - hh * 0.1, by - h], [cx, by - hh], [cx + w / 2 + hh * 0.1, by - h]], dark);
+    rect(cx - w * 0.12, by - h * 0.6, w * 0.24, h * 0.6, "rgba(255,255,255,0.85)");
+    return;
+  }
+  const w = kind === "torre" ? hh * 0.42 : hh * 0.62, rows = Math.min(floors, 8), rh = hh / rows;
+  rect(cx - w / 2, by - hh, w, hh, col);
+  g.beginPath();
+  for (let k = 0; k < rows; k++) for (const dx of [-0.25, 0.1]) g.rect(cx + dx * w, by - hh + k * rh + rh * 0.25, w * 0.15, rh * 0.5);
+  g.fillStyle = "rgba(255,255,255,0.85)"; g.fill();
+  if (kind === "torre") line(cx, by - hh, cx, by - hh - hh * 0.2, dark, Math.max(1, hh * 0.06));
+  else rect(cx - w / 2 - 1, by - hh - 1.5, w + 2, 2, dark);
+}
+// El icono de cada estado (para las pestañas y la marca del plano): valla, grúa o el edificio.
+function solarStatusIcon(item, cx, cy, sz) {
+  const status = item.status, mine = item.mine;
+  const col = mine ? C.blue : status === "hecho" ? C.laurelDk : status === "obras" ? C.sunDk : C.mute;
+  if (status === "obras") crane(cx, cy, sz * 0.5, col);
+  else if (status === "hecho") { const p = projectOf(item); solarGlyph(p.kind, p.floors, cx, cy + sz * 0.5, sz, col); }
+  else { // la valla: tres postes y dos travesaños
+    const w = sz * 1.1;
+    for (const dx of [-0.5, 0, 0.5]) rect(cx + dx * w - 1.5, cy - sz * 0.25, 3, sz * 0.75, col);
+    rect(cx - w * 0.55, cy - sz * 0.1, w * 1.1, 3, col); rect(cx - w * 0.55, cy + sz * 0.2, w * 1.1, 3, col);
+  }
+}
+
+function solarTabs(st) {
+  const gap = 8, tw = (W - 32 - 2 * gap) / 3;
+  (st.tabs || []).slice(0, 3).forEach((t, i) => {
+    const x = 16 + i * (tw + gap), y = SOLAR_TAB_Y, h = SOLAR_TAB_H;
+    card(x, y, tw, h, { r: 12, fill: t.selected ? "#fff1c9" : C.card, stroke: t.selected ? C.sun : t.mine ? C.blue : undefined });
+    bigSlot(t.slot, x + 28, y + h / 2, 17);
+    solarStatusIcon(t, x + 72, y + h / 2 - 2, 24, t.mine);
+    fitText(t.street, x + 96, y + 18, tw - 110, F.d, 18, 12, { color: C.ink });
+    fitText(t.text, x + 96, y + 38, tw - 110, F.m, 15, 11, { color: t.mine ? C.blue : C.mute });
+  });
+}
+
+// La grúa torre del solar: mástil de celosía, pluma, contrapeso, cabina y el cable con su cubo.
+function siteCrane(x, by, hh) {
+  const col = "#f2b01e", dk = "#b07a00";
+  g.save(); g.lineCap = "round";
+  for (const dx of [-5, 5]) line(x + dx, by, x + dx, by - hh, col, 2);
+  for (let k = 0; k * 14 < hh - 14; k++) { line(x - 5, by - k * 14, x + 5, by - k * 14 - 14, col, 1.3); line(x + 5, by - k * 14, x - 5, by - k * 14 - 14, col, 1.3); }
+  rect(x - 9, by - hh - 4, 18, 6, dk);
+  line(x - 46, by - hh - 1, x + 104, by - hh - 1, col, 4); line(x, by - hh - 24, x + 104, by - hh - 1, dk, 1.2); line(x, by - hh - 24, x - 46, by - hh - 1, dk, 1.2);
+  line(x, by - hh - 4, x, by - hh - 24, col, 3);
+  rect(x - 50, by - hh - 2, 12, 12, "#6b6f76"); fillRR(x - 4, by - hh + 2, 12, 11, 2, "#fff");
+  const hx = x + 78;
+  line(hx, by - hh, hx, by - 56, "#33383f", 1.2);
+  rect(hx - 9, by - 56, 18, 8, "#a07a4a"); rect(hx - 9, by - 57, 18, 2, "#6b4a2a");
+  g.restore();
+}
+// Andamio: postes, travesaños y cruces, con su red verde por delante.
+function scaffold(x, by, w, hh) {
+  const col = "#7c8793";
+  rect(x, by - hh, w, hh, "rgba(80,160,110,0.28)");
+  for (let k = 0; k <= hh; k += 16) line(x, by - k, x + w, by - k, col, 1.4);
+  for (let k = 0; k < hh - 16; k += 32) { line(x, by - k, x + w, by - k - 16, col, 1); line(x + w, by - k - 16, x, by - k - 32, col, 1); }
+  line(x, by, x, by - hh, col, 2); line(x + w, by, x + w, by - hh, col, 2);
+}
+// La valla de obra por delante del solar: chapas azules entre postes, con la cinta de peligro arriba.
+function solarFence(x0, x1, by) {
+  for (let px = x0; px < x1 - 1; px += 26) {
+    const pw = Math.min(24, x1 - px);
+    fillRR(px, by - 18, pw, 18, 2, px % 52 < 26 ? "#3a6ea8" : "#4a80ba");
+    rect(px + 8, by - 18, 2, 18, "rgba(255,255,255,0.18)");
+  }
+  hazard(x0, by - 22, x1 - x0, 5, 1);
+  for (let px = x0; px <= x1; px += 52) rect(px - 1.5, by - 24, 3, 26, "#2a2f36");
+}
+function cone(x, by) { poly([[x - 5, by], [x + 5, by], [x + 2.4, by - 14], [x - 2.4, by - 14]], C.orange); rect(x - 3.6, by - 8, 7.2, 2.6, "#fff"); rect(x - 7, by - 1.6, 14, 2.6, "#33383f"); }
+function solarSign(x, by, sol) {
+  rect(x - 40, by - 52, 3, 52, "#555"); rect(x + 37, by - 52, 3, 52, "#555");
+  fillRR(x - 56, by - 98, 112, 50, 5, "rgba(0,0,0,0.2)"); fillRR(x - 58, by - 100, 116, 50, 5, "#fffdf6");
+  rr(x - 58, by - 100, 116, 50, 5); g.strokeStyle = "#c9302c"; g.lineWidth = 2.6; g.stroke(); rect(x - 58, by - 100, 116, 5, "#c9302c");
+  TX("SOLAR", x, by - 82, { font: F.t(26), color: "#c9302c", align: "center" });
+  fitText(`N.º ${sol.number} · ${sol.m2.replace(" de suelo", "")}`, x, by - 61, 104, F.d, 13, 10, { color: C.ink, align: "center" });
+}
+
+// El edificio acabado: casa con tejado a dos aguas, bloque con balcones o torre de cristal.
+function solarTower(kind, floors, key, cx, by, fh, w, theme) {
+  const r = rng(hmix(key + ":solar")), wall = pickOf(r, ED_WALLS[theme] || ED_WALLS.centro), x0 = cx - w / 2;
+  if (kind === "casa") {
+    const h = 44;
+    rect(x0, by - h, w, h, lgrad(x0, 0, x0 + w, 0, [[0, shade(wall, 0.08)], [1, shade(wall, -0.1)]]));
+    gableRoof(x0, x0 + w, by - h, by - h - 26, "#b4532a", 8);
+    glass(x0 + 12, by - h + 8, 22, 18); glass(x0 + w - 34, by - h + 8, 22, 18);
+    fillRR(cx - 8, by - 26, 16, 26, 2, pickOf(r, ED_WOOD));
+    return;
+  }
+  const h = fh * floors, cols = Math.max(2, Math.floor(w / 34)), glassy = kind === "torre";
+  rect(x0, by - h, w, h, glassy ? lgrad(x0, 0, x0 + w, 0, [[0, "#8fb4cc"], [1, "#4e7896"]]) : lgrad(x0, 0, x0 + w, 0, [[0, shade(wall, 0.08)], [1, shade(wall, -0.12)]]));
+  for (let f = 0; f < floors; f++) {
+    const fy = by - h + f * fh;
+    for (let c = 0; c < cols; c++) {
+      const wx = x0 + (c + 0.5) * (w / cols) - 9;
+      if (f === floors - 1 && !glassy) { fillRR(cx - 9, by - 24, 18, 24, 2, pickOf(r, ED_WOOD)); break; }
+      glass(wx, fy + fh * 0.22, 18, fh * 0.52);
+      if (!glassy && f % 2 === 1) rect(wx - 3, fy + fh * 0.78, 24, 2.4, "#3a424c");
+    }
+    if (glassy) line(x0, fy, x0 + w, fy, "rgba(255,255,255,0.35)", 1);
+  }
+  rect(x0 - 2, by - h - 4, w + 4, 5, shade(wall, -0.4));
+  if (glassy) line(cx, by - h - 4, cx, by - h - 26, "#555", 1.6);
+}
+// La obra: el esqueleto sube con el avance (pilares y forjados, los pisos de abajo ya con muro).
+function solarWorks(kind, floors, progress, cx, by, fh, w) {
+  const step = kind === "casa" ? 44 : fh, total = step * floors, cur = total * clamp(progress, 0, 1), x0 = cx - w / 2;
+  const levels = cur > 0 ? Math.ceil(cur / step - 1e-6) : 0;
+  rect(x0 - 6, by - 4, w + 12, 4, "#8d7a5a"); // la losa de cimentación
+  for (let i = 0; i < levels; i++) {
+    const top = by - Math.min((i + 1) * step, cur), bot = by - i * step;
+    if (i < levels - 1) { rect(x0, top, w, bot - top, "#d3c9b6"); g.beginPath(); for (let wx = x0 + 10; wx < x0 + w - 14; wx += 30) g.rect(wx, top + 7, 16, Math.min(12, bot - top - 12)); g.fillStyle = "rgba(60,90,120,0.45)"; g.fill(); }
+    for (let px = x0; px <= x0 + w; px += w / 4) rect(px - 2, top, 4, bot - top, "#8a8f96");
+    rect(x0 - 3, top - 3, w + 6, 4, "#a6abb2");
+  }
+  const topY = by - cur;
+  for (let px = x0; px <= x0 + w; px += w / 4) line(px, topY, px, topY - 12, "#9a5a38", 1.4); // las varillas del hierro
+  return topY;
+}
+
+function solarScene(st, x, y, w, h) {
+  const b = st.barrio, theme = SKY[b.theme] ? b.theme : "centro", sol = st.solar, built = st.built, [sky1, sky2] = SKY[theme];
+  const gy = y + h - 40, seed = hash(sol.key), cx = x + w / 2, lx0 = x + 96, lx1 = x + w - 96;
+  card(x, y, w, h, { r: 16, ...(sol.mine ? { stroke: C.blue } : {}) });
+  g.save(); rr(x, y, w, h, 16); g.clip();
+  rect(x, y, w, gy - y, vgrad(y, gy, mix(sky1, "#ffffff", 0.72), mix(sky2, "#ffffff", 0.15)));
+  rect(x, gy - 34, w, 34, mix(BAND[theme], "#ffffff", 0.4));
+  const r = rng(seed + 7);
+  neighbor(x - 6, 92, gy - 104 - Math.floor(r() * 24), pickOf(r, PASTEL), gy); neighbor(x + w - 86, 92, gy - 84 - Math.floor(r() * 24), pickOf(r, PASTEL), gy);
+  rect(x, gy, w, 7, GROUND[theme]); rect(x, gy + 7, w, y + h - gy - 7, "#565b63");
+  for (let k = x + 10; k < x + w; k += 34) rect(k, gy + 17, 16, 2.4, "rgba(255,255,255,0.75)");
+  streetProp(theme, x + 52, gy, seed); streetProp(theme, x + w - 52, gy, seed + 1);
+  rect(lx0 - 6, gy - 5, lx1 - lx0 + 12, 12, "#bfa574"); // el terreno del solar
+  const p = built ? projectOf(built) : { kind: "casa", floors: 1 };
+  const fh = Math.min(30, 150 / p.floors * (p.kind === "torre" ? 0.9 : 0.82)), bw = p.kind === "casa" ? 120 : p.kind === "torre" ? 108 : p.floors > 5 ? 150 : 170;
+  if (sol.status === "libre") {
+    speckle(lx0, gy - 4, lx1 - lx0, 8, seed, 40, 3, "rgba(90,70,40,0.5)");
+    ell(cx + 62, gy - 4, 46, 12, "#a98a58"); ell(cx + 90, gy - 4, 26, 18, "#9a7c4c"); // montones de tierra
+    agave(lx0 + 18, gy - 2, 1.1); tunera(lx1 - 24, gy - 2, 0.9); pallets(lx0 + 56, gy - 2, 2); barrel(lx1 - 70, gy - 2, "#3a6ea8");
+    cone(lx0 + 100, gy + 2); cone(lx1 - 100, gy + 2);
+    solarSign(cx - 10, gy - 4, sol);
+  } else if (sol.status === "obras") {
+    const fx = cx - 30, topY = solarWorks(p.kind, p.floors, built.progress, fx, gy, fh, bw);
+    scaffold(fx - bw / 2 - 20, gy, 16, Math.max(24, gy - topY));
+    siteCrane(lx1 - 30, gy, gy - y - 18);
+    pallets(lx0 + 12, gy - 2, 2); cone(lx0 + 52, gy + 2); cone(lx1 - 80, gy + 2);
+  } else {
+    solarTower(p.kind, p.floors, sol.key, cx, gy, fh, bw, theme);
+    bollard(cx - bw / 2 - 18, gy + 4); bollard(cx + bw / 2 + 18, gy + 4);
+  }
+  if (sol.status === "libre") solarFence(lx0, lx1, gy + 6);
+  else if (sol.status === "obras") { solarFence(lx0, lx0 + 54, gy + 6); solarFence(lx1 - 54, lx1, gy + 6); }
+  g.restore();
+  if (sol.status === "obras") tag(`OBRAS · ${Math.round(clamp(built.progress, 0, 1) * 100)} %`, x + 14, y + 12, "amber", null, 17);
+}
+
+function solarInfo(st, x, y, w, h) {
+  const sol = st.solar, [label, kind] = SOLAR_STATUS[sol.status] || SOLAR_STATUS.libre;
+  card(x, y, w, h, { r: 16 });
+  streetPlate(sol.street, x + 16, y + 14, w - 32);
+  fitText(`Solar N.º ${sol.number} · ${sol.m2}`, x + 18, y + 80, w - 36, F.d, 20, 14, { color: C.ink });
+  let cx = x + 18;
+  cx += chip(label, cx, y + 98, kind, { size: 18 }) + 8;
+  if (sol.mine) cx += tag("Tuyo", cx, y + 100, "blue", "house", 16) + 8;
+  if (sol.status === "libre") tag(st.level, cx, y + 100, "steel", null, 16, w - 36 - (cx - x - 18));
+  fitText(sol.text, x + 18, y + 156, w - 36, F.d, 21, 14, { color: C.ink });
+  if (sol.status === "libre") paragraph("Elige un proyecto con los botones de debajo: la tabla dice lo que cuesta, lo que valdrá y el puesto que pide.", x + 18, y + 180, w - 36, F.m(16), 20, 2, { color: C.mute });
+  else fitText(st.level, x + 18, y + 186, w - 36, F.m, 17, 12, { color: C.mute });
+}
+
+// La tabla de proyectos: lo que cuesta, lo que valdrá y qué pide cada uno; los que no se pueden, en gris con su motivo.
+function solarTable(st, x, y, w, h) {
+  card(x, y, w, h, { r: 16 });
+  const cols = { name: x + 70, uds: x + 292, days: x + 352, cost: x + 490, value: x + 612, margin: x + 676, pide: x + 700 };
+  const head = { font: F.d(13), color: C.mute };
+  T("Proyecto", cols.name, y + 17, head); T("Uds.", cols.uds, y + 17, { ...head, align: "right" }); T("Obra", cols.days, y + 17, { ...head, align: "right" });
+  T("Coste", cols.cost, y + 17, { ...head, align: "right" }); T("Valdrá", cols.value, y + 17, { ...head, align: "right" });
+  T("Margen", cols.margin, y + 17, { ...head, align: "right" }); T("Pide", cols.pide, y + 17, head);
+  line(x + 14, y + 29, x + w - 14, y + 29, C.line, 1.2);
+  (st.projects || []).slice(0, 5).forEach((pr, i) => {
+    const ry = y + 31 + i * 30, mid = ry + 15, on = pr.can, ink = on ? C.ink : C.mute;
+    if (i % 2) rect(x + 8, ry, w - 16, 30, "rgba(160,120,60,0.07)");
+    g.save(); g.globalAlpha = on ? 1 : 0.5;
+    solarGlyph(pr.key === "torre" ? "torre" : pr.key === "casa" ? "casa" : "bloque", pr.floors, x + 40, ry + 27, 24, on ? C.laurelDk : C.grey);
+    g.restore();
+    fitText(pr.name, cols.name, mid, 186, F.d, 17, 12, { color: ink });
+    T(String(pr.units), cols.uds, mid, { font: F.m(16), color: ink, align: "right" });
+    T(pr.days.replace(" días", " d"), cols.days, mid, { font: F.m(16), color: ink, align: "right" });
+    T(pr.cost, cols.cost, mid, { font: F.d(16), color: ink, align: "right" });
+    T(pr.value, cols.value, mid, { font: F.d(16), color: ink, align: "right" });
+    T(pr.margin, cols.margin, mid, { font: F.d(16), color: on ? (pr.margin.startsWith("-") || pr.margin.startsWith("−") ? C.redDk : C.greenDk) : C.mute, align: "right" });
+    if (on) { chip(pr.level, cols.pide, mid - 12, "green", { size: 13 }); T("Se puede construir", cols.pide + 52, mid, { font: F.m(15), color: C.greenDk }); }
+    else fitText(pr.reason || `Pide ${pr.level} en Ladrillo`, cols.pide, mid, x + w - 14 - cols.pide, F.d, 15, 11, { color: C.redDk });
+  });
+}
+// Lo que hay construido (o en obras): la barra de avance y dos filas de datos.
+function solarBuilt(st, x, y, w, h) {
+  const bt = st.built, pct = clamp(bt.progress, 0, 1);
+  card(x, y, w, h, { r: 16 });
+  T(pct >= 1 ? "Obra terminada" : "Obra en marcha", x + 18, y + 24, { font: F.d(18), color: C.ink });
+  const bx = x + 220, bw = w - 220 - 18;
+  fillRR(bx, y + 11, bw, 26, 13, "#e6dcc4");
+  fillRR(bx, y + 11, Math.max(26, bw * pct), 26, 13, pct >= 1 ? C.green : C.sun);
+  T(`${Math.round(pct * 100)} %`, bx + bw / 2, y + 25, { font: F.d(17), color: pct > 0.5 ? "#fff" : C.ink, align: "center" });
+  const cell = (label, value, col, row, tone) => {
+    const cw = (w - 32 - 3 * 10) / 4, cx = x + 16 + col * (cw + 10), cy = y + 50 + row * 62;
+    card(cx, cy, cw, 54, { r: 12, fill: "#e9f3f4" });
+    fitText(label, cx + 12, cy + 17, cw - 24, F.m, 15, 12, { color: C.mute });
+    fitText(value, cx + 12, cy + 39, cw - 24, F.d, 22, 14, { color: tone || C.ink });
+  };
+  cell("Constructor", bt.owner, 0, 0, bt.owner === "Tuyo" ? C.blue : C.ink);
+  cell("Unidades", String(bt.units), 1, 0);
+  cell("Tuyas", String(bt.mine), 2, 0, bt.mine ? C.blue : C.mute);
+  cell("A la venta", String(bt.for_sale), 3, 0, bt.for_sale ? C.greenDk : C.mute);
+  cell("Coste de la obra", bt.cost, 0, 1);
+  cell("Valdrá", bt.value, 1, 1);
+  cell("Empezó", bt.started, 2, 1);
+  cell("Acaba", bt.until, 3, 1);
+}
+
+// El termómetro de la burbuja: la presión (obra empezada frente a lo comprado) sobre una escala de calma a burbuja.
+const BUBBLE_TONE = { calma: ["turq", C.turqDk], tension: ["amber", "#b07a00"], burbuja: ["red", C.redDk] };
+function bubbleBox(bb, x, y, w, h) {
+  const [kind, ink] = BUBBLE_TONE[bb.level] || BUBBLE_TONE.calma;
+  card(x, y, w, h, { r: 16 });
+  T("Burbuja", x + 18, y + 20, { font: F.d(14), color: C.mute });
+  chip(bb.name, x + 18, y + 32, kind, { size: 18, maxW: 150 });
+  const tx = x + 190, tw = 430, ty = y + 18, pressure = parseFloat(String(bb.pressure).replace(",", ".")) || 0, at = tx + 8 + (tw - 16) * clamp(pressure / 4, 0, 1);
+  fillRR(tx, ty, tw, 16, 8, lgrad(tx, 0, tx + tw, 0, [[0, "#2fae5f"], [0.25, "#8dc63f"], [0.5, "#f2b81c"], [0.75, "#f08a24"], [1, "#d23a3a"]]));
+  line(tx + tw / 4, ty - 3, tx + tw / 4, ty + 19, "rgba(27,42,53,0.55)", 1.6);
+  dot(at, ty + 8, 11, "rgba(0,0,0,0.25)"); dot(at, ty + 7, 11, "#fff"); dot(at, ty + 7, 7, ink);
+  fitText(`Presión ${bb.pressure} · ${bb.text}`, tx, y + 56, w - 190 - 18, F.m, 15, 11, { color: C.mute });
+  T(bb.odds, x + w - 18, y + 24, { font: F.d(30), color: ink, align: "right" });
+  T("de estallar este lunes", x + w - 18 - width(bb.odds, F.d(30)) - 10, y + 27, { font: F.m(15), color: C.mute, align: "right" });
+}
+
+function paintSolar(st) {
+  barrioTop(st);
+  solarTabs(st);
+  solarScene(st, 16, SOLAR_Y, 500, SOLAR_H);
+  solarInfo(st, 530, SOLAR_Y, W - 546, SOLAR_H);
+  if (st.built) solarBuilt(st, 16, SOLAR_LOW_Y, W - 32, SOLAR_LOW_H);
+  else solarTable(st, 16, SOLAR_LOW_Y, W - 32, SOLAR_LOW_H);
+  bubbleBox(st.bubble, 16, BUBBLE_Y, W - 32, 76);
+}
+
 // -- Entrada ------------------------------------------------------------------------------
 
 const SCREENS = { mapa: paintMapa, barrio: paintBarrio, ficha: paintFicha, cartera: paintCartera, caja: paintCaja, vpo: paintVpo,
   gestion: paintGestion, candidatos: paintCandidatos, subastas: paintSubastas, reformas: paintReformas,
   imprevistos: paintImprevistos, resenas: paintResenas, junta: paintJunta, plantas: paintPlantas, dividir: paintDividir,
-  calles: paintCalles, edificio: paintEdificio };
+  calles: paintCalles, solar: paintSolar, edificio: paintEdificio };
 
 function paintScreen(st) {
   const draw = SCREENS[st.screen];

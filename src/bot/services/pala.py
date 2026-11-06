@@ -2249,6 +2249,16 @@ class WorkService:
 
     # -- La obra nueva de `pisos` ----------------------------------------------------
 
+    async def ladrillo_level(self, guild_id: int, user_id: int) -> int:
+        """El puesto de alguien en la rama Ladrillo de la obra (6 a 10), o 0 si no está en ella.
+
+        Decide qué puede construir en los solares de `pisos` (`housing_solars.PROJECTS`).
+        """
+        contract = await self.repository.contract(guild_id, user_id)
+        if contract is None or contract.job != BUILDER_JOB or contract.branch != BUILDER_BRANCH:
+            return 0
+        return contract.level
+
     async def ladrillo_builders(self, guild_id: int) -> tuple[int, ...]:
         """Quienes han fichado la última semana en la rama Ladrillo de la obra.
 

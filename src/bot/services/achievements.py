@@ -141,6 +141,7 @@ from bot.services.housing_catalog import KINDS as HOUSING_KINDS
 from bot.services.housing_catalog import REFORMS as HOUSING_REFORMS
 from bot.services.housing_catalog import TENANTS as HOUSING_TENANTS
 from bot.services.housing_catalog import THEMES as HOUSING_THEMES
+from bot.services.housing_solars import PROJECTS as SOLAR_PROJECTS
 from bot.services.housing_streets import (
     APARCAMIENTO,
     BLOQUE,
@@ -840,6 +841,16 @@ PISOS_BUILDING_PREFIX = "pisos_bldg_"
 PISOS_BUILDINGS_SEEN_STAT = "pisos_buildings_seen"
 PISOS_NEWS_STAT = "pisos_news"
 PISOS_KINDS_STAT = "pisos_kinds"
+#: 9.56.0: lo construido en los solares, un contador por proyecto, barrio e isla
+#: (`housing_solar_stats`); los distintos, en `with_derived`.
+PISOS_SOLAR_PROJECT_PREFIX = "pisos_solar_p_"
+PISOS_SOLAR_BARRIO_PREFIX = "pisos_solar_b_"
+PISOS_SOLAR_ISLAND_PREFIX = "pisos_solar_i_"
+PISOS_SOLAR_PROJECTS_STAT = "pisos_solar_projects"
+PISOS_SOLAR_BARRIOS_STAT = "pisos_solar_barrios"
+PISOS_SOLAR_ISLANDS_STAT = "pisos_solar_islands"
+#: Índice por debajo del cual un barrio está hundido (el logro de construir en uno).
+PISOS_SOLAR_LOW_INDEX = 0.95
 
 #: `casa`: una noche en cada tipo de vivienda (`casa_kind_<tipo>`, con `habitacion` y `vpo`);
 #: cuántos distintos, en `with_derived`.
@@ -966,6 +977,12 @@ CASA_POWER_STORY = (
     "de la Ley 38/1992). El agua también va al tipo cero; la fibra, al IGIC general del 7 %."
 )
 
+PISOS_ICIO_STORY = (
+    "🏗️ **ICIO.** El Impuesto sobre Construcciones, Instalaciones y Obras lo cobra el "
+    "ayuntamiento sobre lo que cuesta la obra (arts. 100 a 103 del RDL 2/2004), con el 4 % "
+    "como máximo, que es lo que se paga aquí. Va aparte de la tasa de la licencia: una cosa es "
+    "pedir permiso y otra pagar por usarlo."
+)
 RASTRO_ITP_STORY = (
     "📄 **Modelo 600.** Comprar de segunda mano a otro particular no lleva "
     "IGIC: lleva el Impuesto sobre Transmisiones Patrimoniales, que en Canarias es el "
@@ -8864,6 +8881,78 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1_000_000, "pisos_promofee_1m", "Margen de promotora",
          "Cobra 1.000.000 Y$ de comisión de promotor.", L),
     ], unit="money")  # fmt: skip
+    # Los solares (9.56.0): lo que construye la rama Ladrillo en las calles.
+    a += _tiers("pisos", "pisos_solars", [
+        (1, "pisos_solar_1", "Ladrillo a ladrillo", "Empieza tu primera obra en un solar.", E),
+        (5, "pisos_solar_5", "Hormigón armado hasta los dientes",
+         "Empieza 5 obras en solares.", L),
+        (20, "pisos_solar_20", "El Señor de los Andamios", "Empieza 20 obras en solares.", M),
+    ])  # fmt: skip
+    a += _tiers("pisos", "pisos_solars_done", [
+        (1, "pisos_solar_done_1", "Fin de obra, principio de fiesta",
+         "Termina una obra en un solar.", E),
+        (5, "pisos_solar_done_5", "Cortacintas profesional", "Termina 5 obras en solares.", L),
+    ])  # fmt: skip
+    for key, achievement_id, name, rarity in (
+        ("casa", "pisos_solar_casa", "Hogar, dulce solar", E),
+        ("bloque3", "pisos_solar_bloque3", "Tres plantas y un destino", L),
+        ("bloque5", "pisos_solar_bloque5", "Quinto sin ascensor", L),
+        ("bloque7", "pisos_solar_bloque7", "Séptimo cielo", L),
+        ("torre", "pisos_solar_torre", "Torre de Babel con piscina", L),
+    ):
+        project = next(p for p in SOLAR_PROJECTS if p.key == key)
+        a += _tiers("pisos", f"{PISOS_SOLAR_PROJECT_PREFIX}{key}", [
+            (1, achievement_id, name,
+             f"Construye un proyecto «{project.name}» en un solar (pide P{project.level} en la "
+             "rama Ladrillo de `pala`).", rarity),
+        ])  # fmt: skip
+    a += _tiers("pisos", PISOS_SOLAR_PROJECTS_STAT, [
+        (len(SOLAR_PROJECTS), "pisos_solar_all", "Catálogo de la promotora",
+         "Construye en solares los cinco proyectos, de la casa a la torre.", L),
+    ])  # fmt: skip
+    a += _tiers("pisos", "pisos_solar_units", [
+        (10, "pisos_solar_units_10", "Diez puertas, un llavero",
+         "Levanta 10 unidades en solares.", E),
+        (50, "pisos_solar_units_50", "Medio centenar de buzones",
+         "Levanta 50 unidades en solares.", L),
+        (200, "pisos_solar_units_200", "Código postal propio",
+         "Levanta 200 unidades en solares.", M),
+    ])  # fmt: skip
+    a += _tiers("pisos", "pisos_solar_spent", [
+        (10_000_000, "pisos_solar_spent_10m", "Diez kilos al hormigón",
+         "Invierte 10.000.000 Y$ en obras de solares, impuestos incluidos.", E),
+        (100_000_000, "pisos_solar_spent_100m", "Cien millones en vigas",
+         "Invierte 100.000.000 Y$ en obras de solares, impuestos incluidos.", L),
+    ], unit="money")  # fmt: skip
+    a += _tiers("pisos", PISOS_SOLAR_BARRIOS_STAT, [
+        (5, "pisos_solar_barrios_5", "Grúas hasta en la sopa",
+         "Construye en solares de 5 barrios distintos.", L),
+        (20, "pisos_solar_barrios_20", "Canarias, tierra de grúas",
+         "Construye en solares de los 20 barrios.", M),
+    ])  # fmt: skip
+    a += _tiers("pisos", PISOS_SOLAR_ISLANDS_STAT, [
+        (2, "pisos_solar_islands_2", "Dos islas, una grúa",
+         "Construye en solares de Gran Canaria y de Tenerife.", E),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="pisos_solar_icio_1",
+        name="Impuesto de Construir y Sufrir",
+        description="Paga el ICIO de una obra en un solar.",
+        category="pisos",
+        rarity=E,
+        conditions=(("pisos_solar_icio", 1),),
+        story=PISOS_ICIO_STORY,
+    ))  # fmt: skip
+    a += _tiers("pisos", "pisos_bubble_hit", [
+        (1, "pisos_bubble_hit_1", "Pompa y circunstancia",
+         "Que te pille la burbuja del ladrillo con una obra en marcha o recién empezada.", E,
+         True),
+    ])  # fmt: skip
+    a += _tiers("pisos", "pisos_solar_low", [
+        (1, "pisos_solar_low_1", "Comprar cuando hay sangre en las calles",
+         "Empieza una obra en un barrio que vale menos que de costumbre (índice por debajo de "
+         "0,95).", E, True),
+    ])  # fmt: skip
     a += _tiers("pisos", "pisos_new_build", [
         (1, "pisos_newbuild_1", "Sobre plano",
          "Compra participaciones de una promoción de obra nueva.", C),
@@ -23656,7 +23745,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     las duraciones de contrato distintas (12, 24, 36, 48 y 60 días) que ha elegido, y
     `staff_horarios`, los horarios distintos de la plantilla que ha usado;
     `gallos_drill_kinds` y `gallos_event_kinds`, los minijuegos y los eventos del
-    gimnasio de los gallos distintos.
+    gimnasio de los gallos distintos; `pisos_solar_projects`, `pisos_solar_barrios` y
+    `pisos_solar_islands`, los proyectos, barrios e islas distintos en que ha construido en un
+    solar.
     """
     full = dict(stats)
     full[MESSAGES_TOTAL_STAT] = full.get("messages", 0) + full.get("messages_imported", 0)
@@ -23770,6 +23861,15 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     )
     full[PISOS_BARRIOS_STAT] = sum(
         1 for key in BARRIO_BY_KEY if stats.get(f"{PISOS_BARRIO_PREFIX}{key}", 0) > 0
+    )
+    full[PISOS_SOLAR_PROJECTS_STAT] = sum(
+        1 for p in SOLAR_PROJECTS if stats.get(f"{PISOS_SOLAR_PROJECT_PREFIX}{p.key}", 0) > 0
+    )
+    full[PISOS_SOLAR_BARRIOS_STAT] = sum(
+        1 for key in BARRIO_BY_KEY if stats.get(f"{PISOS_SOLAR_BARRIO_PREFIX}{key}", 0) > 0
+    )
+    full[PISOS_SOLAR_ISLANDS_STAT] = sum(
+        1 for key in ("gc", "tf") if stats.get(f"{PISOS_SOLAR_ISLAND_PREFIX}{key}", 0) > 0
     )
     full[PISOS_KINDS_STAT] = sum(
         1 for key in HOUSING_KINDS if stats.get(f"{PISOS_KIND_PREFIX}{key}", 0) > 0
@@ -29100,6 +29200,34 @@ def housing_panel_stats(
 def _unit_kind(key: str) -> str:
     item = STREET_UNIT_BY_KEY.get(key) or LISTING_BY_KEY.get(key)
     return item.kind if item is not None else ""
+
+
+def housing_solar_stats(
+    *, project: str, units: int, amount: int, icio: int, barrio: str, index: float
+) -> StatDelta:
+    """Estadísticas de empezar una obra en un solar de `pisos` (9.56.0).
+
+    Args:
+        project: Clave del proyecto (`housing_solars.PROJECT_BY_KEY`).
+        units: Unidades que salen.
+        amount: Todo lo pagado, con impuestos.
+        icio: El ICIO pagado.
+        barrio: Clave del barrio.
+        index: Índice del barrio al empezar.
+    """
+    island = BARRIO_BY_KEY[barrio].island
+    add = {
+        "pisos_solars": 1,
+        "pisos_solar_units": units,
+        "pisos_solar_spent": amount,
+        "pisos_solar_icio": icio,
+        f"{PISOS_SOLAR_PROJECT_PREFIX}{project}": 1,
+        f"{PISOS_SOLAR_BARRIO_PREFIX}{barrio}": 1,
+        f"{PISOS_SOLAR_ISLAND_PREFIX}{island}": 1,
+    }
+    if index < PISOS_SOLAR_LOW_INDEX:
+        add["pisos_solar_low"] = 1
+    return StatDelta(add=add, peak={"pisos_solar_max": amount})
 
 
 def housing_streets_stats(shares: Mapping[str, int]) -> StatDelta:

@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from bot.services import housing as h  # noqa: E402
+from bot.services import housing_solars as solar_rules  # noqa: E402
 from bot.services import loans as lending  # noqa: E402
 from bot.services import taxes  # noqa: E402
 from bot.services.housing_catalog import KINDS, LISTINGS  # noqa: E402
@@ -297,6 +298,7 @@ class Simulation:
         invest: str = "lev",
         level: str = "referencia",
         curve: Curve | None = None,
+        solares: bool = False,
     ) -> None:
         self.c = Career(plan)
         self.nota = nota
@@ -322,6 +324,11 @@ class Simulation:
         self._new_week()
         self.previous_rate = 0.0
         self.previous_wages = 0
+        #: Solares (9.56.0): si construye en la rama Ladrillo, la obra en marcha
+        #: `(día que acaba, lo pagado, lo que valen las unidades)` y los solares que quedan.
+        self.solares = solares
+        self.works: tuple[int, float, float] | None = None
+        self.free_solars = list(solar_rules.SOLARS)
 
     def _new_week(self) -> None:
         self.income = WeekIncome()
@@ -483,7 +490,8 @@ class Simulation:
             - hold.rebalance
             for k, hold in self.holdings.items()
         )
-        return self.cash - self.debt + homes
+        works = self.works[1] if self.works else 0.0  # la obra en marcha, a lo que costó
+        return self.cash - self.debt + homes + works
 
     # -- Carrera ---------------------------------------------------------------------------
 
@@ -635,6 +643,49 @@ class Simulation:
             self.add("rehipoteca_gastos", quote.principal - quote.received)
         return avail, current
 
+    def solar_step(self) -> None:
+        """Construye en los solares (rama Ladrillo de la obra, 9.56.0) y vende al acabar.
+
+        Es el promotor que más rinde: al acabar vende todas las unidades al mercado (agencia con
+        IGIC y el IRPF de la ganancia) y empieza otra, la más grande que paga al contado con su
+        puesto, en el solar que más margen deja. Sin burbuja: es el techo de lo que da construir.
+        """
+        if self.works is not None and self.day >= self.works[0]:
+            _until, paid, value = self.works
+            fee = value * h.SALE_FEE_RATE * (1 + h.SERVICES_IGIC)
+            gain = round(value - fee - paid)
+            received = value - fee - taxes.capital_gain_tax(gain)
+            self.cash += received
+            self.add("solares_ganancia", received - paid)
+            self.works = None
+        c = self.c
+        if (
+            self.works is not None
+            or c.job.key != "obra"
+            or c.branch != "ladrillo"
+            or c.level < 6
+            or not self.free_solars
+        ):
+            return
+        pos = c.position()
+        avail = self.cash - CASH_BUFFER - (pos.fee if pos.self_employed else 0)
+        best = None
+        for solar in self.free_solars:
+            for project in solar_rules.projects_for(solar):
+                if project.level > c.level:
+                    continue
+                quote = solar_rules.build_quote(solar, project)
+                if quote.total <= avail and (best is None or quote.margin > best[2].margin):
+                    best = (solar, project, quote)
+        if best is None:
+            return
+        solar, _project, quote = best
+        self.free_solars.remove(solar)
+        self.cash -= quote.total
+        self.works = (self.day + quote.days, quote.total, quote.value)
+        self.add("solares_obras", 1)
+        self.add("solares_invertido", quote.total)
+
     def free_shares(self, key: str) -> int:
         hold = self.holdings.get(key)
         return h.SHARES - (hold.shares if hold else 0)
@@ -653,6 +704,8 @@ class Simulation:
                 pay = min(self.debt, self.cash)
                 self.debt -= pay
                 self.cash -= pay
+            if self.solares:
+                self.solar_step()
             self.invest_step()
             if day % 7 == 0:
                 self.close_week()
@@ -745,6 +798,7 @@ def main() -> None:
     parser.add_argument("--veterania", type=float, default=VETERAN_PAY, help="plus por rama")
     parser.add_argument("--patrimonio", type=float, help="rebaja máxima del límite conjunto")
     parser.add_argument("--calles", action="store_true", help="invierte también en las calles")
+    parser.add_argument("--solares", action="store_true", help="construye en los solares")
     args = parser.parse_args()
 
     if args.calles:
@@ -754,7 +808,7 @@ def main() -> None:
     curve = Curve(veteran=args.veterania, veteran_cap=args.veterania * VETERAN_MAX / VETERAN_PAY)
     jobs = [with_curve(job, curve) for job in JOBS] if args.curva else list(JOBS)
     by_key = {job.key: job for job in jobs}
-    opts = {"nota": args.nota, "shifts": args.turnos, "curve": curve}
+    opts = {"nota": args.nota, "shifts": args.turnos, "curve": curve, "solares": args.solares}
 
     print(
         f"W = {IRPF_YAPDOLLARS_PER_EURO} Y$/€ · Falcon {FALCON:,} Y$ · nota {args.nota} · "

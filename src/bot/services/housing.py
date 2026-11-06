@@ -69,7 +69,7 @@ from bot.services.housing_catalog import (
     RentLevel,
     Tenant,
 )
-from bot.services.housing_streets import STREET_UNIT_BY_KEY, STREET_UNITS
+from bot.services.housing_streets import STREET_UNIT_BY_KEY, STREET_UNITS, is_solar_unit
 from bot.services.taxes import (
     IGIC_BY_KEY,
     IGIC_GENERAL_RATE,
@@ -484,9 +484,11 @@ def barrio_weight(listing: Listing) -> float:
 
     Las unidades de las calles pesan su precio entre el de todas las de su barrio, y juntas
     `STREETS_WEIGHT`. La obra nueva (y una planta de un edificio dividido) cuenta con los nueve
-    y ella misma, así que nunca pesa más que todo el barrio.
+    y ella misma, así que nunca pesa más que todo el barrio. Lo construido en un solar (9.56.0)
+    pesa como una unidad más de las calles: si contara como la obra nueva, cada vivienda de una
+    torre pesaría lo que un destacado y el promotor inflaría su barrio solo con construir.
     """
-    if listing.key in STREET_UNIT_BY_KEY:
+    if listing.key in STREET_UNIT_BY_KEY or is_solar_unit(listing.key):
         return STREETS_WEIGHT * base_price(listing) / _streets_value(listing.barrio)
     total = _featured_value(listing.barrio)
     if listing.key not in LISTING_BY_KEY:

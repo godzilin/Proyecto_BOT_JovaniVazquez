@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.56.0 · 2026-11-06
+
+- Pisos: la rama Ladrillo de `pala` construye casas, bloques y torres en los solares de las calles, con su burbuja
+
 ### 9.55.1 · 2026-11-06
 
 - Entradas, beernight y música: vuelven a oírse. La librería de cifrado de voz `davey` 0.2, publicada el 2 de noviembre, no funciona con la versión actual de discord.py y el bot hablaba sin que se le oyera; se queda en la 0.1

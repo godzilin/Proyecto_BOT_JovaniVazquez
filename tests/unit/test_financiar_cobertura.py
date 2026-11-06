@@ -31,6 +31,7 @@ FINANCIADAS = {
     "bot/services/pala.py::buy_coffee": "`pala`: café",
     "bot/services/housing_market.py::start_reform": "`pisos`: obras",
     "bot/services/housing_market.py::split": "`pisos`: divisiones",
+    "bot/services/housing_market.py::build": "`pisos`: construir en un solar",
     "bot/services/negocio.py::buy": "negocio de autónomo: mercancía",
     "bot/services/negocio.py::buy_equipment": "negocio de autónomo: mejoras del local",
     "bot/services/negocio.py::start_campaign": "negocio de autónomo: campañas",

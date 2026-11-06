@@ -29,6 +29,10 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
 - `housing_promotions`: la obra nueva de cada servidor (fase 5): las promociones que
   levanta cada lunes quien está en la rama Ladrillo de `pala`, una por barrio. Son
   inmuebles como los del catálogo, pero solo de ese servidor.
+- `housing_solars`: lo construido en los solares de las calles (9.56.0): qué proyecto, quién,
+  cuándo empezó y el último día de obra, lo que costó y lo que valían las unidades al empezar
+  (para la burbuja). Las unidades salen del proyecto (`housing_solars.solar_units`); sus
+  participaciones y contratos van en las tablas de siempre.
 - `housing_member_debts`: lo que un miembro debe a otro por haberle avalado: el avalista
   al que reclamó el banco tiene la acción de reembolso contra el avalado (art. 1838 CC). Se
   cobra cada noche del monedero del deudor y se embarga de lo que cobre (9.3.0).
@@ -63,6 +67,7 @@ TABLES = (
     "housing_socimi",
     "housing_deposits",
     "housing_promotions",
+    "housing_solars",
     "housing_loans",
     "housing_member_debts",
 )
@@ -182,6 +187,19 @@ CREATE TABLE IF NOT EXISTS housing_promotions (
     week TEXT NOT NULL,
     created_at REAL NOT NULL,
     PRIMARY KEY (guild_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS housing_solars (
+    guild_id INTEGER NOT NULL,
+    solar TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    project TEXT NOT NULL,
+    started TEXT NOT NULL,
+    until TEXT NOT NULL,
+    cost INTEGER NOT NULL,
+    value INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, solar)
 );
 
 CREATE TABLE IF NOT EXISTS housing_loans (
@@ -1005,6 +1023,63 @@ def promotions_in(connection: sqlite3.Connection, guild_id: int) -> dict[str, Pr
             (guild_id,),
         )
     }
+
+
+@dataclass(frozen=True, slots=True)
+class SolarWork:
+    """Lo construido en un solar (`housing_solars`).
+
+    Attributes:
+        solar: Clave del solar (`<calle>_s`, que es también la de su edificio).
+        user_id: El promotor.
+        project: Clave del proyecto (`housing_solars.PROJECT_BY_KEY`).
+        started: Día en que empezó la obra.
+        until: Último día de obra (la burbuja lo retrasa).
+        cost: Todo lo que pagó, con impuestos.
+        value: Lo que valían las unidades al empezar (la oferta de la burbuja).
+    """
+
+    solar: str
+    user_id: int
+    project: str
+    started: date
+    until: date
+    cost: int
+    value: int
+
+
+def solars_in(connection: sqlite3.Connection, guild_id: int) -> dict[str, SolarWork]:
+    """Lo construido en los solares de un servidor, por solar."""
+    return {
+        str(r["solar"]): SolarWork(
+            str(r["solar"]),
+            int(r["user_id"]),
+            str(r["project"]),
+            date.fromisoformat(str(r["started"])),
+            date.fromisoformat(str(r["until"])),
+            int(r["cost"]),
+            int(r["value"]),
+        )  # fmt: skip
+        for r in connection.execute(
+            "SELECT * FROM housing_solars WHERE guild_id = ? ORDER BY created_at, solar",
+            (guild_id,),
+        )
+    }
+
+
+def add_solar_in(
+    connection: sqlite3.Connection, guild_id: int, work: SolarWork, now: float
+) -> None:
+    """Apunta una obra nueva en un solar."""
+    connection.execute(
+        """
+        INSERT INTO housing_solars
+            (guild_id, solar, user_id, project, started, until, cost, value, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (guild_id, work.solar, work.user_id, work.project, work.started.isoformat(),
+         work.until.isoformat(), work.cost, work.value, now),
+    )  # fmt: skip
 
 
 def add_promotion_in(

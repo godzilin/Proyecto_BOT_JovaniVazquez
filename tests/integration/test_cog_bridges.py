@@ -2867,6 +2867,7 @@ async def test_pisos_ve_el_aval_de_los_padres_de_pala_con_el_bot_real(tmp_path: 
         await curro.parents_lose_home(client, GUILD, OWNER_ID)
         assert (await client.work.status(GUILD, OWNER_ID)).contract.family < before
         assert await curro.ladrillo_builders(client, GUILD) == ()  # peón, no promotor
+        assert await curro.ladrillo_level(client, GUILD, OWNER_ID) == 0
         contract = (await client.work.status(GUILD, OWNER_ID)).contract
         contract.level, contract.branch = 6, "ladrillo"
         await client.work.repository.save_contract(GUILD, OWNER_ID, contract)
@@ -2875,6 +2876,56 @@ async def test_pisos_ve_el_aval_de_los_padres_de_pala_con_el_bot_real(tmp_path: 
             ShiftRecord("obra", 6, "2026-10-19", client.work.now(), 80, "ordinario", 1, 1),
         )  # fmt: skip
         assert await curro.ladrillo_builders(client, GUILD) == (OWNER_ID,)
+        # Los solares (9.56.0) miran el puesto en Ladrillo: P6 construye una casa.
+        assert await curro.ladrillo_level(client, GUILD, OWNER_ID) == 6
+    finally:
+        await client.close()
+
+
+async def test_pisos_construye_en_un_solar_con_el_puesto_de_pala_y_el_bot_real(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🏗️ Solares (9.56.0): el botón lee el puesto de Ladrillo en `pala`, cobra, apunta los
+    logros y avisa en `#chat-general`."""
+    client = await load_bot(tmp_path)
+    try:
+        pisos = client.get_cog("Pisos")
+        await client.economy.repository.apply(GUILD, OWNER_ID, [LedgerEntry(20_000_000, "test")])
+        await client.work.hire(GUILD, OWNER_ID, "obra")
+        contract = (await client.work.status(GUILD, OWNER_ID)).contract
+        contract.level, contract.branch = 6, "ladrillo"
+        await client.work.repository.save_contract(GUILD, OWNER_ID, contract)
+        general = MagicMock(spec=discord.TextChannel)
+        general.name = "chat-general"
+        general.send = AsyncMock()
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_ID
+        guild.text_channels = [general]
+        guild.get_member = lambda _member_id: None
+        monkeypatch.setattr(client, "get_guild", lambda _guild_id: guild)
+        owner = MagicMock(spec=discord.Member)
+        owner.id, owner.bot, owner.display_name = OWNER_ID, False, "Diego"
+        owner.guild = guild
+        painter = MagicMock()
+        painter.paint = AsyncMock(side_effect=lambda states: [b"PNG"] * len(states))
+        painter.close = AsyncMock()
+        pisos.painter.scene = painter
+        panel = importer("Pisos", client).Panel(pisos, guild=guild, owner=owner)
+        panel.barrio, panel.solar, panel.screen = "arucas", "arucas_c1_s", "solar"
+        panel.confirm = "construir:casa"
+        interaction = fake_interaction(owner)
+        interaction.client, interaction.guild, interaction.channel = client, guild, None
+        interaction.data = {"custom_id": "pisos:construir:casa:si"}
+
+        await panel._build(interaction)  # noqa: SLF001
+
+        work = (await pisos.service.market(GUILD)).solars["arucas_c1_s"]
+        assert work.user_id == OWNER_ID and work.project == "casa"
+        profile = await client.achievements.profile(GUILD, OWNER_ID)
+        assert profile.stats["pisos_solars"] == 1 and "pisos_solar_1" in profile.unlocked
+        assert "pisos_solar_casa" in profile.unlocked and "pisos_solar_icio_1" in profile.unlocked
+        (text,), _kwargs = general.send.await_args
+        assert "empieza a levantar una casa" in text
     finally:
         await client.close()
 

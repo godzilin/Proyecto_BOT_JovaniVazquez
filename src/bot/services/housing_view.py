@@ -31,6 +31,7 @@ from typing import Any
 from bot.repositories.housing import Holding, Market, News
 from bot.repositories.housing_finance import LOAN_BNPL, Deposit
 from bot.services import housing as rules
+from bot.services import housing_solars as solar_rules
 from bot.services import loans as lending
 from bot.services.economy import format_amount
 from bot.services.housing_catalog import (
@@ -50,9 +51,16 @@ from bot.services.housing_catalog import (
     Listing,
 )
 from bot.services.housing_furniture import FURNITURE, furniture_stars
+from bot.services.housing_solars import (
+    PROJECT_BY_KEY,
+    PROJECTS,
+    SOLAR_BY_KEY,
+    solar_units,
+    solars_of,
+)
 from bot.services.housing_streets import (
-    BUILDING_BY_KEY,
     PANTALAN,
+    SOLAR_SUFFIX,
     Building,
     buildings_of,
     is_penthouse,
@@ -115,6 +123,8 @@ NEWS_TEXT = {
     "cierra_negocio": "{who} saca de aquí su negocio",
     "firma_miembro": "{who} firma el alquiler por {amount} al mes",
     "obra_nueva": "{who} levanta la promoción: sale a {amount}",
+    "obra_solar": "{who} empieza a construir en el solar: {amount} entre solar, obra e impuestos",
+    "burbuja": "Estalla la burbuja: el barrio baja y las obras se retrasan",
     "fianza_devuelta": "{who} recupera la fianza: {amount}",
     "fianza_incautada": "El casero se queda {amount} de la fianza de {who}",
     "partida_agotada": "Partida agotada: {who} se queda sin el Bono Alquiler Joven",
@@ -1720,10 +1730,9 @@ def streets_state(
 
     Cada edificio lleva su número y un botón con el mismo, en el orden en que se lee el plano:
     calle a calle y de izquierda a derecha (`map_order`). Arriba va lo del barrio: su índice,
-    el precio medio y la noticia, si hay.
+    el precio medio y la noticia, si hay. Al final de cada calle, su solar (`street["solar"]`):
+    vacío, en obras o con lo construido.
     """
-    barrio = BARRIO_BY_KEY[barrio_key]
-    index = market.index(barrio_key)
     place = {b.key: n for n, b in enumerate(map_order(barrio_key), start=1)}
     streets = []
     for street in streets_of(barrio_key):
@@ -1758,31 +1767,24 @@ def streets_state(
                 }
             )
         streets.append(
-            {"key": street.key, "name": street.name, "blurb": street.blurb, "buildings": buildings}
+            {
+                "key": street.key,
+                "name": street.name,
+                "blurb": street.blurb,
+                "buildings": buildings,
+                "solar": _solar_tag(market, f"{street.key}{SOLAR_SUFFIX}", user_id, today),
+            }
         )
     state: State = {
         "screen": "calles",
-        "barrio": {
-            "key": barrio.key,
-            "name": barrio.name,
-            "town": barrio.town,
-            "island": ISLANDS[barrio.island],
-            "theme": barrio.theme,
-            "theme_name": THEMES[barrio.theme],
-            "blurb": barrio.blurb,
-            "index": f"{index:.3f}".replace(".", ","),
-            "change": _change(index),
-            "up": index > 1.0005,
-            "down": index < 0.9995,
-            "badge": market_badge(index),
-            "price_m2": format_amount(round(barrio.price_m2 * index * 10)) + "/m²",
-        },
+        "barrio": _barrio_head(market, barrio_key),
         "news": news_box(market.news_of(barrio_key, today)) if today else None,
         "streets": streets,
-        "footer": "Toca un edificio para verlo por dentro · Destacados: los nueve de siempre",
+        "footer": "Toca un edificio para verlo por dentro · 🏗️ Solares: obra nueva de la rama "
+        "Ladrillo",
     }
     state["fallback"] = [
-        f"{barrio.name}: sus calles",
+        f"{state['barrio']['name']}: sus calles",
         *(
             f"{st['name']}: "
             + ", ".join(f"{b['slot']} · {b['kind_name']} ({b['units']})" for b in st["buildings"])
@@ -1796,8 +1798,11 @@ def building_state(
     market: Market, key: str, user_id: int, names: dict[int, str], today: date | None = None
 ) -> State:
     """🏢 Un edificio en corte, de arriba abajo: cada planta con sus unidades, qué se hace en
-    cada una y de quién es. Las unidades van numeradas como en el desplegable."""
-    building = BUILDING_BY_KEY[key]
+    cada una y de quién es. Las unidades van numeradas como en el desplegable. Vale también
+    para lo construido en un solar (`Market.building`)."""
+    building = market.building(key)
+    if building is None:
+        raise KeyError(key)
     street = next(s for s in streets_of(building.barrio) if s.key == building.street)
     units = building_units(market, building)
     index = market.index(building.barrio)
@@ -1873,6 +1878,182 @@ def building_state(
             )
             for f in floors
         ),
+    ]
+    return state
+
+
+def _barrio_head(market: Market, barrio_key: str) -> State:
+    """La cabecera de un barrio en 🗺️ Calles y 🏗️ Solares: su índice y el precio medio."""
+    barrio = BARRIO_BY_KEY[barrio_key]
+    index = market.index(barrio_key)
+    return {
+        "key": barrio.key,
+        "name": barrio.name,
+        "town": barrio.town,
+        "island": ISLANDS[barrio.island],
+        "theme": barrio.theme,
+        "theme_name": THEMES[barrio.theme],
+        "blurb": barrio.blurb,
+        "index": f"{index:.3f}".replace(".", ","),
+        "change": _change(index),
+        "up": index > 1.0005,
+        "down": index < 0.9995,
+        "badge": market_badge(index),
+        "price_m2": format_amount(round(barrio.price_m2 * index * 10)) + "/m²",
+    }
+
+
+#: Lo que se ve de un solar según cómo está.
+SOLAR_FREE, SOLAR_WORKS, SOLAR_BUILT = "libre", "obras", "hecho"
+
+
+def _solar_tag(market: Market, key: str, user_id: int, today: date | None) -> State:
+    """Lo mínimo de un solar para el plano de calles y las pestañas de 🏗️ Solares."""
+    solar = SOLAR_BY_KEY[key]
+    street = next(s for s in streets_of(solar.barrio) if s.key == solar.street)
+    work = market.solars.get(key)
+    if work is None:
+        return {"key": key, "street": street.name, "number": solar.number, "status": SOLAR_FREE,
+                "emoji": "🚧", "mine": False, "text": "Solar libre", "project_key": "",
+                "floors": 0}  # fmt: skip
+    project = PROJECT_BY_KEY[work.project]
+    building = today is None or work.until <= today
+    return {
+        "key": key,
+        "street": street.name,
+        "number": solar.number,
+        "status": SOLAR_BUILT if building else SOLAR_WORKS,
+        "emoji": project.emoji,
+        "mine": work.user_id == user_id,
+        "text": project.name if building else f"En obras hasta el {work.until:%d/%m}",
+        # Lo que dibuja la escena: el proyecto por su clave, no por su nombre.
+        "project_key": project.key,
+        "floors": project.floors,
+    }
+
+
+def bubble_box(supply: int, demand: int) -> State:
+    """El termómetro de la burbuja: la obra empezada frente a lo que compran los miembros."""
+    pressure = solar_rules.bubble_pressure(supply, demand)
+    odds = solar_rules.bubble_odds(supply, demand)
+    level = "calma" if odds == 0 else "tension" if odds < 0.25 else "burbuja"
+    names = {"calma": "Calma", "tension": "Tensión", "burbuja": "Burbuja"}
+    return {
+        "level": level,
+        "name": names[level],
+        "pressure": f"{pressure:.2f}".replace(".", ","),
+        "odds": f"{odds * 100:.0f} %",
+        "text": f"Obra empezada en 4 semanas: {format_amount(supply)} · lo que han comprado los "
+        f"miembros: {format_amount(demand)}",
+    }
+
+
+def solar_state(
+    market: Market,
+    key: str,
+    user_id: int,
+    level: int,
+    names: dict[int, str],
+    today: date,
+    gauge: tuple[int, int] = (0, 0),
+) -> State:
+    """🏗️ Solares: un solar del barrio, con pestañas para los otros dos.
+
+    Libre: los proyectos que caben, con lo que cuestan, lo que valdrán y lo que pide cada uno.
+    En obras o hecho: quién lo construye, qué, hasta cuándo y cuántas unidades le quedan.
+
+    Args:
+        level: El puesto de quien mira en la rama Ladrillo (0 si no está en ella).
+        gauge: `(obra empezada, lo comprado)` de las últimas semanas, para el termómetro de la
+            burbuja (`HousingService.bubble_gauge`).
+    """
+    solar = SOLAR_BY_KEY[key]
+    index = market.index(solar.barrio)
+    work = market.solars.get(key)
+    tabs = [
+        {**_solar_tag(market, s.key, user_id, today), "slot": n, "selected": s.key == key}
+        for n, s in enumerate(solars_of(solar.barrio), start=1)
+    ]
+    tag = next(t for t in tabs if t["selected"])
+    busy = next(
+        (w for w in market.solars.values() if w.user_id == user_id and w.until > today), None
+    )
+    projects: list[State] = []
+    built: State | None = None
+    if work is None:
+        for project in PROJECTS:
+            quote = solar_rules.build_quote(solar, project, index, market.ipc)
+            reason = ""
+            if not solar_rules.allowed(solar, project):
+                reason = f"El barrio no deja {project.floors} plantas"
+            elif level < project.level:
+                reason = f"Pide P{project.level} en Ladrillo"
+            elif busy is not None:
+                reason = f"Tu obra acaba el {busy.until:%d/%m}"
+            projects.append(
+                {
+                    "key": project.key,
+                    "emoji": project.emoji,
+                    "name": project.name,
+                    "units": quote.units,
+                    "floors": project.floors,
+                    "days": f"{project.days} días",
+                    "cost": format_amount(quote.total),
+                    "value": format_amount(quote.value),
+                    "margin": f"{quote.margin / quote.total * 100:+.0f} %",
+                    "level": f"P{project.level}",
+                    "can": not reason,
+                    "reason": reason,
+                }
+            )
+    else:
+        project = PROJECT_BY_KEY[work.project]
+        _building, units = solar_units(work.solar, work.project)
+        days = max(1, (work.until - work.started).days)
+        done = min(1.0, max(0.0, (today - work.started).days / days))
+        built = {
+            "project": project.name,
+            "project_key": project.key,
+            "floors": project.floors,
+            "emoji": project.emoji,
+            "owner": "Tuyo" if work.user_id == user_id else _name(names, work.user_id),
+            "units": len(units),
+            "mine": sum(1 for u in units if user_id in market.shares_of(u.key)),
+            "for_sale": sum(1 for u in units if not market.shares_of(u.key)),
+            "value": format_amount(sum(rules.price(u, index) for u in units)),
+            "cost": format_amount(work.cost),
+            "started": f"{work.started:%d/%m}",
+            "until": f"{work.until:%d/%m}",
+            "progress": round(done, 2),
+        }
+    state: State = {
+        "screen": "solar",
+        "barrio": _barrio_head(market, solar.barrio),
+        "solar": {**tag, "m2": f"{solar.m2} m² de suelo"},
+        "tabs": tabs,
+        "projects": projects,
+        "built": built,
+        "bubble": bubble_box(*gauge),
+        "level": f"P{level} en Ladrillo" if level else "No estás en la rama Ladrillo",
+        "footer": "Construye quien ficha en la rama Ladrillo de la obra en `pala` · una obra a "
+        "la vez · 60 solares en todo el servidor",
+    }
+    state["fallback"] = [
+        f"🏗️ {tag['street']}, {solar.number} ({state['barrio']['name']}): {tag['text']}",
+        *(
+            f"{p['emoji']} {p['name']}: {p['units']} unidades, {p['cost']} → {p['value']} "
+            f"({p['margin']}, {p['days']}){' · ' + p['reason'] if p['reason'] else ''}"
+            for p in projects
+        ),
+        *(
+            [
+                f"{built['emoji']} {built['project']} de {built['owner']}: {built['units']} "
+                f"unidades, hasta el {built['until']}"
+            ]
+            if built
+            else []
+        ),
+        f"Burbuja: {state['bubble']['name']} ({state['bubble']['odds']} este lunes)",
     ]
     return state
 

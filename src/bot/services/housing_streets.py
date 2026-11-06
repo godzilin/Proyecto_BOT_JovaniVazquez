@@ -459,6 +459,17 @@ def buildings_of(street: str) -> tuple[Building, ...]:
     return tuple(sorted((b for b in BUILDINGS if b.street == street), key=lambda b: b.number))
 
 
+#: El solar de cada calle (9.56.0, `bot.services.housing_solars`): lo que se construye en él es
+#: el edificio `<calle>_s` y sus unidades, `<calle>_s_<hueco>` (`triana_c2_s_1a`).
+SOLAR_SUFFIX = "_s"
+_SOLAR_UNIT = re.compile(r"^[a-z]+_c\d+_s_")
+
+
+def is_solar_unit(key: str) -> bool:
+    """Si una clave es la de una unidad construida en un solar (o una planta o habitación suya)."""
+    return bool(_SOLAR_UNIT.match(key))
+
+
 def is_penthouse(key: str) -> bool:
     """Si una clave es la de un ático caro (9.16.0): un sobreático o un ático con vistas."""
     return key in STREET_UNIT_BY_KEY and key.endswith(("_sa", "_va"))
