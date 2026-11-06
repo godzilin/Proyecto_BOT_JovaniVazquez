@@ -469,32 +469,104 @@ const PIPS = {
   4: [[-1, -1], [1, -1], [-1, 1], [1, 1]], 5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
   6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
 };
-function makeDie(side, value) {
-  const d = G.die, size = Math.ceil((d + 10) * S), h = size / S / 2, dark = side === 2;
-  const c = document.createElement("canvas"); c.width = c.height = size;
-  const g = c.getContext("2d"); g.scale(S, S);
-  const x = h - d / 2, y = h - d / 2, rad = 7;
-  // Canto inferior para dar grosor.
-  g.fillStyle = dark ? "#030304" : "#a89870"; roundRect(g, x, y + 1.8, d, d, rad); g.fill();
-  g.fillStyle = dark
-    ? linear(g, x, y, x + d, y + d, [[0, "#4a4a56"], [0.5, "#1e1e25"], [1, "#0a0a0e"]])
-    : linear(g, x, y, x + d, y + d, [[0, "#fffdf4"], [0.55, "#f0e5c6"], [1, "#cfbf94"]]);
-  roundRect(g, x, y, d, d, rad); g.fill();
-  // Aristas redondeadas: luz arriba y a la izquierda, sombra abajo y a la derecha.
-  g.strokeStyle = linear(g, x, y, x + d, y + d, [[0, dark ? "rgba(220,220,245,0.55)" : "rgba(255,255,255,0.95)"], [0.5, "rgba(255,255,255,0)"], [1, dark ? "rgba(0,0,0,0.85)" : "rgba(110,88,50,0.55)"]]);
-  g.lineWidth = 1.6; roundRect(g, x + 1, y + 1, d - 2, d - 2, rad - 1); g.stroke();
-  // Puntos hundidos: agujero oscuro con el filo de luz abajo a la derecha.
-  const pr = d * 0.085, sp = d * 0.27;
-  for (const [dx, dy] of PIPS[value]) {
-    const px = h + dx * sp, py = h + dy * sp;
-    g.fillStyle = dark ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.85)"; circle(g, px + 0.5, py + 0.7, pr + 0.4); g.fill();
-    g.fillStyle = dark
-      ? radial(g, px - pr * 0.3, py - pr * 0.3, 0.2, px, py, pr, [[0, "#fff8dc"], [0.7, "#e2cd92"], [1, "#a8905a"]])
-      : radial(g, px + pr * 0.25, py + pr * 0.3, 0.2, px, py, pr, [[0, "#6b5030"], [0.6, "#2c1c0e"], [1, "#110802"]]);
-    circle(g, px, py, pr); g.fill();
-    if (dark) { g.strokeStyle = "rgba(0,0,0,0.6)"; g.lineWidth = 0.6; circle(g, px, py, pr); g.stroke(); }
+// Los dados van en 3D, como los del craps: Python pasa su orientación (`m`, por filas, en el
+// mundo del craps: x a la derecha, y hacia el fondo, z hacia arriba) y aquí se ven desde
+// arriba con la cámara algo inclinada hacia el jugador, así que asoma el canto de delante.
+// Cada cara es una textura (madera marrón con los puntos hundidos, más clara u oscura según
+// su luz) pegada en su paralelogramo; debajo, la silueta oscura hace de bisel.
+const TILT = 0.42, COS_T = Math.cos(TILT), SIN_T = Math.sin(TILT);
+const DIE_LIGHT = (() => { const v = [-0.35, 0.45, 0.82], n = Math.hypot(...v); return v.map((c) => c / n); })();
+const DIE_FACES = {
+  1: [[0, 0, 1], [1, 0, 0], [0, -1, 0]], 6: [[0, 0, -1], [1, 0, 0], [0, 1, 0]],
+  2: [[0, -1, 0], [1, 0, 0], [0, 0, -1]], 5: [[0, 1, 0], [-1, 0, 0], [0, 0, -1]],
+  3: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], 4: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+};
+const CORNERS = [-1, 1].flatMap((a) => [-1, 1].flatMap((b) => [-1, 1].map((c) => [a, b, c])));
+// Caramelo para las blancas y chocolate para las negras: en la salida se ve de quién es cada uno.
+const DIE_WOOD = {
+  1: { face: ["#d9a066", "#b0743c", "#7a4a20"], edge: "#4a2a10", pip: ["#fff3d6", "#e8d2a6", "#b89a68"], hole: "rgba(50,24,6,0.6)" },
+  2: { face: ["#8a5a34", "#5e3a1e", "#3a220f"], edge: "#1e0f05", pip: ["#fff3d6", "#e2c890", "#a8864e"], hole: "rgba(20,8,0,0.7)" },
+};
+const FACE_PX = 128;
+const FACE_TEX = new Map();
+const DIE_SCRATCH = document.createElement("canvas");
+
+function faceTexture(side, value, level) {
+  const key = `${side}:${value}:${level}`;
+  let c = FACE_TEX.get(key);
+  if (c) return c;
+  const n = FACE_PX, wood = DIE_WOOD[side], light = level / 10;
+  c = document.createElement("canvas"); c.width = c.height = n;
+  const g = c.getContext("2d");
+  roundRect(g, 0, 0, n, n, n * 0.16); g.save(); g.clip();
+  g.fillStyle = radial(g, n * 0.4, n * 0.35, n * 0.05, n * 0.5, n * 0.5, n * 0.75, [[0, wood.face[0]], [0.5, wood.face[1]], [1, wood.face[2]]]);
+  g.fillRect(0, 0, n, n);
+  // Veta suave (sale de una semilla fija: la misma en todas las partidas).
+  const rand = rng(TEX ^ value);
+  g.strokeStyle = "rgba(40,18,4,0.14)"; g.lineWidth = n * 0.012;
+  for (let i = 0; i < 9; i++) {
+    const y = (i + rand()) * n / 9;
+    g.beginPath(); g.moveTo(0, y);
+    g.bezierCurveTo(n * 0.3, y + (rand() - 0.5) * n * 0.08, n * 0.7, y + (rand() - 0.5) * n * 0.08, n, y); g.stroke();
   }
-  return { c, half: h };
+  // Bisel: claro arriba a la izquierda y oscuro abajo a la derecha.
+  g.lineWidth = n * 0.06;
+  g.strokeStyle = "rgba(255,225,180,0.35)"; g.beginPath(); g.moveTo(n * 0.06, n * 0.94); g.lineTo(n * 0.06, n * 0.06); g.lineTo(n * 0.94, n * 0.06); g.stroke();
+  g.strokeStyle = "rgba(30,12,2,0.45)"; g.beginPath(); g.moveTo(n * 0.94, n * 0.06); g.lineTo(n * 0.94, n * 0.94); g.lineTo(n * 0.06, n * 0.94); g.stroke();
+  // Puntos hundidos y rellenos de crema.
+  for (const [dx, dy] of PIPS[value]) {
+    const x = (0.5 + dx * 0.25) * n, y = (0.5 + dy * 0.25) * n, r = n * (value === 1 ? 0.12 : 0.09);
+    g.fillStyle = wood.hole; circle(g, x + r * 0.12, y + r * 0.12, r * 1.1); g.fill();
+    g.fillStyle = radial(g, x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r, [[0, wood.pip[0]], [0.7, wood.pip[1]], [1, wood.pip[2]]]);
+    circle(g, x, y, r); g.fill();
+  }
+  // La luz de la cara: sombra si mira lejos de la lámpara, brillo si mira hacia ella.
+  g.fillStyle = `rgba(20,8,0,${0.6 * (1 - light)})`; g.fillRect(0, 0, n, n);
+  if (light > 0.6) {
+    g.fillStyle = linear(g, 0, 0, n, n, [[0.15, `rgba(255,240,215,${(light - 0.6) * 0.8})`], [0.45, "rgba(255,240,215,0)"]]);
+    g.fillRect(0, 0, n, n);
+  }
+  g.restore();
+  FACE_TEX.set(key, c);
+  return c;
+}
+
+function hull(points) {
+  // Envolvente convexa (cadena monótona): la silueta del dado.
+  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const chain = (list) => {
+    const out = [];
+    for (const p of list) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return [...chain(pts), ...chain(pts.slice().reverse())];
+}
+
+function paintDie3d(g, side, m, cx, cy, h) {
+  // `h` es medio lado; (cx, cy), donde cae el centro de la cara de arriba de un dado quieto.
+  const at = (v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+  const oy = cy + h * SIN_T;
+  const screen = (w) => [cx + w[0] * h, oy - (w[1] * COS_T + w[2] * SIN_T) * h];
+  const outline = hull(CORNERS.map((c) => screen(at(c))));
+  g.beginPath(); outline.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+  g.fillStyle = DIE_WOOD[side].edge; g.fill();
+  for (const [v, [normal, right, down]] of Object.entries(DIE_FACES)) {
+    const nv = at(normal);
+    if (nv[2] * COS_T - nv[1] * SIN_T <= 1e-3) continue;      // mira hacia otro lado
+    const r = at(right), d = at(down);
+    const corner = (su, sv) => screen([nv[0] + r[0] * su + d[0] * sv, nv[1] + r[1] * su + d[1] * sv, nv[2] + r[2] * su + d[2] * sv]);
+    const [x0, y0] = corner(-1, -1), [x1, y1] = corner(1, -1), [x3, y3] = corner(-1, 1);
+    const lit = 0.45 + 0.55 * Math.max(0, nv[0] * DIE_LIGHT[0] + nv[1] * DIE_LIGHT[1] + nv[2] * DIE_LIGHT[2]);
+    g.save();
+    g.transform((x1 - x0) / FACE_PX, (y1 - y0) / FACE_PX, (x3 - x0) / FACE_PX, (y3 - y0) / FACE_PX, x0, y0);
+    g.drawImage(faceTexture(side, +v, Math.round(clamp(lit, 0, 1) * 10)), 0, 0);
+    g.restore();
+  }
 }
 
 function makeDieShadow() {
@@ -570,10 +642,9 @@ function makeCubeExtras() {
 function buildSprites() {
   if (SPRITES) return;
   SPRITES = {
-    checker: { 1: makeChecker(1), 2: makeChecker(2) }, shadow: makeShadow(G.r), die: {}, dieShadow: makeDieShadow(),
+    checker: { 1: makeChecker(1), 2: makeChecker(2) }, shadow: makeShadow(G.r), dieShadow: makeDieShadow(),
     slab: { 1: makeSlab(1), 2: makeSlab(2) }, labels: new Map(), cube: makeCubeExtras(),
   };
-  for (const side of [1, 2]) for (let v = 1; v <= 6; v++) SPRITES.die[side * 10 + v] = makeDie(side, v);
 }
 function labelSprite(n, side) {
   const key = n * 10 + side;
@@ -747,15 +818,21 @@ function drawCube(g, c) {
 }
 
 function drawDie(g, d) {
-  const z = d.z || 0, sc = 1 + 0.45 * z, alpha = d.used ? 0.4 : 1, sprite = SPRITES.die[d.side * 10 + d.v];
+  const z = d.z || 0, sc = 1 + 0.45 * z, alpha = d.used ? 0.4 : 1;
   g.save(); g.globalAlpha = alpha * (0.55 - 0.25 * z);
   g.translate(d.x + 2 + z * 14, d.y + 3 + z * 20); g.rotate(d.rot); g.scale((d.sx || 1) * (1 + 0.2 * z), 1 + 0.2 * z);
   g.drawImage(SPRITES.dieShadow.c, -SPRITES.dieShadow.half, -SPRITES.dieShadow.half, SPRITES.dieShadow.half * 2, SPRITES.dieShadow.half * 2);
   g.restore();
-  g.save(); g.globalAlpha = alpha;
-  g.translate(d.x, d.y - z * 6); g.rotate(d.rot); g.scale((d.sx || 1) * sc, sc);
-  g.drawImage(sprite.c, -sprite.half, -sprite.half, sprite.half * 2, sprite.half * 2);
-  g.restore();
+  const h = G.die / 2 * sc;
+  if (alpha === 1) { paintDie3d(g, d.side, d.m, d.x, d.y - z * 6, h); return; }
+  // Apagado: se pinta aparte y se pega translúcido, o la silueta asomaría entre las caras.
+  const half = Math.ceil(h * 2.2), size = half * 2;
+  if (DIE_SCRATCH.width !== size * S) DIE_SCRATCH.width = DIE_SCRATCH.height = size * S;
+  const s = DIE_SCRATCH.getContext("2d");
+  s.setTransform(1, 0, 0, 1, 0, 0); s.clearRect(0, 0, size * S, size * S); s.setTransform(S, 0, 0, S, 0, 0);
+  const ox = Math.round(d.x), oy = Math.round(d.y - z * 6);
+  paintDie3d(s, d.side, d.m, half + d.x - ox, half + d.y - z * 6 - oy, h);
+  g.save(); g.globalAlpha = alpha; g.drawImage(DIE_SCRATCH, ox - half, oy - half, size, size); g.restore();
 }
 
 function drawFlying(g, f) {
@@ -838,7 +915,8 @@ function flyBox(f) {
   return [f.x - m, f.y - h - m, f.x + m + h * 0.5, f.y + m + 6 + h * 0.5];
 }
 function dieBox(d) {
-  const m = G.die * 0.75 * (1 + 0.45 * (d.z || 0)) + 10, z = d.z || 0;
+  // Girado, el cubo llega a √3 medios lados de su centro, que va algo por debajo de (x, y).
+  const m = G.die * 1.1 * (1 + 0.45 * (d.z || 0)) + 6, z = d.z || 0;
   return [d.x - m, d.y - m - 6 * z, d.x + m + 14 * z + 6, d.y + m + 20 * z + 6];
 }
 function cubeBox(c) {
