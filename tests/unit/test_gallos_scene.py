@@ -25,7 +25,7 @@ from bot.services.gallos_render import (
     meta_state,
     timeline,
 )
-from bot.services.gallos_scene import SCENE, GallosScene
+from bot.services.gallos_scene import OUT_SIZE, SCENE, GallosScene
 from bot.services.node_scene import patch_png
 
 module_loop = pytest.mark.asyncio(loop_scope="module")
@@ -49,9 +49,9 @@ def rival_look(rival) -> dict[str, object]:
     return skins.params("gallos") | dict(rival.look)
 
 
-def png_image(png: bytes) -> Image.Image:
+def png_image(png: bytes, size: tuple[int, int] = SIZE) -> Image.Image:
     image = Image.open(io.BytesIO(png))
-    assert image.format == "PNG" and image.size == SIZE
+    assert image.format == "PNG" and image.size == size
     return image.convert("RGB")
 
 
@@ -133,10 +133,11 @@ async def test_con_node_la_pelea_es_un_gif_de_muchos_fotogramas(scene: GallosSce
     assert not scene.painter.disabled
     assert not scene.browser.disabled  # Chromium ni se probó
     gif = Image.open(io.BytesIO(media.gif))
-    assert gif.format == "GIF" and gif.size == SIZE and gif.n_frames > 50
+    # La pelea sale a 2/3 de la escena (`OUT_SIZE`): pesa ~40 % menos.
+    assert gif.format == "GIF" and gif.size == OUT_SIZE and gif.n_frames > 50
     gif.seek(gif.n_frames - 1)
     last = gif.convert("RGB")
-    assert difference(last, png_image(media.png)) < 12
+    assert difference(last, png_image(media.png, OUT_SIZE)) < 12
     steps = timeline(fight, NAMES, seed=5)
     assert media.seconds == sum(ms for _state, ms in steps) / 1000
 
