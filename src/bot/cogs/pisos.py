@@ -904,6 +904,8 @@ class Panel(ui.View):
         await self.refresh()
         if content is None and self.screen == LLAVES:
             content = self._keys_text()
+        elif content is None and self.screen in (REFORMAS, DIVIDIR):
+            content = self._finance_hint()
         state = self._checkout_state() if self.screen == CAJA else await self._state(self.screen)
         key = Painter.key(state)
         self.rebuild()
@@ -1166,6 +1168,8 @@ class Panel(ui.View):
             self._button("⚖️ Desahuciar", "desahuciar", self._evict, row=1)
         if boss == self.owner.id and lease is not None and rules.recoverable(lease):
             self._button("🔑 Recuperar el piso", "llaves", self._go_keys, row=1)
+        if not room:
+            self._reforms_button(mine, lease or rules.Lease())
         if boss == self.owner.id and lease is not None and lease.status != rules.BY_ROOMS:
             listing = self._at(key)
             index = self.market.index(listing.barrio)
@@ -1212,6 +1216,30 @@ class Panel(ui.View):
                 self._button(f"⚠️ Imprevistos ({pending})", "imprevistos", self._go_decisions,
                              row=3, style=discord.ButtonStyle.danger)  # fmt: skip
         self._owner_buttons()
+
+    def _reforms_button(self, mine: int, lease: rules.Lease) -> None:
+        """🏗️ Reformas en la ficha, también antes de comprar: la etiqueta dice si se puede."""
+        key = self.listing
+        listing = self._at(key)
+        done = self.market.reforms.get(key, {})
+        left = sum(1 for r in REFORMS if listing.kind in r.kinds and r.key not in done)
+        if not left and not done:
+            return
+        style = discord.ButtonStyle.secondary
+        if lease.status == rules.OBRAS:
+            until = f" hasta el {lease.works_until:%d/%m}" if lease.works_until else ""
+            label = f"🏗️ Reformas: en obras{until}"
+        elif not left:
+            label = "🏗️ Reformas: todas hechas"
+        elif mine == rules.SHARES and lease.status == rules.VACANT:
+            label, style = f"🏗️ Reformar: puedes ({left})", discord.ButtonStyle.success
+        elif mine == rules.SHARES:
+            label = f"🏗️ Reformas ({left}): tiene que estar vacío"
+        elif lease.status == rules.VACANT:
+            label = f"🏗️ Reformas ({left}): hay que tenerlo entero"
+        else:
+            label = f"🏗️ Reformas ({left}): hay que tenerlo entero y vacío"
+        self._button(label, "reformas", self._go_reforms, row=1, style=style)
 
     def _gestion_buttons(self) -> None:
         """🧰 Gestionar: quién elige al inquilino, el seguro y los candidatos."""
@@ -1269,7 +1297,6 @@ class Panel(ui.View):
             else:
                 self._button("🤝 Vender a un miembro", "vender_miembro", self._sell_member, row=3)
                 self._button("🔨 Subastar", "subastar", self._auction_form, row=3)
-                self._button("🏗️ Reformas", "reformas", self._go_reforms, row=3)
                 self._button("🏦 Rehipotecar", "rehipotecar", self._remortgage, row=3)
                 self._button("💸 Adelantar rentas", "anticipo", self._advance, row=3)
         self._term_select(row=4)
@@ -1456,6 +1483,33 @@ class Panel(ui.View):
             lines.append(f"🏠 Lo necesito para vivir (art. 9.3 LAU): {problem}")
         return "\n".join(lines)
 
+    def _finance_hint(self) -> str | None:
+        """La línea del 💳 de obras y divisiones, con la más barata que se puede financiar."""
+        key, me, market = self.listing, self.owner.id, self.market
+        listing = self._at(key)
+        index = market.index(listing.barrio)
+        if self.screen == REFORMAS:
+            lease = market.leases.get(key, rules.Lease())
+            if market.shares_of(key).get(me, 0) != rules.SHARES or lease.status != rules.VACANT:
+                return None
+            done = market.reforms.get(key, {})
+            totals = [
+                rules.reform_quote(listing, r, index, market.ipc).total
+                for r in REFORMS
+                if listing.kind in r.kinds and r.key not in done
+            ]
+        else:
+            base = market.base(key)
+            if base is None or len(market.shares_of(key)) > 1:
+                return None
+            totals = [
+                rules.split_quote(listing, mode, index, market.ipc).total
+                for mode in rules.SPLIT_MODES
+                if rules.split_problem(base, mode, promotion=key in market.promotions) is None
+            ]
+        hint = financiar.teaser(min(totals), "obras", works=True) if totals else None
+        return f"-# {hint}." if hint else None
+
     def _reform_buttons(self) -> None:
         """🏗️ Reformas: una por botón, con dos clics porque cuesta dinero."""
         key, me, market = self.listing, self.owner.id, self.market
@@ -1485,7 +1539,8 @@ class Panel(ui.View):
                 )
             slot += 1
         self._button("◀ La ficha", "ficha", self._back_to_listing, row=3)
-        self._button("🧰 Gestionar", "gestion", self._go_gestion, row=3)
+        if me in market.shares_of(key):
+            self._button("🧰 Gestionar", "gestion", self._go_gestion, row=3)
         self._button("🗺️ Mapa", "mapa", self._go_map, row=3)
         if financed:
             pick: ui.Select = ui.Select(

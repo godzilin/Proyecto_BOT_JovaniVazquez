@@ -446,7 +446,8 @@ PRODUCED_STATS = {
     # cogs/banco_compras.py: 💳 Financiar (financed_stats)
     "financed", "financed_bnpl", "financed_coffee", "financed_zero", "financed_trap",
     "financed_grace", "financed_works", "financed_max", "financed_open_max",
-    "financed_could_pay", "financed_high_ipc",
+    "financed_could_pay", "financed_high_ipc", "financed_mixed", "financed_entrada",
+    "financed_negocio",
     # cogs/banco.py (🔐 Garantías) y las ejecuciones de cogs/pisos.py: remortgage_*_stats
     "remortgages_signed", "remortgage_principal_max", "remortgages_open_max", "remortgage_home",
     "remortgage_not_home", "remortgage_shortest", "remortgage_full", "remortgage_minimum",

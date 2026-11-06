@@ -753,3 +753,36 @@ async def test_la_entrada_no_suena_hasta_que_el_cifrado_esta_listo(
 
     assert await cog._join(channel, None) is voice
     assert order == ["conecta", "cifrado listo"]
+
+
+async def test_financiar_una_mejora_la_compra_como_siempre(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bot.cogs import entrance as entrance_cog
+
+    deals = []
+
+    async def open_finance(_bot: object, _interaction: object, deal: object) -> bool:
+        deals.append(deal)
+        return True
+
+    monkeypatch.setattr(entrance_cog.financiar, "open_finance", open_finance)
+    cog = await make_cog(tmp_path)
+    panel = EntrancePanel(cog, make_guild(), make_user())
+    panel.page = "shop"
+    panel.rebuild()
+    button = next(
+        c
+        for c in panel.walk_children()
+        if isinstance(c, discord.ui.Button) and c.custom_id == "entrada:financiar:ranura"
+    )
+
+    await button.callback(fake_interaction(make_user()))
+
+    (deal,) = deals
+    base = SLOT_PRICES[2]
+    assert (deal.purchase.amount, deal.purchase.category) == (base + igic(base), "entrada")
+    assert deal.host is panel
+    assert await deal.buy(fake_interaction(make_user())) is None
+    assert cog.profile(GUILD_ID, USER_ID).slots == 2
+    assert "**Ranura 2**" in (panel.note or "")

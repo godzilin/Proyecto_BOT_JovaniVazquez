@@ -1038,13 +1038,21 @@ async def test_reformar_con_dos_clics_y_decidir_un_imprevisto(tmp_path: Path) ->
     cog, _scene, _clock = await make(tmp_path)
     ana = member(10, "Ana")
     await cog.economy.repository.apply(GUILD, ana.id, [LedgerEntry(10_000_000, "prueba")])
-    await cog.service.buy(GUILD, ana.id, "taco_bajo", rules.SHARES)
     panel = await open_panel(cog, ana, guild_with(ana))
-    panel.listing = "taco_bajo"
-    await panel._go_gestion(clicked(ana, []))
-    assert "pisos:reformas" in ids(panel)
+    panel.listing, panel.screen = "taco_bajo", FICHA
+
+    def reforms_label() -> str:
+        panel.rebuild()
+        return next(b.label for b in panel.children if b.custom_id == "pisos:reformas")
+
+    # Antes de comprarlo ya se ve que admite reformas y qué hace falta.
+    assert "hay que tenerlo entero" in reforms_label()
+    await cog.service.buy(GUILD, ana.id, "taco_bajo", rules.SHARES)
+    panel.market = await cog.service.market(GUILD)
+    assert reforms_label().startswith("🏗️ Reformar: puedes")
     await panel._go_reforms(clicked(ana, []))
     assert panel.screen == REFORMAS and "pisos:reforma:pintura" in ids(panel)
+    assert "💳" in (panel._finance_hint() or "")
     await panel._arm(clicked(ana, [], custom_id="pisos:reforma:pintura"))
     assert "pisos:reforma:pintura:si" in ids(panel)
     await panel._reform(clicked(ana, [], custom_id="pisos:reforma:pintura:si"))
@@ -1122,6 +1130,7 @@ async def test_dividir_por_plantas_desde_el_panel_y_abrir_cada_planta(tmp_path: 
     assert "pisos:dividir" in ids(panel)
     await panel._go_split(clicked(ana, []))
     assert panel.screen == DIVIDIR
+    assert "💳" in (panel._finance_hint() or "")
     assert {"pisos:dividir:plantas", "pisos:dividir:habitaciones"} <= set(ids(panel))
     await panel._arm(clicked(ana, [], custom_id="pisos:dividir:plantas"))
     assert "pisos:dividir:plantas:si" in ids(panel)

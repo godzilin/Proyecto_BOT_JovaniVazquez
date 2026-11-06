@@ -1335,7 +1335,17 @@ class PalaPanel(ui.LayoutView):
             job_row: ui.ActionRow = ui.ActionRow()
             job_row.add_item(self._job_select(status.contract.job))
             rows.append(job_row)
-        self._frame(status_text(status, notes), COLOR_IDLE, rows)
+        hints = []
+        if offered is not None and (
+            hint := financiar.teaser(offered.price + igic(offered.price), "pala")
+        ):
+            hints.append(f"-# 🎓 Formación: {hint}.")
+        if status.can_go_abroad and (hint := financiar.teaser(FLIGHT_PRICE, "pala")):
+            hints.append(f"-# ✈️ Vuelo a Hong Kong: {hint}.")
+        cheapest = min(COFFEES, key=lambda c: c.price)
+        if hint := financiar.teaser(cheapest.price + igic(cheapest.price), "cafe"):
+            hints.append(f"-# ☕ Café: {hint}.")
+        self._frame(status_text(status, [*notes, *hints]), COLOR_IDLE, rows)
 
     def _jornada_select(self, status: Status) -> ui.Select:
         contract = status.contract

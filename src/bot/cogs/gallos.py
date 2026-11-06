@@ -528,6 +528,9 @@ class HousePanel(ui.View):
             f"{FORM_PER_FIGHT}. Con forma, la casa paga más contra los rivales duros; agotado, "
             "tu gallo tiene más papeletas de morir si cae por KO."
         )
+        prices = [train_price(self.record.stat(s)) for s in Stat if self.record.stat(s) < STAT_MAX]
+        if prices and (hint := financiar.teaser(min(prices) + igic(min(prices)), "gallos")):
+            lines.append(f"-# {hint}.")
         lines.append(
             f"-# Hoy {today}/{TRAIN_PER_DAY} entrenamientos · una hora de descanso entre uno y "
             f"otro · Saldo {format_amount(self.balance)}"
