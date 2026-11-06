@@ -93,7 +93,9 @@ from bot.services.achievements import (
     PORRA_PROP_PREFIX,
     PORRA_PROPS,
     PORRA_STATS,
+    PREDICT_COUNTRIES_STAT,
     PREDICT_SECTION_PREFIX,
+    PREDICT_TOPICS_STAT,
     REACT_KINDS_STAT,
     REACT_PREFIX,
     REACTED_PREFIX,
@@ -1027,6 +1029,8 @@ PRODUCED_STATS = {
     "sports_combo_win_max", "sports_combo_odds_won_max", "sports_combo_legs_won_max",
     # 🔮 Predicciones (`predict_*_stats`; las pruebas del final comprueban cada una)
     *(f"{PREDICT_SECTION_PREFIX}{section.key}" for section in PREDICT_SECTIONS),
+    *(f"{PREDICT_SECTION_PREFIX}{t.key}" for section in PREDICT_SECTIONS for t in section.topics),
+    PREDICT_COUNTRIES_STAT, PREDICT_TOPICS_STAT,
     "predict_bets", "predict_staked", "predict_side_yes", "predict_side_no",
     "predict_bet_long", "predict_bet_safe", "predict_all_in", "predict_bet_min",
     "predict_bet_cap", "predict_bet_666", "predict_bet_69", "predict_early",
@@ -2581,7 +2585,7 @@ def test_el_agujero_de_gusano_pide_movil_y_ordenador() -> None:
 
 def _predict_bet(**over: object) -> StatDelta:
     args = {
-        "stake": 100, "odds": 200, "side": 0, "section": "espana",
+        "stake": 100, "odds": 200, "side": 0, "section": "politica",
         "balance_before": 1_000, "lead": 3 * 86_400, "when": at(12),
     }  # fmt: skip
     return predict_bet_stats(**{**args, **over})
@@ -2592,10 +2596,30 @@ def test_una_prediccion_normal_solo_cuenta_lo_basico() -> None:
     assert delta.add == {
         "predict_bets": 1,
         "predict_staked": 100,
-        f"{PREDICT_SECTION_PREFIX}espana": 1,
+        f"{PREDICT_SECTION_PREFIX}politica": 1,
         "predict_side_yes": 1,
     }
     assert delta.peak == {"predict_event_markets_max": 1}
+
+
+def test_una_prediccion_cuenta_cada_tema_y_los_distintos_salen_derivados() -> None:
+    delta = _predict_bet(topics=("espana", "eeuu"))
+    assert delta.add[f"{PREDICT_SECTION_PREFIX}espana"] == 1
+    assert delta.add[f"{PREDICT_SECTION_PREFIX}eeuu"] == 1
+    stats = {
+        f"{PREDICT_SECTION_PREFIX}espana": 4,
+        f"{PREDICT_SECTION_PREFIX}eeuu": 1,
+        f"{PREDICT_SECTION_PREFIX}cripto": 2,
+        f"{PREDICT_SECTION_PREFIX}politica": 5,
+    }
+    full = with_derived(stats)
+    assert full[PREDICT_COUNTRIES_STAT] == 2
+    assert full[PREDICT_TOPICS_STAT] == 3
+
+
+def test_las_claves_de_secciones_y_temas_de_predice_no_se_repiten() -> None:
+    keys = [s.key for s in PREDICT_SECTIONS] + [t.key for s in PREDICT_SECTIONS for t in s.topics]
+    assert len(keys) == len(set(keys))
 
 
 def test_una_prediccion_al_no_cuenta_el_no_y_no_el_si() -> None:

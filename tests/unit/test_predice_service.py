@@ -19,6 +19,7 @@ from bot.services.predice import (
     MIN_ODDS,
     SECTION_BY_KEY,
     SECTIONS,
+    TOPIC_BY_KEY,
     VOID_AFTER,
     Confirmation,
     Offer,
@@ -29,8 +30,11 @@ from bot.services.predice import (
     build_sections,
     confirm,
     date_es,
+    fetch_plan,
+    in_topic,
     label,
     odds_for,
+    offer_topics,
     offerable_event,
     offerable_market,
     options,
@@ -307,47 +311,139 @@ def numbered(n: int, volume: float = 0.0) -> Event:
 
 
 def test_las_secciones_existen_y_se_buscan_por_clave() -> None:
-    assert [s.key for s in SECTIONS] == ["espana", "mundo", "economia", "cultura"]
-    assert SECTION_BY_KEY["mundo"].tags == ("geopolitics", "world")
+    assert [s.key for s in SECTIONS] == [
+        "politica", "mundo", "economia", "ia", "cultura", "tuits", "tiempo",
+    ]  # fmt: skip
+    assert SECTION_BY_KEY["mundo"].label == "⚔️ Guerras"  # la clave heredó las de Mundo
+    assert "espana" not in SECTION_BY_KEY  # España es un tema de Política
+    assert TOPIC_BY_KEY["espana"] in SECTION_BY_KEY["politica"].topics
+    keys = [t.key for s in SECTIONS for t in s.topics]
+    assert len(keys) == len(set(keys))
+    assert not set(keys) & set(SECTION_BY_KEY)
 
 
-def test_un_evento_en_dos_secciones_solo_sale_en_la_primera() -> None:
-    comun = numbered(1, 5)
-    sections = build_sections({"espana": [comun, comun], "mundo": [comun, numbered(2)]}, now=NOW)
-    assert [o.event.id for o in sections["espana"]] == ["ev1"]
-    assert [o.event.id for o in sections["mundo"]] == ["ev2"]
+def test_un_tema_casa_por_etiqueta_o_por_titulo() -> None:
+    base = event(market())
+    assert TOPIC_BY_KEY["espana"].has(replace(base, tags=("politics", "spain")))
+    assert not TOPIC_BY_KEY["espana"].has(replace(base, tags=("politics", "france")))
+    tuit = replace(base, tags=("tweets-markets",), title="Elon Musk # tweets May 1 - May 8?")
+    assert TOPIC_BY_KEY["musk"].has(tuit)
+    assert not TOPIC_BY_KEY["trump_posts"].has(tuit)
+    lluvia = replace(base, tags=("weather",), title="Highest temperature in Paris on May 5?")
+    assert TOPIC_BY_KEY["europa"].has(lluvia)
+    assert not TOPIC_BY_KEY["asia"].has(lluvia)
+
+
+def test_una_seccion_admite_con_su_puerta_y_sin_lo_excluido() -> None:
+    base = event(market())
+    politica, mundo, tuits = (SECTION_BY_KEY[k] for k in ("politica", "mundo", "tuits"))
+    assert politica.admits(replace(base, tags=("politics", "spain")))
+    assert not politica.admits(replace(base, tags=("spain",)))  # sin la puerta
+    # Un tuit no sale en Política aunque hable de política, y sí en Tuits.
+    tuit = replace(base, tags=("politics", predice.TWEETS_TAG))
+    assert not politica.admits(tuit)
+    assert tuits.admits(tuit)
+    # Unas elecciones son de Política, no de Guerras; el resto de lo geopolítico, sí.
+    assert not mundo.admits(replace(base, tags=("geopolitics", "elections")))
+    assert mundo.admits(replace(base, tags=("geopolitics", "iran")))
+    assert SECTION_BY_KEY["economia"].admits(replace(base, tags=("anything",)))  # sin puerta
+
+
+def test_los_temas_de_una_oferta_son_los_de_su_seccion() -> None:
+    spain_uk = replace(event(market()), tags=("politics", "spain", "uk"))
+    offer = build_offer(spain_uk, "politica", now=NOW)
+    assert offer is not None
+    assert offer_topics(offer) == ("espana", "reino_unido")
+    assert offer_topics(replace(offer, section="espana")) == ()  # sección antigua
+
+
+def test_el_plan_pide_cada_etiqueta_una_vez_con_el_limite_mayor() -> None:
+    plan = fetch_plan()
+    pedidas = [t for s in SECTIONS for t in s.fetch_tags]
+    assert set(plan) == set(pedidas)
+    assert plan["israel"] == predice.EVENTS_PER_TAG  # está en Política y en Guerras
+    assert plan["weather"] == SECTION_BY_KEY["tiempo"].limit > predice.EVENTS_PER_TAG
+    for tag, limit in plan.items():
+        assert limit == max(s.limit for s in SECTIONS if tag in s.fetch_tags)
+    for section in SECTIONS:
+        assert len(section.fetch_tags) == len(set(section.fetch_tags))
+
+
+def test_in_topic_filtra_por_tema_y_recorta() -> None:
+    espanolas = [numbered(n, float(n)) for n in range(EVENTS_PER_SECTION + 5)]
+    francesa = replace(numbered(99, 1000), tags=("politics", "france"))
+    offers = [build_offer(e, "politica", now=NOW) for e in [francesa, *espanolas]]
+    offers = [o for o in offers if o is not None]
+
+    todas = in_topic(offers, None)
+    assert len(todas) == EVENTS_PER_SECTION
+    assert todas[0].event.id == "ev99"  # recorta, sin reordenar
+    assert [o.event.id for o in in_topic(offers, "francia")] == ["ev99"]
+    espana = in_topic(offers, "espana")
+    assert len(espana) == EVENTS_PER_SECTION
+    assert "ev99" not in {o.event.id for o in espana}
+    assert in_topic(offers, "alemania") == []
+
+
+def test_un_evento_puede_salir_en_dos_secciones() -> None:
+    # El alto el fuego con Irán es política y es guerra.
+    iran = replace(numbered(1, 5), tags=("politics", "geopolitics", "iran"))
+    sections = build_sections({"politics": [iran, iran], "iran": [iran]}, now=NOW)
+    assert [o.event.id for o in sections["politica"]] == ["ev1"]
+    assert [o.event.id for o in sections["mundo"]] == ["ev1"]
+    assert sections["politica"][0].section == "politica"
+    assert sections["mundo"][0].section == "mundo"
+
+
+def test_cada_seccion_solo_toma_lo_pedido_con_sus_etiquetas() -> None:
+    sections = build_sections({"crypto": [numbered(1)]}, now=NOW)  # etiqueta de Economía
+    assert len(sections["economia"]) == 1
+    assert sections["politica"] == []  # no pide `crypto`, aunque el evento sea suyo
 
 
 def test_las_secciones_se_ordenan_por_volumen_y_luego_por_titulo() -> None:
     eventos = [numbered(1, 10), numbered(2, 99), numbered(4, 10), numbered(3, 10)]
-    sections = build_sections({"mundo": eventos}, now=NOW)
-    assert [o.event.id for o in sections["mundo"]] == ["ev2", "ev1", "ev3", "ev4"]
+    sections = build_sections({"spain": eventos}, now=NOW)
+    assert [o.event.id for o in sections["politica"]] == ["ev2", "ev1", "ev3", "ev4"]
 
 
-def test_cada_seccion_tiene_un_tope_de_eventos() -> None:
+def test_las_secciones_no_recortan_y_cada_tema_recorta_las_suyas() -> None:
     eventos = [numbered(n, float(n)) for n in range(EVENTS_PER_SECTION + 10)]
-    sections = build_sections({"economia": eventos}, now=NOW)
-    assert len(sections["economia"]) == EVENTS_PER_SECTION
-    assert sections["economia"][0].event.id == f"ev{EVENTS_PER_SECTION + 9}"
+    sections = build_sections({"spain": eventos}, now=NOW)
+    assert len(sections["politica"]) == EVENTS_PER_SECTION + 10
+    assert len(in_topic(sections["politica"], None)) == EVENTS_PER_SECTION
 
 
-def test_las_cuatro_secciones_salen_aunque_esten_vacias() -> None:
-    sections = build_sections({}, now=NOW)
-    assert sections == {"espana": [], "mundo": [], "economia": [], "cultura": []}
-    parcial = build_sections({"cultura": [numbered(1)]}, now=NOW)
-    assert list(parcial) == ["espana", "mundo", "economia", "cultura"]
-    assert len(parcial["cultura"]) == 1
+def test_todas_las_secciones_salen_aunque_esten_vacias() -> None:
+    keys = [s.key for s in SECTIONS]
+    assert build_sections({}, now=NOW) == {key: [] for key in keys}
+    parcial = build_sections({"spain": [numbered(1)]}, now=NOW)
+    assert list(parcial) == keys
+    assert len(parcial["politica"]) == 1
 
 
 def test_las_secciones_con_los_datos_reales() -> None:
-    sections = build_sections({"espana": events_of("elecciones")}, now=NOW)
-    titles = [o.event.title for o in sections["espana"]]
+    sections = build_sections({"spain": events_of("elecciones")}, now=NOW)
+    titles = [o.event.title for o in sections["politica"]]
     assert titles[0] in {
         "Spain General Election Winner",
         "Spain General Election: PP + Vox Majority?",
     }
     assert "Spain General Election Winner" in titles
     assert "Pedro Sánchez out as PM of Spain by...?" not in titles
+    assert {o.event.id for o in in_topic(sections["politica"], "espana")} == {
+        o.event.id for o in sections["politica"]
+    }
+
+
+def test_las_del_tiempo_cierran_al_acabar_el_mercado_y_no_al_abrirse() -> None:
+    abierto_ayer = event(market(), tags=("weather",), start=NOW - 86_400)
+    # Unas elecciones que ya empezaron no se ofrecen; el tiempo, cuyo startTime es cuándo
+    # se abrió el mercado, sí, y cierra en el fin del mercado.
+    assert build_offer(abierto_ayer, "politica", now=NOW) is None
+    offer = build_offer(abierto_ayer, "tiempo", now=NOW)
+    assert offer is not None
+    assert offer.closes == offer.markets[0].end
 
 
 # -- Confirmar --------------------------------------------------------------------------

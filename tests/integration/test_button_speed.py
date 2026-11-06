@@ -948,10 +948,10 @@ def predice_panel(client: BotClient, owner: MagicMock):  # noqa: ANN201
     )
     event = replace(base, start=None, end=end, markets=(market,))
     cog = client.get_cog("Predice")
-    cog.offers = build_sections({"espana": [event]}, now=now)
+    cog.offers = build_sections({"spain": [event]}, now=now)
     cog.offers_at = now
     cog.client = SimpleNamespace(quote=AsyncMock(return_value=(0.61, 0.63)))
-    view = module_of(client, "Predice").PredictView(cog, owner_id=OWNER_ID, section="espana")
+    view = module_of(client, "Predice").PredictView(cog, owner_id=OWNER_ID, section="politica")
     view.event_id = event.id
     view.rebuild()
     return view, event, market

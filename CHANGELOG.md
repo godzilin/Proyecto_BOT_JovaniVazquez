@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.50.0 · 2026-11-06
+
+- Predicciones: `predice` con siete secciones y temas (países, guerras, tuits, el tiempo…)
+- Logros: 12 nuevos en 🔮 Predicciones por las secciones nuevas, los países y los temas
+
 ### 9.49.0 · 2026-11-06
 
 - Tapetes: el Hielo Negro, solo en la Rueda y, rarísimo, en las cajas

@@ -38,10 +38,11 @@ async def test_los_repositorios_dejan_la_base_en_wal(tmp_path: Path) -> None:
 
 
 def _write_many(path: Path, count: int) -> None:
+    # Filas de 80 KB: pocas conexiones llenan el registro (cada una cuesta ~30 ms en Windows).
     for i in range(count):
         connection = sqlite.connect(path)
         with connection:
-            connection.execute("INSERT INTO t VALUES (?, ?)", (i, "x" * 3_000))
+            connection.execute("INSERT INTO t VALUES (?, ?)", (i, "x" * 80_000))
         connection.close()
 
 
@@ -54,8 +55,8 @@ def test_el_checkpoint_vacia_el_registro_que_sin_el_crece_sin_fin(tmp_path: Path
     connection.close()
 
     # Con una conexión por operación y sin checkpoint al cerrar, SQLite no lo recicla:
-    # 1.500 escrituras de 3 KB dejan el registro por encima de sus 1.000 páginas (4 MB).
-    _write_many(path, 1_500)
+    # 60 escrituras de 80 KB dejan el registro por encima de sus 1.000 páginas (4 MB).
+    _write_many(path, 60)
     assert wal.stat().st_size > 4_500 * 1024
 
     busy, pages, done = sqlite.checkpoint(path)
@@ -65,7 +66,7 @@ def test_el_checkpoint_vacia_el_registro_que_sin_el_crece_sin_fin(tmp_path: Path
     # Y lo escrito sigue ahí.
     connection = sqlite.connect(path)
     try:
-        assert connection.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 1_500
+        assert connection.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 60
     finally:
         connection.close()
 
@@ -86,7 +87,7 @@ async def test_el_bot_vacia_el_registro_al_arrancar_y_lo_hace_cada_minuto(
     with connection:
         connection.execute("CREATE TABLE t (a, b)")
     connection.close()
-    _write_many(path, 300)
+    _write_many(path, 5)
     client = BotClient(command_prefix=".", database_path=path)
     try:
         await client._checkpoint()

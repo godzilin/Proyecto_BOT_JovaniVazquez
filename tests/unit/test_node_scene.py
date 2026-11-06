@@ -46,6 +46,20 @@ def node_ready() -> bool:
 needs_node = pytest.mark.skipif(not node_ready(), reason="No hay Node con @napi-rs/canvas")
 
 
+async def open_helpers(painter: NodeScene, meta: object, states: list) -> None:
+    """Abre los procesos de refuerzo antes de una prueba de dibujo repartido.
+
+    Sin ellos, con la máquina cargada (toda la tanda en paralelo), el primer proceso lo
+    pinta todo antes de que se abra otro y la prueba no ve el reparto.
+    """
+    assert await painter.render(meta, states[:8]) is not None
+    pool = painter._use_pool()
+    deadline = asyncio.get_running_loop().time() + 20
+    while len([w for w in pool.workers if w.alive and not w.busy]) < 3:
+        assert asyncio.get_running_loop().time() < deadline, "No se abren los procesos de refuerzo"
+        await asyncio.sleep(0.05)
+
+
 def lost_game() -> CoinGame:
     """Dos aciertos y luego fallo (pidió cara, salió cruz)."""
     rng = Scripted(Outcome.CARA, Outcome.CARA, Outcome.CRUZ, Outcome.CARA)

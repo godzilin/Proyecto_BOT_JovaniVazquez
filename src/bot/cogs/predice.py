@@ -1,13 +1,15 @@
 """Predicciones: `predice`, cuotas fijas sobre preguntas reales de Polymarket.
 
 `/predice` (y `.predice`) abre un panel (componentes de Discord, `PredictView`) con las
-preguntas abiertas de cada sección de `bot.services.predice.SECTIONS`: las elecciones
-generales de España del 29 de noviembre de 2026, el mundo, la economía y las criptos, y la
-cultura y la tecnología.
+preguntas abiertas de cada sección de `bot.services.predice.SECTIONS`: política (con
+España, las elecciones generales del 29 de noviembre de 2026, como un país más), guerras
+(clave `mundo`), economía y cripto, IA y ciencia, cultura, tuits y el tiempo.
 
-- Arriba, un botón por sección y 🎟️ **Mis predicciones**. Debajo, las `LISTED` preguntas
-  que más se mueven, cada una con sus dos opciones más probables y su botón, y un
-  desplegable con las siguientes.
+- Arriba, dos desplegables y 🎟️ **Mis predicciones**: el de secciones y, si la sección
+  tiene temas (países, guerras, activos), el de temas, con 🔥 Tendencias (todas) y solo los
+  temas que tienen preguntas abiertas. Elegir sección vuelve a Tendencias. Debajo, las
+  `LISTED` preguntas que más se mueven, cada una con sus dos opciones más probables y su
+  botón, y un desplegable con las siguientes.
 - La ficha de una pregunta enseña la probabilidad de cada opción y el botón de cada lado
   con su cuota. Si el evento tiene varias opciones (el ganador de unas elecciones), un
   desplegable lleva a la de cada una. Cada lado abre un formulario con la cantidad (500, 2k,
@@ -100,13 +102,13 @@ from bot.services.pending import Side as PendingSide
 from bot.services.pets import Moment
 from bot.services.polymarket import Event, Market, PolymarketClient, PolymarketError, Resolution
 from bot.services.predice import (
-    EVENTS_PER_TAG,
     GAME,
     LOOKAHEAD,
     MAX_STAKE,
     MIN_STAKE,
     SECTION_BY_KEY,
     SECTIONS,
+    TOPIC_BY_KEY,
     Offer,
     Option,
     Side,
@@ -114,7 +116,10 @@ from bot.services.predice import (
     build_sections,
     confirm,
     date_es,
+    fetch_plan,
+    in_topic,
     label,
+    offer_topics,
     offerable_market,
     options,
     payout,
@@ -135,6 +140,9 @@ VIEW_TIMEOUT = 600
 #: Preguntas con su botón en la portada; las siguientes, en un desplegable.
 LISTED = 6
 MENU_SIZE = 25
+#: Valor del desplegable de temas para 🔥 Tendencias (una opción no puede valer «»).
+TRENDING = "tendencias"
+TRENDING_LABEL = "🔥 Tendencias"
 #: Opciones con su línea en la ficha de un evento de varias opciones.
 OPTION_LINES = 10
 #: Predicciones que enseña 🎟️ Mis predicciones.
@@ -359,6 +367,7 @@ class PredictView(ui.LayoutView):
         self.cog = cog
         self.owner_id = owner_id
         self.section = section
+        self.topic: str | None = None  # clave de tema, o `None` para 🔥 Tendencias
         self.event_id: str | None = None
         self.market_id: str | None = None
         self.message: discord.Message | discord.InteractionMessage | None = None
@@ -371,7 +380,8 @@ class PredictView(ui.LayoutView):
         if self.event_id is None:
             return None
         return next(
-            (o for o in self.cog.open_offers(self.section) if o.event.id == self.event_id), None
+            (o for o in self.cog.section_offers(self.section) if o.event.id == self.event_id),
+            None,
         )
 
     def chosen(self, offer: Offer) -> Market | None:
@@ -418,32 +428,53 @@ class PredictView(ui.LayoutView):
 
     def _home(self, box: ui.Container) -> None:
         """La portada de una sección: sus preguntas con su botón y el resto en un desplegable."""
-        offers = self.cog.open_offers(self.section)
         section = SECTION_BY_KEY[self.section]
+        section_offers = self.cog.section_offers(self.section)
+        shown = [t for t in section.topics if in_topic(section_offers, t.key)]
+        if self.topic not in {t.key for t in shown}:
+            self.topic = None  # el tema se quedó sin preguntas al actualizar
+        offers = in_topic(section_offers, self.topic)
+        topic = TOPIC_BY_KEY.get(self.topic) if self.topic else None
+        head = f"🔮 **Predicciones** · {section.label}" + (f" · {topic.label}" if topic else "")
         box.add_item(
             ui.TextDisplay(
-                f"🔮 **Predicciones** · {section.label}\n"
+                f"{head}\n"
                 "Los precios vienen de Polymarket y la casa paga la cuota que ves. Tu "
                 "predicción se resuelve sola cuando Polymarket resuelve la pregunta.\n"
                 f"-# {self.cog.age_text()}"
             )
         )
-        row: ui.ActionRow = ui.ActionRow()
-        for other in SECTIONS:
-            current = other.key == self.section
-            row.add_item(
-                self._button(
-                    other.label,
-                    f"predice:seccion:{other.key}",
-                    self._section_callback(other.key),
-                    style=(
-                        discord.ButtonStyle.primary if current else discord.ButtonStyle.secondary
-                    ),
-                    disabled=current,
+        sections: ui.Select = ui.Select(
+            placeholder="Sección",
+            options=[
+                discord.SelectOption(
+                    label=other.label, value=other.key, default=other.key == self.section
                 )
+                for other in SECTIONS
+            ],
+            custom_id="predice:seccion",
+        )
+        sections.callback = self._pick_section(sections)  # type: ignore[method-assign]
+        box.add_item(ui.ActionRow(sections))
+        if shown:
+            topics: ui.Select = ui.Select(
+                placeholder="Tema",
+                options=[
+                    discord.SelectOption(
+                        label=TRENDING_LABEL, value=TRENDING, default=self.topic is None
+                    ),
+                    *(
+                        discord.SelectOption(
+                            label=t.label, value=t.key, default=t.key == self.topic
+                        )
+                        for t in shown
+                    ),
+                ],
+                custom_id="predice:tema",
             )
-        row.add_item(self._button("🎟️ Mis predicciones", "predice:mis", self._slip))
-        box.add_item(row)
+            topics.callback = self._pick_topic(topics)  # type: ignore[method-assign]
+            box.add_item(ui.ActionRow(topics))
+        box.add_item(ui.ActionRow(self._button("🎟️ Mis predicciones", "predice:mis", self._slip)))
         box.add_item(ui.Separator())
         if not offers:
             text = (
@@ -600,9 +631,19 @@ class PredictView(ui.LayoutView):
 
     # -- Callbacks ---------------------------------------------------------------------
 
-    def _section_callback(self, key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+    def _pick_section(self, select: ui.Select) -> Callable[[discord.Interaction], Awaitable[None]]:
         async def callback(interaction: discord.Interaction) -> None:
-            self.section = key
+            self.section = select.values[0]
+            self.topic = None
+            self.event_id = self.market_id = None
+            await self.show(interaction)
+
+        return callback
+
+    def _pick_topic(self, select: ui.Select) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def callback(interaction: discord.Interaction) -> None:
+            value = select.values[0]
+            self.topic = None if value == TRENDING else value
             self.event_id = self.market_id = None
             await self.show(interaction)
 
@@ -776,10 +817,15 @@ class Predice(commands.Cog):
             return date_es(market.group_title)
         return self.question_text(market)
 
-    def open_offers(self, section: str) -> list[Offer]:
-        """Las preguntas de una sección que aún admiten predicciones (de memoria)."""
+    def section_offers(self, section: str) -> list[Offer]:
+        """Todas las preguntas de una sección que aún admiten predicciones (de memoria),
+        sin recortar: un evento de un tema puede quedar fuera de las de Tendencias."""
         now = self.clock()
         return [o for o in self.offers.get(section, []) if o.closes > now]
+
+    def open_offers(self, section: str, topic: str | None = None) -> list[Offer]:
+        """Las que enseña la portada: las de un tema (todas si es `None`), recortadas."""
+        return in_topic(self.section_offers(section), topic)
 
     def find(self, event_id: str, market_id: str) -> tuple[Offer, Market] | None:
         """Una pregunta y su mercado por sus ids (de memoria), o `None` si ya no está."""
@@ -927,6 +973,7 @@ class Predice(commands.Cog):
                 odds=odds,
                 side=int(side_enum),
                 section=offer.section,
+                topics=offer_topics(offer),
                 balance_before=balance + stake,
                 lead=offer.closes - now,
                 when=datetime.fromtimestamp(now, TIMEZONE),
@@ -989,32 +1036,35 @@ class Predice(commands.Cog):
     async def refresh(self, now: float) -> None:
         """Pide a Polymarket las preguntas de cada sección y traduce las nuevas.
 
-        Si una etiqueta falla, su sección conserva lo que tenía (sin las preguntas que ya
-        no admiten predicciones). Si fallan todas, no se cambia la hora de los precios.
+        Pide cada etiqueta una vez (`fetch_plan`). Si una falla, conserva los eventos que
+        ya tenía con esa etiqueta (sin las preguntas que ya no admiten predicciones). Si
+        fallan todas, no se cambia la hora de los precios.
         """
         if self.client is None:
             return
         fetched: dict[str, list[Event]] = {}
         failed: set[str] = set()
-        for section in SECTIONS:
-            events: list[Event] = []
+        for tag, limit in fetch_plan().items():
             try:
-                for tag in section.tags:
-                    events += await self.client.events(
-                        tag_slug=tag,
-                        closed=False,
-                        end_min=now,
-                        end_max=now + LOOKAHEAD,
-                        order="volume24hr",
-                        limit=EVENTS_PER_TAG,
-                    )
+                fetched[tag] = await self.client.events(
+                    tag_slug=tag,
+                    closed=False,
+                    end_min=now,
+                    end_max=now + LOOKAHEAD,
+                    order="volume24hr",
+                    limit=limit,
+                )
             except PolymarketError as error:
-                logger.warning("Polymarket no da las preguntas de %s: %s", section.key, error)
-                failed.add(section.key)
-                events = [offer.event for offer in self.offers.get(section.key, [])]
-            fetched[section.key] = events
+                logger.warning("Polymarket no da las preguntas de %s: %s", tag, error)
+                failed.add(tag)
+                fetched[tag] = [
+                    o.event
+                    for offers in self.offers.values()
+                    for o in offers
+                    if tag in o.event.tags
+                ]
         self.offers = build_sections(fetched, now=now)
-        if len(failed) < len(SECTIONS):
+        if len(failed) < len(fetched):
             self.offers_at = now
         await self._translate()
 
@@ -1187,7 +1237,7 @@ class Predice(commands.Cog):
 
     def _view(self, owner_id: int) -> PredictView:
         """Un panel nuevo, en la primera sección con preguntas."""
-        section = next((s.key for s in SECTIONS if self.open_offers(s.key)), SECTIONS[0].key)
+        section = next((s.key for s in SECTIONS if self.section_offers(s.key)), SECTIONS[0].key)
         return PredictView(self, owner_id=owner_id, section=section)
 
     @app_commands.command(

@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[2] / "docs" / "auditoria_frases.py"
 
 
@@ -28,18 +30,23 @@ def _load() -> ModuleType:
 af = _load()
 
 
+# Recorrer todo el código tarda ~10 s: una sola pasada para todo lo que mira el código real.
+@pytest.mark.lenta
 def test_las_frases_del_bot_pasan_la_auditoria(capsys) -> None:  # noqa: ANN001
-    warnings = af.report(*af.collect())
-    capsys.readouterr()
-    assert warnings == []
-
-
-def test_la_auditoria_encuentra_las_listas_de_frases() -> None:
     lists, sources = af.collect()
     places = {pl.where for pl in lists}
     assert "cogs/errors:EXPIRED_CLICK" in places
     assert "services/pets:CARE_LINES[Care.PET]" in places
     assert sources["Netanyahu (Bibi)"] > 0 and "Groypers (Nick Fuentes)" in sources
+
+    rows = af.part_table(lists, ["cogs/slots"])
+    assert all("cogs/blackjack" not in row for row in rows)
+    assert any(row.startswith("\nTotal:") for row in rows)
+
+    # Incluye lo boricua fuera del contenido (`af.boricua_texts`).
+    warnings = af.report(lists, sources)
+    capsys.readouterr()
+    assert warnings == []
 
 
 def test_cuenta_las_coletillas_de_jovani() -> None:
@@ -57,13 +64,6 @@ def test_reconoce_las_familias_de_temas_y_las_frases_normales() -> None:
     assert not af.is_plain("¡Eso es, mi amor!")
 
 
-def test_la_tabla_por_partes_cuenta_solo_esa_parte() -> None:
-    lists, _ = af.collect()
-    rows = af.part_table(lists, ["cogs/slots"])
-    assert all("cogs/blackjack" not in row for row in rows)
-    assert any(row.startswith("\nTotal:") for row in rows)
-
-
 #: Frases hechas o de Jovani que llevan «como» y no son la muleta de la Biblia.
 COMO_IDIOMS = {"¡Azul, azul, como el mar azul!", "Al amanecer, como Dios manda"}
 
@@ -78,10 +78,6 @@ def test_ningun_nombre_de_logro_usa_la_muleta_como_referencia() -> None:
         a.name for a in AVAILABLE if re.search(af.COMPARISON, a.name) and a.name not in COMO_IDIOMS
     ]
     assert bad == []
-
-
-def test_lo_boricua_solo_queda_en_el_contenido() -> None:
-    assert af.boricua_texts() == []
 
 
 def test_la_vigilancia_de_lo_boricua_salta_con_un_texto_nuevo(tmp_path) -> None:  # noqa: ANN001

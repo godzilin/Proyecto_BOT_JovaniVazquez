@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready
+from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready, open_helpers
 
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
@@ -290,6 +290,7 @@ async def test_repartido_pinta_lo_mismo_que_de_un_tiron(scene: LotteryScene, nam
         return original(call, args, **extra)
 
     meta, states, _ = ANIMATIONS[name]
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)

@@ -447,7 +447,11 @@ async def test_batir_el_record_se_avisa(tmp_path: Path) -> None:
     await repository.initialize()
     load = AsyncMock(return_value=2)
     cog = Tower(
-        MagicMock(), economy=EconomyService(repository), rng=random.Random(7), load_record=load
+        MagicMock(),
+        economy=EconomyService(repository),
+        rng=random.Random(7),
+        load_record=load,
+        renderer=FakeTowerScene(images=False),  # type: ignore[arg-type]
     )
     board = await open_board(cog)
     place(board, {0})
