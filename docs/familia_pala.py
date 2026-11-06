@@ -1,6 +1,8 @@
 """Simula tres estilos de jugar a `pala` para calibrar la familia, con el código real.
 
 Uso, desde la raíz del repo: `python docs/familia_pala.py` (imprime una tabla).
+Con `--casa`, repite los tres estilos viviendo con sus padres y en cada tramo de `casa`
+(`bot.services.home.TIERS`: recarga de la batería y de la familia y desgaste de cada turno).
 
 Los estilos, durante 28 días, en un puesto 1 de obra (base 1.800 Y$, nota 75):
 
@@ -27,6 +29,7 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, "src")
+from bot.services.home import TIERS, Tier
 from bot.services.levels import TIMEZONE, local_day
 from bot.services.work import (
     ACCIDENT_TIRED,
@@ -45,6 +48,7 @@ from bot.services.work import (
     family_breakdown,
     family_now,
     family_tier,
+    home_relief,
     next_shift_kind,
     performance_delta,
     roll_over_day,
@@ -69,9 +73,12 @@ def schedule(style: str, rng: random.Random) -> list[float]:
     return [9 + i / 4 for i in range(16 * 4)]
 
 
-def run(style: str, seed: int) -> dict[str, float]:
+def run(style: str, seed: int, home: Tier | None = None) -> dict[str, float]:
     rng = random.Random(seed)
     contract = Contract(job="obra", level=1, battery_at=START, family_at=START)
+    if home is not None:
+        contract.home_regen, contract.home_family = home.regen, home.family
+        contract.home_strain = home.strain
     stats = {"shifts": 0, "gross": 0.0, "performance": 0, "accidents": 0}
     hours: dict[str, int] = {}
     for day in range(DAYS):
@@ -116,7 +123,8 @@ def run(style: str, seed: int) -> dict[str, float]:
                 SCORE, kind, family=family_tier(family_before)
             )
             contract.battery = battery - cost
-            change_family(contract, sum(v for _, v in family_breakdown(kind, now)), now)
+            parts = home_relief(family_breakdown(kind, now), contract.home_strain)
+            change_family(contract, sum(v for _, v in parts), now)
             contract.shifts_today += 1
             if kind is not ShiftKind.ORDINARY:
                 contract.extras_week += 1
@@ -130,7 +138,28 @@ def run(style: str, seed: int) -> dict[str, float]:
     return stats
 
 
+def by_home() -> None:
+    """`--casa`: lo que cambia cada tramo de `casa` frente a vivir con tus padres."""
+    print(f"{DAYS} días, puesto 1 de obra. Medias por día según la casa:")
+    for style in ("casual", "normal", "grinder"):
+        for home in (None, *reversed(TIERS)):
+            runs = [run(style, seed, home) for seed in range(SEEDS)]
+            shifts = sum(r["shifts"] for r in runs) / len(runs) / DAYS
+            gross = sum(r["gross"] for r in runs) / len(runs) / DAYS
+            bar = sum(r["performance"] for r in runs) / len(runs) / DAYS
+            accidents = sum(r["accidents"] for r in runs) / len(runs)
+            happy = sum(r.get("En casa feliz", 0) for r in runs) / len(runs)
+            name = "con sus padres" if home is None else home.name
+            print(
+                f"{style:8} {name:15} turnos {shifts:4.2f} · bruto {gross:6.0f} · barra "
+                f"+{bar:4.1f} · accidentes {accidents:4.1f} · casa feliz {happy * 100:3.0f} %"
+            )
+
+
 def main() -> None:
+    if "--casa" in sys.argv:
+        by_home()
+        return
     print(f"{DAYS} días, puesto 1 de obra (base {BASE}), nota {SCORE}. Medias por día:")
     for style in ("casual", "normal", "grinder"):
         runs = [run(style, seed) for seed in range(SEEDS)]

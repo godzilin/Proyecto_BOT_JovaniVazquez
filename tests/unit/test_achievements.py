@@ -36,6 +36,10 @@ from bot.services.achievements import (
     BJ_HIGH_STAKE,
     BUS_WIN_PREFIX,
     BY_ID,
+    CASA_FUNNY_COMFORT,
+    CASA_KIND_PREFIX,
+    CASA_KINDS,
+    CASA_KINDS_STAT,
     CASINO_DATES,
     CASINO_GAMES_100_STAT,
     CASINO_GAMES_1000_STAT,
@@ -235,6 +239,12 @@ HOUSING_EVENT_KEYS = (
 )  # fmt: skip
 
 PRODUCED_STATS = {
+    # 🏡 Casa (`home_night_stats` y `home_panel_stats`)
+    "casa_nights", "casa_night_habitacion", "casa_night_alquiler", "casa_night_vpo",
+    "casa_night_propia", "casa_tier", "casa_tier_low", "casa_supplies", "casa_power_tax",
+    CASA_KINDS_STAT, *(f"{CASA_KIND_PREFIX}{k}" for k in CASA_KINDS), "casa_energy_a",
+    "casa_energy_g", "casa_cuts", *(f"casa_comfort_{n}" for n in CASA_FUNNY_COMFORT),
+    "casa_open", "casa_look", "casa_open_night",
     # 🎪 Rueda (`rueda_stats`)
     "rueda_spins", "rueda_streak_max", "rueda_again_day", "rueda_again_nothing",
     "rueda_again_hielo",

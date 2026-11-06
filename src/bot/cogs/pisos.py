@@ -109,6 +109,7 @@ from bot.services.achievements import (
     StatDelta,
     advance_orphan_stats,
     guarantee_night_stats,
+    home_night_stats,
     housing_action_stats,
     housing_day_stats,
     housing_keys_stats,
@@ -121,6 +122,7 @@ from bot.services.achievements import (
     remortgage_executed_stats,
 )
 from bot.services.economy import EconomyService, format_amount
+from bot.services.home import TIER_RANK
 from bot.services.housing_catalog import (
     BARRIO_BY_KEY,
     BARRIO_NEWS_BY_KEY,
@@ -4004,6 +4006,23 @@ class Pisos(commands.Cog):
             for member in run.remortgage_executions:
                 logros.note(self.bot, guild_id, member, remortgage_executed_stats())
             self._note_guarantees(guild_id, run.guarantee_claims, run.reimbursements)
+            for member, night in run.homes.items():
+                logros.note(
+                    self.bot,
+                    guild_id,
+                    member,
+                    home_night_stats(
+                        kind=night.place.kind,
+                        listing_kind=night.place.listing_kind,
+                        energy=night.place.energy,
+                        tier=TIER_RANK[night.comfort.tier.key],
+                        comfort=night.comfort.total,
+                        paid=night.paid,
+                        # Los impuestos se cobran antes que el resto: la luz, lo primero.
+                        power_tax=min(night.paid, night.bill.power_tax),
+                        cut=night.unpaid > 0,
+                    ),
+                )
             for member in set(run.advance_orphans):
                 logros.note(self.bot, guild_id, member, advance_orphan_stats())
             everyone = (

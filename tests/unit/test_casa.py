@@ -13,6 +13,13 @@ from bot.repositories.housing import HomeStatus, Market, place_of
 from bot.repositories.housing_finance import HOME_OWN, HOME_RENTED, HOME_VPO
 from bot.services import home
 from bot.services import housing as rules
+from bot.services.achievements import (
+    CASA_KIND_PREFIX,
+    CASA_KINDS_STAT,
+    home_night_stats,
+    home_panel_stats,
+    with_derived,
+)
 from bot.services.housing_catalog import LISTING_BY_KEY, VPO_UNITS
 from bot.services.pala import WorkService
 from bot.services.work import FAMILY_REGEN_PER_HOUR, Contract, family_now, home_relief
@@ -252,3 +259,38 @@ def test_ningun_inmueble_del_catalogo_rompe_el_confort() -> None:
         total = home.comfort(found).total
         assert 0 <= total <= 100 - home.GEAR_POINTS
         assert home.supplies(found).total > 0
+
+
+# -- Logros -----------------------------------------------------------------------------
+
+
+def test_cada_noche_en_casa_cuenta_para_sus_logros() -> None:
+    delta = home_night_stats(
+        kind=home.RENTED, listing_kind="habitacion", energy="G", tier=1, comfort=69,
+        paid=900, power_tax=20, cut=False,
+    )  # fmt: skip
+    assert delta.add["casa_nights"] == 1
+    assert delta.add["casa_night_habitacion"] == 1
+    assert "casa_night_alquiler" not in delta.add
+    assert delta.add[f"{CASA_KIND_PREFIX}habitacion"] == 1
+    assert delta.add["casa_supplies"] == 900 and delta.add["casa_power_tax"] == 20
+    assert delta.add["casa_energy_g"] == delta.add["casa_tier_low"] == 1
+    assert delta.add["casa_comfort_69"] == 1
+    assert "casa_cuts" not in delta.add
+    assert delta.peak == {"casa_tier": 1}
+    cut = home_night_stats(
+        kind=home.OWN, listing_kind="chalet", energy="A", tier=5, comfort=90, paid=0,
+        power_tax=0, cut=True,
+    )  # fmt: skip
+    assert cut.add["casa_cuts"] == 1 and cut.add["casa_night_propia"] == 1
+    assert "casa_supplies" not in cut.add
+
+
+def test_los_tipos_de_vivienda_distintos_salen_de_las_noches() -> None:
+    stats = {f"{CASA_KIND_PREFIX}estudio": 3, f"{CASA_KIND_PREFIX}vpo": 1, "otra": 9}
+    assert with_derived(stats)[CASA_KINDS_STAT] == 2
+
+
+def test_abrir_el_panel_de_casa_cuenta_la_tuya_y_la_de_otros() -> None:
+    assert home_panel_stats(own=True, hour=12).add == {"casa_open": 1}
+    assert home_panel_stats(own=False, hour=3).add == {"casa_look": 1, "casa_open_night": 1}
