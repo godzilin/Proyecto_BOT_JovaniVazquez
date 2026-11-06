@@ -872,7 +872,14 @@ python -m bot
   que la forma multiplica de ×1,5 (agotado) a ×0,25 (en plena forma). Su ficha
   pasa al cementerio (la ficha enseña los tres últimos caídos), el miembro
   empieza con un gallo nuevo a cero y la skin no se pierde. Morir no mueve
-  dinero. 205 logros en 🐓 Gallos. Reglas en `bot.services.gallos`.
+  dinero. Entrenar es un **minijuego** (pesas, pulso, secuencia, obstáculos,
+  fondo o sauna) cuya nota da la forma, con combo del día, personalidad del
+  gallo, eventos (el suplemento dudoso puede lesionarlo) y lesiones. Además:
+  peleas ☠️ a muerte, rivales que se pican, echarle de comer al gallo de otro,
+  animar o sabotear su minijuego o jugarlo por él, 🤝 sparring de pulso entre
+  dos, edad y retiro con cría que hereda parte de los stats, 🏠 galleras (clubs
+  de hasta 5) y un 🏆 torneo cada domingo con cartelera. 273 logros en 🐓
+  Gallos. Reglas en `bot.services.gallos`, `gallos_gym` y `gallos_torneo`.
 - **Porras** (`porra`): apuestas entre miembros sobre las próximas jugadas
   de otro. `/porra @ana minas mina 3 500` le monta a Ana una porra: «¿pisa
   alguna mina en sus próximas 3 partidas de al menos 500 Y$?». Nadie puede
@@ -1578,6 +1585,8 @@ src/bot/
 │   ├── bacara_render.py # Bacará: lo que se ve en cada fotograma y dibujo con Pillow
 │   ├── bacara_scene.py  # Bacará con canvas en Node o Chromium (assets/bacara/escena.html)
 │   ├── gallos.py        # Gallos: rivales, cuotas, la pelea, la grada y la ficha del gallo
+│   ├── gallos_gym.py    # Gallos: minijuegos de entrenamiento, combo, personalidad y eventos
+│   ├── gallos_torneo.py # Gallos: galleras y el torneo del domingo
 │   ├── gallos_render.py # Gallos: lo que se ve en cada fotograma y dibujo con Pillow
 │   ├── gallos_scene.py  # Gallos con canvas en Node o Chromium (assets/gallos/escena.html)
 │   ├── backgammon.py    # backgammon: reglas, Jovani (heurística a 1 o 2 jugadas), retos, cubo

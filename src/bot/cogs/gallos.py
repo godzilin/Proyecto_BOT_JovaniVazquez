@@ -45,9 +45,26 @@ que da contra el rival elegido (`gallos.house_edge`) y hasta qué apuesta llega
 forma que se ve en el panel, y la pelea gasta forma (`record_fight` con `now`).
 Entrenar da forma. Los duelos no la gastan.
 
+**Entrenar es un minijuego.** Tras pagar la sesión (`Gallos.train`), el panel
+enseña uno de los dos minijuegos del stat (`gallos_gym`, `Drill`). Sus botones solo
+cambian memoria y contestan con `edit_message`; el último guarda (acepta antes) lo
+que deja la nota (`gallos_gym.after_session`), sortea un evento y reparte forma a la
+gallera (`Gallos.share_club_form`). Los demás pueden echarle de comer, animar o
+sabotear (`PUBLIC_IDS`, que deja pasar `interaction_check`) y, si el dueño lo
+abre, jugarlo por él (🧑‍🏫). El sabotaje es una compra con IGIC general, como
+entrenar (motivo `gallos:sabotaje`).
+
+**Sparring, galleras y torneo.** El sparring (`Sparring`) cobra a los dos su sesión
+de fuerza y juegan un pulso a la vez; si el segundo cobro falla, el primero se
+devuelve (`Gallos.refund_training`, factura rectificativa). Las galleras viven en
+la vista 🏠 del panel. El torneo del domingo lo juega una tarea cada 10 minutos
+(`Gallos.run_tournaments`) en el último canal donde se abrió el reñidero; no
+mueve dinero.
+
 **Morir.** Quien pierde por KO, contra la casa o en un duelo, muere con
 probabilidad `gallos.death_chance` (baja con el aguante y con la forma),
-sorteada con el azar del cog. La ficha pasa al cementerio, el dueño empieza con un gallo
+sorteada con el azar del cog; ☠️ a muerte, seguro. Retirar al gallo (🎖️) lo
+pasa al corral de leyendas y da una cría (`GallosRepository.retire`). La ficha pasa al cementerio, el dueño empieza con un gallo
 nuevo y se cuenta con una línea de luto. Morir no mueve dinero.
 
 Solo se pelea en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
