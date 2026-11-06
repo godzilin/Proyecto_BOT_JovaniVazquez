@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.52.0 · 2026-11-06
+
+- Backgammon: los dados son de madera marrón y en 3D, como los del craps: vuelcan de verdad al rodar y se paran con la tirada arriba (caramelo los de las blancas y chocolate los de las negras)
+
 ### 9.51.0 · 2026-11-06
 
 - Financiar: en el carrito se financia lo que se puede y lo numerado o un título va al contado, sin quitar el botón al resto

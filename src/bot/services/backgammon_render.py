@@ -28,8 +28,10 @@ la misma para la escena y para Pillow.
 - `labels`: desde qué color se numeran los puntos (1 blancas, 2 negras).
 - `marks`: casillas resaltadas (la última jugada); 24 es la barra y 25, la bandeja.
   Solo las lleva el estado final de una jugada, no los fotogramas del camino.
-- `dice`: `{"x", "y", "rot", "z", "v", "sx", "side", "used"}` por dado. `z` es lo
-  alto que va (0 en la mesa), `sx` el aplastamiento al dar vueltas y `used` lo apaga.
+- `dice`: `{"x", "y", "rot", "z", "v", "sx", "m", "side", "used"}` por dado. `z` es lo
+  alto que va (0 en la mesa), `sx` el aplastamiento al dar vueltas (lo usa Pillow),
+  `m` su orientación en 3D (la matriz de `craps_render`, por filas: la escena pinta
+  sus caras como las del craps) y `used` lo apaga.
 - `cube`: `{"v", "owner", "x", "y", "scale", "glow", "flip", "lift"}`.
 - `flying`: fichas en el aire, `{"x", "y", "h", "side"}`: `(x, y)` es su sombra en
   la mesa y `h` lo alto que vuela, en píxeles.
@@ -59,6 +61,8 @@ from bot.services.backgammon import (
     dice_of,
     point_number,
 )
+from bot.services.craps_render import Mat, face_up, rotation, value_up
+from bot.services.craps_render import _mul as mat_mul
 from bot.services.enraya_render import (
     TEXT_FONT,
     TITLE_FONT,
@@ -277,6 +281,10 @@ def cube_state(
 # -- Dados ------------------------------------------------------------------------------------
 
 
+def _flat(m: Mat) -> list[float]:
+    return [round(c, 3) for row in m for c in row]
+
+
 def _die(side: Side, value: int, x: float, y: float, i: int, *, used: bool = False) -> dict:
     return {
         "x": round(x, 2),
@@ -285,6 +293,8 @@ def _die(side: Side, value: int, x: float, y: float, i: int, *, used: bool = Fal
         "z": 0.0,
         "v": value,
         "sx": 1.0,
+        # En pantalla `y` baja y en el mundo del craps va al fondo: el giro cambia de signo.
+        "m": _flat(face_up(value, -_TILTS[i % 4])),
         "side": side.value,
         "used": used,
     }
@@ -584,14 +594,13 @@ def _roll_track(
 ) -> list[dict[str, float]]:
     """La trayectoria de un dado: entra, bota tres veces, rueda y se para en `end`.
 
-    Devuelve por fotograma `x`, `y`, `rot`, `z`, `sx` y `v`; el fotograma `frames`
+    Devuelve por fotograma `x`, `y`, `rot`, `z`, `sx`, `m` y `v`; el fotograma `frames`
     (que no se incluye) es el reposo.
     """
     flips = rng.randint(4, 6)
-    faces = [value]
-    while len(faces) <= flips:
-        faces.append(rng.choice([f for f in range(1, 7) if f != faces[-1]]))
-    faces.reverse()  # la última cara, la que se queda, es el valor
+    # Vuelca hacia donde va: gira sobre el eje del suelo perpendicular al camino. En el
+    # mundo del craps `y` va hacia el fondo, al revés que en pantalla.
+    axis = (end[1] - start[1], end[0] - start[0], 0.0)
     spin = rng.choice((-1, 1)) * rng.uniform(2.4, 3.6) * math.pi
     swerve = rng.uniform(-34, 34)
     track: list[dict[str, float]] = []
@@ -608,9 +617,12 @@ def _roll_track(
                 z = amp * math.sin(math.pi * (u - lo) / (hi - lo))
         air = min(1.0, u / 0.84)
         theta = flips * math.pi * _smooth(air)
-        index = min(flips, int((theta + math.pi / 2) // math.pi))
         sx = 0.3 + 0.7 * abs(math.cos(theta)) if u < 0.84 else 1.0
-        rot = end_rot + spin * (1 - (1 - u) ** 2)
+        # El giro se frena y acaba justo en el del dado quieto: no salta al pararse.
+        rot = end_rot + spin * (1 - u) ** 2
+        # Le faltan por volcar `flips` cuartos de vuelta y acaba con `value` arriba.
+        left = flips * math.pi / 2 * (1 - _smooth(air))
+        m = mat_mul(rotation(axis, -left), face_up(value, -rot))
         track.append(
             {
                 "x": x,
@@ -618,7 +630,8 @@ def _roll_track(
                 "rot": rot,
                 "z": z,
                 "sx": sx,
-                "v": faces[index] if u < 0.84 else value,
+                "m": m,
+                "v": value_up(m),
             }
         )
     return track
@@ -648,6 +661,7 @@ def _rolling(
                     "z": round(t[f]["z"], 3),
                     "v": int(t[f]["v"]),
                     "sx": round(t[f]["sx"], 3),
+                    "m": _flat(t[f]["m"]),
                     "side": side_of[i].value,
                     "used": False,
                 }

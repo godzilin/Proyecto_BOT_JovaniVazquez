@@ -296,6 +296,8 @@ def test_los_dados_acaban_quietos_en_su_mitad_ensenando_la_tirada() -> None:
     for moving, rest in zip(last, final["dice"], strict=True):
         assert moving["z"] == 0 and moving["v"] == rest["v"]
         assert math.hypot(moving["x"] - rest["x"], moving["y"] - rest["y"]) < 14
+        # En 3D ya enseña su cara y casi no gira: el dado no salta al pararse.
+        assert max(abs(p - q) for p, q in zip(moving["m"], rest["m"], strict=True)) < 0.1
 
 
 def test_los_dados_entran_desde_fuera_por_su_lado_y_botan_en_el_aire() -> None:
