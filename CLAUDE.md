@@ -33,8 +33,8 @@ Lo que más se olvida:
   (`admin`) van sin bromas. Sección «Personalidad: frases y fuentes de ironía» de `Biblia.txt`; la
   auditoría de tono hecha y sus cifras, en `docs/auditoria-frases.md`
   (`docs/auditoria_frases.py --parte` para medir una parte antes y después). Lo vigila
-  `tests/unit/test_auditoria_frases.py`: un aviso se arregla cambiando el texto, no
-  añadiendo excepciones.
+  `tests/unit/test_auditoria_frases.py` (es `lenta`: al tocar frases, pásala a mano): un
+  aviso se arregla cambiando el texto, no añadiendo excepciones.
 - **Tienda y mascotas:** un artículo nuevo sigue la ficha de alta de la Biblia (tipo por lo
   que hace, pasillo por su tema). Todo resultado nuevo deja hablar a la mascota activa:
   pasa un `Moment` a `renta.hint` o llama a `mascotas.cameo`. Sección «Mascotas y cameos»
@@ -67,7 +67,13 @@ Lo que más se olvida:
   nuevo que hacer o ver, PARCHE para arreglos, equilibrio, velocidad y lo interno. En
   la duda, el escalón más alto. Sección «Versiones» de `Biblia.txt`.
 - **Comprobar antes de entregar:** `ruff check src tests`, `ruff format --check src tests`
-  y `python -m pytest -q`.
+  y las pruebas. En cada commit basta la tanda rápida, `python -m pytest -q -m "not lenta"`;
+  antes de subir a `main`, la entera, `python -m pytest -q`.
+- **Pruebas rápidas:** una prueba nueva no pinta, no simula y no espera al reloj si no le hace
+  falta. Al final de cada tanda sale «Pruebas lentas sin @pytest.mark.lenta» con las que pasan de
+  2 s, y si alguna pasa de 10 s la tanda falla. Lo que salga ahí se acorta en el mismo cambio, o se
+  marca `lenta` si es dibujo de verdad, estadística o una auditoría de todo el código. Sección
+  «Pruebas rápidas» de `Biblia.txt`.
 
 ## Botones rápidos
 

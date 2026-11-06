@@ -112,6 +112,7 @@ async def scene() -> PetScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_cada_especie_raza_cara_prenda_y_fondo_sale_en_un_png(scene: PetScene) -> None:

@@ -265,6 +265,7 @@ def test_las_cifras_de_la_documentacion_son_las_reales(exact_stats) -> None:  # 
     assert 1 / stats["big"] == pytest.approx(20, rel=0.1)
 
 
+@pytest.mark.lenta
 def test_el_retorno_total_es_el_de_un_casino_de_verdad(monkeypatch: pytest.MonkeyPatch) -> None:
     """Línea + giros gratis + calor + barra de bonus ≈ 96,5 %; con el bote, ≈ 99,5 %.
 

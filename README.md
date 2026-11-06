@@ -1421,6 +1421,11 @@ mediante dobles de prueba (`unittest.mock`). Corren en paralelo, un proceso
 por núcleo (`pytest-xdist`, configurado en `pyproject.toml`); `pytest -n 0`
 las corre en uno solo, para depurar.
 
+`pytest -m "not lenta"` se salta las lentas (dibujos de verdad, simulaciones,
+auditorías de todo el código): es la tanda de cada commit, y la entera va antes de
+subir a `main`. Al final de cada tanda salen las pruebas sin esa marca que tardan
+más de 2 s, y la tanda falla si alguna pasa de 10 s (`tests/conftest.py`).
+
 ## Estructura del proyecto
 
 ```text

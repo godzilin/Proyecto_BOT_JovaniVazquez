@@ -133,6 +133,7 @@ def test_la_escena_deja_que_el_pintor_ponga_su_exportframe_y_no_usa_azar_suelto(
 # -- Reserva con Pillow ------------------------------------------------------------------
 
 
+@pytest.mark.lenta
 async def test_sin_node_ni_chromium_el_backgammon_cae_a_pillow() -> None:
     scene = BackgammonScene(executable_path=NO_CHROMIUM, node=NO_NODE)
     steps, final = winning_move()
@@ -258,6 +259,7 @@ async def test_con_node_si_solo_ruedan_los_dados_o_gira_el_cubo_los_recuadros_so
         await assert_pegados_igual_que_enteros(scene, states)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_fotograma_de_los_turnos_pegado_sale_igual_que_entero(
@@ -322,6 +324,7 @@ async def test_con_node_la_mesa_pintada_vale_para_otra_partida_con_otros_nombres
     assert ImageChops.difference(a.crop(board), b.crop(board)).getbbox() is None
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_estado_distinto_se_pinta_distinto(scene: BackgammonScene) -> None:
@@ -393,6 +396,7 @@ async def test_con_node_cada_color_de_ficha_y_de_dado_se_pinta_de_su_color(
     assert sum(white) / 3 > 150 and sum(black) / 3 < 110
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_la_skin_cambia_el_fieltro_y_al_volver_a_la_de_serie_sale_igual(
@@ -417,6 +421,7 @@ async def test_con_node_la_skin_cambia_el_fieltro_y_al_volver_a_la_de_serie_sale
     assert plain[0]["image"].tobytes() == again[0]["image"].tobytes()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_el_mismo_dibujo_dos_veces_da_los_mismos_bytes(
@@ -457,6 +462,7 @@ async def test_la_escena_pone_cada_ficha_donde_la_pone_python(scene: BackgammonS
             assert got == pytest.approx(list(off_xy(side, k)))
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_turno_encadenado_repartido_entre_procesos_pinta_lo_mismo_que_de_un_tiron(

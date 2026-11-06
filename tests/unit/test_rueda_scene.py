@@ -83,6 +83,7 @@ def test_la_escena_no_usa_azar_sin_semilla_ni_emojis() -> None:
     assert not [ch for ch in html if ord(ch) >= 0x1F000], "Los emojis no salen en el Docker"
 
 
+@pytest.mark.lenta
 async def test_sin_node_ni_navegador_dibuja_con_pillow() -> None:
     scene = RuedaScene(executable_path=NO_CHROMIUM, node=NO_NODE)
     assert not scene.disabled
@@ -108,6 +109,7 @@ async def scene() -> RuedaScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_giro_acaba_en_el_png_final(scene: RuedaScene) -> None:
@@ -135,6 +137,7 @@ async def test_la_rueda_quieta_tiene_muchos_colores(scene: RuedaScene) -> None:
     assert colors is not None and len(colors) > 5_000
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_pintar_dos_veces_da_los_mismos_bytes(scene: RuedaScene) -> None:
@@ -194,6 +197,7 @@ async def test_node_y_chromium_pintan_lo_mismo_la_rueda() -> None:
         assert mean_diff(x, y) < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_giro_repartido_pinta_lo_mismo_que_de_un_tiron(
