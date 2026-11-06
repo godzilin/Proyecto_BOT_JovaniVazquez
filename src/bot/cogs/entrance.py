@@ -51,11 +51,13 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from bot.cogs import achievements as logros
+from bot.cogs import banco_compras as financiar
 from bot.cogs import pets as mascotas
 from bot.cogs import renta
 from bot.cogs.casino import insufficient_text
 from bot.repositories.economy import InsufficientFundsError
 from bot.repositories.entrance_sounds import EntranceSoundStore
+from bot.services import credit
 from bot.services.achievements import StatDelta
 from bot.services.economy import format_amount
 from bot.services.entrance import (
@@ -533,13 +535,26 @@ class EntrancePanel(ui.LayoutView):
                 f"**{offer_label(offer)}** · {format_amount(total)}\n"
                 f"-# {blurbs[upgrade]} {format_amount(offer.base)} + IGIC."
             )
+            if hint := financiar.teaser(total, "entrada"):
+                text += f"\n-# {hint}."
             button = self._button(
                 label, self._buy(upgrade), f"entrada:comprar:{upgrade.value}", success=confirming
             )
             container.add_item(ui.Section(ui.TextDisplay(text), accessory=button))
         if spent := total_spent(profile):
             container.add_item(ui.TextDisplay(f"-# Llevas {format_amount(spent)} en mejoras."))
+        names = {Upgrade.SLOT: "ranura", Upgrade.LENGTH: "duración", Upgrade.EXIT: "salida"}
         row: ui.ActionRow = ui.ActionRow()
+        for upgrade in Upgrade:
+            offer = next_offer(profile, upgrade)
+            if offer is not None and credit.refusal(offer.base + igic(offer.base)) is None:
+                row.add_item(
+                    self._button(
+                        f"{financiar.LABEL} {names[upgrade]}",
+                        self._finance(upgrade),
+                        f"entrada:financiar:{upgrade.value}",
+                    )
+                )
         row.add_item(self._button("◀ Volver", self._goto("main"), "entrada:volver"))
         container.add_item(row)
         self.add_item(container)
@@ -688,6 +703,12 @@ class EntrancePanel(ui.LayoutView):
                 await self.show(interaction)
                 return
             await self.cog.button_delete(interaction, self, n)
+
+        return callback
+
+    def _finance(self, upgrade: Upgrade):  # noqa: ANN202
+        async def callback(interaction: discord.Interaction) -> None:
+            await self.cog.button_finance(interaction, self, upgrade)
 
         return callback
 
@@ -1260,6 +1281,43 @@ class Entrance(commands.Cog):
         panel.note = text
         await panel.show(interaction)
         await renta.remind(self.bot, interaction)
+        await self._track_bought(interaction, upgrade)
+
+    async def button_finance(
+        self, interaction: discord.Interaction, panel: EntrancePanel, upgrade: Upgrade
+    ) -> None:
+        """💳 Financiar una mejora: la oferta del banco sustituye al panel (↩️ Volver lo
+        devuelve) y, al firmar, se compra por `buy` como siempre."""
+        guild_id, user_id = panel.guild.id, panel.member.id
+        offer = next_offer(self.profile(guild_id, user_id), upgrade)
+        if offer is None:
+            panel.confirm, panel.note = None, "Eso ya lo tienes al máximo."
+            await panel.show(interaction)
+            return
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            result = await self.buy(guild_id, user_id, upgrade)
+            if isinstance(result, str):
+                return result
+            panel.confirm, panel.note = None, result[0]
+            panel.rebuild()
+            return None
+
+        async def after(after_interaction: discord.Interaction) -> None:
+            await self._track_bought(after_interaction, upgrade)
+
+        purchase = credit.Purchase(
+            f"🔔 {offer_label(offer)}", offer.base + igic(offer.base), "entrada"
+        )
+        deal = financiar.Deal(purchase, buy, host=panel, after=after)
+        if not await financiar.open_finance(self.bot, interaction, deal):
+            await interaction.response.send_message(
+                "El banco está cerrado ahora mismo.", ephemeral=True
+            )
+
+    async def _track_bought(self, interaction: discord.Interaction, upgrade: Upgrade) -> None:
+        """Los logros de comprar una mejora, al contado o financiada."""
+        guild_id, user_id = interaction.guild_id or 0, interaction.user.id
         profile = self.profile(guild_id, user_id)
         await logros.track(
             self.bot,

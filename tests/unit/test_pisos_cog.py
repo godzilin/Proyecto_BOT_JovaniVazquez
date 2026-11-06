@@ -1045,6 +1045,7 @@ async def test_reformar_con_dos_clics_y_decidir_un_imprevisto(tmp_path: Path) ->
     assert "pisos:reformas" in ids(panel)
     await panel._go_reforms(clicked(ana, []))
     assert panel.screen == REFORMAS and "pisos:reforma:pintura" in ids(panel)
+    assert "💳" in (panel._finance_hint() or "")
     await panel._arm(clicked(ana, [], custom_id="pisos:reforma:pintura"))
     assert "pisos:reforma:pintura:si" in ids(panel)
     await panel._reform(clicked(ana, [], custom_id="pisos:reforma:pintura:si"))
@@ -1122,6 +1123,7 @@ async def test_dividir_por_plantas_desde_el_panel_y_abrir_cada_planta(tmp_path: 
     assert "pisos:dividir" in ids(panel)
     await panel._go_split(clicked(ana, []))
     assert panel.screen == DIVIDIR
+    assert "💳" in (panel._finance_hint() or "")
     assert {"pisos:dividir:plantas", "pisos:dividir:habitaciones"} <= set(ids(panel))
     await panel._arm(clicked(ana, [], custom_id="pisos:dividir:plantas"))
     assert "pisos:dividir:plantas:si" in ids(panel)

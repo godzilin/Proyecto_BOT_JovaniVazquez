@@ -106,7 +106,12 @@ MAX_BNPL = 3
 IPC_CAP = 20
 
 #: Las categorías que no son pasillos de la tienda, con su nombre.
-CATEGORY_NAMES = {"obras": "🔨 Obras de pisos", "negocio": "🏪 Negocios", "pala": "⛏️ Formación"}
+CATEGORY_NAMES = {
+    "obras": "🔨 Obras de pisos",
+    "negocio": "🏪 Negocios",
+    "pala": "⛏️ Formación",
+    "entrada": "🔔 Entradas",
+}
 
 
 @cache
@@ -138,12 +143,15 @@ class Purchase:
         amount: Lo que cuesta, con impuestos (lo que se paga al vendedor).
         category: De qué categoría es (`categories`), para el 0 % TIN de la semana.
         works: Si es una obra o una división de `pisos` (admite `WORKS_TERMS`).
+        cash: Lo que se paga al contado en la misma compra porque no se financia (lo único
+            de un carrito, la tasa y la fianza de un local): no entra en `amount`.
     """
 
     label: str
     amount: int
     category: str
     works: bool = False
+    cash: int = 0
 
 
 def zero_picks(day: date) -> tuple[str, ...]:

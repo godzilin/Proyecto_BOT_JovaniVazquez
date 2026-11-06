@@ -20,7 +20,10 @@ la firma en `HousingRepository.finance` y `HousingService.finance`/`unfinance`/`
 | El dinero | directo a la compra: entra lo prestado y se compra en el acto | propuesta aceptada |
 | Tipo del plan normal | el de un préstamo personal con tu perfil + 2 puntos | propuesta aceptada |
 | Fuera | el juego, impuestos y tasas, depósitos (pujas) y compras entre miembros | propuesta aceptada |
-| Negocios | con su préstamo de 🏪 Negocio (crédito de empresa, y una sociedad paga con su caja) | decisión técnica |
+| Negocios | los de autónomo, con 💳 Financiar como todo (9.51.0; al montar o trasladarse, solo el acondicionamiento); una sociedad paga con su caja y sigue con su préstamo de 🏪 Negocio | usuario |
+| Compras mezcladas (9.51.0) | lo que no se financia (lo numerado y los títulos de un carrito, la tasa y la fianza de un local) va al contado en la misma compra (`Purchase.cash`) y no apaga el botón de lo demás | usuario |
+| 0 % TIN en el carrito | solo si todo lo financiado es de un pasillo; si no, la categoría es «la tienda», que nunca lo tiene | decisión técnica |
+| Disciplina | `tests/unit/test_financiar_cobertura.py` falla si una compra del código no está decidida (financiada o fuera, con su motivo) | usuario |
 
 ## Cómo funciona
 

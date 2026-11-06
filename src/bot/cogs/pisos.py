@@ -904,6 +904,8 @@ class Panel(ui.View):
         await self.refresh()
         if content is None and self.screen == LLAVES:
             content = self._keys_text()
+        elif content is None and self.screen in (REFORMAS, DIVIDIR):
+            content = self._finance_hint()
         state = self._checkout_state() if self.screen == CAJA else await self._state(self.screen)
         key = Painter.key(state)
         self.rebuild()
@@ -1455,6 +1457,33 @@ class Panel(ui.View):
         else:
             lines.append(f"🏠 Lo necesito para vivir (art. 9.3 LAU): {problem}")
         return "\n".join(lines)
+
+    def _finance_hint(self) -> str | None:
+        """La línea del 💳 de obras y divisiones, con la más barata que se puede financiar."""
+        key, me, market = self.listing, self.owner.id, self.market
+        listing = self._at(key)
+        index = market.index(listing.barrio)
+        if self.screen == REFORMAS:
+            lease = market.leases.get(key, rules.Lease())
+            if market.shares_of(key).get(me, 0) != rules.SHARES or lease.status != rules.VACANT:
+                return None
+            done = market.reforms.get(key, {})
+            totals = [
+                rules.reform_quote(listing, r, index, market.ipc).total
+                for r in REFORMS
+                if listing.kind in r.kinds and r.key not in done
+            ]
+        else:
+            base = market.base(key)
+            if base is None or len(market.shares_of(key)) > 1:
+                return None
+            totals = [
+                rules.split_quote(listing, mode, index, market.ipc).total
+                for mode in rules.SPLIT_MODES
+                if rules.split_problem(base, mode, promotion=key in market.promotions) is None
+            ]
+        hint = financiar.teaser(min(totals), "obras", works=True) if totals else None
+        return f"-# {hint}." if hint else None
 
     def _reform_buttons(self) -> None:
         """🏗️ Reformas: una por botón, con dos clics porque cuesta dinero."""
