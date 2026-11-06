@@ -12,7 +12,10 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "yt-dlp>=2024.1",
     "PyNaCl>=1.5,<2",
-    "davey>=0.1.6",
+    # davey 0.2 (2/11/2026) cambia la API del cifrado de voz y discord.py 2.7.1
+    # no la usa bien: el bot sale en verde y no se oye nada (discord.py #10549).
+    # shortcut: tope hasta que una versión de discord.py traiga el soporte (#10548).
+    "davey>=0.1.6,<0.2",
     "Pillow>=10.3",
     "numpy>=1.26",
     # Zonas horarias Atlantic/Canary (días de las rachas) y Asia/Hong_Kong
