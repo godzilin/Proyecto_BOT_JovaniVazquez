@@ -7,6 +7,16 @@ WORKDIR /opt/escenas
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
+# Página del Jovaniverso (la Activity de `universo`, carpeta universo/): Vite la
+# compila y a la imagen solo llega el resultado, unos 150 KB. Si esta fase falla,
+# falla la construcción y actualizar.sh vuelve a la imagen anterior.
+FROM node:22-slim AS universo
+WORKDIR /opt/universo
+COPY universo/package.json universo/package-lock.json ./
+RUN npm ci
+COPY universo/ ./
+RUN npm run build -- --outDir /opt/universo/dist
+
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -26,6 +36,8 @@ WORKDIR /app
 # disponible en el momento de construir) salen de pyproject.toml.
 COPY pyproject.toml ./
 COPY src ./src
+# La página compilada entra en el paquete como un asset más (package-data).
+COPY --from=universo /opt/universo/dist ./src/bot/assets/universo
 RUN pip install . && rm -rf /app/src /app/build
 
 # Chromium sin ventana (y sus librerías del sistema) para dibujar las carreras
