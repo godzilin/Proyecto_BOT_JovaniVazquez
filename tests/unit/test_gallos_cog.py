@@ -571,6 +571,8 @@ async def test_el_gimnasio_tiene_un_boton_por_stat_con_custom_id_fijo(tmp_path: 
         "gallos:financiar_fuerza",
         "gallos:financiar_velocidad",
         "gallos:financiar_aguante",
+        # 🌽 Echarle de comer: para los demás
+        "gallos:feed",
     }
     assert "Gimnasio" in panel.embed().description
     await panel._leave_gym(fake_interaction(make_user(OWNER_ID)))
@@ -875,7 +877,13 @@ async def test_pagar_abre_el_minijuego_con_botones_de_custom_id_fijo(
 ) -> None:
     _cog, panel = await paid_drill(tmp_path, monkeypatch, 0.5)
     ids = {c.custom_id for c in panel.children if isinstance(c, discord.ui.Button)}
-    assert ids == {"gallos:gym:ok", "gallos:gym_quit"}
+    assert ids == {
+        "gallos:gym:ok",
+        "gallos:gym_quit",
+        "gallos:gym_coach",
+        "gallos:cheer",
+        "gallos:sabotage",
+    }
     assert "Pulsa ok." in panel.drill_text()
 
 
@@ -1002,3 +1010,110 @@ async def test_el_pique_se_anuncia_al_picar_al_rival(
     assert panel.record.grudge_wins == GRUDGE_WINS
     assert any("picado" in call.args[1] for call in cog.shout.await_args_list)
     assert "picado" in panel.description()
+
+
+# -- Lo que hacen los demás ---------------------------------------------------------------
+
+
+def clicked(user_id: int, custom_id: str) -> MagicMock:
+    """Una interacción de `user_id` sobre el botón `custom_id` (para `interaction_check`)."""
+    interaction = fake_interaction(make_user(user_id))
+    interaction.data = {"custom_id": custom_id}
+    return interaction
+
+
+async def test_los_demas_solo_pueden_comer_animar_y_sabotear(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    panel = await open_panel(cog)
+    assert await panel.interaction_check(clicked(FAN_IDS[0], "gallos:feed"))
+    assert await panel.interaction_check(clicked(FAN_IDS[0], "gallos:cheer"))
+    assert not await panel.interaction_check(clicked(FAN_IDS[0], "gallos:fight"))
+    assert await panel.interaction_check(clicked(OWNER_ID, "gallos:fight"))
+
+
+async def test_echarle_de_comer_da_forma_una_vez_al_dia_y_hasta_tres_personas(
+    tmp_path: Path,
+) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    own = fake_interaction(make_user(OWNER_ID))
+    await panel._feed(own)
+    assert (await cog.repository.get(GUILD_ID, OWNER_ID)).form == 0
+    for fan in FAN_IDS:
+        await panel._feed(fake_interaction(make_user(fan)))
+    assert (await cog.repository.get(GUILD_ID, OWNER_ID)).form == 3 * gym.FEED_FORM
+    again = fake_interaction(make_user(FAN_IDS[0]))
+    await panel._feed(again)
+    fourth = fake_interaction(make_user(99))
+    await panel._feed(fourth)
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert record.form == 3 * gym.FEED_FORM and record.fed_count == gym.FEEDS_PER_DAY
+    assert "ya le han echado" in fourth.followup.send.await_args.args[0]
+
+
+async def test_animar_suma_forma_al_minijuego_una_vez_por_persona(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 1.0)
+    await panel._cheer(fake_interaction(make_user(OWNER_ID)))
+    await panel._cheer(fake_interaction(make_user(FAN_IDS[0])))
+    await panel._cheer(fake_interaction(make_user(FAN_IDS[0])))
+    assert panel.drill is not None and panel.drill.cheers == {FAN_IDS[0]}
+    await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    factor = gym.trait_factor(gym.trait_of(OWNER_ID, 0), Stat.STRENGTH) * gym.cheer_factor(1)
+    assert record.form == pytest.approx(PAID_FORM + gym.session_form(1.0, 0, factor))
+
+
+async def test_sabotear_cobra_con_igic_y_baja_la_nota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 1.0)
+    rival = FAN_IDS[1]
+    await panel._sabotage(fake_interaction(make_user(rival)))
+    base = gym.SABOTAGE_PRICE
+    assert ledger(tmp_path, rival) == [
+        ("tienda:gallos:sabotaje", -base),
+        ("tienda:igic", -igic(base)),
+    ]
+    assert panel.drill is not None and panel.drill.saboteur is not None
+    # Otro no puede tirar otra cáscara.
+    await panel._sabotage(fake_interaction(make_user(FAN_IDS[2])))
+    assert ledger(tmp_path, FAN_IDS[2]) == []
+    await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    # Nota 1,0 menos el sabotaje: ya no es perfecta, así que no hay +1.
+    assert record.strength == 3
+    assert "Saboteado" in (panel.result or "")
+    assert books_balance(tmp_path)
+
+
+async def test_el_entrenador_es_el_primero_que_pulsa_y_el_dueno_ya_no_toca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cog, panel = await paid_drill(tmp_path, monkeypatch, 0.5)
+    assert not await panel.interaction_check(clicked(FAN_IDS[0], "gallos:gym:ok"))
+    await panel._toggle_coach(fake_interaction(make_user(OWNER_ID)))
+    assert panel.drill is not None and panel.drill.coach_open
+    assert await panel.interaction_check(clicked(FAN_IDS[0], "gallos:gym:ok"))
+    panel.drill.game = Graded2()
+    await panel._press(fake_interaction(make_user(FAN_IDS[0])), "ok")
+    assert panel.drill.coach is not None and panel.drill.coach.id == FAN_IDS[0]
+    assert not await panel.interaction_check(clicked(OWNER_ID, "gallos:gym:ok"))
+    assert not await panel.interaction_check(clicked(FAN_IDS[1], "gallos:gym:ok"))
+    await panel._press(fake_interaction(make_user(FAN_IDS[0])), "ok")
+    assert panel.drill is None and "Lo jugó" in (panel.result or "")
+
+
+class Graded2(Graded):
+    """Como `Graded`, pero hacen falta dos pulsaciones para acabar."""
+
+    def __init__(self) -> None:
+        super().__init__(0.5)
+        self.presses = 0
+
+    def _apply(self, key: str, now: float) -> None:
+        self.presses += 1
+        if self.presses == 2:
+            self._finish(self.grade)

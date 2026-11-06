@@ -675,16 +675,24 @@ def session_form(score: float, combo: int, factor: float) -> float:
 
 
 def after_session(
-    record: RoosterRecord, stat: Stat, score: float, *, trait: Trait, now: float, day: date
+    record: RoosterRecord,
+    stat: Stat,
+    score: float,
+    *,
+    trait: Trait,
+    now: float,
+    day: date,
+    cheers: int = 0,
 ) -> tuple[RoosterRecord, Session]:
     """La ficha tras acabar el minijuego de una sesión ya pagada, y lo que ha dejado.
 
-    Suma la forma del minijuego (`session_form`, con el combo que se traía y la
-    personalidad), +1 al stat con una nota perfecta (sin pasar de `STAT_MAX`) y
-    lleva el combo: una sesión buena lo sube y una mala lo rompe.
+    Suma la forma del minijuego (`session_form`, con el combo que se traía, la
+    personalidad y los ánimos del público, `cheer_factor`), +1 al stat con una
+    nota perfecta (sin pasar de `STAT_MAX`) y lleva el combo: una sesión buena lo
+    sube y una mala lo rompe.
     """
     combo = combo_now(record, day)
-    form = session_form(score, combo, trait_factor(trait, stat))
+    form = session_form(score, combo, trait_factor(trait, stat) * cheer_factor(cheers))
     bonus = 1 if score >= PERFECT_SCORE and record.stat(stat) < STAT_MAX else 0
     next_combo = combo + 1 if score >= GOOD_SCORE else 0
     after = with_form(record, form_now(record, now) + form, now)
@@ -776,3 +784,52 @@ def take_supplement(
     raised = replace(record, **{stat.column: min(STAT_MAX, record.stat(stat) + SUPPLEMENT_GAIN)})
     hurt = rng.random() < SUPPLEMENT_INJURY
     return (injure(raised, now, SUPPLEMENT_HOURS) if hurt else raised), hurt
+
+
+# -- Lo que hacen los demás: echar de comer, animar y sabotear ---------------------------
+
+#: Forma que da echarle de comer al gallo de otro, y cuántos pueden hacerlo al día.
+FEED_FORM = 3
+FEEDS_PER_DAY = 3
+#: Ánimos del público por minijuego y lo que suma cada uno a su forma.
+CHEER_MAX = 3
+CHEER_BONUS = 0.05
+#: El sabotaje: lo que cuesta (base, sin IGIC), lo que baja la nota y su motivo del libro.
+SABOTAGE_PRICE = 300
+SABOTAGE_PENALTY = 0.2
+SABOTAGE_CONCEPT = "gallos:sabotaje"
+
+
+class FeedError(ValueError):
+    """No se le puede echar de comer ahora; el mensaje se enseña tal cual."""
+
+
+def feeds_today(record: RoosterRecord, day: date) -> int:
+    """Cuántos le han echado de comer hoy al gallo."""
+    return record.fed_count if record.fed_day == day else 0
+
+
+def after_feed(record: RoosterRecord, *, now: float, day: date) -> RoosterRecord:
+    """La ficha tras echarle de comer otra persona: +`FEED_FORM` de forma.
+
+    Raises:
+        FeedError: Si ya le han echado de comer `FEEDS_PER_DAY` personas hoy.
+    """
+    fed = feeds_today(record, day)
+    if fed >= FEEDS_PER_DAY:
+        raise FeedError(
+            f"A **{record.name}** ya le han echado de comer {FEEDS_PER_DAY} personas hoy. "
+            "Mañana más."
+        )
+    after = with_form(record, form_now(record, now) + FEED_FORM, now)
+    return replace(after, fed_day=day, fed_count=fed + 1)
+
+
+def cheer_factor(cheers: int) -> float:
+    """Lo que multiplican la forma del minijuego los ánimos del público."""
+    return 1 + CHEER_BONUS * min(cheers, CHEER_MAX)
+
+
+def drill_score(score: float, sabotaged: bool) -> float:
+    """La nota que cuenta: la del minijuego, menos `SABOTAGE_PENALTY` si lo han saboteado."""
+    return max(0.0, score - SABOTAGE_PENALTY) if sabotaged else score

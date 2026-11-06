@@ -760,6 +760,8 @@ class RoosterRecord:
             (0 si no lo está).
         grudge_rival: Rival de la casa al que le lleva `grudge_wins` victorias seguidas.
         grudge_wins: Victorias seguidas contra él; desde `GRUDGE_WINS`, está picado.
+        fed_day: Día canario en que otros le echaron de comer por última vez.
+        fed_count: Cuántos le han echado de comer ese día (`gallos_gym.after_feed`).
     """
 
     name: str
@@ -784,6 +786,8 @@ class RoosterRecord:
     injured_until: float = 0.0
     grudge_rival: str = ""
     grudge_wins: int = 0
+    fed_day: date | None = None
+    fed_count: int = 0
 
     @property
     def losses(self) -> int:

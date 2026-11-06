@@ -64,8 +64,8 @@ import random
 import secrets
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from enum import Enum
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
@@ -181,6 +181,8 @@ LOBBY_SECONDS = 60
 SHOUT_NET = 10_000
 #: Margen tras el GIF antes de poner el PNG: lo que tarda en llegar y empezar.
 REVEAL_MARGIN_SECONDS = 0.5
+#: Botones del panel que puede pulsar cualquiera, no solo el dueño.
+PUBLIC_IDS = frozenset({f"{GAME}:feed", f"{GAME}:cheer", f"{GAME}:sabotage"})
 GIF_NAME = "gallos.gif"
 PNG_NAME = "gallos.png"
 SKIN_GAME = "gallos"
@@ -606,6 +608,20 @@ class HousePanel(ui.View):
             lines.append(gym.event_text(drill.event, self.record.name))
             return "\n".join(lines)
         lines.append(drill.game.text())
+        if drill.coach is not None:
+            lines.append(f"🧑‍🏫 Lo juega **{drill.coach.display_name}**.")
+        elif drill.coach_open:
+            lines.append("🧑‍🏫 Cualquiera puede jugarlo: el primero que pulse se queda con él.")
+        if drill.cheers:
+            lines.append(
+                f"📣 {len(drill.cheers)} ánimo{'s' if len(drill.cheers) != 1 else ''} del público: "
+                f"+{round((gym.cheer_factor(len(drill.cheers)) - 1) * 100)} % de forma."
+            )
+        if drill.saboteur is not None:
+            lines.append(
+                f"🍌 **{drill.saboteur.display_name}** ha tirado una cáscara de plátano: la nota "
+                f"bajará {round(gym.SABOTAGE_PENALTY * 10)} puntos."
+            )
         trait = gym.trait_of(self.owner.id, self.record.deaths)
         factor = gym.trait_factor(trait, stat)
         combo = gym.combo_now(self.record, local_day(self.cog.wall_clock()))
@@ -662,6 +678,7 @@ class HousePanel(ui.View):
                 disabled=busy or today >= TRAIN_PER_DAY,
             )
         self._button("↩️ Volver al reñidero", "train_back", self._leave_gym, row=1, disabled=busy)
+        self._button("🌽 Echarle de comer", "feed", self._feed, row=2, disabled=busy)
         for stat in Stat:
             level = self.record.stat(stat)
             base = train_price(level)
@@ -695,6 +712,29 @@ class HousePanel(ui.View):
                 disabled=busy or button.disabled,
             )
         self._button("🏳️ Dejarlo", "gym_quit", self._quit_drill, row=4, disabled=busy)
+        if drill.coach is None:
+            self._button(
+                "🧑‍🏫 Que lo juegue otro" if not drill.coach_open else "🧑‍🏫 Lo juego yo",
+                "gym_coach",
+                self._toggle_coach,
+                row=4,
+                disabled=busy,
+            )
+        self._button(
+            f"📣 Animar ({len(drill.cheers)}/{gym.CHEER_MAX})",
+            "cheer",
+            self._cheer,
+            style=discord.ButtonStyle.success,
+            row=4,
+            disabled=busy or len(drill.cheers) >= gym.CHEER_MAX,
+        )
+        self._button(
+            f"🍌 Sabotear · {format_amount(gym.SABOTAGE_PRICE + igic(gym.SABOTAGE_PRICE))}",
+            "sabotage",
+            self._sabotage,
+            row=4,
+            disabled=busy or drill.saboteur is not None,
+        )
 
     def rebuild(self, *, busy: bool = False) -> None:
         """Vuelve a montar el desplegable y los botones con el estado actual."""
@@ -746,6 +786,7 @@ class HousePanel(ui.View):
         self._button("💰 All-in", "allin", self._all_in, row=1, disabled=busy)
         self._button("✏️ Nombre", "name", self._name, row=2, disabled=busy)
         self._button("🏋️ Entrenar", "train", self._gym, row=2, disabled=busy)
+        self._button("🌽 Echarle de comer", "feed", self._feed, row=3, disabled=busy)
         if (button := tienda.skin_button(self.cog.bot, SKIN_GAME, row=2)) is not None:
             button.disabled = busy
             self.add_item(button)
@@ -775,13 +816,29 @@ class HousePanel(ui.View):
     # -- Ciclo de vida ----------------------------------------------------------------
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Solo el dueño pelea con su gallo."""
-        if interaction.user.id == self.owner.id:
+        """Solo el dueño pelea con su gallo; los demás, lo que es para ellos.
+
+        Cualquiera puede echarle de comer y animar o sabotear su minijuego; si el
+        dueño lo deja, otro lo juega en su lugar (el entrenador). Cuando hay
+        entrenador, el dueño ya no toca los botones del minijuego.
+        """
+        custom_id = str((interaction.data or {}).get("custom_id", ""))
+        user_id = interaction.user.id
+        drill = self.drill
+        game_button = custom_id.startswith(f"{GAME}:gym:")
+        if game_button and drill is not None and drill.coach is not None:
+            if user_id == drill.coach.id:
+                return True
+            message = f"Este minijuego lo está jugando {drill.coach.display_name}."
+        elif user_id == self.owner.id:
             return True
-        await interaction.response.send_message(
-            f"Este gallo es de {self.owner.display_name}. Saca el tuyo con `gallos`.",
-            ephemeral=True,
-        )
+        elif custom_id in PUBLIC_IDS or (
+            game_button and drill is not None and drill.coach_open and drill.coach is None
+        ):
+            return True
+        else:
+            message = f"Este gallo es de {self.owner.display_name}. Saca el tuyo con `gallos`."
+        await interaction.response.send_message(message, ephemeral=True)
         return False
 
     async def on_timeout(self) -> None:
@@ -1018,6 +1075,8 @@ class HousePanel(ui.View):
         if drill is None or drill.event is not None or self._busy:
             await interaction.response.defer()
             return
+        if drill.coach is None and drill.coach_open and interaction.user.id != self.owner.id:
+            drill.coach = interaction.user
         drill.game.press(key, self.cog.wall_clock())
         if not drill.game.done:
             self.rebuild()
@@ -1040,9 +1099,17 @@ class HousePanel(ui.View):
         event = gym.roll_event(self.cog.rng)
         sessions: list[gym.Session] = []
 
+        score = gym.drill_score(drill.game.score, drill.saboteur is not None)
+
         def change(record: RoosterRecord) -> RoosterRecord:
             after, session = gym.after_session(
-                record, drill.stat, drill.game.score, trait=trait, now=now, day=day
+                record,
+                drill.stat,
+                score,
+                trait=trait,
+                now=now,
+                day=day,
+                cheers=len(drill.cheers),
             )
             sessions.append(session)
             if event is not None and not event.choice:
@@ -1067,6 +1134,27 @@ class HousePanel(ui.View):
             return
         finally:
             self._busy = False
+        if drill.coach is not None:
+            await logros.track(
+                self.cog.bot,
+                self.guild_id,
+                drill.coach,
+                self.channel,
+                StatDelta(
+                    add={
+                        "gallos_coached": 1,
+                        "gallos_coached_perfect": int(session.score >= gym.PERFECT_SCORE),
+                    }
+                ),
+            )
+        if drill.saboteur is not None and session.score >= gym.PERFECT_SCORE:
+            await logros.track(
+                self.cog.bot,
+                self.guild_id,
+                self.owner,
+                self.channel,
+                StatDelta(add={"gallos_sabotaged_perfect": 1}),
+            )
         await logros.track(
             self.cog.bot,
             self.guild_id,
@@ -1098,6 +1186,13 @@ class HousePanel(ui.View):
             f"🔋 Forma {round(form_now(before, now))} → {round(form_now(self.record, now))} "
             f"(+{round(session.form)} del minijuego)",
         ]
+        if drill.saboteur is not None:
+            lines.append(
+                f"🍌 Saboteado por {drill.saboteur.display_name}: "
+                f"{round(drill.game.score * 10)}/10 se queda en {grade}/10."
+            )
+        if drill.coach is not None:
+            lines.append(f"🧑‍🏫 Lo jugó {drill.coach.display_name}.")
         if session.bonus:
             stat = drill.stat
             lines.append(
@@ -1187,6 +1282,156 @@ class HousePanel(ui.View):
             self.owner,
             self.channel,
             StatDelta(add={"gallos_supplement_refused": 1}),
+        )
+
+    async def _feed(self, interaction: discord.Interaction) -> None:
+        """🌽 Echarle de comer: otro miembro le da forma al gallo (se guarda: se acepta antes)."""
+        feeder = interaction.user
+        if feeder.id == self.owner.id:
+            await interaction.response.send_message(
+                "A tu gallo le das de comer entrenándolo. Esto es para los gallos de otros.",
+                ephemeral=True,
+            )
+            return
+        now = self.cog.wall_clock()
+        day = local_day(now)
+        key = (self.guild_id, self.owner.id, day)
+        if feeder.id in self.cog.fed.get(key, set()):
+            await interaction.response.send_message(
+                f"Hoy ya le has echado de comer a **{self.record.name}**.", ephemeral=True
+            )
+            return
+        await ack(interaction)
+        try:
+            _, self.record = await self.cog.repository.change(
+                self.guild_id,
+                self.owner.id,
+                lambda record: gym.after_feed(record, now=now, day=day),
+            )
+        except gym.FeedError as error:
+            await notify(interaction, str(error))
+            return
+        self.cog.fed.setdefault(key, set()).add(feeder.id)
+        await notify(
+            interaction,
+            f"🌽 Le echas de comer a **{self.record.name}**, el gallo de "
+            f"{self.owner.display_name}: +{gym.FEED_FORM} de forma.",
+        )
+        try:
+            self.rebuild()
+            await edit(interaction, embed=self.embed(), view=self)
+        except discord.HTTPException:
+            logger.debug("No se pudo repintar el reñidero tras echarle de comer", exc_info=True)
+        await logros.track(
+            self.cog.bot, self.guild_id, feeder, self.channel,
+            StatDelta(add={"gallos_fed_others": 1}),
+        )  # fmt: skip
+        await logros.track(
+            self.cog.bot, self.guild_id, self.owner, self.channel,
+            StatDelta(add={"gallos_fed_by_others": 1}),
+        )  # fmt: skip
+
+    async def _toggle_coach(self, interaction: discord.Interaction) -> None:
+        """🧑‍🏫 Abre o cierra el minijuego a que lo juegue otro (solo cambia memoria)."""
+        drill = self.drill
+        if drill is None or drill.coach is not None or self._busy:
+            await interaction.response.defer()
+            return
+        drill.coach_open = not drill.coach_open
+        self.rebuild()
+        self._last_interaction = interaction
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def _cheer(self, interaction: discord.Interaction) -> None:
+        """📣 Animar: un ánimo por persona y minijuego, hasta `CHEER_MAX` (solo cambia memoria)."""
+        drill = self.drill
+        fan = interaction.user
+        if drill is None or drill.event is not None:
+            await interaction.response.defer()
+            return
+        if fan.id == self.owner.id:
+            await interaction.response.send_message(
+                "Animarte a ti mismo no cuenta. Que te animen los demás.", ephemeral=True
+            )
+            return
+        if fan.id in drill.cheers or len(drill.cheers) >= gym.CHEER_MAX:
+            await interaction.response.send_message(
+                "Ya has animado este minijuego (o ya van los ánimos que caben).", ephemeral=True
+            )
+            return
+        drill.cheers.add(fan.id)
+        self.rebuild()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await logros.track(
+            self.cog.bot, self.guild_id, fan, self.channel, StatDelta(add={"gallos_cheers": 1})
+        )
+
+    async def _sabotage(self, interaction: discord.Interaction) -> None:
+        """🍌 Sabotear: paga la cáscara (IGIC) y baja la nota del minijuego. Uno por minijuego.
+
+        Tratamiento fiscal: una compra, como entrenar (IGIC general del 7 %, art. 4
+        de la Ley 20/1991 y art. 51 de la Ley 4/2012): la base va a la caja de la
+        tienda y el IGIC al Estado (`EconomyService.purchase`, motivo
+        `gallos:sabotaje`). Es un sumidero; sin IRPF ni retención de juego.
+        """
+        drill = self.drill
+        rival = interaction.user
+        if drill is None or drill.event is not None:
+            await interaction.response.defer()
+            return
+        if rival.id == self.owner.id:
+            await interaction.response.send_message(
+                "Sabotearte a ti mismo ya lo haces sin pagar.", ephemeral=True
+            )
+            return
+        if drill.saboteur is not None:
+            await interaction.response.send_message(
+                "A este minijuego ya le han tirado una cáscara.", ephemeral=True
+            )
+            return
+        await ack(interaction)
+        base = gym.SABOTAGE_PRICE
+        tax = igic(base)
+        try:
+            _, balance = await self.cog.economy.purchase(
+                self.guild_id,
+                rival.id,
+                base=base,
+                tax=tax,
+                concept=gym.SABOTAGE_CONCEPT,
+                reserve=lambda _connection: None,
+            )
+        except InsufficientFundsError as error:
+            await notify(interaction, insufficient_text(error.balance, base + tax))
+            return
+        # Entre el clic y el cobro el minijuego puede haber acabado: la cáscara cae igual en
+        # la nota si sigue en marcha; si no, se ha pagado por nada (como en la vida real).
+        if self.drill is drill and not drill.game.done and drill.saboteur is None:
+            drill.saboteur = rival
+        lines = [
+            f"🍌 Tiras una cáscara de plátano en el gimnasio de **{self.record.name}**.",
+            f"-# 🐶 {TAX_COLLECTOR} se lleva {format_amount(tax)} de IGIC "
+            f"(tipo general, {IGIC_GENERAL_RATE * 100:g} % de {format_amount(base)}). "
+            f"Pagas {format_amount(base + tax)}. Saldo {format_amount(balance)}.",
+        ]
+        if hint := await renta.hint(self.cog.bot, self.guild_id, rival.id, Moment(Event.BUY)):
+            lines.append(hint)
+        await notify(interaction, "\n".join(lines))
+        try:
+            self.rebuild()
+            await edit(interaction, embed=self.embed(), view=self)
+        except discord.HTTPException:
+            logger.debug("No se pudo repintar el reñidero tras un sabotaje", exc_info=True)
+        await renta.remind(self.cog.bot, interaction)
+        await logros.track(
+            self.cog.bot, self.guild_id, rival, self.channel, StatDelta(add={"gallos_sabotages": 1})
+        )
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            self.channel,
+            StatDelta(add={"gallos_sabotaged": 1}),
         )
 
     async def _train_text(self, training: Training) -> str:
@@ -2306,6 +2551,10 @@ class Drill:
         paid: El texto del pago (lo que subió, la frase y el IGIC), para el final.
         result: El texto del final del minijuego, cuando acaba.
         event: El evento que pide decidir (el suplemento), mientras se decide.
+        cheers: Quién lo ha animado (IDs), hasta `gallos_gym.CHEER_MAX`.
+        saboteur: Quién lo ha saboteado (uno como mucho).
+        coach_open: Si el dueño deja que lo juegue otro.
+        coach: Quién lo juega en su lugar (el primero que pulsa, si está abierto).
     """
 
     stat: Stat
@@ -2313,6 +2562,10 @@ class Drill:
     paid: str
     result: str = ""
     event: gym.GymEvent | None = None
+    cheers: set[int] = field(default_factory=set)
+    saboteur: discord.abc.User | None = None
+    coach_open: bool = False
+    coach: discord.abc.User | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2369,6 +2622,10 @@ class Gallos(commands.Cog, name="Gallos"):
         self.duels: set[Duel] = set()
         #: Quién está en un reto o un duelo (servidor, miembro): uno a la vez.
         self.busy: set[tuple[int, int]] = set()
+        #: Quién le ha echado de comer hoy a cada gallo: (servidor, dueño, día) → IDs.
+        # shortcut: en memoria, se pierde al reiniciar (alguien podría repetir ese día); el
+        # tope de `FEEDS_PER_DAY` por gallo sí se guarda en la ficha.
+        self.fed: dict[tuple[int, int, date], set[int]] = {}
 
     async def cog_unload(self) -> None:
         """Al apagar, devuelve lo apostado en las gradas abiertas y cierra el pintor."""

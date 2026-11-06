@@ -6,8 +6,9 @@ victorias, KO, rachas y el último día que peleó), sus tres stats (fuerza,
 velocidad y aguante, que sí tocan las probabilidades) y lo que necesita el
 entrenamiento (la hora del último y cuántos lleva hoy) la forma (`form`, guardada
 con su instante `form_at`: la de ahora la calcula `gallos.form_now`), el combo del
-gimnasio (`combo`, `combo_day`), hasta cuándo está lesionado (`injured_until`) y el
-pique con un rival de la casa (`grudge_rival`, `grudge_wins`). Las columnas de los
+gimnasio (`combo`, `combo_day`), hasta cuándo está lesionado (`injured_until`) , el
+pique con un rival de la casa (`grudge_rival`, `grudge_wins`) y cuántos le han echado de
+comer hoy (`fed_day`, `fed_count`). Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
@@ -52,6 +53,7 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
     last_day = str(row["last_day"] or "")
     train_day = str(row["train_day"] or "")
     combo_day = str(row["combo_day"] or "")
+    fed_day = str(row["fed_day"] or "")
     return RoosterRecord(
         name=str(row["name"]),
         fights=int(row["fights"]),
@@ -75,6 +77,8 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         injured_until=float(row["injured_until"]),
         grudge_rival=str(row["grudge_rival"]),
         grudge_wins=int(row["grudge_wins"]),
+        fed_day=date.fromisoformat(fed_day) if fed_day else None,
+        fed_count=int(row["fed_count"]),
     )
 
 
@@ -94,6 +98,8 @@ _NEW_COLUMNS = (
     ("injured_until", "REAL NOT NULL DEFAULT 0"),
     ("grudge_rival", "TEXT NOT NULL DEFAULT ''"),
     ("grudge_wins", "INTEGER NOT NULL DEFAULT 0"),
+    ("fed_day", "TEXT"),
+    ("fed_count", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -264,8 +270,9 @@ class GallosRepository:
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
                  train_day, trains_today, form, form_at, combo, combo_day, injured_until,
-                 grudge_rival, grudge_wins)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 grudge_rival, grudge_wins, fed_day, fed_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -277,7 +284,8 @@ class GallosRepository:
                 form = excluded.form, form_at = excluded.form_at,
                 combo = excluded.combo, combo_day = excluded.combo_day,
                 injured_until = excluded.injured_until,
-                grudge_rival = excluded.grudge_rival, grudge_wins = excluded.grudge_wins
+                grudge_rival = excluded.grudge_rival, grudge_wins = excluded.grudge_wins,
+                fed_day = excluded.fed_day, fed_count = excluded.fed_count
             """,
             (
                 guild_id,
@@ -304,6 +312,8 @@ class GallosRepository:
                 record.injured_until,
                 record.grudge_rival,
                 record.grudge_wins,
+                record.fed_day.isoformat() if record.fed_day else None,
+                record.fed_count,
             ),
         )
 

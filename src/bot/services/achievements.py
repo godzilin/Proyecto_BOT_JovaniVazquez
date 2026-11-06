@@ -18199,6 +18199,50 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10, "gallos_pique_gana_10", "Echarle sal a la herida",
          "Gana 10 peleas a rivales picados contigo.", R),
     ])  # fmt: skip
+    # Lo social del reñidero (11.x): echar de comer al gallo de otro (3 al día por gallo),
+    # animar y sabotear su minijuego y entrenarlo en su lugar.
+    a += _tiers("gallos", "gallos_fed_others", [
+        (1, "gallos_comer_1", "Vecino del quinto con gofio",
+         "Échale de comer al gallo de otro miembro.", C),
+        (25, "gallos_comer_25", "Comedor social del corral",
+         "Échales de comer a gallos de otros 25 veces.", R),
+        (100, "gallos_comer_100", "Banco de alimentos avícola",
+         "Échales de comer a gallos de otros 100 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_fed_by_others", [
+        (10, "gallos_mantenido", "Mantenido por el barrio",
+         "Que otros le echen de comer a tu gallo 10 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_cheers", [
+        (1, "gallos_animar_1", "Hooligan del gimnasio",
+         "Anima el minijuego de otro miembro.", C),
+        (50, "gallos_animar_50", "Animadora de la NBA del corral",
+         "Anima 50 minijuegos de otros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotages", [
+        (1, "gallos_sabotaje_1", "Cáscara de plátano",
+         "Sabotea el minijuego de otro miembro.", C, True),
+        (10, "gallos_sabotaje_10", "Mario Kart con plumas",
+         "Sabotea 10 minijuegos de otros.", R, True),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotaged", [
+        (1, "gallos_saboteado", "Concha azul en la última vuelta",
+         "Que te saboteen un minijuego.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotaged_perfect", [
+        (1, "gallos_saboteado_perfecto", "A prueba de bombas",
+         "Saca una nota perfecta en un minijuego saboteado.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_coached", [
+        (1, "gallos_entrenador_1", "Míster de barrio",
+         "Juega el minijuego del gallo de otro miembro.", C),
+        (25, "gallos_entrenador_25", "Cholismo de corral",
+         "Juega 25 minijuegos de gallos de otros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_coached_perfect", [
+        (5, "gallos_entrenador_top", "El Guardiola del gallinero",
+         "Saca 5 notas perfectas jugando el minijuego de otros.", E),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_form_max", [
         (50, "gallos_forma_50", "Pollo al punto",
          "Lleva la forma de tu gallo a 50.", C),
