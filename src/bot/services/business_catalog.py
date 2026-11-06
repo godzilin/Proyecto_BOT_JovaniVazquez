@@ -267,7 +267,188 @@ FERRETERIA = Sector(
     },
 )  # fmt: skip
 
-SECTORS: tuple[Sector, ...] = (CAFETERIA, TIENDA, TALLER, HELADERIA, FERRETERIA)
+# -- Cinco sectores más (9.48.0), cada uno con su minijuego propio -----------------------
+
+GUACHINCHE = Sector(
+    key="guachinche",
+    name="Guachinche",
+    emoji="🍷",
+    game="brasa",
+    blurb="Vino del país, carne de cabra y queso asado. La brasa, en su punto o se quema.",
+    m2=80,
+    kind="local",
+    products=(
+        Product("vino", "Vino del país", 120, 450, pack=20, weight=1.5),
+        Product("papas", "Papas con mojo", 60, 400, igic="cero", pack=30, spoil=0.3,
+                weight=1.3),
+        Product("carne", "Carne de cabra", 350, 1_100, igic="reducido", pack=10, spoil=0.3,
+                weight=1.0),
+        Product("costillas", "Costillas con piña", 300, 950, igic="reducido", pack=10,
+                spoil=0.3, weight=1.0),
+        Product("queso", "Queso asado", 180, 650, igic="reducido", pack=12, spoil=0.1,
+                weight=0.9),
+        Product("escaldon", "Escaldón de gofio", 50, 350, igic="reducido", pack=20, spoil=0.4,
+                weight=0.7),
+    ),
+    clients=6,
+    patience=32,
+    setup=110_000,
+    license=12_000,
+    utilities=1_100,
+    order=(2, 4),
+    # Almuerzos largos y cenas; por la mañana, casi nadie.
+    curve=(
+        0.3, 0.15, 0.1, 0.1, 0.1, 0.1, 0.1, 0.15, 0.2, 0.35, 0.6, 1.0,
+        1.6, 1.8, 1.7, 1.3, 0.9, 0.8, 1.0, 1.4, 1.7, 1.5, 1.0, 0.6,
+    ),
+    fit={
+        "marinero": 1.0, "historico": 1.0, "centro": 0.8, "obrero": 1.05,
+        "playa": 0.85, "lujo": 0.8, "rural": 1.35,
+    },
+)  # fmt: skip
+
+PANADERIA = Sector(
+    key="panaderia",
+    name="Panadería",
+    emoji="🥖",
+    game="encargos",
+    blurb="Pan recién hecho y dulces de encargo. Cada bolsa tiene dueño: no te equivoques.",
+    m2=50,
+    kind="local",
+    products=(
+        Product("barra", "Barra de pan", 40, 150, igic="cero", pack=40, spoil=1.0, weight=1.6),
+        Product("millo", "Pan de millo", 70, 260, igic="cero", pack=20, spoil=0.8, weight=0.9),
+        Product("quesadilla", "Quesadilla herreña", 90, 280, igic="reducido", pack=20,
+                spoil=0.5, weight=1.0),
+        Product("truchas", "Truchas de batata", 60, 200, igic="reducido", pack=24, spoil=0.5,
+                weight=0.9),
+        Product("bizcochon", "Bizcochón", 250, 850, igic="reducido", pack=8, spoil=0.3,
+                weight=0.5),
+        Product("tarta", "Tarta de encargo", 900, 2_600, igic="reducido", pack=4, spoil=0.3,
+                weight=0.4),
+    ),
+    clients=8,
+    patience=28,
+    setup=130_000,
+    license=12_000,
+    utilities=1_400,
+    order=(2, 5),
+    # De madrugada sale el pan; la gente pasa antes del trabajo y a media tarde.
+    curve=(
+        0.1, 0.1, 0.1, 0.1, 0.3, 0.9, 1.6, 1.8, 1.7, 1.4, 1.1, 1.0,
+        0.9, 0.7, 0.4, 0.4, 0.6, 0.9, 1.0, 0.8, 0.5, 0.3, 0.15, 0.1,
+    ),
+    fit={
+        "marinero": 1.0, "historico": 1.15, "centro": 1.0, "obrero": 1.2,
+        "playa": 0.9, "lujo": 0.9, "rural": 1.1,
+    },
+)  # fmt: skip
+
+PESCADERIA = Sector(
+    key="pescaderia",
+    name="Pescadería",
+    emoji="🐟",
+    game="balanza",
+    blurb="Vieja, cherne y chicharros recién llegados. Se pesa a ojo y se acierta en la balanza.",
+    m2=45,
+    kind="local",
+    products=(
+        Product("chicharros", "Chicharros", 40, 100, igic="reducido", pack=40, spoil=0.3,
+                weight=1.3),
+        Product("vieja", "Vieja", 380, 850, igic="reducido", pack=12, spoil=0.3, weight=1.2),
+        Product("cherne", "Cherne", 500, 1_150, igic="reducido", pack=10, spoil=0.25,
+                weight=0.9),
+        Product("sama", "Sama", 450, 1_000, igic="reducido", pack=10, spoil=0.3, weight=0.8),
+        Product("pulpo", "Pulpo", 600, 1_400, igic="reducido", pack=8, spoil=0.2, weight=0.7),
+        Product("lapas", "Lapas", 220, 550, igic="reducido", pack=16, spoil=0.35, weight=0.8),
+    ),
+    clients=6,
+    patience=35,
+    setup=100_000,
+    license=12_000,
+    utilities=1_200,
+    order=(1, 1),
+    # El pescado llega de madrugada y se vende por la mañana; por la tarde, lo que quede.
+    curve=(
+        0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.4, 1.0, 1.6, 1.8, 1.8, 1.6,
+        1.3, 0.9, 0.5, 0.4, 0.6, 0.8, 0.8, 0.6, 0.3, 0.1, 0.05, 0.05,
+    ),
+    fit={
+        "marinero": 1.35, "historico": 1.0, "centro": 0.9, "obrero": 1.0,
+        "playa": 1.05, "lujo": 1.05, "rural": 0.9,
+    },
+)  # fmt: skip
+
+MOVILES = Sector(
+    key="moviles",
+    name="Reparación de móviles",
+    emoji="📱",
+    game="revision",
+    blurb="Pantallas rotas y baterías hinchadas. Se mira el móvil entero: puede tener más de una.",
+    m2=25,
+    kind="local",
+    products=(
+        Product("pantalla", "Pantalla", 1_800, 2_900, pack=4, weight=1.5),
+        Product("bateria_movil", "Batería de móvil", 600, 1_150, pack=6, weight=1.3),
+        Product("conector", "Conector de carga", 250, 600, pack=6, weight=1.1),
+        Product("camara_movil", "Cámara", 900, 1_500, pack=4, weight=0.7),
+        Product("altavoz", "Altavoz", 300, 650, pack=6, weight=0.8),
+        Product("tapa", "Tapa trasera", 400, 850, pack=6, weight=0.9),
+    ),
+    clients=4,
+    patience=50,
+    setup=70_000,
+    license=8_000,
+    utilities=500,
+    order=(1, 1),
+    # Por la tarde, al salir del trabajo y del instituto.
+    curve=(
+        0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.4, 0.6, 0.9, 1.0,
+        1.1, 0.9, 0.7, 0.9, 1.3, 1.5, 1.6, 1.5, 1.1, 0.6, 0.3, 0.15,
+    ),
+    fit={
+        "marinero": 0.85, "historico": 0.9, "centro": 1.3, "obrero": 1.1,
+        "playa": 0.9, "lujo": 1.0, "rural": 0.75,
+    },
+)  # fmt: skip
+
+PELUQUERIA = Sector(
+    key="peluqueria",
+    name="Peluquería",
+    emoji="💈",
+    game="foto",
+    blurb="Traen una foto y un «pero un poco más corto». El pelo que cortas no vuelve a crecer.",
+    m2=45,
+    kind="local",
+    products=(
+        Product("corte", "Corte", 60, 420, pack=30, weight=1.0),
+        Product("degradado", "Degradado", 60, 200, pack=30, weight=1.0),
+        Product("barba", "Arreglo de barba", 40, 250, pack=30, weight=1.0),
+        Product("tinte", "Tinte", 450, 900, pack=10, weight=1.0),
+        Product("mechas", "Mechas", 650, 1_250, pack=10, weight=1.0),
+        Product("peinado", "Lavar y peinar", 80, 300, pack=20, weight=1.0),
+    ),
+    clients=4,
+    patience=45,
+    setup=90_000,
+    license=10_000,
+    utilities=800,
+    order=(1, 1),
+    # Mañana y tarde; a mediodía, el bocadillo; de noche, cerrado.
+    curve=(
+        0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.1, 0.3, 0.9, 1.3, 1.5, 1.5,
+        1.3, 0.8, 0.6, 0.9, 1.3, 1.5, 1.5, 1.3, 0.8, 0.3, 0.1, 0.05,
+    ),
+    fit={
+        "marinero": 0.95, "historico": 1.05, "centro": 1.15, "obrero": 1.0,
+        "playa": 0.95, "lujo": 1.25, "rural": 0.85,
+    },
+)  # fmt: skip
+
+SECTORS: tuple[Sector, ...] = (
+    CAFETERIA, TIENDA, TALLER, HELADERIA, FERRETERIA,
+    GUACHINCHE, PANADERIA, PESCADERIA, MOVILES, PELUQUERIA,
+)  # fmt: skip
 SECTOR_BY_KEY: dict[str, Sector] = {s.key: s for s in SECTORS}
 
 
@@ -410,7 +591,124 @@ GREETINGS: dict[str, tuple[str, ...]] = {
         "Necesito el coche para el lunes, ¿puede ser?",
         "No sé lo que es, pero suena a caro.",
     ),
+    # 9.48.0. En la brasa, en los encargos, en la balanza y en la revisión, el saludo va
+    # delante de lo que pide (que lo dice el juego); en la foto, delante de la foto.
+    "brasa": (
+        "Buenas, mesa para dos.",
+        "¿Qué hay hoy? Bueno, lo de la pizarra.",
+        "Venimos andando desde el pueblo de al lado.",
+        "Hola. Sin prisa, que hoy es domingo para nosotros.",
+        "Mi abuelo decía que aquí se comía como en casa. Él no cocinaba nunca.",
+        "Ponnos algo y lo que sobre, para llevar.",
+    ),
+    "encargos": (
+        "Buenos días.",
+        "Hola, vengo a recoger.",
+        "Buenas, que llego tarde al trabajo.",
+        "Ayer llamé por teléfono.",
+        "Lo encargó mi madre, que manda más que yo.",
+        "Vengo a por lo de la fiesta, que si no llego me matan.",
+    ),
+    "balanza": (
+        "Buenos días.",
+        "Hola, ¿qué tal viene hoy el pescado?",
+        "Buenas, ¿está fresco? No me conteste, ya lo huelo.",
+        "Hola, que hoy viene la familia.",
+        "Para hacerlo a la sal, como dice mi suegra.",
+    ),
+    "revision": (
+        "Hola, ¿me puede echar un vistazo?",
+        "Buenas, lo necesito para mañana.",
+        "Se me cayó. Bueno, lo tiré. Bueno, se me cayó.",
+        "Hola. No tengo copia de las fotos, así que cuidado.",
+        "Está al 1 % desde 2024.",
+    ),
+    "foto": (
+        "Hola, ¿tiene hueco ahora?",
+        "Buenas. Le enseño una foto.",
+        "Quiero un cambio, pero que no se note.",
+        "Buenas. Lo de la última vez no, por favor.",
+        "Hola. Mi novia dice que esto me queda bien.",
+    ),
 }
+
+# -- Datos de los minijuegos de 9.48.0 (los usa `bot.services.business_games`) ---------
+
+#: Lo que va a la brasa en el guachinche (lo demás de la mesa se sirve sin más) y la
+#: terminación con que se dice su punto (`carne` poco hecha, `queso` poco hecho).
+GRILLED: dict[str, str] = {"carne": "a", "costillas": "as", "queso": "o"}
+#: Los puntos de la brasa: `(clave, cómo lo pide, desde, hasta)`, en tanto por ciento de lo
+#: hecho. De `BURNT` en adelante, se quema.
+POINTS: tuple[tuple[str, str, int, int], ...] = (
+    ("poco", "poco hech{g}", 40, 50),
+    ("punto", "en su punto", 60, 70),
+    ("muy", "muy hech{g}", 80, 90),
+)
+POINT_BY_KEY: dict[str, tuple[str, str, int, int]] = {p[0]: p for p in POINTS}
+BURNT = 100
+
+#: Nombres de las bolsas de encargo que no son del cliente (los que sí son, los suyos).
+BAG_NAMES: tuple[str, ...] = (
+    "Mari Carmen", "Pepe", "Loli", "Juan", "Candelaria", "Paco", "Yurena", "Antonio",
+    "Pino", "Domingo", "Mercedes", "Agustín", "Nieves", "Manolo", "Conchi", "Ramón",
+)  # fmt: skip
+#: Iniciales del apellido de las bolsas.
+BAG_INITIALS = "ABCDGHLMPRST"
+
+#: Pescadería: `(gramos mínimos, máximos y medios)` de una pieza de cada especie, y lo que
+#: se pide. `Product.price` es el de una pieza media: la venta se cobra por lo que pesa
+#: (`price × gramos / medios`), y la compra al mayorista es por pieza (`Product.cost`).
+FISH_GRAMS: dict[str, tuple[int, int, int]] = {
+    "chicharros": (60, 140, 100),
+    "vieja": (250, 600, 400),
+    "cherne": (350, 900, 600),
+    "sama": (300, 700, 500),
+    "pulpo": (500, 1_300, 900),
+    "lapas": (150, 350, 250),
+}
+FISH_ASKS: dict[str, tuple[int, ...]] = {
+    "chicharros": (250, 500, 750, 1_000),
+    "vieja": (500, 1_000, 1_500),
+    "cherne": (1_000, 1_500, 2_000),
+    "sama": (500, 1_000, 1_500),
+    "pulpo": (1_000, 1_500, 2_000),
+    "lapas": (250, 500, 750),
+}
+
+#: Móviles: lo que cuenta el cliente de cada avería (dice solo la primera; las demás se ven
+#: en el dibujo). La escena dibuja la marca de cada una por su clave.
+PHONE_FAULTS: dict[str, tuple[str, ...]] = {
+    "pantalla": ("Se me cayó y ya no se ve bien.", "La pantalla hace cosas raras."),
+    "bateria_movil": ("No me dura la batería ni hasta el mediodía.", "Se calienta mucho."),
+    "conector": ("Ya no carga si no pongo el cable de lado.", "Lo enchufo y no carga."),
+    "camara_movil": ("Las fotos salen borrosas.", "La cámara no enfoca."),
+    "altavoz": ("Cuando me llaman no oigo nada.", "Se oye todo rasposo."),
+    "tapa": ("Se me partió por detrás.", "Tiene la parte de atrás rajada."),
+}
+#: Probabilidad de que traiga el protector de pantalla rayado sin que la pantalla esté rota
+#: (la trampa de la revisión) y de que el móvil tenga 1, 2 o 3 averías.
+PROTECTOR_CHANCE = 0.3
+FAULT_COUNTS: tuple[float, ...] = (0.55, 0.35, 0.10)
+
+#: Peluquería: los largos (de más corto a más largo) y los colores.
+LENGTHS: tuple[str, ...] = ("rapado", "corto", "medio", "largo")
+LENGTH_NAMES: dict[str, str] = {
+    "rapado": "Rapado", "corto": "Corto", "medio": "Media melena", "largo": "Largo",
+}  # fmt: skip
+COLORS: tuple[str, ...] = ("natural", "tinte", "mechas")
+COLOR_NAMES: dict[str, str] = {"natural": "Su color", "tinte": "Tinte", "mechas": "Mechas"}
+#: Lo que añade el cliente a la foto: `(clave, frase)`. La regla de cada una, en
+#: `business_games.restyle`.
+STYLE_TWISTS: tuple[tuple[str, str], ...] = (
+    ("igual", "Igual que en la foto."),
+    ("corto", "Como en la foto, pero un poco más corto."),
+    ("sin_degradado", "Como en la foto, pero sin degradado."),
+    ("degradado", "Como en la foto, pero con degradado."),
+    ("natural", "Como en la foto, pero con mi color: nada de tinte."),
+    ("mechas", "Como en la foto, pero con mechas."),
+    ("barba", "Como en la foto, y arréglame la barba."),
+    ("peinado", "Como en la foto, y luego me lavas y me peinas."),
+)
 
 
 # -- Fase 2: crecer el local ----------------------------------------------------------
@@ -506,13 +804,15 @@ class Equipment:
 EQUIPMENT: tuple[Equipment, ...] = (
     Equipment("cafetera2", "Cafetera de dos grupos", ("cafeteria",), 60_000, "maquinaria",
               clients=0.15),
-    Equipment("terraza", "Terraza con cuatro mesas", ("cafeteria", "heladeria"), 45_000,
+    Equipment("terraza", "Terraza con cuatro mesas", ("cafeteria", "heladeria", "guachinche"),
+              45_000,
               "instalaciones", clients=0.2, nightly_fee=300),
-    Equipment("vitrina", "Vitrina refrigerada", ("cafeteria",), 30_000, "maquinaria",
+    Equipment("vitrina", "Vitrina refrigerada", ("cafeteria", "panaderia"), 30_000, "maquinaria",
               spoil=0.5, tips=0.03),
     Equipment("tpv", "Segunda caja con TPV", ("tienda", "ferreteria"), 22_000, "informatica",
               patience=0.25, clients=0.05),
-    Equipment("camara", "Cámara frigorífica", ("tienda",), 50_000, "instalaciones", spoil=0.6),
+    Equipment("camara", "Cámara frigorífica", ("tienda", "pescaderia"), 50_000, "instalaciones",
+              spoil=0.6),
     Equipment("estanterias", "Estanterías y cartelería", ("tienda", "ferreteria"), 25_000,
               "instalaciones", clients=0.12),
     Equipment("elevador", "Elevador de dos columnas", ("taller",), 90_000, "maquinaria",
@@ -527,6 +827,26 @@ EQUIPMENT: tuple[Equipment, ...] = (
               "maquinaria", spoil=0.5, patience=0.1, clients=0.05),
     Equipment("copiadora", "Máquina de copiar llaves", ("ferreteria",), 45_000, "maquinaria",
               clients=0.15),
+    # 9.48.0
+    Equipment("parrilla", "Parrilla de leña grande", ("guachinche",), 50_000, "maquinaria",
+              clients=0.15),
+    Equipment("barricas", "Barricas del país", ("guachinche",), 30_000, "instalaciones",
+              tips=0.03, patience=0.1),
+    Equipment("horno", "Horno de pisos", ("panaderia",), 60_000, "maquinaria", clients=0.15),
+    Equipment("turnos", "Dispensador de números", ("panaderia", "pescaderia"), 8_000,
+              "informatica", patience=0.2),
+    Equipment("balanza", "Balanza con etiquetadora", ("pescaderia",), 15_000, "informatica",
+              patience=0.15, clients=0.05),
+    Equipment("vivero", "Vivero de marisco", ("pescaderia",), 40_000, "instalaciones",
+              clients=0.12),
+    Equipment("microscopio", "Microscopio y estación de soldadura", ("moviles",), 30_000,
+              "herramientas", patience=0.3),
+    Equipment("fundas", "Escaparate de fundas", ("moviles",), 20_000, "instalaciones",
+              clients=0.12, tips=0.02),
+    Equipment("sillon", "Segundo sillón", ("peluqueria",), 35_000, "instalaciones",
+              clients=0.2),
+    Equipment("lavacabezas", "Lavacabezas con masaje", ("peluqueria",), 25_000, "maquinaria",
+              tips=0.04, patience=0.1),
 )  # fmt: skip
 EQUIPMENT_BY_KEY: dict[str, Equipment] = {e.key: e for e in EQUIPMENT}
 

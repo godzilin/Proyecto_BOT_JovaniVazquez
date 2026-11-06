@@ -49,6 +49,7 @@ from bot.services.business_catalog import (
     CAMPAIGNS,
     EMBLEMS,
     PALETTES,
+    POINT_BY_KEY,
     PRICE_BY_KEY,
     REVIEW_LINES,
     SECTOR_BY_KEY,
@@ -56,7 +57,7 @@ from bot.services.business_catalog import (
     SIZES,
     equipment_for,
 )
-from bot.services.business_games import TurnGame
+from bot.services.business_games import TurnGame, point_text, twist_text
 from bot.services.economy import format_amount
 from bot.services.housing_catalog import BARRIO_BY_KEY, BARRIOS, ISLANDS
 from bot.services.levels import TIMEZONE
@@ -636,12 +637,13 @@ def cliente_state(business: Business, game: TurnGame) -> State:
         "cash": "",
         "patience": f"{round(game.patience)} s",
     }
-    if game.sector.game == "comandas":
+    kind = game.sector.game
+    if kind == "comandas":
         state["usual"] = client.usual
         state["order"] = (
             None if client.usual else [{"key": k, "n": n} for k, n in client.order.items()]
         )
-    elif game.sector.game == "caja":
+    elif kind == "caja":
         state["basket"] = [
             {"key": k, "n": n, "price": format_amount(game.price_of(k) * n)}
             for k, n in client.order.items()
@@ -649,12 +651,67 @@ def cliente_state(business: Business, game: TurnGame) -> State:
         state["total"] = format_amount(game.total())
         state["paid"] = format_amount(game.paid)
         state["thief"] = client.hidden is not None
+    elif kind == "brasa":
+        # Lo que se ve de la brasa no cambia con cada pulsación (eso va en el texto): el
+        # plato crudo en la parrilla, la mesa y el punto que pide.
+        state["order"] = [{"key": k, "n": n} for k, n in client.order.items()]
+        state["dish"] = client.dish
+        state["usual"] = client.usual
+        state["point"] = (
+            ""
+            if client.usual or not client.dish
+            else point_text(client.dish, client.point).capitalize()
+        )
+        if client.dish and not client.usual:
+            _key, _ask, low, high = POINT_BY_KEY[client.point]
+            state["window"] = [low, high]
+    elif kind == "encargos":
+        state["usual"] = client.usual
+        state["ask"] = (
+            "Vengo a por lo mío, lo de siempre."
+            if client.usual
+            else f"El encargo de {client.label}"
+        )
+        state["clue"] = "" if client.usual else client.clue
+        state["bags"] = [
+            {"label": bag.label, "items": [{"key": k, "n": n} for k, n in bag.order.items()]}
+            for bag in client.bags
+        ]
+    elif kind == "balanza":
+        state["usual"] = client.usual
+        state["species"] = client.species
+        state["grams"] = "" if client.usual else f"{client.grams:,} g".replace(",", ".")
+        state["pieces"] = list(client.pieces)
+        state["per_kg"] = format_amount(game.weight_price(client.species, 1_000))
+    elif kind == "revision":
+        state["phone"] = {"model": client.phone, "color": client.phone_color}
+        state["faults"] = list(client.faults)
+        state["protector"] = client.protector
+        state["symptom"] = client.symptom
+    elif kind == "foto":
+        photo = client.photo
+        assert photo is not None
+        state["usual"] = client.usual
+        state["photo"] = None if client.usual else _style_dict(photo)
+        state["twist"] = "" if client.usual else twist_text(client.twist)
+        state["hair"] = client.hair
+        state["beard"] = client.beard
     else:
         state["car"] = {"color": client.car_color, "model": client.car_model}
         state["symptom"] = client.symptom
         state["cue"] = client.cue
         state["step"] = game.step
     return state
+
+
+def _style_dict(style: Any) -> dict[str, Any]:
+    return {
+        "length": style.length,
+        "fade": style.fade,
+        "color": style.color,
+        "beard": style.beard,
+        "wash": style.wash,
+    }
 
 
 def cierre_state(business: Business, result: Any) -> State:

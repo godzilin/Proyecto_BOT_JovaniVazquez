@@ -106,9 +106,13 @@ from bot.services.business import (
 from bot.services.business_catalog import (
     CAMPAIGN_BY_KEY,
     CAMPAIGNS,
+    COLOR_NAMES,
     EMBLEMS,
     EQUIPMENT_BY_KEY,
+    LENGTH_NAMES,
+    LENGTHS,
     PALETTES,
+    POINT_BY_KEY,
     PRICE_LEVELS,
     REVIEW_LINES,
     SECTOR_BY_KEY,
@@ -117,7 +121,13 @@ from bot.services.business_catalog import (
     equipment_for,
 )
 from bot.services.business_chain import Nave, SaleOffer
-from bot.services.business_games import COINS, QUOTES, TurnGame
+from bot.services.business_games import (
+    COINS,
+    HEAT_STEPS,
+    QUOTES,
+    point_text,
+    twist_text,
+)
 from bot.services.business_scene import BusinessScene
 from bot.services.business_view import (
     CONTRACT_NAMES,
@@ -196,6 +206,12 @@ PRODUCT_EMOJI: dict[str, str] = {
     "dulce": "🥐", "pan": "🍞", "leche": "🧃", "fruta": "🍎", "conservas": "🥫",
     "limpieza": "🧴", "bebidas": "🥤", "pastillas": "🛑", "bateria": "🔋", "aceite": "🛢️",
     "correa": "⛓️", "bujias": "⚡", "neumatico": "🛞",
+    "vino": "🍷", "papas": "🥔", "carne": "🍖", "costillas": "🍍", "queso": "🧀",
+    "escaldon": "🥣", "barra": "🥖", "millo": "🌽", "quesadilla": "🥧", "truchas": "🥟",
+    "bizcochon": "🍰", "tarta": "🎂", "chicharros": "🐟", "vieja": "🐠", "cherne": "🐡",
+    "sama": "🎣", "pulpo": "🐙", "lapas": "🐚", "pantalla": "📱", "bateria_movil": "🔋",
+    "conector": "🔌", "camara_movil": "📷", "altavoz": "🔊", "tapa": "🧩", "corte": "✂️",
+    "degradado": "💈", "barba": "🧔", "tinte": "🎨", "mechas": "✨", "peinado": "🚿",
 }  # fmt: skip
 #: Cómo se juega cada minijuego, en una línea.
 HOW_TO = {
@@ -203,6 +219,17 @@ HOW_TO = {
     "caja": "Da el cambio con las monedas y pulsa ✅ Cobrar. Si alguien esconde algo, 👀.",
     "diagnostico": "Elige la avería por el síntoma y luego el presupuesto: caro, más fácil "
     "que no lo acepte.",
+    "brasa": f"🔥 sube {HEAT_STEPS['1'][0]}-{HEAT_STEPS['1'][1]} puntos y 🔥🔥 "
+    f"{HEAT_STEPS['2'][0]}-{HEAT_STEPS['2'][1]}. Saca el plato (🍽️) dentro de su punto; a "
+    "100, se quema.",
+    "encargos": "Dale la bolsa que es suya: mira el nombre, la inicial y lo que lleva. Si "
+    "no hay ninguna, 🚫 No está.",
+    "balanza": "Pon y quita piezas hasta acercarte a lo que pide (un 10 % arriba o abajo "
+    "vale) y pulsa ⚖️ Pesar.",
+    "revision": "Mira el móvil por delante y por detrás, marca cada pieza rota y pulsa 🔧 "
+    "Reparar. Puede haber más de una.",
+    "foto": "Haz lo de la foto con el cambio que te pide y pulsa ✂️ Listo. Lo que cortas de "
+    "más no vuelve.",
 }
 
 PORTADA = "portada"
@@ -427,6 +454,9 @@ class NegocioPanel(ui.LayoutView):
         self.sale: SaleOffer | None = None
         self.token = cog.new_token()
         self._shown = ""
+        #: Si la pantalla de ahora lleva imagen (la revisión del móvil se cuenta en el texto
+        #: cuando no la hay).
+        self._has_image = False
         self._lock = TimedLock("negocio:NegocioPanel._lock")
         self._render_lock = TimedLock("negocio:NegocioPanel._render_lock")
         self._ticket = 0
@@ -638,7 +668,7 @@ class NegocioPanel(ui.LayoutView):
         if game.sector.game == "diagnostico" and game.step == "diagnostico":
             out.append({**cliente_state(self.turn.business, game), "step": "presupuesto"})
         if game.index + 1 < len(game.clients):
-            ahead = _advanced(game)
+            ahead = game.ahead()
             out.append(cliente_state(self.turn.business, ahead))
         return out
 
@@ -1101,7 +1131,8 @@ class NegocioPanel(ui.LayoutView):
         assert self.turn is not None
         game = self.turn.game
         client = game.current
-        lines = [f"-# 🎮 {HOW_TO[game.sector.game]}"]
+        kind = game.sector.game
+        lines = [f"-# 🎮 {HOW_TO[kind]}"]
         if game.last:
             lines.append(f"**{game.last}**")
         if client is None:
@@ -1134,6 +1165,8 @@ class NegocioPanel(ui.LayoutView):
                 f"**{format_amount(game.paid)}** · "
                 f"cambio dado: **{format_amount(given)}**"
             )
+        elif kind in GAME_TEXT:
+            lines.extend(GAME_TEXT[kind](self, game, client, who))
         else:
             lines.append(f"{who}: «{client.symptom}»")
             if game.step == "presupuesto":
@@ -1237,6 +1270,7 @@ class NegocioPanel(ui.LayoutView):
     def rebuild(self, has_image: bool) -> None:
         """Monta la imagen, el texto y los controles de la pantalla de ahora."""
         self.clear_items()
+        self._has_image = has_image
         color = COLOR_GAME if self.screen == TURNO else COLOR
         container = ui.Container(accent_colour=color)
         if has_image:
@@ -2117,6 +2151,9 @@ class NegocioPanel(ui.LayoutView):
             push(self._game_button("Deshacer", "undo", emoji="↩️"))
             push(self._game_button("Bolsillo", "thief", emoji="👀", disabled=game.accused))
             push(self._game_button("Cobrar", "charge", emoji="✅", style=green))
+        elif game.sector.game in GAME_ROWS:
+            for button in GAME_ROWS[game.sector.game](self, game, client):
+                push(button)
         elif game.step == "diagnostico":
             for key in client.options:
                 product = game.sector.product(key)
@@ -3356,18 +3393,208 @@ class NegocioPanel(ui.LayoutView):
         await logros.track(self.cog.bot, self.guild_id, self.owner, self.channel, delta)
 
 
-def _advanced(game: TurnGame) -> TurnGame:
-    """Una copia ligera del juego con el siguiente cliente delante (para pintarlo antes)."""
-    ahead = object.__new__(TurnGame)
-    for name in ("sector", "levels", "luxury", "stars", "loyalty", "clients", "stock",
-                 "started", "deadline", "patience", "tip_bonus", "since", "outcomes", "last",
-                 "tray", "given", "accused", "diagnosis", "extra", "round"):  # fmt: skip
-        setattr(ahead, name, getattr(game, name))
-    ahead.index = game.index + 1
-    ahead.step = "diagnostico"
-    ahead.paid = game.clients[ahead.index].paid
-    ahead.extra = 0
-    return ahead
+# -- Los minijuegos de la 9.48.0: texto y botones -------------------------------------
+
+#: Cómo se pide cada peso en la pescadería.
+GRAMS_TEXT = {
+    250: "un cuarto de kilo", 500: "medio kilo", 750: "tres cuartos de kilo", 1_000: "un kilo",
+    1_500: "kilo y medio", 2_000: "dos kilos",
+}  # fmt: skip
+LETTERS = "ABCD"
+
+
+def _items(game: Any, order: dict[str, int]) -> str:
+    return ", ".join(f"{n} {game.sector.product(k).name.lower()}" for k, n in order.items())
+
+
+def _heat_bar(heat: int) -> str:
+    full = max(0, min(10, heat // 10))
+    return "▰" * full + "▱" * (10 - full) + f" **{heat} %**"
+
+
+def style_text(style: Any) -> str:
+    """Un peinado en palabras: «corto, con degradado y mechas»."""
+    parts = [LENGTH_NAMES[style.length].lower() if style.length else "sin largo elegido"]
+    if style.fade:
+        parts.append("con degradado")
+    parts.append({"natural": "su color", "tinte": "con tinte", "mechas": "con mechas"}[style.color])
+    if style.beard:
+        parts.append("barba arreglada")
+    if style.wash:
+        parts.append("lavado y peinado")
+    return ", ".join(parts[:-1]) + f" y {parts[-1]}" if len(parts) > 1 else parts[0]
+
+
+def _brasa_text(panel: Any, game: Any, client: Any, who: str) -> list[str]:
+    lines = []
+    if client.usual:
+        lines.append(f"{who}: «Lo de siempre». El plato y su punto, de memoria.")
+    else:
+        lines.append(f"{who} pide: {_items(game, client.order)}.")
+    if client.dish:
+        dish = game.sector.product(client.dish).name
+        if not client.usual:
+            _key, _ask, low, high = POINT_BY_KEY[client.point]
+            lines.append(f"🔥 {dish}: {point_text(client.dish, client.point)} ({low}-{high} %)")
+        lines.append(f"🔥 En la brasa: {_heat_bar(game.heat)}")
+    else:
+        lines.append("Nada de brasa en esta mesa: sírvela.")
+    return lines
+
+
+def _encargos_text(panel: Any, game: Any, client: Any, who: str) -> list[str]:
+    if client.usual:
+        lines = [f"{who}: «Vengo a por lo mío, lo de siempre.»"]
+    else:
+        clue = game.sector.product(client.clue).name.lower()
+        lines = [f"{who}: «Vengo a por el encargo de {client.label} Lleva {clue}.»"]
+    for index, bag in enumerate(client.bags):
+        lines.append(f"🛍️ **{LETTERS[index]}** · {bag.label} {_items(game, bag.order)}")
+    return lines
+
+
+def _balanza_text(panel: Any, game: Any, client: Any, who: str) -> list[str]:
+    product = game.sector.product(client.species)
+    per_kg = game.weight_price(client.species, 1_000)
+    if client.usual:
+        lines = [
+            f"{who}: «Lo de siempre.» La especie es {product.name.lower()}; el peso, de memoria."
+        ]
+        target = "?"
+    else:
+        amount = GRAMS_TEXT.get(client.grams, f"{client.grams} g").capitalize()
+        lines = [f"{who}: «{amount} de {product.name.lower()}, por favor.»"]
+        target = f"{client.grams} g"
+    lines.append(
+        f"⚖️ En la balanza: **{game.weighed()} g** de {target} · {format_amount(per_kg)} el kilo"
+    )
+    return lines
+
+
+def _revision_text(panel: Any, game: Any, client: Any, who: str) -> list[str]:
+    lines = [f"{who}: «{client.symptom}»"]
+    if not panel._has_image:  # sin dibujo, lo que se vería
+        seen = [game.sector.product(k).name.lower() for k in client.faults]
+        if client.protector:
+            seen.append("el protector de pantalla rayado (la pantalla, bien)")
+        lines.append("👀 Se ve: " + ", ".join(seen) + ".")
+    marked = ", ".join(game.sector.product(k).name.lower() for k in game.marked) or "nada"
+    lines.append(f"🔧 Para cambiar: {marked}")
+    return lines
+
+
+def _foto_text(panel: Any, game: Any, client: Any, who: str) -> list[str]:
+    if client.usual:
+        lines = [f"{who}: «Lo de siempre.» Su corte de siempre, de memoria."]
+    else:
+        lines = [
+            f"{who}: «{twist_text(client.twist)}»",
+            f"📷 La foto: {style_text(client.photo)}.",
+        ]
+    beard = " y barba" if client.beard else ""
+    lines.append(f"💇 Trae el pelo {LENGTH_NAMES[client.hair].lower()}{beard}.")
+    lines.append(f"✂️ Llevas: {style_text(game.style)}.")
+    return lines
+
+
+GAME_TEXT: dict[str, Callable[[Any, Any, Any, str], list[str]]] = {
+    "brasa": _brasa_text,
+    "encargos": _encargos_text,
+    "balanza": _balanza_text,
+    "revision": _revision_text,
+    "foto": _foto_text,
+}
+
+
+def _brasa_rows(panel: Any, game: Any, client: Any) -> list[ui.Button]:
+    green = discord.ButtonStyle.success
+    burn = not client.dish
+    return [
+        panel._game_button("Un poco", "fire:1", emoji="🔥", disabled=burn),
+        panel._game_button("Avivar", "fire:2", emoji="💥", disabled=burn),
+        panel._game_button("Sacar y servir", "serve", emoji="🍽️", style=green),
+    ]
+
+
+def _encargos_rows(panel: Any, game: Any, client: Any) -> list[ui.Button]:
+    out = [
+        panel._game_button(f"{LETTERS[i]} · {bag.label}", f"b:{i}", emoji="🛍️")
+        for i, bag in enumerate(client.bags)
+    ]
+    out.append(panel._game_button("No está", "none", emoji="🚫"))
+    return out
+
+
+def _balanza_rows(panel: Any, game: Any, client: Any) -> list[ui.Button]:
+    blue, grey = discord.ButtonStyle.primary, discord.ButtonStyle.secondary
+    out = [
+        panel._game_button(
+            f"{grams} g", f"w:{i}", emoji="🐟", style=blue if i in game.scale else grey
+        )
+        for i, grams in enumerate(client.pieces)
+    ]
+    out.append(panel._game_button("Pesar", "weigh", emoji="⚖️", style=discord.ButtonStyle.success))
+    return out
+
+
+def _revision_rows(panel: Any, game: Any, client: Any) -> list[ui.Button]:
+    blue, grey = discord.ButtonStyle.primary, discord.ButtonStyle.secondary
+    out = []
+    for product in game.sector.products:
+        on = product.key in game.marked
+        left = game.stock.get(product.key, 0)
+        out.append(
+            panel._game_button(
+                f"{product.name} ({left})", f"m:{product.key}",
+                emoji=PRODUCT_EMOJI.get(product.key), style=blue if on else grey,
+                disabled=left <= 0 and not on,
+            )
+        )  # fmt: skip
+    out.append(panel._game_button("Reparar", "fix", emoji="🔧", style=discord.ButtonStyle.success))
+    return out
+
+
+def _foto_rows(panel: Any, game: Any, client: Any) -> list[ui.Button]:
+    blue, grey = discord.ButtonStyle.primary, discord.ButtonStyle.secondary
+    style = game.style
+    longest = LENGTHS.index(client.hair)
+    out = [
+        panel._game_button(
+            LENGTH_NAMES[length], f"l:{length}", emoji="📏",
+            style=blue if style.length == length else grey, disabled=i > longest,
+        )
+        for i, length in enumerate(LENGTHS)
+    ]  # fmt: skip
+    out.append(
+        panel._game_button("Degradado", "fade", emoji="💈", style=blue if style.fade else grey)
+    )
+    out.extend(
+        panel._game_button(
+            COLOR_NAMES[color], f"col:{color}", emoji=PRODUCT_EMOJI.get(color, "🧑"),
+            style=blue if style.color == color else grey,
+        )
+        for color in ("natural", "tinte", "mechas")
+    )  # fmt: skip
+    out.append(
+        panel._game_button(
+            "Barba", "beard", emoji="🧔", style=blue if style.beard else grey,
+            disabled=not client.beard,
+        )
+    )  # fmt: skip
+    out.append(
+        panel._game_button("Lavar y peinar", "wash", emoji="🚿", style=blue if style.wash else grey)
+    )
+    out.append(panel._game_button("Listo", "done", emoji="✂️", style=discord.ButtonStyle.success))
+    return out
+
+
+GAME_ROWS: dict[str, Callable[[Any, Any, Any], list[ui.Button]]] = {
+    "brasa": _brasa_rows,
+    "encargos": _encargos_rows,
+    "balanza": _balanza_rows,
+    "revision": _revision_rows,
+    "foto": _foto_rows,
+}
 
 
 class CompanyAmountForm(ui.Modal):

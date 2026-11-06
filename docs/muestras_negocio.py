@@ -25,6 +25,7 @@ from typing import Any
 from bot.services.business import Business, add_asset, move_quote, setup_asset
 from bot.services.business_catalog import EQUIPMENT_BY_KEY, SECTOR_BY_KEY, SECTORS
 from bot.services.business_view import (
+    almacen_state,
     mejoras_state,
     negocio_state,
     resenas_state,
@@ -68,6 +69,42 @@ SHOPS: dict[str, dict[str, Any]] = {
         "main": "#b3261e",
         "accent": "#f6bd2d",
         "emblem": "rayo",
+    },
+    # 9.48.0
+    "guachinche": {
+        "name": "Guachinche El Lagar",
+        "sector": "guachinche",
+        "main": "#7a2e1a",
+        "accent": "#f0dfb2",
+        "emblem": "drago",
+    },
+    "panaderia": {
+        "name": "Panadería La Espiga",
+        "sector": "panaderia",
+        "main": "#cfb676",
+        "accent": "#1b2a35",
+        "emblem": "sol",
+    },
+    "pescaderia": {
+        "name": "Pescados El Muelle",
+        "sector": "pescaderia",
+        "main": "#0f4c81",
+        "accent": "#fbf3e0",
+        "emblem": "pez",
+    },
+    "moviles": {
+        "name": "Reparamóvil Express",
+        "sector": "moviles",
+        "main": "#2a242d",
+        "accent": "#f58220",
+        "emblem": "rayo",
+    },
+    "peluqueria": {
+        "name": "Peluquería Dácil",
+        "sector": "peluqueria",
+        "main": "#a81f5c",
+        "accent": "#fbf3e0",
+        "emblem": "estrella",
     },
 }
 
@@ -135,6 +172,11 @@ def _montar() -> dict[str, Any]:
         "taller": ["Nave de 90 m²", "Alquiler: unos 8.100 Y$ al día", "Montarlo: 180.000 Y$"],
         "heladeria": ["Local de 40 m²", "Alquiler: unos 6.300 Y$ al día", "Montarlo: 115.000 Y$"],
         "ferreteria": ["Local de 70 m²", "Alquiler: unos 11.000 Y$ al día", "Montarlo: 140.000 Y$"],
+        "guachinche": ["Local de 80 m²", "Alquiler: unos 9.800 Y$ al día", "Montarlo: 150.000 Y$"],
+        "panaderia": ["Local de 50 m²", "Alquiler: unos 7.900 Y$ al día", "Montarlo: 165.000 Y$"],
+        "pescaderia": ["Local de 45 m²", "Alquiler: unos 7.100 Y$ al día", "Montarlo: 130.000 Y$"],
+        "moviles": ["Local de 25 m²", "Alquiler: unos 4.000 Y$ al día", "Montarlo: 90.000 Y$"],
+        "peluqueria": ["Local de 45 m²", "Alquiler: unos 7.100 Y$ al día", "Montarlo: 115.000 Y$"],
     }
     return {
         "screen": "montar",
@@ -435,7 +477,7 @@ def samples() -> dict[str, dict[str, Any]]:
         name="Café Atardecer", barrio="El Médano", stats=[], tags=[], regulars=[], stars=2.5,
         foot="Así quedará tu cafetería en El Médano.",
     )  # fmt: skip
-    for sector in SHOPS:
+    for sector in PRODUCTS:
         s[f"almacen_{sector}"] = _almacen(sector)
     s["cuentas"] = _cuentas()
     s["cliente_comandas"] = _cliente(
@@ -662,6 +704,82 @@ def _phase2() -> dict[str, dict[str, Any]]:
     own = move_quote(small, BARRIO_BY_KEY["schamann"], 0, own=True)
     s["traslado_propio"] = traslado_state(small, "schamann", 0, own, own=True)
     s.update(_phase3(today))
+    s.update(_nuevos(today))
+    return s
+
+
+def _turno(sector: str, seed: int, *, loyalty: int = 0, index: int = 0, **stock: int) -> Any:
+    """Un turno de verdad (`make_clients` y `TurnGame`) con el cliente `index` delante."""
+    from bot.services.business import regular_names
+    from bot.services.business_games import TurnGame, make_clients
+
+    info = SECTOR_BY_KEY[sector]
+    business = Business(
+        user_id=9, sector=sector, barrio="schamann", name=SHOPS[sector]["name"],
+        palette=0, emblem=0, seed=seed,
+        stock={p.key: stock.get(p.key, p.pack * 2) for p in info.products},
+    )  # fmt: skip
+    business.regulars = {name: loyalty for name in regular_names(seed)}
+    game = TurnGame(business, make_clients(business, info.clients, seed), now=0.0)
+    for _ in range(index):
+        game = game.ahead()
+    return business, game
+
+
+def _buscar(sector: str, cond: Any, *, loyalty: int = 0, **stock: int) -> dict[str, Any]:
+    """El estado del primer cliente (de las semillas 1 en adelante) que cumple `cond`."""
+    from bot.services.business_view import cliente_state
+
+    for seed in range(1, 400):
+        business, game = _turno(sector, seed, loyalty=loyalty, **stock)
+        for index in range(len(game.clients)):
+            ahead = game
+            for _ in range(index):
+                ahead = ahead.ahead()
+            if cond(ahead.current):
+                return cliente_state(business, ahead)
+    raise LookupError(f"Ningún cliente de {sector} cumple la condición")
+
+
+def _nuevos(today: date) -> dict[str, dict[str, Any]]:
+    """Las muestras de los cinco sectores de la 9.48.0, con los clientes de verdad."""
+    s: dict[str, dict[str, Any]] = {}
+    for sector in ("guachinche", "panaderia", "pescaderia", "moviles", "peluqueria"):
+        business = Business(
+            user_id=8, sector=sector, barrio="schamann", name=SHOPS[sector]["name"], seed=31,
+            day=today.isoformat(), reputation=64.0,
+            stock={p.key: p.pack for p in SECTOR_BY_KEY[sector].products},
+        )  # fmt: skip
+        s[f"negocio_{sector}"] = negocio_state(business, foot="Abrir gasta 1 franja.")
+        s[f"almacen_{sector}"] = almacen_state(business, "Compra por lotes en el desplegable.")
+    # Guachinche: la brasa con su punto, la mesa sin brasa y lo de siempre.
+    s["cliente_brasa"] = _buscar("guachinche", lambda c: c.dish and len(c.order) >= 3)
+    s["cliente_brasa_sin_brasa"] = _buscar(
+        "guachinche", lambda c: not c.dish, carne=0, costillas=0, queso=0
+    )
+    s["cliente_brasa_siempre"] = _buscar("guachinche", lambda c: c.usual, loyalty=6)
+    # Panadería: la bolsa está, no está o es lo de siempre.
+    s["cliente_encargos"] = _buscar("panaderia", lambda c: c.bag >= 0 and not c.usual)
+    s["cliente_encargos_no_esta"] = _buscar("panaderia", lambda c: c.bag < 0)
+    s["cliente_encargos_siempre"] = _buscar("panaderia", lambda c: c.usual, loyalty=6)
+    # Pescadería: pocas piezas grandes, muchos chicharros y lo de siempre.
+    s["cliente_balanza"] = _buscar("pescaderia", lambda c: c.species in ("cherne", "pulpo"))
+    s["cliente_balanza_chicharros"] = _buscar("pescaderia", lambda c: c.species == "chicharros")
+    s["cliente_balanza_siempre"] = _buscar("pescaderia", lambda c: c.usual, loyalty=6)
+    # Móviles: una avería, tres, y el protector rayado; cada avería al menos una vez.
+    s["cliente_revision"] = _buscar("moviles", lambda c: len(c.faults) == 1)
+    s["cliente_revision_tres"] = _buscar("moviles", lambda c: len(c.faults) == 3)
+    s["cliente_revision_protector"] = _buscar("moviles", lambda c: c.protector)
+    for key in ("pantalla", "bateria_movil", "conector", "camara_movil", "altavoz", "tapa"):
+        s[f"cliente_revision_{key}"] = _buscar("moviles", lambda c, k=key: c.faults == (k,))
+    # Peluquería: con cambio, con barba y lo de siempre; cada largo de pelo.
+    s["cliente_foto"] = _buscar("peluqueria", lambda c: c.twist == "corto")
+    s["cliente_foto_barba"] = _buscar("peluqueria", lambda c: c.beard and c.twist == "barba")
+    s["cliente_foto_siempre"] = _buscar("peluqueria", lambda c: c.usual, loyalty=6)
+    for length in ("rapado", "corto", "medio", "largo"):
+        s[f"cliente_foto_{length}"] = _buscar(
+            "peluqueria", lambda c, n=length: c.photo.length == n and c.hair == n
+        )
     return s
 
 
