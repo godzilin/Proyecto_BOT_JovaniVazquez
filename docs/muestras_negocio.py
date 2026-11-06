@@ -767,9 +767,12 @@ def _nuevos(today: date) -> dict[str, dict[str, Any]]:
     s["cliente_balanza_chicharros"] = _buscar("pescaderia", lambda c: c.species == "chicharros")
     s["cliente_balanza_siempre"] = _buscar("pescaderia", lambda c: c.usual, loyalty=6)
     # Móviles: una avería, tres, y el protector rayado; cada avería al menos una vez.
-    s["cliente_revision"] = _buscar("moviles", lambda c: len(c.faults) == 1)
+    s["cliente_revision"] = _buscar("moviles", lambda c: len(c.faults) == 2)
     s["cliente_revision_tres"] = _buscar("moviles", lambda c: len(c.faults) == 3)
-    s["cliente_revision_protector"] = _buscar("moviles", lambda c: c.protector)
+    s["cliente_revision_protector"] = _buscar(
+        "moviles",
+        lambda c: c.protector and len(c.faults) == 1 and c.faults[0] in ("bateria_movil", "tapa"),
+    )
     for key in ("pantalla", "bateria_movil", "conector", "camara_movil", "altavoz", "tapa"):
         s[f"cliente_revision_{key}"] = _buscar("moviles", lambda c, k=key: c.faults == (k,))
     # Peluquería: con cambio, con barba y lo de siempre; cada largo de pelo.
