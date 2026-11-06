@@ -8,7 +8,13 @@ entrenamiento (la hora del último y cuántos lleva hoy) la forma (`form`, guard
 con su instante `form_at`: la de ahora la calcula `gallos.form_now`), el combo del
 gimnasio (`combo`, `combo_day`), hasta cuándo está lesionado (`injured_until`) , el
 pique con un rival de la casa (`grudge_rival`, `grudge_wins`), cuántos le han echado de
-comer hoy (`fed_day`, `fed_count`) y la generación de su linaje (`generation`). Las columnas de los
+comer hoy (`fed_day`, `fed_count`), la generación de su linaje (`generation`), la
+forma recibida de su gallera (`club_day`, `club_form`) y los torneos ganados (`titles`).
+
+Tablas `gallos_galleras` y `gallos_gallera_miembros`: los clubs (`gallos_torneo.Club`) y
+quién está en cada uno (uno por miembro). Tabla `gallos_canal`: el último canal donde se
+abrió el reñidero en cada servidor (ahí se anuncia el torneo del domingo) y la última
+semana con torneo jugado, para no repetirlo. Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
@@ -46,6 +52,7 @@ from bot.services.gallos import (
     heir,
     reborn,
 )
+from bot.services.gallos_torneo import CLUB_MAX, Club, ClubError
 
 T = TypeVar("T")
 
@@ -55,6 +62,7 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
     train_day = str(row["train_day"] or "")
     combo_day = str(row["combo_day"] or "")
     fed_day = str(row["fed_day"] or "")
+    club_day = str(row["club_day"] or "")
     return RoosterRecord(
         name=str(row["name"]),
         fights=int(row["fights"]),
@@ -81,6 +89,9 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         fed_day=date.fromisoformat(fed_day) if fed_day else None,
         fed_count=int(row["fed_count"]),
         generation=int(row["generation"]),
+        club_day=date.fromisoformat(club_day) if club_day else None,
+        club_form=int(row["club_form"]),
+        titles=int(row["titles"]),
     )
 
 
@@ -103,6 +114,9 @@ _NEW_COLUMNS = (
     ("fed_day", "TEXT"),
     ("fed_count", "INTEGER NOT NULL DEFAULT 0"),
     ("generation", "INTEGER NOT NULL DEFAULT 0"),
+    ("club_day", "TEXT"),
+    ("club_form", "INTEGER NOT NULL DEFAULT 0"),
+    ("titles", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -173,6 +187,38 @@ class GallosRepository:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS gallos_cementerio_owner "
                 "ON gallos_cementerio (guild_id, user_id, id)"
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gallos_galleras (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    owner_id INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    UNIQUE (guild_id, name)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gallos_gallera_miembros (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    gallera_id INTEGER NOT NULL,
+                    joined_at REAL NOT NULL,
+                    PRIMARY KEY (guild_id, user_id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gallos_canal (
+                    guild_id INTEGER PRIMARY KEY,
+                    channel_id INTEGER NOT NULL,
+                    last_week TEXT
+                )
+                """
             )
 
     async def get(self, guild_id: int, user_id: int) -> RoosterRecord:
@@ -273,9 +319,10 @@ class GallosRepository:
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
                  train_day, trains_today, form, form_at, combo, combo_day, injured_until,
-                 grudge_rival, grudge_wins, fed_day, fed_count, generation)
+                 grudge_rival, grudge_wins, fed_day, fed_count, generation, club_day,
+                 club_form, titles)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -289,7 +336,8 @@ class GallosRepository:
                 injured_until = excluded.injured_until,
                 grudge_rival = excluded.grudge_rival, grudge_wins = excluded.grudge_wins,
                 fed_day = excluded.fed_day, fed_count = excluded.fed_count,
-                generation = excluded.generation
+                generation = excluded.generation, club_day = excluded.club_day,
+                club_form = excluded.club_form, titles = excluded.titles
             """,
             (
                 guild_id,
@@ -319,6 +367,9 @@ class GallosRepository:
                 record.fed_day.isoformat() if record.fed_day else None,
                 record.fed_count,
                 record.generation,
+                record.club_day.isoformat() if record.club_day else None,
+                record.club_form,
+                record.titles,
             ),
         )
 
@@ -482,6 +533,224 @@ class GallosRepository:
             ).fetchall()
         return [(int(row["user_id"]), _record(row)) for row in rows]
 
+    async def records(self, guild_id: int) -> list[tuple[int, RoosterRecord]]:
+        """Todas las fichas del servidor (`(user_id, ficha)`), para el torneo y la cartelera."""
+        return await self._run(self._records_sync, guild_id)
+
+    def _records_sync(self, guild_id: int) -> list[tuple[int, RoosterRecord]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM gallos WHERE guild_id = ?", (guild_id,)
+            ).fetchall()
+        return [(int(row["user_id"]), _record(row)) for row in rows]
+
+    # -- Galleras ----------------------------------------------------------------------
+
+    @staticmethod
+    def _club_in(connection: sqlite3.Connection, guild_id: int, club_id: int) -> Club | None:
+        row = connection.execute(
+            "SELECT * FROM gallos_galleras WHERE guild_id = ? AND id = ?", (guild_id, club_id)
+        ).fetchone()
+        if row is None:
+            return None
+        members = connection.execute(
+            "SELECT user_id FROM gallos_gallera_miembros WHERE guild_id = ? AND gallera_id = ? "
+            "ORDER BY joined_at, user_id",
+            (guild_id, club_id),
+        ).fetchall()
+        return Club(
+            id=int(row["id"]),
+            name=str(row["name"]),
+            owner_id=int(row["owner_id"]),
+            members=tuple(int(m["user_id"]) for m in members),
+        )
+
+    @staticmethod
+    def _club_id_of(connection: sqlite3.Connection, guild_id: int, user_id: int) -> int | None:
+        row = connection.execute(
+            "SELECT gallera_id FROM gallos_gallera_miembros WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        return int(row["gallera_id"]) if row is not None else None
+
+    async def club_of(self, guild_id: int, user_id: int) -> Club | None:
+        """La gallera del miembro, o `None` si no está en ninguna."""
+        return await self._run(self._club_of_sync, guild_id, user_id)
+
+    def _club_of_sync(self, guild_id: int, user_id: int) -> Club | None:
+        with self._connect() as connection:
+            club_id = self._club_id_of(connection, guild_id, user_id)
+            return self._club_in(connection, guild_id, club_id) if club_id is not None else None
+
+    async def clubs(self, guild_id: int) -> list[Club]:
+        """Las galleras del servidor, de la más grande a la más pequeña."""
+        return await self._run(self._clubs_sync, guild_id)
+
+    def _clubs_sync(self, guild_id: int) -> list[Club]:
+        with self._connect() as connection:
+            ids = [
+                int(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM gallos_galleras WHERE guild_id = ? ORDER BY id", (guild_id,)
+                ).fetchall()
+            ]
+            clubs = [self._club_in(connection, guild_id, i) for i in ids]
+        found = [c for c in clubs if c is not None]
+        return sorted(found, key=lambda c: (-len(c.members), c.id))
+
+    async def found_club(self, guild_id: int, user_id: int, name: str, *, now: float) -> Club:
+        """Funda una gallera con el miembro dentro.
+
+        Raises:
+            ClubError: Si ya está en una o el nombre está cogido.
+        """
+        return await self._run(self._found_club_sync, guild_id, user_id, name, now)
+
+    def _found_club_sync(self, guild_id: int, user_id: int, name: str, now: float) -> Club:
+        with self._connect() as connection:
+            if self._club_id_of(connection, guild_id, user_id) is not None:
+                raise ClubError("Ya estás en una gallera: sal de ella antes de fundar otra.")
+            try:
+                cursor = connection.execute(
+                    "INSERT INTO gallos_galleras (guild_id, name, owner_id, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (guild_id, name, user_id, now),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ClubError(f"Ya hay una gallera que se llama «{name}».") from error
+            club_id = int(cursor.lastrowid or 0)
+            connection.execute(
+                "INSERT INTO gallos_gallera_miembros (guild_id, user_id, gallera_id, joined_at) "
+                "VALUES (?, ?, ?, ?)",
+                (guild_id, user_id, club_id, now),
+            )
+            club = self._club_in(connection, guild_id, club_id)
+        assert club is not None
+        return club
+
+    async def join_club(self, guild_id: int, user_id: int, club_id: int, *, now: float) -> Club:
+        """Mete al miembro en una gallera.
+
+        Raises:
+            ClubError: Si ya está en una, no existe o está llena.
+        """
+        return await self._run(self._join_club_sync, guild_id, user_id, club_id, now)
+
+    def _join_club_sync(self, guild_id: int, user_id: int, club_id: int, now: float) -> Club:
+        with self._connect() as connection:
+            if self._club_id_of(connection, guild_id, user_id) is not None:
+                raise ClubError("Ya estás en una gallera: sal de ella antes de entrar en otra.")
+            club = self._club_in(connection, guild_id, club_id)
+            if club is None:
+                raise ClubError("Esa gallera ya no existe.")
+            if club.full:
+                raise ClubError(f"«{club.name}» está llena ({CLUB_MAX} miembros).")
+            connection.execute(
+                "INSERT INTO gallos_gallera_miembros (guild_id, user_id, gallera_id, joined_at) "
+                "VALUES (?, ?, ?, ?)",
+                (guild_id, user_id, club_id, now),
+            )
+            joined = self._club_in(connection, guild_id, club_id)
+        assert joined is not None
+        return joined
+
+    async def leave_club(self, guild_id: int, user_id: int) -> Club | None:
+        """Saca al miembro de su gallera.
+
+        Si era quien la fundó, pasa al miembro más antiguo; si se queda vacía, se
+        disuelve.
+
+        Returns:
+            La gallera como queda (`None` si se ha disuelto o no estaba en ninguna).
+        """
+        return await self._run(self._leave_club_sync, guild_id, user_id)
+
+    def _leave_club_sync(self, guild_id: int, user_id: int) -> Club | None:
+        with self._connect() as connection:
+            club_id = self._club_id_of(connection, guild_id, user_id)
+            if club_id is None:
+                return None
+            connection.execute(
+                "DELETE FROM gallos_gallera_miembros WHERE guild_id = ? AND user_id = ?",
+                (guild_id, user_id),
+            )
+            club = self._club_in(connection, guild_id, club_id)
+            if club is None:
+                return None
+            if not club.members:
+                connection.execute("DELETE FROM gallos_galleras WHERE id = ?", (club_id,))
+                return None
+            if club.owner_id == user_id:
+                connection.execute(
+                    "UPDATE gallos_galleras SET owner_id = ? WHERE id = ?",
+                    (club.members[0], club_id),
+                )
+                club = self._club_in(connection, guild_id, club_id)
+        return club
+
+    async def club_ids(self, guild_id: int) -> dict[int, int]:
+        """La gallera de cada miembro que está en una: `{user_id: gallera_id}`."""
+        return await self._run(self._club_ids_sync, guild_id)
+
+    def _club_ids_sync(self, guild_id: int) -> dict[int, int]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT user_id, gallera_id FROM gallos_gallera_miembros WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchall()
+        return {int(r["user_id"]): int(r["gallera_id"]) for r in rows}
+
+    # -- El torneo -----------------------------------------------------------------------
+
+    async def remember_channel(self, guild_id: int, channel_id: int) -> None:
+        """Apunta el canal donde se juega en el servidor (ahí se anuncia el torneo)."""
+        await self._run(self._remember_channel_sync, guild_id, channel_id)
+
+    def _remember_channel_sync(self, guild_id: int, channel_id: int) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO gallos_canal (guild_id, channel_id) VALUES (?, ?) "
+                "ON CONFLICT (guild_id) DO UPDATE SET channel_id = excluded.channel_id",
+                (guild_id, channel_id),
+            )
+
+    async def tournament_targets(self, week: str) -> list[tuple[int, int]]:
+        """Los servidores a los que les falta el torneo de `week`: `(guild_id, channel_id)`."""
+        return await self._run(self._targets_sync, week)
+
+    def _targets_sync(self, week: str) -> list[tuple[int, int]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT guild_id, channel_id FROM gallos_canal "
+                "WHERE last_week IS NULL OR last_week != ?",
+                (week,),
+            ).fetchall()
+        return [(int(r["guild_id"]), int(r["channel_id"])) for r in rows]
+
+    async def finish_tournament(self, guild_id: int, week: str, champion: int | None) -> bool:
+        """Marca el torneo de `week` como jugado y suma el título al campeón.
+
+        Returns:
+            Si lo ha marcado este proceso (`False` si ya estaba jugado: no se repite).
+        """
+        return await self._run(self._finish_tournament_sync, guild_id, week, champion)
+
+    def _finish_tournament_sync(self, guild_id: int, week: str, champion: int | None) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE gallos_canal SET last_week = ? WHERE guild_id = ? "
+                "AND (last_week IS NULL OR last_week != ?)",
+                (week, guild_id, week),
+            )
+            if cursor.rowcount == 0:
+                return False
+            if champion is not None:
+                record = self._get_in(connection, guild_id, champion)
+                self._save_in(
+                    connection, guild_id, champion, replace(record, titles=record.titles + 1)
+                )
+        return True
+
     async def delete_guild_data(self, guild_id: int) -> None:
         """Borra todo lo guardado de un servidor (al salir el bot de él)."""
         await self._run(self._delete_guild_sync, guild_id)
@@ -490,3 +759,5 @@ class GallosRepository:
         with self._connect() as connection:
             connection.execute("DELETE FROM gallos WHERE guild_id = ?", (guild_id,))
             connection.execute("DELETE FROM gallos_cementerio WHERE guild_id = ?", (guild_id,))
+            for table in ("gallos_galleras", "gallos_gallera_miembros", "gallos_canal"):
+                connection.execute(f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,))

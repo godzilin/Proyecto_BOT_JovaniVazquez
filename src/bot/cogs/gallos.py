@@ -72,7 +72,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 from discord import app_commands, ui
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from bot.cogs import achievements as logros
 from bot.cogs import apuestas, renta
@@ -82,6 +82,7 @@ from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.gallos import GallosRepository
 from bot.services import credit, skins
 from bot.services import gallos_gym as gym
+from bot.services import gallos_torneo as torneo
 from bot.services.achievements import (
     StatDelta,
     casino_stats,
@@ -350,6 +351,52 @@ def edge_line(rival: Rival, form: int, power: float) -> str:
     )
 
 
+ROUND_NAMES = {4: "Cuartos", 2: "Semifinales", 1: "Final"}
+
+
+def tournament_text(
+    bracket: torneo.Bracket,
+    records: list[tuple[int, RoosterRecord]],
+    club_names: dict[int, str],
+    now: float,
+) -> str:
+    """El anuncio del torneo del domingo con la cartelera de la semana."""
+    champion = bracket.champion
+    lines = [
+        f"## 🏆 {champion.name} (<@{champion.user_id}>) gana el torneo",
+        f"En la final, contra {bracket.finalist.name} (<@{bracket.finalist.user_id}>).",
+    ]
+    for matches in bracket.rounds:
+        lines.append(f"**{ROUND_NAMES.get(len(matches), 'Ronda')}**")
+        for match in matches:
+            loser = match.blue if match.winner is match.red else match.red
+            lines.append(f"-# {match.winner.name} 🆚 {loser.name}: gana {match.winner.name}")
+    best = torneo.best_club(bracket)
+    lines.append("### 📋 Cartelera de la semana")
+    if best is not None and best[0] in club_names:
+        lines.append(
+            f"🏠 Gallera de la semana: **{club_names[best[0]]}** ({best[1]} combates ganados)"
+        )
+    alive = [(user, record) for user, record in records if record.fights]
+    if alive:
+        fit_user, fit = max(alive, key=lambda item: form_now(item[1], now))
+        strong_user, strong = max(alive, key=lambda item: item[1].power)
+        streak_user, streak = max(alive, key=lambda item: item[1].streak)
+        lines.append(
+            f"🔋 En mejor forma: **{fit.name}** (<@{fit_user}>), {round(form_now(fit, now))}"
+        )
+        lines.append(f"⚡ Más poder: **{strong.name}** (<@{strong_user}>), {strong.power:.0f}")
+        if streak.streak:
+            lines.append(
+                f"🔥 Racha más larga: **{streak.name}** (<@{streak_user}>), "
+                f"{streak.streak} seguidas"
+            )
+    lines.append(
+        "-# Cada domingo por la noche, con los gallos más fuertes que han peleado esa semana."
+    )
+    return "\n".join(lines)
+
+
 def killer_text(fallen: Fallen) -> str:
     """Quién mató a un gallo: el rival de la casa o el gallo de un miembro (o si se retiró)."""
     if fallen.killer_kind == "retiro":
@@ -463,6 +510,31 @@ class NameModal(ui.Modal, title="✏️ Bautiza a tu gallo"):
         await self.panel.rename(interaction, name)
 
 
+class ClubModal(ui.Modal, title="🏠 Funda una gallera"):
+    """Pide el nombre de la gallera nueva."""
+
+    name: ui.TextInput = ui.TextInput(
+        label="Nombre",
+        placeholder="Los del Pino",
+        max_length=torneo.CLUB_NAME_MAX,
+        min_length=1,
+    )
+
+    def __init__(self, panel: HousePanel) -> None:
+        super().__init__()
+        self.panel = panel
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Valida el nombre y funda la gallera (se guarda: se acepta antes)."""
+        try:
+            name = torneo.clean_club_name(str(self.name.value))
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        await ack(interaction)
+        await self.panel.found_club(interaction, name)
+
+
 # -- Contra la casa ----------------------------------------------------------------------
 
 
@@ -489,6 +561,11 @@ class HousePanel(ui.View):
         self.deadly = False
         #: Si ya se ha pulsado 🎖️ Retirarlo una vez (hay que confirmarlo con otra).
         self.confirm_retire = False
+        #: La vista de la gallera (🏠): la del dueño y las que tienen hueco, ya leídas.
+        self.club_view = False
+        self.club: torneo.Club | None = None
+        self.open_clubs: list[torneo.Club] = []
+        self.club_lines: list[str] = []
         #: Qué presentación se ve ahora (rival, nombre, apuesta, poder); `None` si otra imagen.
         self._poster: tuple[object, ...] | None = None
         self.channel: object = None
@@ -617,6 +694,34 @@ class HousePanel(ui.View):
             lines.append(f"⏳ Tu gallo descansa {math.ceil(wait / 60)} min más.")
         return "\n".join(lines)
 
+    def club_text(self) -> str:
+        """Texto de la gallera: la tuya con sus miembros, o cómo fundar o entrar en una."""
+        lines = []
+        if self.result:
+            lines.append(self.result)
+        if self.club is None:
+            lines.append("### 🏠 Galleras")
+            lines.append(
+                f"Una gallera es un club de hasta {torneo.CLUB_MAX} miembros. Cada vez que uno "
+                f"acaba un minijuego de entrenamiento, los demás ganan +{torneo.CLUB_FORM} de "
+                f"forma (hasta {torneo.CLUB_FORM_DAILY} al día), y el torneo del domingo elige "
+                "la gallera de la semana. Funda una o entra en una que tenga hueco."
+            )
+            if not self.open_clubs:
+                lines.append("-# Aún no hay galleras con hueco en el servidor.")
+            return "\n".join(lines)
+        club = self.club
+        lines.append(f"### 🏠 {club.name}")
+        lines.append(
+            f"-# {len(club.members)}/{torneo.CLUB_MAX} miembros · fundada por <@{club.owner_id}>"
+        )
+        lines += self.club_lines
+        lines.append(
+            f"-# Cuando un miembro acaba un minijuego, los demás ganan +{torneo.CLUB_FORM} de "
+            f"forma (hasta {torneo.CLUB_FORM_DAILY} al día)."
+        )
+        return "\n".join(lines)
+
     def drill_text(self) -> str:
         """Texto del minijuego en marcha (o de la decisión del suplemento)."""
         drill = self.drill
@@ -665,6 +770,8 @@ class HousePanel(ui.View):
         if text is None:
             if self.drill is not None:
                 text = self.drill_text()
+            elif self.club_view:
+                text = self.club_text()
             else:
                 text = self.gym_text() if self.training else self.description()
         embed = discord.Embed(
@@ -773,11 +880,45 @@ class HousePanel(ui.View):
             disabled=busy or drill.saboteur is not None,
         )
 
+    def _rebuild_club(self, *, busy: bool) -> None:
+        """Los botones de la gallera: fundar o entrar si no tienes, salir si tienes."""
+        if self.club is None:
+            self._button(
+                "➕ Fundar gallera", "club_found", self._found_club_modal,
+                style=discord.ButtonStyle.success, row=1, disabled=busy,
+            )  # fmt: skip
+            if self.open_clubs:
+                select: ui.Select = ui.Select(
+                    placeholder="Entrar en una gallera…",
+                    row=0,
+                    disabled=busy,
+                    custom_id=f"{GAME}:club_join",
+                    options=[
+                        discord.SelectOption(
+                            label=club.name[:100],
+                            value=str(club.id),
+                            description=f"{len(club.members)}/{torneo.CLUB_MAX} miembros",
+                        )
+                        for club in self.open_clubs[:25]
+                    ],
+                )
+                select.callback = self._join_club  # type: ignore[method-assign]
+                self.add_item(select)
+        else:
+            self._button(
+                "🚪 Salir de la gallera", "club_leave", self._leave_club, row=1, disabled=busy
+            )
+        self._button("↩️ Volver al reñidero", "club_back", self._leave_club_view, row=1,
+                     disabled=busy)  # fmt: skip
+
     def rebuild(self, *, busy: bool = False) -> None:
         """Vuelve a montar el desplegable y los botones con el estado actual."""
         self.clear_items()
         if self.drill is not None:
             self._rebuild_drill(busy=busy)
+            return
+        if self.club_view:
+            self._rebuild_club(busy=busy)
             return
         if self.training:
             self._rebuild_gym(busy=busy)
@@ -824,6 +965,7 @@ class HousePanel(ui.View):
         self._button("✏️ Nombre", "name", self._name, row=2, disabled=busy)
         self._button("🏋️ Entrenar", "train", self._gym, row=2, disabled=busy)
         self._button("🌽 Echarle de comer", "feed", self._feed, row=3, disabled=busy)
+        self._button("🏠 Gallera", "club", self._open_club_view, row=3, disabled=busy)
         if (button := tienda.skin_button(self.cog.bot, SKIN_GAME, row=2)) is not None:
             button.disabled = busy
             self.add_item(button)
@@ -1171,6 +1313,7 @@ class HousePanel(ui.View):
             return
         finally:
             self._busy = False
+        await self.cog.share_club_form(self.guild_id, self.owner.id, now)
         if drill.coach is not None:
             await logros.track(
                 self.cog.bot,
@@ -1320,6 +1463,105 @@ class HousePanel(ui.View):
             self.channel,
             StatDelta(add={"gallos_supplement_refused": 1}),
         )
+
+    async def _load_club(self) -> None:
+        """Lee la gallera del dueño (con la ficha de cada miembro) y las que tienen hueco."""
+        repository = self.cog.repository
+        self.club = await repository.club_of(self.guild_id, self.owner.id)
+        self.open_clubs = [c for c in await repository.clubs(self.guild_id) if not c.full]
+        self.club_lines = []
+        if self.club is None:
+            return
+        now = self.cog.wall_clock()
+        for user_id in self.club.members:
+            record = await repository.get(self.guild_id, user_id)
+            self.club_lines.append(
+                f"🐓 **{record.name}** (<@{user_id}>) · ⚡ {record.power:.0f} · "
+                f"🔋 {round(form_now(record, now))} · {record.wins} victorias"
+                + (f" · 🏆 ×{record.titles}" if record.titles else "")
+            )
+
+    async def _open_club_view(self, interaction: discord.Interaction) -> None:
+        """🏠 Gallera: lee la base de datos, así que se acepta antes."""
+        await ack(interaction)
+        if self._busy:
+            return
+        self.club_view = True
+        self.result = None
+        await self._load_club()
+        self.rebuild()
+        self._last_interaction = interaction
+        await edit(interaction, embed=self.embed(), view=self)
+
+    async def _leave_club_view(self, interaction: discord.Interaction) -> None:
+        """↩️ Volver: al reñidero (se repinta la imagen, como al salir del gimnasio)."""
+        await ack(interaction)
+        self.club_view = False
+        self.result = None
+        await self.repaint(interaction)
+
+    async def _found_club_modal(self, interaction: discord.Interaction) -> None:
+        """➕ Fundar: abre el formulario (tiene que ser la primera respuesta)."""
+        await interaction.response.send_modal(ClubModal(self))
+
+    async def found_club(self, interaction: discord.Interaction, name: str) -> None:
+        """Funda la gallera con el nombre ya validado y enseña cómo queda."""
+        try:
+            await self.cog.repository.found_club(
+                self.guild_id, self.owner.id, name, now=self.cog.wall_clock()
+            )
+            self.result = f"🏠 Fundas la gallera **{name}**."
+        except torneo.ClubError as error:
+            self.result = f"❌ {error}"
+        await self._load_club()
+        self.rebuild()
+        self._last_interaction = interaction
+        await edit(interaction, embed=self.embed(), view=self)
+        if self.club is not None and self.club.owner_id == self.owner.id:
+            await logros.track(
+                self.cog.bot, self.guild_id, self.owner, self.channel,
+                StatDelta(add={"gallos_clubs_founded": 1}),
+            )  # fmt: skip
+
+    async def _join_club(self, interaction: discord.Interaction) -> None:
+        """Entra en la gallera elegida (se guarda: se acepta antes)."""
+        values = interaction.data.get("values", []) if interaction.data else []
+        await ack(interaction)
+        if not values:
+            return
+        try:
+            club = await self.cog.repository.join_club(
+                self.guild_id, self.owner.id, int(values[0]), now=self.cog.wall_clock()
+            )
+            self.result = f"🏠 Entras en **{club.name}**."
+            joined = True
+        except torneo.ClubError as error:
+            self.result = f"❌ {error}"
+            joined = False
+        await self._load_club()
+        self.rebuild()
+        self._last_interaction = interaction
+        await edit(interaction, embed=self.embed(), view=self)
+        if joined:
+            size = len(self.club.members) if self.club else 0
+            await logros.track(
+                self.cog.bot,
+                self.guild_id,
+                self.owner,
+                self.channel,
+                StatDelta(add={"gallos_clubs_joined": 1}, peak={"gallos_club_size_max": size}),
+            )
+
+    async def _leave_club(self, interaction: discord.Interaction) -> None:
+        """🚪 Salir de la gallera (se guarda: se acepta antes)."""
+        await ack(interaction)
+        name = self.club.name if self.club is not None else ""
+        await self.cog.repository.leave_club(self.guild_id, self.owner.id)
+        self.result = f"🚪 Sales de **{name}**." if name else None
+        await self._load_club()
+        self.rebuild()
+        self._last_interaction = interaction
+        await edit(interaction, embed=self.embed(), view=self)
 
     async def _retire(self, interaction: discord.Interaction) -> None:
         """🎖️ Retirarlo: el primer clic pide confirmar (memoria); el segundo, guarda."""
@@ -3107,6 +3349,7 @@ class Gallos(commands.Cog, name="Gallos"):
 
     async def cog_unload(self) -> None:
         """Al apagar, devuelve lo apostado en las gradas abiertas y cierra el pintor."""
+        self._tournaments.cancel()
         for duel in list(self.duels):
             try:
                 await duel.shutdown()
@@ -3130,6 +3373,102 @@ class Gallos(commands.Cog, name="Gallos"):
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Borra las fichas de los gallos del servidor que deja el bot."""
         await self.repository.delete_guild_data(guild.id)
+
+    async def share_club_form(self, guild_id: int, user_id: int, now: float) -> None:
+        """Le da forma a cada compañero de gallera de quien acaba de entrenar (no lanza)."""
+        try:
+            club = await self.repository.club_of(guild_id, user_id)
+            if club is None:
+                return
+            day = local_day(now)
+            for mate in club.members:
+                if mate != user_id:
+                    await self.repository.change(
+                        guild_id,
+                        mate,
+                        lambda record: torneo.after_club_form(record, now=now, day=day),
+                    )
+        except Exception:
+            logger.exception("No se pudo repartir la forma de la gallera")
+
+    async def cog_load(self) -> None:
+        """Arranca el reloj del torneo del domingo."""
+        self._tournaments.start()
+
+    @tasks.loop(minutes=10)
+    async def _tournaments(self) -> None:
+        try:
+            await self.run_tournaments()
+        except Exception:
+            # Una excepción sin capturar pararía la tarea para siempre.
+            logger.exception("Error jugando el torneo de gallos")
+
+    @_tournaments.before_loop
+    async def _before_tournaments(self) -> None:
+        await self.bot.wait_until_ready()
+
+    async def run_tournaments(self) -> int:
+        """Juega el torneo de esta semana en cada servidor al que le falte, si ya toca.
+
+        Returns:
+            Cuántos torneos ha anunciado.
+        """
+        now = self.wall_clock()
+        if not torneo.due(now):
+            return 0
+        week = torneo.week_key(now)
+        played = 0
+        for guild_id, channel_id in await self.repository.tournament_targets(week):
+            if await self.tournament(guild_id, channel_id, week, now):
+                played += 1
+        return played
+
+    async def tournament(self, guild_id: int, channel_id: int, week: str, now: float) -> bool:
+        """Juega y anuncia el torneo de un servidor. Devuelve si lo ha anunciado."""
+        records = await self.repository.records(guild_id)
+        clubs = await self.repository.club_ids(guild_id)
+        field = torneo.entrants(records, now=now, clubs=clubs)
+        bracket = torneo.play(field, self.rng)
+        champion = bracket.champion.user_id if bracket is not None else None
+        if not await self.repository.finish_tournament(guild_id, week, champion):
+            return False
+        if bracket is None:
+            return False
+        names = {c.id: c.name for c in await self.repository.clubs(guild_id)}
+        text = tournament_text(bracket, records, names, now)
+        channel = self.bot.get_channel(channel_id)
+        if isinstance(channel, discord.abc.Messageable):
+            try:
+                await channel.send(
+                    embed=discord.Embed(
+                        title="🏆 Torneo del domingo del reñidero",
+                        description=text,
+                        color=COLOR_WIN,
+                    ),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException:
+                logger.warning("No se pudo anunciar el torneo de gallos", exc_info=True)
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return True
+        best = torneo.best_club(bracket)
+        for entrant in {
+            e.user_id: e for rnd in bracket.rounds for m in rnd for e in (m.red, m.blue)
+        }.values():
+            member = guild.get_member(entrant.user_id)
+            if member is None:
+                continue
+            wins = bracket.wins(entrant.user_id)
+            add = {"gallos_tournaments": 1, "gallos_tournament_wins": wins}
+            if entrant.user_id == bracket.champion.user_id:
+                add["gallos_tournament_titles"] = 1
+            if entrant.user_id in (bracket.champion.user_id, bracket.finalist.user_id):
+                add["gallos_tournament_finals"] = 1
+            if best is not None and entrant.club == best[0]:
+                add["gallos_club_of_week"] = 1
+            await logros.track(self.bot, guild_id, member, channel, StatDelta(add=add))
+        return True
 
     def release_sparring(self, sparring: Sparring) -> None:
         """Libera a los dos de un sparring terminado (o caducado)."""
@@ -3260,6 +3599,10 @@ class Gallos(commands.Cog, name="Gallos"):
         ]
         if injured(record, self.wall_clock()):
             lines.append(injury_text(record, self.wall_clock()))
+        if record.titles:
+            lines.append(
+                f"🏆 {record.titles} torneo{'s' if record.titles != 1 else ''} del domingo"
+            )
         if record.fights:
             lines.append(
                 f"{record.losses} derrota{'s' if record.losses != 1 else ''} · "
@@ -3360,6 +3703,9 @@ class Gallos(commands.Cog, name="Gallos"):
     ) -> None:
         panel = HousePanel(self, guild_id=guild_id, owner=user, stake=stake)
         panel.channel = channel
+        if isinstance(channel_id := getattr(channel, "id", None), int):
+            # Ahí se anunciará el torneo del domingo de este servidor.
+            await self.repository.remember_channel(guild_id, channel_id)
         panel.balance = balance
         panel.record = (await self._corner(guild_id, user)).record
         png = await panel.poster()

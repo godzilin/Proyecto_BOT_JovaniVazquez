@@ -18289,6 +18289,44 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10, "gallos_cria_10", "Casa Targaryen del corral",
          "Llega a la undécima generación de un linaje de gallos.", L),
     ])  # fmt: skip
+    # Galleras y el torneo del domingo (11.x): el torneo es semanal y lo juegan los 8 gallos
+    # más fuertes del servidor que han peleado esa semana.
+    a += _tiers("gallos", "gallos_clubs_founded", [
+        (1, "gallos_gallera_funda", "Primera piedra del gallinero",
+         "Funda una gallera.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_clubs_joined", [
+        (1, "gallos_gallera_entra", "Carné de socio",
+         "Entra en la gallera de otro miembro.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_club_size_max", [
+        (5, "gallos_gallera_llena", "Los cinco del corral",
+         "Entra en una gallera que se queda con los cinco miembros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournaments", [
+        (1, "gallos_torneo_1", "Invitado al baile",
+         "Juega el torneo del domingo.", R),
+        (10, "gallos_torneo_10", "Fijo en el cartel",
+         "Juega 10 torneos del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_wins", [
+        (5, "gallos_torneo_combates_5", "Cuadro de honor",
+         "Gana 5 combates en torneos del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_finals", [
+        (1, "gallos_torneo_final", "Llegar a la final y que llueva",
+         "Llega a la final de un torneo del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_titles", [
+        (1, "gallos_torneo_campeon", "Campeón de la Champions del corral",
+         "Gana un torneo del domingo.", E),
+        (5, "gallos_torneo_campeon_5", "La Decimoquinta del gallinero",
+         "Gana 5 torneos del domingo.", L),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_club_of_week", [
+        (1, "gallos_gallera_semana", "Equipo de la jornada",
+         "Que tu gallera sea la gallera de la semana del torneo.", R),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_form_max", [
         (50, "gallos_forma_50", "Pollo al punto",
          "Lleva la forma de tu gallo a 50.", C),

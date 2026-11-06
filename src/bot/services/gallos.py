@@ -764,6 +764,9 @@ class RoosterRecord:
         fed_count: Cuántos le han echado de comer ese día (`gallos_gym.after_feed`).
         generation: Generación del linaje: 0 el primero, +1 con cada cría de un gallo
             retirado (`heir`). Morir corta el linaje y vuelve a 0.
+        club_day: Día canario de la forma recibida de su gallera.
+        club_form: Forma recibida ese día (`gallos_torneo.after_club_form`).
+        titles: Torneos del domingo ganados por el dueño (no se pierden al morir).
     """
 
     name: str
@@ -791,6 +794,9 @@ class RoosterRecord:
     fed_day: date | None = None
     fed_count: int = 0
     generation: int = 0
+    club_day: date | None = None
+    club_form: int = 0
+    titles: int = 0
 
     @property
     def losses(self) -> int:
@@ -1094,6 +1100,9 @@ def reborn(record: RoosterRecord, user_id: int) -> RoosterRecord:
         deaths=record.deaths + 1,
         combo=record.combo,
         combo_day=record.combo_day,
+        club_day=record.club_day,
+        club_form=record.club_form,
+        titles=record.titles,
         last_train=record.last_train,
         train_day=record.train_day,
         trains_today=record.trains_today,
