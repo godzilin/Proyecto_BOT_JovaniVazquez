@@ -59,7 +59,7 @@ async def sala(request: web.Request) -> web.WebSocketResponse:
 
 
 async def fake_player(url: str, index: int, until: float, received: list[int]) -> None:
-    """Un cliente que da vueltas a la plaza y cuenta los bytes que recibe."""
+    """Un cliente que da vueltas por la plaza y cuenta los bytes que recibe."""
     async with aiohttp.ClientSession() as session, session.ws_connect(url) as ws:
         await ws.send_json({"t": "hola", "dev": f"Bot {index}"})
 
@@ -71,9 +71,14 @@ async def fake_player(url: str, index: int, until: float, received: list[int]) -
         reader = asyncio.create_task(read())
         step = 0
         while time.monotonic() < until:
-            angle = step / 20 + index
-            x, z = int(math.cos(angle) * 100), int(math.sin(angle) * 100)
-            await ws.send_bytes(struct.pack("<BhhhBB", POSE, x, 50, z, step % 256, 1))
+            # Vueltas por la plaza (`PLAZA` de universo/src/mundo/terreno.ts: x -8 m,
+            # z 60 m, suelo a 8 m), en decímetros.
+            angle = step / 40 + index
+            radius = 60 + 15 * (index % 8)
+            x = -80 + int(math.cos(angle) * radius)
+            z = 600 + int(math.sin(angle) * radius)
+            yaw = int((-angle % math.tau) / math.tau * 256) & 255
+            await ws.send_bytes(struct.pack("<BhhhBB", POSE, x, 80, z, yaw, 1))
             step += 1
             await asyncio.sleep(0.1)
         reader.cancel()
