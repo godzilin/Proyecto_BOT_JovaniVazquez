@@ -194,6 +194,7 @@ from bot.services.porras import PROPOSITIONS as PORRA_PROPOSITIONS
 from bot.services.porras import allowed_games as porra_allowed_games
 from bot.services.predice import MAX_STAKE as PREDICT_MAX_STAKE
 from bot.services.predice import MIN_STAKE as PREDICT_MIN_STAKE
+from bot.services.predice import SECTION_BY_KEY as PREDICT_SECTION_BY_KEY
 from bot.services.predice import SECTIONS as PREDICT_SECTIONS
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, ZEROS, RoundOutcome
@@ -722,8 +723,15 @@ SPORTS_MARKETS = tuple(market.value for market in SportsMarket)
 SPORTS_LONG_ODDS = 500
 SPORTS_SAFE_ODDS = 130
 
-#: Prefijo de las predicciones de `predice` por sección (`bot.services.predice.SECTIONS`).
+#: Prefijo de las predicciones de `predice` por sección y por tema
+#: (`bot.services.predice.SECTIONS` y sus `topics`; sus claves no se repiten).
 PREDICT_SECTION_PREFIX = "predict_section_"
+#: Países distintos de 🏛️ Política y temas distintos de cualquier sección en los que ha
+#: hecho alguna predicción (`with_derived`).
+PREDICT_COUNTRIES_STAT = "predict_countries"
+PREDICT_TOPICS_STAT = "predict_topics"
+_PREDICT_COUNTRIES = tuple(topic.key for topic in PREDICT_SECTION_BY_KEY["politica"].topics)
+_PREDICT_TOPICS = tuple(topic.key for section in PREDICT_SECTIONS for topic in section.topics)
 #: Cuota desde la que una predicción es un tiro largo (×10, menos de un 10 % de verdad).
 PREDICT_LONG_ODDS = 1_000
 #: Cuota hasta la que una predicción es casi segura (×1,10, más de un 85 %).
@@ -16696,9 +16704,9 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10, "predict_streak_10", "Pulpo Paul", "Acierta 10 predicciones seguidas.", L),
     ])  # fmt: skip
     section_names = {
-        "espana": (
-            ("predict_espana_1", "Marca España", C),
-            ("predict_espana_10", "Escrutinio de sofá", R),
+        "politica": (
+            ("predict_politica_1", "Encuesta a pie de barra", C),
+            ("predict_politica_10", "Politólogo de sobremesa", R),
         ),
         "mundo": (
             ("predict_mundo_1", "Geopolítica de barra de bar", C),
@@ -16708,9 +16716,21 @@ def _build_catalog() -> tuple[Achievement, ...]:
             ("predict_economia_1", "Cripto, luego existo", C),
             ("predict_economia_10", "Gurú de LinkedIn", R),
         ),
+        "ia": (
+            ("predict_ia_1", "Prompt-nóstico", C),
+            ("predict_ia_10", "Red neuronal de pitonisa", R),
+        ),
         "cultura": (
             ("predict_cultura_1", "Spoiler del futuro", C),
             ("predict_cultura_10", "Trending topic con antelación", R),
+        ),
+        "tuits": (
+            ("predict_tuits_1", "Vidente de timeline", C),
+            ("predict_tuits_10", "Doomscrolling con apuesta", R),
+        ),
+        "tiempo": (
+            ("predict_tiempo_1", "Cabañuelista", C),
+            ("predict_tiempo_10", "Ponle nombre a la borrasca", R),
         ),
     }
     for section in PREDICT_SECTIONS:
@@ -16722,6 +16742,25 @@ def _build_catalog() -> tuple[Achievement, ...]:
             (1, first_id, first_name, f"Haz una predicción en la sección {label}.", first_rarity),
             (10, ten_id, ten_name, f"Haz 10 predicciones en la sección {label}.", ten_rarity),
         ])  # fmt: skip
+    # España era una sección y ahora es un país de 🏛️ Política: sus logros siguen igual.
+    a += _tiers("predice", f"{PREDICT_SECTION_PREFIX}espana", [
+        (1, "predict_espana_1", "Marca España",
+         "Haz una predicción sobre España en la sección Política.", C),
+        (10, "predict_espana_10", "Escrutinio de sofá",
+         "Haz 10 predicciones sobre España en la sección Política.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", PREDICT_COUNTRIES_STAT, [
+        (3, "predict_countries_3", "Turismo electoral",
+         "Haz predicciones sobre 3 países distintos en la sección Política.", C),
+        (6, "predict_countries_6", "Observador internacional",
+         "Haz predicciones sobre 6 países distintos en la sección Política.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", PREDICT_TOPICS_STAT, [
+        (5, "predict_topics_5", "De tapeo por la actualidad",
+         "Haz predicciones en 5 temas distintos de `predice`.", C),
+        (15, "predict_topics_15", "Zapping de bola de cristal",
+         "Haz predicciones en 15 temas distintos de `predice`.", R),
+    ])  # fmt: skip
     a.append(
         Achievement(
             id="predict_all_sections",
@@ -23179,7 +23218,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     `slots_switch_kinds`, las tragaperras distintas a las que ha cambiado con 🔀;
     `shop_use_kinds`, los objetos distintos usados de la tienda;
     `shop_aisles`, los pasillos del colmado en los que ha comprado;
-    `perfil_sections`, las secciones distintas de `perfil` que ha mirado, y
+    `perfil_sections`, las secciones distintas de `perfil` que ha mirado;
+    `predict_countries` y `predict_topics`, los países de 🏛️ Política y los temas de
+    `predice` distintos con alguna predicción, y
     `horse_backed_kinds` y `horse_backed_max`, los caballos distintos por los
     que ha apostado y los boletos al que más; `pisos_barrios` y `pisos_kinds`, los
     barrios y los tipos de inmueble distintos en los que ha comprado, y `pisos_terms`,
@@ -23219,6 +23260,12 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[SHOP_AISLES_STAT] = len(visited_aisles(stats))
     full[PERFIL_SECTIONS_STAT] = sum(
         1 for key in PERFIL_SECTIONS if stats.get(f"{PERFIL_SEEN_PREFIX}{key}", 0) > 0
+    )
+    full[PREDICT_COUNTRIES_STAT] = sum(
+        1 for key in _PREDICT_COUNTRIES if stats.get(f"{PREDICT_SECTION_PREFIX}{key}", 0) > 0
+    )
+    full[PREDICT_TOPICS_STAT] = sum(
+        1 for key in _PREDICT_TOPICS if stats.get(f"{PREDICT_SECTION_PREFIX}{key}", 0) > 0
     )
     pets = {
         stat[len(PET_SPECIES_PREFIX) :]
@@ -25553,6 +25600,7 @@ def predict_bet_stats(
     lead: float,
     when: datetime,
     event_markets: int = 1,
+    topics: Iterable[str] = (),
 ) -> StatDelta:
     """Lo que cuenta una predicción (`predice`) al hacerla.
 
@@ -25566,6 +25614,8 @@ def predict_bet_stats(
         when: Hora canaria de la apuesta.
         event_markets: Preguntas distintas del mismo evento con predicción suya, contando
             esta.
+        topics: Temas de la sección a los que pertenece la pregunta
+            (`bot.services.predice.offer_topics`); cada uno cuenta como su sección.
     """
     add = {
         "predict_bets": 1,
@@ -25573,6 +25623,8 @@ def predict_bet_stats(
         f"{PREDICT_SECTION_PREFIX}{section}": 1,
         "predict_side_no" if side else "predict_side_yes": 1,
     }
+    for topic in topics:
+        add[f"{PREDICT_SECTION_PREFIX}{topic}"] = 1
 
     def bump(stat: str, condition: bool) -> None:
         if condition:
