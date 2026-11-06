@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.57.0 · 2026-11-06
+
+- Jovaniverso: Gran Canaria en 3D para pasear, con controles de móvil tipo Roblox
+- Jovaniverso: `/universo` sale en el lanzador de Actividades de texto y de voz
+- Logros: 21 nuevos en 🎤 Jovani por pasear por la isla
+
 ### 9.56.0 · 2026-11-06
 
 - Pisos: la rama Ladrillo de `pala` construye casas, bloques y torres en los solares de las calles, con su burbuja

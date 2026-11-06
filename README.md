@@ -1344,8 +1344,11 @@ Puesta en marcha, una sola vez:
 3. **Portal de desarrolladores de Discord**, en la aplicación del bot:
    - OAuth2: copiar el Client Secret (o generarlo) para el paso 2, y en Redirects
      añadir `https://127.0.0.1`, que Discord pide para el login de las Activities.
-   - Activities > Settings: activarlas. Discord crea entonces el comando de entrada
-     («launch») y el bot lo renombra a `/universo` en el siguiente arranque. **Antes,
+   - Activities > Settings: activarlas. Discord suele crear entonces el comando de
+     entrada («launch») y el bot lo renombra a `/universo` en el siguiente arranque;
+     si Discord no lo ha creado, lo crea el bot (desde la 9.57.0). Con él, el
+     Jovaniverso sale en el lanzador de apps (🚀) de los canales de texto y de voz.
+     Discord puede tardar en enseñarlo: si no sale, recarga Discord (Ctrl+R). **Antes,
      el bot tiene que estar en la 9.46.0 o posterior**: con una versión anterior, la
      sincronización de comandos falla y el bot no arranca.
    - Activities > URL Mappings: `/` → `jovaniverso.<red>.ts.net`, sin `https://`.
@@ -1371,6 +1374,20 @@ un límite de 128 MB: la cuenta de memoria de `docker-compose.yml` no cambia. Si
 `COMPOSE_PROFILES=universo`, el túnel no arranca y el bot funciona igual. La sesión
 de Tailscale se guarda en el volumen `bot-jovani-vazquez-tunel`: `TS_AUTHKEY` solo
 hace falta la primera vez (o si se borra ese volumen).
+
+#### Probar el mundo sin desplegar
+
+El mundo se pinta entero en el navegador, así que se itera en el PC sin tocar el NAS
+ni reiniciar el bot. En `universo/`, `npm ci` la primera vez y luego `npm run dev --
+--host`: Vite abre la página en `http://localhost:5173` y cada vez que guardas un
+archivo se recarga sola en menos de un segundo. Fuera de Discord la página enseña el
+mundo igual (sin login: la píldora pide abrirlo desde Discord). Para probar los
+controles táctiles en el móvil, abre desde el móvil la dirección de red que enseña
+Vite (`http://192.168.x.x:5173`) con el PC y el móvil en la misma wifi.
+
+Solo hace falta desplegar para lo que pasa en el servidor (login, saldo, logros del
+paseo) o para verlo dentro de Discord. Lo de Python no se puede cambiar en caliente:
+el bot instala el paquete en la imagen y cada cambio en `main` sube la versión.
 
 ### Telemetría interna: `informe`
 

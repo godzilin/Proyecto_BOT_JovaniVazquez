@@ -1,6 +1,8 @@
-// Lógica de la Activity del Jovaniverso: login con Discord, entrada al servidor del bot y perfil.
+// Lógica de la Activity del Jovaniverso: login con Discord, entrada al servidor del bot, HUD y arranque del mundo 3D.
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
+import { crearMundo } from "./mundo";
+import { iniciarPaseo } from "./paseo";
 
 interface ConfigResponse {
   client_id: string;
@@ -21,25 +23,14 @@ interface ErrorResponse {
 }
 
 const FAILURE = "No se ha podido entrar en el Jovaniverso. Cierra la Activity y vuelve a abrirla.";
-const app = document.getElementById("app") as HTMLElement;
+const SIN_DISCORD = "Abre el Jovaniverso desde Discord para ver tu saldo";
+const AYUDA_ESCRITORIO = "WASD para moverte · Shift para correr · Espacio para saltar · Arrastra para girar la cámara";
+const AYUDA_MOVIL = "Mueve el joystick para andar; empújalo hasta el borde para correr";
+
+const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 /** Error con un texto en español que se puede enseñar tal cual. */
 class ApiError extends Error {}
-
-function el(tag: string, className: string, text: string): HTMLElement {
-  const node = document.createElement(tag);
-  node.className = className;
-  node.textContent = text;
-  return node;
-}
-
-function show(...nodes: HTMLElement[]): void {
-  app.replaceChildren(...nodes);
-}
-
-function showMessage(text: string, isError = false): void {
-  show(el("p", isError ? "message error" : "message", text));
-}
 
 async function api<T>(path: string, body?: unknown, session?: string): Promise<T> {
   const headers: Record<string, string> = {};
@@ -58,43 +49,90 @@ async function api<T>(path: string, body?: unknown, session?: string): Promise<T
   return data as T;
 }
 
-function renderProfile(profile: ProfileResponse): void {
-  show(
-    el("h1", "greeting", `Hola, ${profile.name}`),
-    el("p", "balance", profile.balance_text),
-    el("p", "guild", profile.guild),
-    el("p", "footer", `Jovaniverso · versión ${profile.version} · prueba de concepto`),
+function mostrarError(texto: string): void {
+  const carga = $("carga");
+  carga.classList.remove("fuera");
+  const p = $("carga-texto");
+  p.textContent = texto;
+  p.className = "message error";
+}
+
+function pildora(nombre: string, saldo: string | null, texto?: string): void {
+  const el = $("pildora");
+  el.replaceChildren();
+  if (texto) {
+    el.textContent = texto;
+  } else {
+    el.append(nombre);
+    if (saldo) {
+      const s = document.createElement("span");
+      s.className = "saldo";
+      s.textContent = saldo;
+      el.append(s);
+    }
+  }
+  el.hidden = false;
+}
+
+/** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
+function ayuda(): void {
+  const el = $("ayuda");
+  el.textContent = window.matchMedia("(pointer: coarse)").matches ? AYUDA_MOVIL : AYUDA_ESCRITORIO;
+  el.hidden = false;
+  const quitar = (): void => {
+    el.classList.add("oculta");
+    setTimeout(() => el.remove(), 700);
+    window.removeEventListener("keydown", quitar);
+    window.removeEventListener("pointerdown", quitar);
+  };
+  window.addEventListener("keydown", quitar);
+  window.addEventListener("pointerdown", quitar);
+  setTimeout(quitar, 9000);
+}
+
+interface Entrada {
+  profile: ProfileResponse;
+  session: string;
+  guildId: string | null;
+  channelId: string | null;
+}
+
+async function entrar(): Promise<Entrada> {
+  const { client_id } = await api<ConfigResponse>("/api/config");
+  const sdk = new DiscordSDK(client_id);
+  await sdk.ready();
+  const { code } = await sdk.commands.authorize({
+    client_id,
+    response_type: "code",
+    state: "",
+    prompt: "none",
+    scope: ["identify"],
+  });
+  const { access_token, session } = await api<TokenResponse>("/api/token", { code });
+  await sdk.commands.authenticate({ access_token });
+  const profile = await api<ProfileResponse>(
+    "/api/entrar",
+    { guild_id: sdk.guildId, channel_id: sdk.channelId, platform: sdk.platform },
+    session,
   );
+  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId };
 }
 
 async function start(): Promise<void> {
-  if (!new URLSearchParams(location.search).has("frame_id")) {
-    showMessage("Esta página se abre desde Discord, con /universo o .universo.");
-    return;
-  }
-  showMessage("Entrando en el Jovaniverso…");
+  const enDiscord = new URLSearchParams(location.search).has("frame_id");
   try {
-    const { client_id } = await api<ConfigResponse>("/api/config");
-    const sdk = new DiscordSDK(client_id);
-    await sdk.ready();
-    const { code } = await sdk.commands.authorize({
-      client_id,
-      response_type: "code",
-      state: "",
-      prompt: "none",
-      scope: ["identify"],
-    });
-    const { access_token, session } = await api<TokenResponse>("/api/token", { code });
-    await sdk.commands.authenticate({ access_token });
-    const profile = await api<ProfileResponse>(
-      "/api/entrar",
-      { guild_id: sdk.guildId, channel_id: sdk.channelId, platform: sdk.platform },
-      session,
-    );
-    renderProfile(profile);
+    const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa")), enDiscord ? entrar() : Promise.resolve(null)]);
+    if (entrada) {
+      pildora(entrada.profile.name, entrada.profile.balance_text);
+      iniciarPaseo(mundo, { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId });
+    } else {
+      pildora("", null, SIN_DISCORD);
+    }
+    $("carga").classList.add("fuera");
+    ayuda();
   } catch (error) {
     console.error(error);
-    showMessage(error instanceof ApiError ? error.message : FAILURE, true);
+    mostrarError(error instanceof ApiError ? error.message : FAILURE);
   }
 }
 

@@ -118,9 +118,15 @@ COLOR = discord.Color.from_rgb(255, 190, 40)
 
 
 def format_value(value: int, unit: str = "") -> str:
-    """Cantidad legible: minutos como horas, dinero en Y$ y miles con punto."""
+    """Cantidad legible: minutos como horas, metros como km, dinero en Y$ y miles
+    con punto."""
     if unit == "money":
         return format_amount(value)
+    if unit == "m":
+        if value < 1000:
+            return f"{value} m"
+        km = f"{value / 1000:,.1f}".replace(",", " ").replace(".", ",").replace(" ", ".")
+        return f"{km} km"
     if unit == "min":
         if value < 60:
             return f"{value} min"

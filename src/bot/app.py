@@ -195,8 +195,11 @@ class BotTree(app_commands.CommandTree):
     `CommandTree.sync` reescribe de golpe todos los comandos globales, y Discord
     rechaza esa reescritura si deja fuera el comando de entrada de la Activity
     (error 50240). Con las Activities activadas en el portal, el bot no llegaría a
-    arrancar. Este árbol mira antes si el comando de entrada existe y, si existe,
-    lo manda junto a los demás, ya como `/universo` (`ENTRY_POINT`).
+    arrancar. Este árbol mira antes si el comando de entrada existe y lo manda
+    junto a los demás, ya como `/universo` (`ENTRY_POINT`). Si no existe (Discord
+    no siempre lo crea al activar las Activities), lo crea: sin él, la Activity no
+    sale en el lanzador de apps de los canales de texto ni de voz. Si Discord lo
+    rechaza porque las Activities no están activadas, sincroniza como siempre.
     """
 
     async def sync(
@@ -212,19 +215,23 @@ class BotTree(app_commands.CommandTree):
             logger.warning("No se pudieron leer los comandos globales; se sincroniza sin mirar")
             return await super().sync()
         entry = next((c for c in current if c.get("type") == ENTRY_POINT_TYPE), None)
-        if entry is None:
-            return await super().sync()
         commands_ = self._get_all_commands(guild=None)
         if self.translator:
             payload = [await c.get_translated_payload(self, self.translator) for c in commands_]
         else:
             payload = [c.to_dict(self) for c in commands_]
         # Con su `id`, Discord lo renombra en vez de verlo como uno nuevo y borrar el viejo.
+        wanted = dict(ENTRY_POINT) if entry is None else {**ENTRY_POINT, "id": entry["id"]}
         try:
             data = await self._http.bulk_upsert_global_commands(
-                application_id, payload=[*payload, {**ENTRY_POINT, "id": entry["id"]}]
+                application_id, payload=[*payload, wanted]
             )
-        except discord.HTTPException:
+        except discord.HTTPException as error:
+            if entry is None:
+                logger.info(
+                    "Discord no deja crear `/universo` (¿Activities sin activar?): %s", error
+                )
+                return await super().sync()
             # Si Discord no acepta el renombrado, mejor un `/launch` que un bot sin arrancar.
             logger.exception("Discord no acepta `/universo`; se deja su comando de entrada")
             kept = {key: entry[key] for key in _ENTRY_POINT_KEYS if key in entry}
