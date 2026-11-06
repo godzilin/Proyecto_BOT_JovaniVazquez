@@ -125,8 +125,9 @@ Modelo de datos:
   lo pagado entra en la cuenta del Estado sin salir de ningún sitio.
 - `economy_market_tax`: el ITP (de quien compra) y el IRPF de la plusvalía (de
   quien vende) de cada venta del Rastro, para que `hacienda` los cuente.
-- `economy_housing_tax`: el ITP de cada compra de `pisos`, el IBI de cada mes y
-  el IRPF de la ganancia de cada venta, a nombre de cada copropietario, para que
+- `economy_housing_tax`: el ITP de cada compra de `pisos`, el IBI de cada mes, el
+  IRPF de la ganancia de cada venta (a nombre de cada copropietario) y los impuestos de los
+  suministros de cada casa (`casa`: `electricidad` e `igic_suministros`), para que
   `hacienda` los cuente. El IRPF de las rentas va en `economy_tax_records`
   (concepto `pisos:renta`).
 - `economy_business_tax`: el IGIC, las tasas (apertura, traslado y terraza), la retención
@@ -5227,6 +5228,7 @@ class EconomyRepository:
                         WHEN 'ips' THEN 'igic' WHEN 'licencia' THEN 'tasas'
                         WHEN 'licencia_obra' THEN 'tasas' WHEN 'icio' THEN 'icio'
                         WHEN 'ajd' THEN 'itp_pisos'
+                        WHEN 'electricidad' THEN 'igic' WHEN 'igic_suministros' THEN 'igic'
                         ELSE 'irpf_ahorro' END,
                    tax, created_at
             FROM economy_housing_tax WHERE guild_id = :guild
@@ -5297,6 +5299,8 @@ class EconomyRepository:
                 """
                 SELECT user_id,
                        CASE kind WHEN 'plusvalia' THEN 'ganancia' WHEN 'socimi' THEN 'ganancia'
+                            WHEN 'electricidad' THEN 'suministros'
+                            WHEN 'igic_suministros' THEN 'suministros'
                             ELSE kind END,
                        SUM(tax)
                 FROM economy_housing_tax WHERE guild_id = :guild AND user_id > 0
@@ -5314,7 +5318,10 @@ class EconomyRepository:
         out: dict[int, dict[str, int]] = {}
         for user_id, kind, total in rows:
             if total:
-                out.setdefault(int(user_id), {})[str(kind)] = int(total)
+                # Se suma: varias clases se juntan en una (la plusvalía y la SOCIMI, la luz y
+                # la fibra), y cada una llega en su fila.
+                bucket = out.setdefault(int(user_id), {})
+                bucket[str(kind)] = bucket.get(str(kind), 0) + int(total)
         return out
 
     async def business_tax_breakdown(self, guild_id: int) -> dict[int, dict[str, int]]:

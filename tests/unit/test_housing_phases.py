@@ -355,7 +355,9 @@ async def test_vivir_en_tu_piso_no_lo_alquila_y_paga_sus_recibos(tmp_path: Path)
     await service.close_days(GUILD)
     costs = rules.monthly_costs(BAJO)
     ips = round(costs.insurance * rules.IPS_RATE)  # el seguro del hogar lleva el de primas
-    assert await economy.balance(GUILD, ANA) == balance - costs.total - ips
+    # Y quien vive en ella paga los suministros (`casa`).
+    bill = (await service.repository.home_status(GUILD, ANA)).bill
+    assert await economy.balance(GUILD, ANA) == balance - costs.total - ips - bill.total
     with sqlite3.connect(tmp_path / "bot.db") as connection:
         connection.row_factory = sqlite3.Row
         assert assets_in(connection, GUILD).get(ANA, 0) == 0  # exenta hasta 3 millones
