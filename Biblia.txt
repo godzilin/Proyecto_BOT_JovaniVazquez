@@ -445,8 +445,8 @@ El bot sigue versionado semántico (MAYOR.MENOR.PARCHE), juzgado desde quien usa
 **Pruebas rápidas.** La tanda entera tiene que tardar poco, o se deja de pasar. Ya creció dos veces hasta varios minutos, siempre por lo mismo: pruebas que pintan, simulan o recorren todo el código sin hacer falta.
 
 - Dos tandas. Antes de cada commit, la rápida: `python -m pytest -q -m "not lenta"`. Antes de subir a `main`, la entera: `python -m pytest -q`.
-- `@pytest.mark.lenta` es para lo que tarda más de 2 s y casi nunca lo rompe un commit normal: dibujo repartido contra un proceso, Node contra Chromium, todas las pantallas o combinaciones de un catálogo pintadas de verdad, simulaciones de retorno o de fuerza de la IA y auditorías de todo el código. Una prueba de lógica, de un cog o de un botón no se marca: se acorta.
-- Al final de cada tanda, `tests/conftest.py` lista las pruebas sin `lenta` que tardaron más de 2 s («Pruebas lentas sin @pytest.mark.lenta»). Si una pasa de 10 s, la tanda falla. Lo que salga ahí se arregla en el mismo cambio que lo trae.
+- `@pytest.mark.lenta` es para lo que gasta más de 3 s de CPU y casi nunca lo rompe un commit normal: dibujo repartido contra un proceso, Node contra Chromium, todas las pantallas o combinaciones de un catálogo pintadas de verdad, simulaciones de retorno o de fuerza de la IA y auditorías de todo el código. Una prueba de lógica, de un cog o de un botón no se marca: se acorta.
+- Al final de cada tanda, `tests/conftest.py` lista las pruebas sin `lenta` que gastaron más de 3 s de CPU («Pruebas lentas sin @pytest.mark.lenta»). Mide CPU y no reloj porque, con la tanda en paralelo, el reloj de una prueba normal se triplica. La tanda falla si una pasa de 10 s de CPU o de 30 s de reloj (esperas, Node). Lo que salga ahí se arregla en el mismo cambio que lo trae.
 - Cómo se acorta, por orden:
   1. Que no dibuje sin mirar la imagen: el doble de `render_fakes`, o el `renderer` de prueba del cog (la Torre pintaba un GIF de verdad en una prueba de récords: de 10 s a 0,1).
   2. Pocos datos que prueben lo mismo: 60 escrituras de 80 KB llenan el registro de SQLite igual que 1.500 de 3 KB (de 47 s a 1).
@@ -454,7 +454,7 @@ El bot sigue versionado semántico (MAYOR.MENOR.PARCHE), juzgado desde quien usa
   4. Nada de esperas de reloj: el tiempo se fuerza (`monkeypatch` de la constante o del reloj), nunca con `sleep` de verdad.
   5. Si aun así comprueba algo que vale la pena y tarda, `lenta`.
 - Una prueba de dibujo repartido abre antes los procesos de refuerzo (`open_helpers` de `tests/unit/test_node_scene.py`). Si no, con la tanda en paralelo el primer proceso lo pinta todo antes de que se abra otro, y la prueba falla a veces.
-- Antes de optimizar las pruebas, se mide: `python -m pytest -q --durations=30`, o el resumen del final de la tanda.
+- Antes de optimizar las pruebas, se mide: `python -m pytest -q --durations=30`, o el resumen del final de la tanda. xdist abre un proceso por núcleo físico: con uno por hilo, la tanda no acaba antes (medido: 118 s con 12 y con 24 procesos en un Ryzen de 12 núcleos) y cada prueba tarda el doble de reloj.
 
 ### 8.0. Agentes y subagentes
 
