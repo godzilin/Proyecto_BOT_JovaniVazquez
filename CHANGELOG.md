@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.55.1 · 2026-11-06
+
+- Entradas, beernight y música: vuelven a oírse. La librería de cifrado de voz `davey` 0.2, publicada el 2 de noviembre, no funciona con la versión actual de discord.py y el bot hablaba sin que se le oyera; se queda en la 0.1
+
 ### 9.55.0 · 2026-11-06
 
 - Gallos: entrenar con minijuegos da dinero, y llegan sparring, galleras y torneo

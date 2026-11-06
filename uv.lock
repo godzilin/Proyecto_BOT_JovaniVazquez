@@ -263,7 +263,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "davey", specifier = ">=0.1.6" },
+    { name = "davey", specifier = ">=0.1.6,<0.2" },
     { name = "discord-py", specifier = ">=2.4,<3" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "orjson", specifier = ">=3.10" },
