@@ -734,7 +734,7 @@ python -m bot
   con canvas en Node (si no hay Node, en Chromium y, si tampoco, con Pillow).
 - **Timba** (`/poker timba [ciega]`, `.poker timba`): Texas Hold'em sin límite entre
   miembros, de dos a seis en una mesa por canal; las ciegas las pone quien la
-  abre (por defecto 10/20). Cada uno ve sus cartas en privado con 🂠 Mis cartas y
+  abre (por defecto 10/20). Cada uno ve sus cartas en privado con 🃏 Mis cartas y
   habla por turnos de 30 s con botones (pasar, igualar, subir al mínimo, medio
   bote, bote, todo o una cantidad, y retirarse). Botes secundarios, ficha suelta
   para el primero tras el botón y comisión del 5 % (tope de 3 ciegas) de cada

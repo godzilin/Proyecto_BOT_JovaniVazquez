@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.50.1 · 2026-11-06
+
+- Timba: la mesa ya enseña los botones para jugar la mano (el de 🃏 Mis cartas llevaba un emoji que Discord no acepta y tumbaba la mesa entera en cuanto empezaba la mano)
+
 ### 9.50.0 · 2026-11-06
 
 - Predicciones: `predice` con siete secciones y temas (países, guerras, tuits, el tiempo…)

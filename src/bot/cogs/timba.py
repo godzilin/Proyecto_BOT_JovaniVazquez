@@ -8,7 +8,7 @@ de una mano a otra hasta que pulsas 🚪 Levantarse. Reglas en `bot.services.tim
 
 **Una mano.** Con dos o más sentados, empieza cuando todos pulsan ✅ Listo o, si
 no, a los `START_SECONDS`: se ponen las
-ciegas, cada uno ve sus cartas en privado con 🂠 Mis cartas y habla por turnos
+ciegas, cada uno ve sus cartas en privado con 🃏 Mis cartas y habla por turnos
 (`TURN_SECONDS` cada uno): ✅ Pasar o 📞 Igualar, ⬆️ Subir (mínimo, medio bote,
 bote, todo o 🔢 una cantidad) y 🏳️ Retirarse. Los botones solo valen para quien
 habla. Quien se duerme pasa si puede y, si no, se retira; a las
@@ -298,7 +298,7 @@ class TableView(discord.ui.View):
                 self, "Cantidad", "🔢", grey, table.raise_modal, 1, "amount",
                 disabled=not opts.can_raise,
             )  # fmt: skip
-            _button(self, "Mis cartas", "🂠", grey, table.my_cards, 1, "cards")
+            _button(self, "Mis cartas", "🃏", grey, table.my_cards, 1, "cards")
         else:
             success = discord.ButtonStyle.success
             _button(self, "Listo", "✅", success, table.mark_ready, 2, "ready")
@@ -603,7 +603,7 @@ class Table:
         board = " ".join(f"**{c}**" for c in hand.visible_board) or "—"
         lines.append(f"{hand.street.label} · mesa: {board} · 💰 bote **{format_amount(hand.pot)}**")
         lines.extend(self.log_lines())
-        lines.append("-# 🂠 Mis cartas te enseña las tuyas en privado.")
+        lines.append("-# 🃏 Mis cartas te enseña las tuyas en privado.")
         embed = discord.Embed(
             title=f"♣️ Timba · mano {self.hands}",
             description="\n".join(lines)[:4_000],
@@ -660,7 +660,8 @@ class Table:
         try:
             await self.message.edit(**kwargs)
         except discord.HTTPException:
-            logger.debug("No se pudo editar la timba", exc_info=True)
+            # Aviso y no debug: un 400 aquí deja la mesa sin botones y nadie se entera.
+            logger.warning("No se pudo editar la timba", exc_info=True)
 
     def edit_soon(self) -> None:
         """Repinta el texto de la mesa entre manos sin esperar; agrupa los cambios seguidos."""
@@ -852,7 +853,7 @@ class Table:
         await interaction.response.send_modal(RaiseModal(self))
 
     async def my_cards(self, interaction: discord.Interaction) -> None:
-        """🂠 Tus cartas y lo que llevas, en privado (solo memoria)."""
+        """🃏 Tus cartas y lo que llevas, en privado (solo memoria)."""
         hand = self.hand
         if hand is None or hand.finished:
             await interaction.response.send_message("No hay ninguna mano en juego.", ephemeral=True)
@@ -869,7 +870,7 @@ class Table:
         best = f" · llevas **{evaluate(seen).label.lower()}**" if len(seen) >= 5 else ""
         status = " (te has retirado)" if player.folded else ""
         await interaction.response.send_message(
-            f"🂠 Tus cartas: {cards}{best}{status}. Te quedan {format_amount(player.stack)}.",
+            f"🃏 Tus cartas: {cards}{best}{status}. Te quedan {format_amount(player.stack)}.",
             ephemeral=True,
         )
 

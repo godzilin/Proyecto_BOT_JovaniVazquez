@@ -244,7 +244,20 @@ async def test_no_es_tu_turno_y_tus_cartas_en_privado(tmp_path: Path) -> None:
     clock.script = [peek]
     await table.play_hand()
     assert "No es tu turno" in seen["wrong"]
-    assert seen["cards"].startswith("🂠 Tus cartas:")
+    assert seen["cards"].startswith("🃏 Tus cartas:")
+
+
+async def test_los_botones_llevan_emojis_que_discord_acepta(tmp_path: Path) -> None:
+    """🂠 (dorso de carta) no es emoji para Discord: rechazaba (400) cada edición con la mano
+    en juego y nadie veía los botones de jugar. Del bloque de naipes, solo 🃏 es emoji."""
+    _, table, clock = await make_table(tmp_path)
+    assert table.message is not None
+    clock.script = [act(table, ANA, "fold")]
+    await table.play_hand()
+    views = [c.kwargs["view"] for c in table.message.edit.await_args_list if c.kwargs.get("view")]
+    emojis = {str(item.emoji) for view in views for item in view.children if item.emoji}
+    assert "🃏" in emojis, "se ha subido la mesa de la mano"
+    assert not [e for e in emojis if any(0x1F0A0 <= ord(c) <= 0x1F0FF and c != "🃏" for c in e)]
 
 
 async def test_levantarse_a_mitad_de_mano_se_retira_y_se_va(tmp_path: Path) -> None:
