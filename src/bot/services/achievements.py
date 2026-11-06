@@ -18243,6 +18243,24 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (5, "gallos_entrenador_top", "El Guardiola del gallinero",
          "Saca 5 notas perfectas jugando el minijuego de otros.", E),
     ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparrings", [
+        (1, "gallos_sparring_1", "Guantes de sparring",
+         "Haz un sparring de pulso con otro miembro.", C),
+        (25, "gallos_sparring_25", "Compañero de gimnasio",
+         "Haz 25 sparrings con otros miembros.", R),
+        (100, "gallos_sparring_100", "Club de la lucha (de eso no se habla)",
+         "Haz 100 sparrings con otros miembros.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparring_wins", [
+        (1, "gallos_sparring_gana_1", "Brazo de hierro",
+         "Gana un sparring de pulso.", C),
+        (25, "gallos_sparring_gana_25", "Over the Top con espolones",
+         "Gana 25 sparrings de pulso.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparring_shutout", [
+        (1, "gallos_sparring_paliza", "Cinco a cero, manita",
+         "Gana un sparring sin perder ni empatar ningún asalto.", R, True),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_form_max", [
         (50, "gallos_forma_50", "Pollo al punto",
          "Lleva la forma de tu gallo a 50.", C),

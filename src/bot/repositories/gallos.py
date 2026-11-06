@@ -354,6 +354,20 @@ class GallosRepository:
 
         return run
 
+    def restore(
+        self, guild_id: int, user_id: int, record: RoosterRecord
+    ) -> Callable[[sqlite3.Connection], None]:
+        """Prepara volver la ficha a `record` dentro de otra transacción.
+
+        Para `EconomyService.refund_purchase` (el parámetro `release`): si se
+        devuelve un entrenamiento, el stat y la forma vuelven a como estaban.
+        """
+
+        def run(connection: sqlite3.Connection) -> None:
+            self._save_in(connection, guild_id, user_id, record)
+
+        return run
+
     # -- Cementerio --------------------------------------------------------------------
 
     async def bury(

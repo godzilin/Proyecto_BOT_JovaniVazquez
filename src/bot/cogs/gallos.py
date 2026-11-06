@@ -154,6 +154,7 @@ from bot.services.gallos import (
     train_gain,
     train_price,
     trains_today,
+    with_form,
 )
 from bot.services.gallos_render import Fighter, Media, intro_state, meta_state
 from bot.services.gallos_scene import GallosScene
@@ -177,6 +178,9 @@ VIEW_TIMEOUT = 300
 CHALLENGE_SECONDS = 120
 #: Cuánto está abierta la grada antes de soltar los gallos.
 LOBBY_SECONDS = 60
+#: Cuánto espera una invitación de sparring y cuánto hay para elegir en cada asalto.
+SPARRING_OPEN_SECONDS = 300
+SPARRING_PICK_SECONDS = 45
 #: Desde aquí se anuncia en el canal una victoria contra la casa.
 SHOUT_NET = 10_000
 #: Margen tras el GIF antes de poner el PNG: lo que tarda en llegar y empezar.
@@ -679,6 +683,13 @@ class HousePanel(ui.View):
             )
         self._button("↩️ Volver al reñidero", "train_back", self._leave_gym, row=1, disabled=busy)
         self._button("🌽 Echarle de comer", "feed", self._feed, row=2, disabled=busy)
+        self._button(
+            "🤝 Buscar sparring",
+            "spar_open",
+            self._open_sparring,
+            row=2,
+            disabled=busy or today >= TRAIN_PER_DAY,
+        )
         for stat in Stat:
             level = self.record.stat(stat)
             base = train_price(level)
@@ -1283,6 +1294,31 @@ class HousePanel(ui.View):
             self.channel,
             StatDelta(add={"gallos_supplement_refused": 1}),
         )
+
+    async def _open_sparring(self, interaction: discord.Interaction) -> None:
+        """🤝 Buscar sparring: publica la invitación en el canal (se acepta antes de mandarla)."""
+        key = (self.guild_id, self.owner.id)
+        if self._busy or key in self.cog.busy:
+            await interaction.response.send_message(
+                "Tu gallo ya está en un duelo o en un sparring.", ephemeral=True
+            )
+            return
+        now = self.cog.wall_clock()
+        try:
+            check_training(self.record, Stat.STRENGTH, now=now, day=local_day(now))
+        except TrainError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        await ack(interaction)
+        sparring = Sparring(self.cog, guild_id=self.guild_id, channel=self.channel, host=self.owner)
+        self.cog.busy.add(key)
+        self.cog.sparrings.add(sparring)
+        try:
+            await sparring.open()
+        except Exception:
+            self.cog.release_sparring(sparring)
+            raise
+        await notify(interaction, "🤝 Invitación publicada: el primero que acepte es tu sparring.")
 
     async def _feed(self, interaction: discord.Interaction) -> None:
         """🌽 Echarle de comer: otro miembro le da forma al gallo (se guarda: se acepta antes)."""
@@ -2541,6 +2577,365 @@ class Duel:
 # -- Cog ---------------------------------------------------------------------------------
 
 
+class SparringView(ui.View):
+    """Los botones de un sparring: aceptar y, en el pulso, las tres jugadas."""
+
+    def __init__(self, sparring: Sparring) -> None:
+        super().__init__(timeout=None)
+        self.sparring = sparring
+
+    def _button(
+        self,
+        label: str,
+        custom_id: str,
+        callback: Callable[[discord.Interaction], Awaitable[None]],
+        style: discord.ButtonStyle = discord.ButtonStyle.secondary,
+    ) -> None:
+        button: ui.Button = ui.Button(label=label, style=style, custom_id=f"{GAME}:{custom_id}")
+        button.callback = callback  # type: ignore[method-assign]
+        self.add_item(button)
+
+    def invitation(self) -> SparringView:
+        self.clear_items()
+        self._button("🤝 Acepto", "spar_join", self.sparring.join, discord.ButtonStyle.success)
+        return self
+
+    def moves(self) -> SparringView:
+        self.clear_items()
+        for move in gym.PULSO_MOVES:
+            self._button(
+                gym.PULSO_LABELS[move],
+                f"spar:{move}",
+                self.sparring.picker(move),
+                discord.ButtonStyle.primary,
+            )
+        return self
+
+
+class Sparring:
+    """Un sparring de pulso entre dos miembros, en público.
+
+    Quien lo busca publica la invitación (`open`) y el primero que acepta
+    (`join`) es su compañero. Al aceptar se cobra a los dos una sesión de 💪
+    fuerza, como en el gimnasio (`Gallos.train`): el stat sube y se gana la
+    forma del pago. Luego juegan `SPARRING_ROUNDS` asaltos de pulso a la vez: cada
+    uno elige en secreto y, cuando han elegido los dos, se resuelve. La nota de
+    cada uno (sus puntos entre los asaltos) es la del minijuego de su sesión
+    (`gallos_gym.after_session`) y el ganador se lleva `SPARRING_WIN_FORM` de
+    forma de más. Si alguien deja de elegir, los asaltos que faltan los pierde
+    él (`SPARRING_PICK_SECONDS` por asalto).
+    """
+
+    def __init__(
+        self, cog: Gallos, *, guild_id: int, channel: object, host: discord.abc.User
+    ) -> None:
+        self.cog = cog
+        self.guild_id = guild_id
+        self.channel = channel
+        self.host = host
+        self.guest: discord.abc.User | None = None
+        self.view = SparringView(self)
+        self.message: discord.Message | None = None
+        self.trainings: dict[int, Training] = {}
+        self.picks: dict[int, str] = {}
+        self.points: dict[int, float] = {host.id: 0.0}
+        self.assault = 0
+        self.log: list[str] = []
+        self.phase = "open"
+        self.timer: asyncio.Task[None] | None = None
+        self._lock = TimedLock("gallos:Sparring._lock")
+
+    @property
+    def members(self) -> list[discord.abc.User]:
+        return [m for m in (self.host, self.guest) if m is not None]
+
+    def name(self, user: discord.abc.User) -> str:
+        training = self.trainings.get(user.id)
+        rooster = training.after.name if training else ""
+        return f"**{rooster}** ({user.display_name})" if rooster else user.display_name
+
+    def text(self) -> str:
+        """El texto del mensaje en cada fase."""
+        if self.phase == "open":
+            return (
+                f"## 🤝 {self.host.display_name} busca sparring de pulso\n"
+                f"Cinco asaltos de pulso entre dos gallos. Cada uno paga su sesión de 💪 fuerza "
+                f"(lo que marque su gimnasio, IGIC incluido) y su gallo sube como en el "
+                "gimnasio; la nota del pulso le da forma y el ganador se lleva "
+                f"+{gym.SPARRING_WIN_FORM} más.\n"
+                f"-# Caduca en {SPARRING_OPEN_SECONDS // 60} min si nadie acepta."
+            )
+        assert self.guest is not None
+        host, guest = self.host, self.guest
+        lines = [
+            f"## 🤝 Sparring: {self.name(host)} 🆚 {self.name(guest)}",
+            f"Puntos: {self.points[host.id]:g} a {self.points[guest.id]:g}",
+        ]
+        lines += [f"-# {line}" for line in self.log[-3:]]
+        if self.phase == "fight":
+            waiting = [m.display_name for m in self.members if m.id not in self.picks]
+            lines.append(
+                f"**Asalto {self.assault + 1} de {gym.SPARRING_ROUNDS}.** Cada uno elige en "
+                "secreto. Aguantar gana a empujar, empujar gana a amagar y amagar gana a "
+                "aguantar."
+            )
+            lines.append(f"-# Falta por elegir: {', '.join(waiting)}." if waiting else "")
+            lines.append(
+                f"-# {SPARRING_PICK_SECONDS} s por asalto: quien no elige, pierde el asalto."
+            )
+        return "\n".join(line for line in lines if line)
+
+    def embed(self, text: str | None = None) -> discord.Embed:
+        return discord.Embed(
+            title="🐓 Gimnasio del reñidero", description=text or self.text(), color=COLOR_DUEL
+        )
+
+    async def edit(self, **kwargs: Any) -> None:
+        if self.message is None:
+            return
+        try:
+            await self.message.edit(**kwargs)
+        except discord.HTTPException:
+            logger.debug("No se pudo editar un sparring de gallos", exc_info=True)
+
+    async def open(self) -> None:
+        """Publica la invitación y deja corriendo su caducidad."""
+        send = self.channel.send
+        self.message = await send(embed=self.embed(), view=self.view.invitation())
+        self.timer = asyncio.create_task(self._expire(), name="gallos-sparring")
+
+    async def _expire(self) -> None:
+        await self.cog.sleep(SPARRING_OPEN_SECONDS)
+        async with self._lock:
+            if self.phase != "open":
+                return
+            self.phase = "done"
+        self.cog.release_sparring(self)
+        await self.edit(embed=self.embed("🤝 Nadie ha aceptado el sparring."), view=None)
+
+    async def join(self, interaction: discord.Interaction) -> None:
+        """🤝 Acepto: cobra la sesión a los dos y empieza el pulso (se acepta antes de cobrar)."""
+        user = interaction.user
+        if user.id == self.host.id:
+            await interaction.response.send_message(
+                "No puedes hacer sparring contigo mismo.", ephemeral=True
+            )
+            return
+        if (self.guild_id, user.id) in self.cog.busy:
+            await interaction.response.send_message(
+                "Tu gallo ya está en un duelo o en un sparring.", ephemeral=True
+            )
+            return
+        await ack(interaction)
+        async with self._lock:
+            if self.phase != "open":
+                await notify(interaction, "Este sparring ya no está libre.")
+                return
+            guest_record = await self.cog.repository.get(self.guild_id, user.id)
+            guest = await self.cog.train(self.guild_id, user.id, guest_record, Stat.STRENGTH)
+            if isinstance(guest, str):
+                await notify(interaction, f"❌ {guest}")
+                return
+            host_record = await self.cog.repository.get(self.guild_id, self.host.id)
+            host = await self.cog.train(self.guild_id, self.host.id, host_record, Stat.STRENGTH)
+            if isinstance(host, str):
+                await self.cog.refund_training(self.guild_id, user.id, guest)
+                await notify(
+                    interaction,
+                    f"❌ {self.host.display_name} no puede entrenar ahora; se te devuelve "
+                    "lo pagado.",
+                )
+                return
+            self.guest = user
+            self.trainings = {user.id: guest, self.host.id: host}
+            self.points[user.id] = 0.0
+            self.cog.busy.add((self.guild_id, user.id))
+            self.phase = "fight"
+        if self.timer is not None:
+            self.timer.cancel()
+        self.timer = asyncio.create_task(self._pick_clock(0), name="gallos-sparring-asalto")
+        await edit(interaction, embed=self.embed(), view=self.view.moves())
+        taxes = " · ".join(
+            f"{m.display_name} {format_amount(self.trainings[m.id].total)} "
+            f"({format_amount(self.trainings[m.id].tax)} de IGIC)"
+            for m in self.members
+        )
+        await notify(
+            interaction,
+            f"🤝 Pagáis la sesión de fuerza: {taxes}. 🐶 {TAX_COLLECTOR} se lleva el IGIC "
+            f"(tipo general, {IGIC_GENERAL_RATE * 100:g} %).",
+            ephemeral=False,
+        )
+        await renta.remind(self.cog.bot, interaction)
+
+    async def _pick_clock(self, assault: int) -> None:
+        """Si al acabar el tiempo de un asalto falta alguien por elegir, lo pierde él."""
+        await self.cog.sleep(SPARRING_PICK_SECONDS)
+        async with self._lock:
+            if self.phase != "fight" or self.assault != assault:
+                return
+            finished = self._resolve()
+        if finished:
+            await self._finish(None)
+            return
+        self.timer = asyncio.create_task(
+            self._pick_clock(self.assault), name="gallos-sparring-asalto"
+        )
+        await self.edit(embed=self.embed(), view=self.view.moves())
+
+    def picker(self, move: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def callback(interaction: discord.Interaction) -> None:
+            await self.pick(interaction, move)
+
+        return callback
+
+    async def pick(self, interaction: discord.Interaction, move: str) -> None:
+        """Una jugada: solo cambia memoria hasta el último asalto (entonces, guarda)."""
+        user = interaction.user
+        if user.id not in {m.id for m in self.members}:
+            await interaction.response.send_message("Este sparring no es tuyo.", ephemeral=True)
+            return
+        if self.phase != "fight" or user.id in self.picks:
+            await interaction.response.send_message(
+                "Ya has elegido en este asalto.", ephemeral=True
+            )
+            return
+        self.picks[user.id] = move
+        finished = False
+        if len(self.picks) == 2:
+            finished = self._resolve()
+        if not finished:
+            await interaction.response.edit_message(embed=self.embed(), view=self.view.moves())
+            if len(self.picks) == 0:
+                if self.timer is not None:
+                    self.timer.cancel()
+                self.timer = asyncio.create_task(
+                    self._pick_clock(self.assault), name="gallos-sparring-asalto"
+                )
+            return
+        await ack(interaction)
+        await self._finish(interaction)
+
+    def _resolve(self) -> bool:
+        """Resuelve el asalto con lo elegido (lo que falte, vacío). Devuelve si se acabó."""
+        assert self.guest is not None
+        host, guest = self.host, self.guest
+        mine, theirs = self.picks.get(host.id, ""), self.picks.get(guest.id, "")
+        gained = gym.pulso_points(mine, theirs)
+        self.points[host.id] += gained
+        self.points[guest.id] += 1 - gained
+        label = {m: m for m in gym.PULSO_MOVES}
+        self.log.append(
+            f"Asalto {self.assault + 1}: {host.display_name} {label.get(mine, 'no elige')}, "
+            f"{guest.display_name} {label.get(theirs, 'no elige')}."
+        )
+        self.picks = {}
+        self.assault += 1
+        if self.assault >= gym.SPARRING_ROUNDS:
+            self.phase = "done"
+            return True
+        return False
+
+    async def _finish(self, interaction: discord.Interaction | None) -> None:
+        """Guarda la nota de cada uno como su minijuego y enseña cómo ha acabado."""
+        assert self.guest is not None
+        if self.timer is not None and interaction is not None:
+            self.timer.cancel()
+        now = self.cog.wall_clock()
+        day = local_day(now)
+        host, guest = self.host, self.guest
+        top = max(self.points.values())
+        winners = [m for m in self.members if self.points[m.id] == top]
+        winner = winners[0] if len(winners) == 1 else None
+        lines = [f"## 🤝 Sparring: {self.name(host)} 🆚 {self.name(guest)}"]
+        lines.append(
+            f"### {self.points[host.id]:g} a {self.points[guest.id]:g} · "
+            + (f"gana {winner.display_name}" if winner else "empate")
+        )
+        lines += [f"-# {line}" for line in self.log]
+        sessions: dict[int, gym.Session] = {}
+        afters: dict[int, RoosterRecord] = {}
+        for member in self.members:
+            score = self.points[member.id] / gym.SPARRING_ROUNDS
+            won = winner is not None and member.id == winner.id
+            change = self._change(member.id, score, won, now, day, sessions)
+            _, afters[member.id] = await self.cog.repository.change(
+                self.guild_id, member.id, change
+            )
+            training, after = self.trainings[member.id], afters[member.id]
+            lines.append(
+                f"{self.name(member)}: 💪 Fuerza {training.before.strength} → {after.strength} · "
+                f"🔋 Forma {round(form_now(training.before, now))} → {round(form_now(after, now))}"
+            )
+        self.cog.release_sparring(self)
+        if interaction is not None:
+            await edit(interaction, embed=self.embed("\n".join(lines)), view=None)
+        else:
+            await self.edit(embed=self.embed("\n".join(lines)), view=None)
+        for member in self.members:
+            other = guest if member.id == host.id else host
+            won = winner is not None and member.id == winner.id
+            await logros.track(
+                self.cog.bot,
+                self.guild_id,
+                member,
+                self.channel,
+                StatDelta(
+                    add={
+                        "gallos_sparrings": 1,
+                        "gallos_sparring_wins": int(won),
+                        "gallos_sparring_shutout": int(won and self.points[other.id] == 0),
+                    }
+                ),
+            )
+            await logros.track(
+                self.cog.bot,
+                self.guild_id,
+                member,
+                self.channel,
+                gallos_drill_stats(
+                    kind="pulso",
+                    score=sessions[member.id].score,
+                    bonus=sessions[member.id].bonus,
+                    combo=sessions[member.id].combo,
+                    event=None,
+                    form=round(form_now(afters[member.id], now)),
+                ),
+            )
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
+
+    @staticmethod
+    def _change(
+        user_id: int,
+        score: float,
+        won: bool,
+        now: float,
+        day: date,
+        sessions: dict[int, gym.Session],
+    ) -> Callable[[RoosterRecord], RoosterRecord]:
+        """El cambio de la ficha de uno: su nota como minijuego y, si gana, la forma de más."""
+
+        def change(record: RoosterRecord) -> RoosterRecord:
+            trait = gym.trait_of(user_id, record.deaths)
+            after, session = gym.after_session(
+                record, Stat.STRENGTH, score, trait=trait, now=now, day=day
+            )
+            sessions[user_id] = session
+            if won:
+                after = with_form(after, form_now(after, now) + gym.SPARRING_WIN_FORM, now)
+            return after
+
+        return change
+
+    async def shutdown(self) -> None:
+        """Al apagar: corta la espera; lo pagado se queda (como dejar el minijuego)."""
+        if self.timer is not None:
+            self.timer.cancel()
+        self.phase = "done"
+        await self.edit(view=None)
+
+
 @dataclass(slots=True)
 class Drill:
     """El minijuego de una sesión ya pagada, mientras se juega.
@@ -2626,6 +3021,7 @@ class Gallos(commands.Cog, name="Gallos"):
         # shortcut: en memoria, se pierde al reiniciar (alguien podría repetir ese día); el
         # tope de `FEEDS_PER_DAY` por gallo sí se guarda en la ficha.
         self.fed: dict[tuple[int, int, date], set[int]] = {}
+        self.sparrings: set[Sparring] = set()
 
     async def cog_unload(self) -> None:
         """Al apagar, devuelve lo apostado en las gradas abiertas y cierra el pintor."""
@@ -2637,6 +3033,12 @@ class Gallos(commands.Cog, name="Gallos"):
             if duel.task is not None:
                 duel.task.cancel()
         self.duels.clear()
+        for sparring in list(self.sparrings):
+            try:
+                await sparring.shutdown()
+            except Exception:
+                logger.exception("No se pudo cerrar un sparring de gallos al apagar")
+        self.sparrings.clear()
         for panel in list(self.panels):
             panel.stop()
         self.panels.clear()
@@ -2646,6 +3048,27 @@ class Gallos(commands.Cog, name="Gallos"):
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Borra las fichas de los gallos del servidor que deja el bot."""
         await self.repository.delete_guild_data(guild.id)
+
+    def release_sparring(self, sparring: Sparring) -> None:
+        """Libera a los dos de un sparring terminado (o caducado)."""
+        self.sparrings.discard(sparring)
+        for member in sparring.members:
+            self.busy.discard((sparring.guild_id, member.id))
+
+    async def refund_training(self, guild_id: int, user_id: int, training: Training) -> None:
+        """Devuelve un entrenamiento cobrado que no se llega a hacer (el sparring que no empieza).
+
+        Tratamiento fiscal: factura rectificativa (`EconomyService.refund_purchase`): la
+        caja devuelve la base y el Estado el IGIC, y la ficha vuelve a como estaba.
+        """
+        await self.economy.refund_purchase(
+            guild_id,
+            user_id,
+            base=training.base,
+            tax=training.tax,
+            concept=TRAIN_CONCEPT,
+            release=self.repository.restore(guild_id, user_id, training.before),
+        )
 
     def release(self, duel: Duel) -> None:
         """Libera a los dos dueños de un duelo terminado."""

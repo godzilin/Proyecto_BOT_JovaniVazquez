@@ -833,3 +833,27 @@ def cheer_factor(cheers: int) -> float:
 def drill_score(score: float, sabotaged: bool) -> float:
     """La nota que cuenta: la del minijuego, menos `SABOTAGE_PENALTY` si lo han saboteado."""
     return max(0.0, score - SABOTAGE_PENALTY) if sabotaged else score
+
+
+# -- Sparring entre dos miembros ---------------------------------------------------------
+
+#: Asaltos del pulso de un sparring y forma de más para quien lo gana.
+SPARRING_ROUNDS = PULSO_ROUNDS
+SPARRING_WIN_FORM = 4
+
+
+def pulso_points(mine: str, theirs: str) -> float:
+    """Puntos de un asalto de pulso para quien elige `mine` (1, 0,5 o 0).
+
+    Las claves son las de `PULSO_MOVES`; una elección vacía (no eligió a
+    tiempo) pierde contra cualquiera y empata contra otra vacía.
+    """
+    if not mine and not theirs:
+        return 0.5
+    if not mine:
+        return 0.0
+    if not theirs:
+        return 1.0
+    if mine == theirs:
+        return 0.5
+    return 1.0 if PULSO_BEATS[mine] == theirs else 0.0

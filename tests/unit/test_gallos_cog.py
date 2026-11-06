@@ -573,6 +573,7 @@ async def test_el_gimnasio_tiene_un_boton_por_stat_con_custom_id_fijo(tmp_path: 
         "gallos:financiar_aguante",
         # 🌽 Echarle de comer: para los demás
         "gallos:feed",
+        "gallos:spar_open",
     }
     assert "Gimnasio" in panel.embed().description
     await panel._leave_gym(fake_interaction(make_user(OWNER_ID)))
@@ -1117,3 +1118,89 @@ class Graded2(Graded):
         self.presses += 1
         if self.presses == 2:
             self._finish(self.grade)
+
+
+# -- Sparring -------------------------------------------------------------------------------
+
+
+async def open_sparring(tmp_path: Path) -> tuple[Gallos, gallos_cog.Sparring]:
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    channel = MagicMock()
+    channel.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+    panel.channel = channel
+    await panel._open_sparring(fake_interaction(make_user(OWNER_ID)))
+    (sparring,) = cog.sparrings
+    channel.send.assert_awaited_once()
+    return cog, sparring
+
+
+async def test_el_sparring_cobra_la_sesion_a_los_dos_y_reparte_forma_por_el_pulso(
+    tmp_path: Path,
+) -> None:
+    cog, sparring = await open_sparring(tmp_path)
+    assert (GUILD_ID, OWNER_ID) in cog.busy
+    await sparring.join(fake_interaction(make_user(OWNER_ID)))
+    assert sparring.guest is None
+    await sparring.join(fake_interaction(make_user(RIVAL_ID)))
+    assert sparring.phase == "fight"
+    base = train_price(0)
+    for user in (OWNER_ID, RIVAL_ID):
+        assert ledger(tmp_path, user) == [
+            ("tienda:gallos:entreno", -base),
+            ("tienda:igic", -igic(base)),
+        ]
+    # El dueño gana los cinco asaltos: aguantar contra empujar.
+    for _ in range(5):
+        await sparring.pick(fake_interaction(make_user(OWNER_ID)), "aguantar")
+        await sparring.pick(fake_interaction(make_user(RIVAL_ID)), "empujar")
+    assert sparring.phase == "done" and not cog.sparrings
+    assert (GUILD_ID, OWNER_ID) not in cog.busy and (GUILD_ID, RIVAL_ID) not in cog.busy
+    winner = await cog.repository.get(GUILD_ID, OWNER_ID)
+    loser = await cog.repository.get(GUILD_ID, RIVAL_ID)
+    assert winner.form > loser.form
+    assert winner.form == pytest.approx(
+        PAID_FORM
+        + gym.session_form(1.0, 0, gym.trait_factor(gym.trait_of(OWNER_ID, 0), Stat.STRENGTH))
+        + gym.SPARRING_WIN_FORM
+    )
+    assert loser.form == pytest.approx(PAID_FORM)  # nota 0: el minijuego no suma
+    assert books_balance(tmp_path)
+
+
+async def test_en_el_sparring_no_se_puede_elegir_dos_veces_ni_entrar_de_fuera(
+    tmp_path: Path,
+) -> None:
+    _cog, sparring = await open_sparring(tmp_path)
+    await sparring.join(fake_interaction(make_user(RIVAL_ID)))
+    await sparring.pick(fake_interaction(make_user(OWNER_ID)), "amagar")
+    await sparring.pick(fake_interaction(make_user(OWNER_ID)), "empujar")
+    assert sparring.picks == {OWNER_ID: "amagar"}
+    outsider = fake_interaction(make_user(FAN_IDS[0]))
+    await sparring.pick(outsider, "empujar")
+    assert OWNER_ID in sparring.picks and FAN_IDS[0] not in sparring.picks
+
+
+async def test_si_el_que_lo_busca_ya_no_puede_entrenar_se_devuelve_lo_cobrado(
+    tmp_path: Path,
+) -> None:
+    cog, sparring = await open_sparring(tmp_path)
+    # Entre la invitación y aceptar, el anfitrión entrena por su cuenta: le toca descansar.
+    await cog.train(GUILD_ID, OWNER_ID, await cog.repository.get(GUILD_ID, OWNER_ID), Stat.SPEED)
+    await sparring.join(fake_interaction(make_user(RIVAL_ID)))
+    assert sparring.phase == "open" and sparring.guest is None
+    base = train_price(0)
+    moves = ledger(tmp_path, RIVAL_ID)
+    assert ("tienda:gallos:entreno", -base) in moves
+    assert sum(delta for _reason, delta in moves) == 0
+    assert (await cog.repository.get(GUILD_ID, RIVAL_ID)).strength == 0
+    assert books_balance(tmp_path)
+
+
+def test_puntos_del_pulso() -> None:
+    assert gym.pulso_points("aguantar", "empujar") == 1
+    assert gym.pulso_points("empujar", "aguantar") == 0
+    assert gym.pulso_points("amagar", "amagar") == 0.5
+    assert gym.pulso_points("", "amagar") == 0 and gym.pulso_points("amagar", "") == 1
+    assert gym.pulso_points("", "") == 0.5
