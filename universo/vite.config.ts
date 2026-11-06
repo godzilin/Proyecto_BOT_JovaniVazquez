@@ -6,6 +6,7 @@ export default defineConfig({
   build: {
     outDir: "../src/bot/assets/universo",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 900, // three.js solo pesa ~700 kB; no hay nada que partir
   },
   server: {
     proxy: { "/api": "http://localhost:8080" },

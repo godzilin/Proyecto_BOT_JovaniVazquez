@@ -1,10 +1,8 @@
-/* Estilos de la Activity del Jovaniverso: tema espacial oscuro y una tarjeta centrada. */
+/* Estilos de la Activity del Jovaniverso: lienzo 3D a pantalla completa, HUD, controles táctiles y pantalla de carga. */
 :root {
-  --bg: #0b0b24;
   --card: rgba(28, 24, 66, 0.82);
   --border: rgba(160, 150, 255, 0.3);
   --text: #eceaff;
-  --muted: #a9a4d8;
   --accent: #ffd86b;
   --error: #ff9a9a;
 }
@@ -13,69 +11,165 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 16px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(1.5px 1.5px at 12% 18%, #fff 50%, transparent 51%),
-    radial-gradient(1px 1px at 30% 72%, #fff 50%, transparent 51%),
-    radial-gradient(2px 2px at 55% 12%, #cfd0ff 50%, transparent 51%),
-    radial-gradient(1px 1px at 72% 58%, #fff 50%, transparent 51%),
-    radial-gradient(1.5px 1.5px at 88% 28%, #fff 50%, transparent 51%),
-    radial-gradient(1px 1px at 8% 88%, #cfd0ff 50%, transparent 51%),
-    radial-gradient(1.5px 1.5px at 92% 90%, #fff 50%, transparent 51%),
-    radial-gradient(ellipse at 50% 0%, #2a1d63 0%, transparent 65%);
+  background: #f3cfa4;
 }
 
-.card {
+#mundo,
+#mundo canvas {
+  position: fixed;
+  inset: 0;
   width: 100%;
-  max-width: 420px;
-  padding: 32px 24px;
-  text-align: center;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#capa {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pildora {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
-}
-
-.greeting {
-  margin: 0 0 8px;
-  font-size: 1.4rem;
-  font-weight: 600;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
   overflow-wrap: anywhere;
 }
 
-.balance {
-  margin: 16px 0;
-  font-size: clamp(2.2rem, 11vw, 3.5rem);
-  font-weight: 700;
+.pildora .saldo {
+  margin-left: 8px;
   color: var(--accent);
 }
 
-.guild {
-  margin: 0 0 24px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
+.ayuda {
+  position: absolute;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 140px);
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: opacity 0.6s;
 }
 
-.footer {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--muted);
+.ayuda.oculta {
+  opacity: 0;
+}
+
+.joy-base {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 112px;
+  height: 112px;
+  margin: -56px 0 0 -56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  display: none;
+}
+
+.joy-base.visible {
+  display: block;
+}
+
+.joy-mando {
+  position: absolute;
+  left: 32px;
+  top: 32px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.boton-salto {
+  position: fixed;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+  backdrop-filter: blur(4px);
+}
+
+.boton-salto[hidden] {
+  display: none;
+}
+
+.boton-salto.activo {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.carga {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% 0%, #3a2a6a 0%, #0b0b24 70%);
+  transition: opacity 0.5s;
+}
+
+.carga.fuera {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .message {
   margin: 0;
-  font-size: 1.05rem;
+  max-width: 420px;
+  font-size: 1.1rem;
   line-height: 1.5;
 }
 
 .message.error {
   color: var(--error);
+}
+
+@media (pointer: coarse) {
+  .ayuda {
+    bottom: auto;
+    top: calc(max(12px, env(safe-area-inset-top)) + 64px);
+    max-width: calc(100% - 32px);
+  }
 }

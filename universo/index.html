@@ -1,13 +1,21 @@
 <!doctype html>
-<!-- Punto de entrada de la Activity del Jovaniverso: solo el contenedor; lo pinta src/main.ts. -->
+<!-- Punto de entrada de la Activity del Jovaniverso: contenedores del mundo 3D y del HUD; los llena src/main.ts. -->
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <link rel="icon" href="data:," />
     <title>Jovaniverso</title>
   </head>
   <body>
-    <main class="card" id="app" aria-live="polite"></main>
+    <div id="mundo"></div>
+    <div id="capa">
+      <div class="pildora" id="pildora" hidden></div>
+      <div class="ayuda" id="ayuda" hidden></div>
+    </div>
+    <main class="carga" id="carga" aria-live="polite">
+      <p class="message" id="carga-texto">Entrando en el Jovaniverso…</p>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
