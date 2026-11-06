@@ -404,6 +404,29 @@ El bot sigue versionado semántico (MAYOR.MENOR.PARCHE), juzgado desde quien usa
 - Los GIF animados se escriben con `bot.utils.gif` (`shared_palette_gif` si los fotogramas comparten paleta, `local_palette_gif` si van a color completo), nunca con `save(save_all=True)` a pelo: la optimización por defecto de Pillow recorre los píxeles en Python y en el pachinko se comía ~750 ms de los ~870 de una tanda. Los efectos de imagen de los miembros (`services/memes`) son la excepción, porque sus fotogramas vienen de fuera. Una animación de cientos de fotogramas (el pozo de `picar`) se monta por tramos con `GifStream`, que da los mismos bytes que `local_palette_gif` sin tener todos los fotogramas en memoria, y se parte en varios GIF antes del límite de subida.
 - Un panel con estado por usuario (como el de `pala`) admite una sola acción en curso: el cog guarda quién está en una (`working`) y rechaza la segunda, porque dos botones de dos paneles pueden llegar a la vez y cobrar dos veces.
 
+### Jovaniverso: rendimiento imperativo
+
+El Jovaniverso tiene que ir fluido en el NAS (8 GB de RAM para todo el NAS, 2 GB para el bot por `mem_limit`, 4 hilos de un N100 que comparten el bot, sus juegos, sus dibujos y los demás servicios) y en el móvil de cada miembro. Aquí la optimización no es un retoque de después: es un requisito de aceptación. Una funcionalidad del Jovaniverso que no cumpla estas reglas no está terminada, aunque funcione.
+
+**En el servidor (el NAS).** El servidor web vive en el mismo proceso y el mismo bucle de eventos que el bot: lo que gaste lo pierden los juegos y los botones.
+
+- **El servidor no simula: valida y reparte.** La física, el movimiento, las animaciones y el dibujo van en el navegador de cada uno. El servidor solo comprueba (límites, velocidad, permisos) y reenvía. Lo que decida dinero o logros sí se decide en el servidor, pero con eventos sueltos (entrar, comprar, jugar), nunca en cada fotograma.
+- **Ritmo fijo y por lotes.** El estado compartido (posiciones) se manda en ticks fijos (10 por segundo como mucho), un solo mensaje por cliente y tick con todos los cambios, nunca un reenvío por cada mensaje que llega. Cada tick se codifica una sola vez y los mismos bytes van a todos. Una sala vacía no tiene tarea ni tick.
+- **Binario y cuantizado.** Lo que va en cada tick viaja en binario (`struct`, `DataView`), no en JSON: posiciones en decímetros en enteros de 16 bits, ángulos en un byte e identificadores cortos de sala (nunca el snowflake de 64 bits en cada tick). JSON solo para lo raro (entrar, salir, nombres, errores). Solo se manda lo que ha cambiado.
+- **Todo con tope.** Tamaño máximo de mensaje, mensajes por segundo de cada cliente (lo que sobra se descarta, no se encola), jugadores por sala y salas. Un cliente lento no hace esperar a los demás: si su búfer de envío va atrasado, se salta ticks.
+- **Nada caro en el camino caliente.** Ni base de datos, ni logs, ni llamadas a Discord por mensaje o por tick. Los logros se apuntan con `note` (la escritura de cada minuto) en eventos sueltos. La telemetría, agregada.
+- **Memoria acotada y que se suelta.** Las salas y los jugadores viven en memoria con tope y se borran al irse el último. Las conexiones muertas se cierran con latido (`heartbeat`).
+- **Se mide.** Cada cosa nueva del servidor se prueba con muchos clientes falsos (decenas a la vez) y se mira cuánto tarda un tick y cuánta CPU gasta, atado a 4 hilos como `docs/medir_dibujos.py`. Tras desplegar, «Bloqueos del bucle» del informe tiene que seguir vacío.
+
+**En la página (el navegador de cada miembro).** Muchos juegan desde el móvil y dentro de Discord, que ya gasta lo suyo.
+
+- **Presupuesto por fotograma:** menos de 120 llamadas de dibujo y de 250.000 triángulos en la peor vista, contando la pasada de sombras (`renderer.info`). Lo que añada algo dice cuánto suma.
+- **Geometría compartida:** `InstancedMesh` para lo repetido y geometrías fundidas por material para lo fijo; colores por vértice en vez de texturas; una sola luz con sombras, con un recuadro que sigue al jugador.
+- **Calidad adaptativa** (`mundo/calidad.ts`): si los fps bajan, primero se baja la resolución y luego se quitan las sombras. Nunca se pinta con la pestaña de verdad oculta.
+- **Los otros jugadores cuestan:** un tope de visibles (los más cercanos), los lejanos sin animar o sin dibujar, el mismo modelo y material compartidos, e interpolación entre ticks en vez de mandar más ticks.
+- **Peso de la descarga:** cada KB pasa por el túnel y por el proxy de Discord. Sin dependencias nuevas sin necesidad (las de Node, fijadas y con dos semanas, como siempre), modelos sin texturas cuando se pueda y lo pesado cargado cuando haga falta, no al entrar.
+- **Se prueba en lo lento:** capturas a 390 × 844 con táctil, `renderer.info` en la peor vista y, antes de dar algo por bueno, un móvil de verdad dentro de Discord.
+
 ## 6. Seguridad y permisos
 
 - El token del bot y cualquier credencial son secretos. Usar variables de entorno o un gestor de secretos del entorno de despliegue.

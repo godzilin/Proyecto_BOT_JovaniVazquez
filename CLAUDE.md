@@ -49,6 +49,10 @@ Lo que más se olvida:
   reprodúcelo así antes de culpar a Docker o a la base de datos. Sección "Pruebas y
   calidad" de `Biblia.txt`.
 - **Botones:** contestan a Discord antes de tocar la base de datos. Sección siguiente.
+- **Jovaniverso:** la optimización es un requisito, no un retoque: el NAS tiene 8 GB y 4 hilos
+  para todo. El servidor no simula (valida y reparte en ticks fijos, binario, con topes) y la
+  página tiene presupuesto de llamadas de dibujo y triángulos. Sección «Jovaniverso:
+  rendimiento imperativo» de `Biblia.txt`.
 - **Subagentes:** solo Haiku (lo mecánico) o Sonnet (programar), en su última versión, uno a
   la vez y para una tarea bien acotada. Si pueden hacerlo, se les delega y se espera, revisando
   siempre su trabajo antes de fusionar. Sección «Agentes y subagentes» de `Biblia.txt`.
