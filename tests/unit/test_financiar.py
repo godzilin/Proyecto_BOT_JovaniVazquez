@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.cogs.shop import cash_part, financed_purchase
 from bot.repositories.housing import HousingError
 from bot.repositories.housing_finance import LOAN_BNPL, LOAN_PURCHASE
 from bot.services import credit
@@ -14,8 +15,8 @@ from bot.services import housing as rules
 from bot.services import loans as lending
 from bot.services.economy import STARTING_BALANCE
 from bot.services.housing_catalog import LISTING_BY_KEY, REFORMS
-from bot.services.shop import emblematic, quote
-from bot.services.shop_catalog import TITLE_KEYS
+from bot.services.shop import TicketLine, emblematic, quote
+from bot.services.shop_catalog import CATALOG, HOUSE_AISLE, TITLE_KEYS
 from tests.unit.test_loans import ANA, GUILD, Clock, empty, ledger_sum, make, salary, sql
 from tests.unit.test_shop import NOW
 from tests.unit.test_shop import item as shop_item
@@ -100,6 +101,30 @@ def test_lo_numerado_y_los_titulos_son_emblematicos() -> None:
     assert emblematic(shop_item(stock=1))
     assert emblematic(shop_item(catalog_key=next(iter(TITLE_KEYS))))
     assert not emblematic(shop_item())
+
+
+def _line(**fields: object) -> TicketLine:
+    piece = shop_item(**fields)
+    return TicketLine(piece, 1, quote(piece, NOW))
+
+
+def test_en_un_carrito_mezclado_lo_unico_va_al_contado() -> None:
+    normal, numbered = _line(id=1, price=20_000), _line(id=2, price=5_000, stock=5)
+    purchase = financed_purchase([normal, numbered])
+    assert purchase is not None
+    assert purchase.amount == normal.total
+    assert cash_part([normal, numbered]) == numbered.total
+    assert financed_purchase([numbered]) is None
+
+
+def test_el_cero_por_ciento_del_carrito_solo_vale_con_un_pasillo() -> None:
+    other = next(e.key for e in CATALOG if e.aisle != HOUSE_AISLE.key and e.key not in TITLE_KEYS)
+    house = _line(id=1, price=20_000)
+    same = financed_purchase([house, _line(id=2, price=3_000)])
+    mixed = financed_purchase([house, _line(id=3, price=3_000, catalog_key=other)])
+    assert same is not None and same.category == f"tienda:{HOUSE_AISLE.key}"
+    assert mixed is not None and mixed.category == "tienda"
+    assert "tienda" not in credit.categories()
 
 
 # -- Con la base de datos --------------------------------------------------------------------

@@ -83,6 +83,8 @@ async def test_financiar_sale_con_custom_id_unico(tmp_path: Path) -> None:
     found = ids(panel)
     assert "pala-panel:financiar_vuelo" in found
     assert len(found) == len(set(found))
+    assert "-# 🎓 Formación: 💳" in texts(panel) and "-# ✈️ Vuelo a Hong Kong: 💳" in texts(panel)
+    assert "-# ☕ Café: 💳" in texts(panel)
     check_limits(panel)
     (cafe,) = [
         i
@@ -145,6 +147,7 @@ async def test_entrenar_al_gallo_financiado_cobra_y_devuelve_none(
     await panel._gym(fake_interaction(gallos_user(OWNER_ID)))
     found = [c.custom_id for c in panel.children if isinstance(c, ui.Button)]
     assert len(found) == len(set(found))
+    assert "💳" in panel.gym_text()
     assert {f"gallos:financiar_{s.value}" for s in Stat} <= set(found)
     deals = capture_deal(monkeypatch, gallos_cog)
     await panel._finance_train(fake_interaction(gallos_user(OWNER_ID)), Stat.STRENGTH)

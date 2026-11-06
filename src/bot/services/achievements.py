@@ -10049,6 +10049,19 @@ def _build_catalog() -> tuple[Achievement, ...]:
          f"Financia una compra con el IPC del crédito a la mitad de su tope "
          f"({IPC_CAP // 2} %) o más.", E),
     ])  # fmt: skip
+    a += _tiers("bizum", "financed_mixed", [
+        (1, "financed_mixed", "A pachas con el banco",
+         "Financia una compra pagando al contado la parte que no se financia.", C),
+    ])  # fmt: skip
+    a += _tiers("bizum", "financed_entrada", [
+        (1, "financed_entrada", "Entrada sin entrada", "Financia una mejora de tus entradas.", C),
+    ])  # fmt: skip
+    a += _tiers("bizum", "financed_negocio", [
+        (1, "financed_negocio", "Hoy no se fía, mañana sí",
+         "Financia una compra de tu negocio.", C),
+        (10, "financed_negocio_10", "El banco es mi socio",
+         "Financia 10 compras de tu negocio.", R),
+    ])  # fmt: skip
     # Rehipotecas (`banco`, 🔐 Garantías: remortgage_*_stats).
     a += _tiers("bizum", "remortgages_signed", [
         (1, "remortgage_1", "Ladrillo líquido", "Rehipoteca un inmueble.", C),
@@ -28303,6 +28316,8 @@ def financed_stats(
     open_count: int,
     ipc: int,
     trap: bool,
+    category: str = "",
+    cash: int = 0,
 ) -> StatDelta:
     """Estadísticas de quien financia una compra (💳 Financiar).
 
@@ -28313,6 +28328,8 @@ def financed_stats(
         open_count: Compras financiadas sin terminar de pagar, contando esta.
         ipc: El IPC del crédito al firmar, en %.
         trap: Si es el 0 % en el plazo más corto (peor TAE que el normal).
+        category: La categoría de la compra (`credit.categories`, «entrada», «negocio»…).
+        cash: Lo que se pagó al contado en la misma compra (lo único de un carrito).
     """
     delta = StatDelta(
         add={"financed": 1},
@@ -28327,6 +28344,9 @@ def financed_stats(
         ("financed_works", works),
         ("financed_could_pay", could_pay),
         ("financed_high_ipc", ipc >= IPC_CAP // 2),
+        ("financed_mixed", cash > 0),
+        ("financed_entrada", category == "entrada"),
+        ("financed_negocio", category == "negocio"),
     ):
         if hit:
             delta.add[stat] = 1
