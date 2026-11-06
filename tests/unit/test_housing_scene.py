@@ -1231,6 +1231,7 @@ def test_las_muestras_de_calles_y_edificios_traen_lo_que_pinta_la_escena() -> No
 # -- Reserva con Pillow ------------------------------------------------------------------
 
 
+@pytest.mark.lenta
 async def test_sin_node_ni_chromium_cada_pantalla_cae_a_pillow() -> None:
     scene = HousingScene(executable_path=NO_CHROMIUM, node=NO_NODE)
     try:
@@ -1265,6 +1266,7 @@ async def scene() -> HousingScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_pantalla_es_un_png_del_tamano_y_distinta(scene: HousingScene) -> None:
@@ -1291,6 +1293,7 @@ async def test_con_node_una_pantalla_desconocida_desactiva_el_pintor() -> None:
     png_image(png, {"screen": "nada"})  # cae a Pillow, con las medidas de una pantalla corriente
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_las_pantallas_repartidas_pintan_lo_mismo_que_con_un_proceso(
@@ -1371,6 +1374,7 @@ def test_los_tipos_y_los_temas_son_los_del_catalogo() -> None:
     assert all("theme" in item for item in states["cartera"]["items"] if item["kind"] != "vpo")
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_cada_tipo_se_pinta_en_cada_tema_y_ninguno_sale_igual(looks: HousingScene) -> None:

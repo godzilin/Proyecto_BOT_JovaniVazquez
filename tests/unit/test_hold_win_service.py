@@ -330,6 +330,7 @@ def test_la_apuesta_minima_da_premios_de_al_menos_un_yapdollar() -> None:
     assert to_amount(10, MIN_STAKE) >= 1
 
 
+@pytest.mark.lenta
 def test_el_retorno_ronda_el_94_por_ciento(monkeypatch: pytest.MonkeyPatch) -> None:
     """Simulación corta con semilla fija: el número exacto está en el docstring.
 

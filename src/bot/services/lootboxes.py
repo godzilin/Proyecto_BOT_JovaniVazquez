@@ -15,8 +15,9 @@ valor: el de referencia en el Rastro y el del patrimonio. Las piezas del 👗 Ar
 mascota son además ropa que se pone a las mascotas (`bot.services.pet_wardrobe`, las
 prendas con `box`): sus filas salen de allí. Además, el maletín y el
 cofre dan con probabilidad muy baja un **tapete** de los que se compran en la tienda
-(`tapetes_for`); si quien abre ya lo tiene (uno por persona), se vuelve a sortear
-entre los coleccionables.
+(`tapetes_for`), y cualquier caja, una vez de cada 50.000, el 🧊 Tapete Hielo Negro,
+que no se vende (`HIELO_ODDS`). Si quien abre ya tiene el tapete (uno por persona), se
+vuelve a sortear entre los coleccionables.
 
 **Retorno.** Cada caja devuelve de media `TARGET_RETURN` (~95 %) de su precio a valor
 de catálogo: abrir cajas cuesta casi lo mismo que comprar lo de dentro. Lo calcula
@@ -44,7 +45,7 @@ from datetime import datetime
 from enum import IntEnum
 
 from bot.services.pet_wardrobe import BOX_COLLECTION, BOX_OUTFITS
-from bot.services.skins import SKINS, Season, Skin
+from bot.services.skins import HIELO, SKIN_BY_KEY, SKINS, Season, Skin
 
 
 class Rarity(IntEnum):
@@ -74,6 +75,8 @@ class Rarity(IntEnum):
 
 #: Clave de la «rareza» de un tapete en la tabla de probabilidades.
 TAPETE = "tapete"
+#: Clave del Tapete Hielo Negro en la tabla: sale de cualquier caja, una vez de cada 50.000.
+HIELO_ODDS = "hielo"
 _RARITY_BY_LETTER = {
     "C": Rarity.COMMON,
     "R": Rarity.RARE,
@@ -482,29 +485,47 @@ def piece_of(catalog_key: str | None) -> Piece | None:
 # -- Cajas ---------------------------------------------------------------------------------
 
 #: Probabilidad de cada resultado en cada caja: las cinco rarezas y, en el maletín y el
-#: cofre, el tapete. Suman 1 (`_normalised` lo ajusta por si sobra una milésima). Se
+#: cofre, el tapete, y en todas, el Tapete Hielo Negro (`HIELO_ODDS`, 1 de cada 50.000,
+#: restado de los Común). Suman 1 (`_normalised` lo ajusta por si sobra una milésima). Se
 #: calibraron con `expected_value` para que cada caja devuelva ~95 % de su precio. Los
 #: Común salen al restar; si se toca una cifra hay que volver a calibrar (la prueba exige
 #: entre 0,93 y 0,97 en cada caja).
 # fmt: off
 ODDS: dict[str, dict[str, float]] = {
     # Cartón (1.000): casi todo Común y Raro; la Mítica sale una de cada 10.000.
-    "caja_carton": {"C": 0.7679, "R": 0.2000, "E": 0.0300, "L": 0.0020, "M": 0.0001},
+    "caja_carton": {
+        "C": 0.76788, "R": 0.2000, "E": 0.0300, "L": 0.0020, "M": 0.0001,
+        "hielo": 0.00002,
+    },
     # Regalo (5.000): Común, Rara y alguna Épica; una Legendaria de cada 27.
-    "caja_regalo": {"C": 0.5260, "R": 0.3000, "E": 0.1300, "L": 0.0370, "M": 0.0070},
+    "caja_regalo": {
+        "C": 0.52598, "R": 0.3000, "E": 0.1300, "L": 0.0370, "M": 0.0070,
+        "hielo": 0.00002,
+    },
     # Maletín (25.000): lo normal es Épica o Legendaria; tapete, 6 de cada 10.000.
     "maletin_ministro": {
-        "C": 0.1901, "R": 0.2500, "E": 0.3000, "L": 0.2000, "M": 0.0593, "tapete": 0.0006,
+        "C": 0.19008, "R": 0.2500, "E": 0.3000, "L": 0.2000, "M": 0.0593, "tapete": 0.0006,
+        "hielo": 0.00002,
     },
     # Cofre (100.000): la mayoría Legendaria o Mítica; tapete, 1 de cada 100.
     "cofre_rey_emerito": {
-        "C": 0.1418, "R": 0.0500, "E": 0.1200, "L": 0.3000, "M": 0.3782, "tapete": 0.0100,
+        "C": 0.14178, "R": 0.0500, "E": 0.1200, "L": 0.3000, "M": 0.3782, "tapete": 0.0100,
+        "hielo": 0.00002,
     },
     # Las de temporada (5.000) tiran como el regalo; su colección sale con más peso
     # (`SEASON_SHARE`) y por eso hay que afinar cada una por separado.
-    "caja_navidad": {"C": 0.5290, "R": 0.3000, "E": 0.1300, "L": 0.0340, "M": 0.0070},
-    "caja_halloween": {"C": 0.5260, "R": 0.3000, "E": 0.1300, "L": 0.0370, "M": 0.0070},
-    "caja_aniversario": {"C": 0.5277, "R": 0.3000, "E": 0.1300, "L": 0.0353, "M": 0.0070},
+    "caja_navidad": {
+        "C": 0.52898, "R": 0.3000, "E": 0.1300, "L": 0.0340, "M": 0.0070,
+        "hielo": 0.00002,
+    },
+    "caja_halloween": {
+        "C": 0.52598, "R": 0.3000, "E": 0.1300, "L": 0.0370, "M": 0.0070,
+        "hielo": 0.00002,
+    },
+    "caja_aniversario": {
+        "C": 0.52768, "R": 0.3000, "E": 0.1300, "L": 0.0353, "M": 0.0070,
+        "hielo": 0.00002,
+    },
 }
 # fmt: on
 
@@ -534,7 +555,7 @@ class Box:
 
     @property
     def odds(self) -> Mapping[str, float]:
-        """Probabilidad de cada resultado (`C`, `R`, `E`, `L`, `M` y `tapete`)."""
+        """Probabilidad de cada resultado (`C`, `R`, `E`, `L`, `M`, `tapete` y `hielo`)."""
         return ODDS[self.key]
 
     @property
@@ -638,6 +659,9 @@ def expected_value(box: Box) -> float:
     """
     total = 0.0
     for outcome, chance in _normalised(box.odds).items():
+        if outcome == HIELO_ODDS:
+            total += chance * SKIN_BY_KEY[HIELO].price
+            continue
         if outcome == TAPETE:
             tapetes = tapetes_for(box)
             total += chance * sum(s.price for s in tapetes) / len(tapetes)
@@ -706,10 +730,10 @@ def roll(
     """Sortea lo que da una caja.
 
     Primero se sortea el resultado con las probabilidades de la caja. Si es un tapete
-    que quien abre ya tiene (uno por persona) o que el servidor no vende, se vuelve a
-    sortear entre los coleccionables (`rerolled`). Con la rareza elegida, la pieza sale
-    de la colección de temporada con probabilidad `SEASON_SHARE` (solo cajas de
-    temporada) y, si no, de las colecciones normales.
+    (o el Hielo Negro) que quien abre ya tiene (uno por persona) o que el servidor no
+    vende, se vuelve a sortear entre los coleccionables (`rerolled`). Con la rareza
+    elegida, la pieza sale de la colección de temporada con probabilidad `SEASON_SHARE`
+    (solo cajas de temporada) y, si no, de las colecciones normales.
 
     Args:
         owned: Claves de los tapetes que ya tiene.
@@ -726,14 +750,13 @@ def roll(
 
     outcome = _choose(weights, rng)
     rerolled = False
-    if outcome == TAPETE:
-        options = [
-            s for s in tapetes_for(box) if s.catalog_key not in owned and exists(s.catalog_key)
-        ]
+    if outcome in (TAPETE, HIELO_ODDS):
+        candidates = tapetes_for(box) if outcome == TAPETE else (SKIN_BY_KEY[HIELO],)
+        options = [s for s in candidates if s.catalog_key not in owned and exists(s.catalog_key)]
         if options:
             return Drop(Rarity.MYTHIC, skin=rng.choice(options))
         rerolled = True
-        weights = _normalised({k: v for k, v in weights.items() if k != TAPETE})
+        weights = _normalised({k: v for k, v in weights.items() if k not in (TAPETE, HIELO_ODDS)})
         outcome = _choose(weights, rng)
     rarity = _RARITY_BY_LETTER[outcome]
     seasonal = box.collection is not None and rng.random() < SEASON_SHARE
@@ -833,6 +856,12 @@ def reveal_frame(
         price_text: El valor de catálogo ya formateado (`1.500 Y$`).
     """
     head = f"{box.emoji} {who} abre {box.name}…"
+    if drop.skin is not None and drop.skin.key == HIELO:
+        body = (
+            f"🧊 **¡HIELO NEGRO!** {drop.emoji} **{drop.name}** ({price_text}). Sale una vez "
+            "de cada 50.000 cajas. Ponlo en cualquier mesa con fieltro desde la mochila."
+        )
+        return f"{head}\n{body}"
     if drop.skin is not None:
         body = (
             f"🌈 **¡UN TAPETE!** {drop.emoji} **{drop.name}** ({price_text}). Esto no "

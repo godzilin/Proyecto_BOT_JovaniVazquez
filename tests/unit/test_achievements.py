@@ -93,7 +93,9 @@ from bot.services.achievements import (
     PORRA_PROP_PREFIX,
     PORRA_PROPS,
     PORRA_STATS,
+    PREDICT_COUNTRIES_STAT,
     PREDICT_SECTION_PREFIX,
+    PREDICT_TOPICS_STAT,
     REACT_KINDS_STAT,
     REACT_PREFIX,
     REACTED_PREFIX,
@@ -235,6 +237,7 @@ HOUSING_EVENT_KEYS = (
 PRODUCED_STATS = {
     # 🎪 Rueda (`rueda_stats`)
     "rueda_spins", "rueda_streak_max", "rueda_again_day", "rueda_again_nothing",
+    "rueda_again_hielo",
     "rueda_money_max", "rueda_money_total", "rueda_xp_total", "rueda_col", "rueda_in_kind",
     "rueda_midnight", "rueda_lastminute", "rueda_night", "rueda_nochevieja", "rueda_canarias",
     "rueda_viernes13", "rueda_inocentes", "rueda_hamster",
@@ -392,7 +395,8 @@ PRODUCED_STATS = {
     "shop_clover_broken", "shop_no_parsley", "shop_flash", "shop_fake_champagne",
     "shop_ball_dogs",
     # Cajas (cogs/shop.py: lootbox_stats al abrir, lootbox_free_stats al ganarlas jugando)
-    "lootbox_opened", "lootbox_tapete", "lootbox_dupes", "lootbox_season", "lootbox_night",
+    "lootbox_opened", "lootbox_tapete", "lootbox_hielo", "lootbox_hielo_carton",
+    "lootbox_dupes", "lootbox_season", "lootbox_night",
     "lootbox_free", *(f"lootbox_box_{box.key}" for box in LOOTBOXES),
     *(f"lootbox_got_{rarity.stat}" for rarity in LootRarity),
     *(collection.stat for collection in LOOTBOX_COLLECTIONS),
@@ -442,7 +446,8 @@ PRODUCED_STATS = {
     # cogs/banco_compras.py: 💳 Financiar (financed_stats)
     "financed", "financed_bnpl", "financed_coffee", "financed_zero", "financed_trap",
     "financed_grace", "financed_works", "financed_max", "financed_open_max",
-    "financed_could_pay", "financed_high_ipc",
+    "financed_could_pay", "financed_high_ipc", "financed_mixed", "financed_entrada",
+    "financed_negocio",
     # cogs/banco.py (🔐 Garantías) y las ejecuciones de cogs/pisos.py: remortgage_*_stats
     "remortgages_signed", "remortgage_principal_max", "remortgages_open_max", "remortgage_home",
     "remortgage_not_home", "remortgage_shortest", "remortgage_full", "remortgage_minimum",
@@ -521,6 +526,10 @@ PRODUCED_STATS = {
     "lottery_scratch_near", "lottery_jackpot_seen", "lottery_pool_bets_max", "lottery_capicua",
     "lottery_zeros", "lottery_666", "lottery_123456", "lottery_scratch_night",
     "lottery_scratch_friday13", "lottery_xmas_last", "lottery_streak_max", "lottery_check_days",
+    # Loterías 9.48.0: ⚡ Turbo y ▶️ Auto en los rascas.
+    "lottery_scratch_turbo", "lottery_scratch_auto", "lottery_scratch_auto_sessions",
+    "lottery_scratch_auto_full", "lottery_scratch_auto_loss", "lottery_scratch_auto_quick_quit",
+    "lottery_scratch_auto_bigwin",
     # Casino
     "roulette_spins", "roulette_wins", "roulette_straight_wins", "roulette_green_wins",
     "roulette_double_zero_wins", "roulette_color_wins", "roulette_wagers_max",
@@ -1021,6 +1030,8 @@ PRODUCED_STATS = {
     "sports_combo_win_max", "sports_combo_odds_won_max", "sports_combo_legs_won_max",
     # 🔮 Predicciones (`predict_*_stats`; las pruebas del final comprueban cada una)
     *(f"{PREDICT_SECTION_PREFIX}{section.key}" for section in PREDICT_SECTIONS),
+    *(f"{PREDICT_SECTION_PREFIX}{t.key}" for section in PREDICT_SECTIONS for t in section.topics),
+    PREDICT_COUNTRIES_STAT, PREDICT_TOPICS_STAT,
     "predict_bets", "predict_staked", "predict_side_yes", "predict_side_no",
     "predict_bet_long", "predict_bet_safe", "predict_all_in", "predict_bet_min",
     "predict_bet_cap", "predict_bet_666", "predict_bet_69", "predict_early",
@@ -2575,7 +2586,7 @@ def test_el_agujero_de_gusano_pide_movil_y_ordenador() -> None:
 
 def _predict_bet(**over: object) -> StatDelta:
     args = {
-        "stake": 100, "odds": 200, "side": 0, "section": "espana",
+        "stake": 100, "odds": 200, "side": 0, "section": "politica",
         "balance_before": 1_000, "lead": 3 * 86_400, "when": at(12),
     }  # fmt: skip
     return predict_bet_stats(**{**args, **over})
@@ -2586,10 +2597,30 @@ def test_una_prediccion_normal_solo_cuenta_lo_basico() -> None:
     assert delta.add == {
         "predict_bets": 1,
         "predict_staked": 100,
-        f"{PREDICT_SECTION_PREFIX}espana": 1,
+        f"{PREDICT_SECTION_PREFIX}politica": 1,
         "predict_side_yes": 1,
     }
     assert delta.peak == {"predict_event_markets_max": 1}
+
+
+def test_una_prediccion_cuenta_cada_tema_y_los_distintos_salen_derivados() -> None:
+    delta = _predict_bet(topics=("espana", "eeuu"))
+    assert delta.add[f"{PREDICT_SECTION_PREFIX}espana"] == 1
+    assert delta.add[f"{PREDICT_SECTION_PREFIX}eeuu"] == 1
+    stats = {
+        f"{PREDICT_SECTION_PREFIX}espana": 4,
+        f"{PREDICT_SECTION_PREFIX}eeuu": 1,
+        f"{PREDICT_SECTION_PREFIX}cripto": 2,
+        f"{PREDICT_SECTION_PREFIX}politica": 5,
+    }
+    full = with_derived(stats)
+    assert full[PREDICT_COUNTRIES_STAT] == 2
+    assert full[PREDICT_TOPICS_STAT] == 3
+
+
+def test_las_claves_de_secciones_y_temas_de_predice_no_se_repiten() -> None:
+    keys = [s.key for s in PREDICT_SECTIONS] + [t.key for s in PREDICT_SECTIONS for t in s.topics]
+    assert len(keys) == len(set(keys))
 
 
 def test_una_prediccion_al_no_cuenta_el_no_y_no_el_si() -> None:

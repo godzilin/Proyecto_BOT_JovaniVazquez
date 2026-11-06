@@ -24,13 +24,20 @@ from bot.cogs.lottery import (
     DRAW_PNG,
     POSTER_PNG,
     SCRATCH_GIF,
+    SCRATCH_PNG,
     TICKET_PNG,
     Loteria,
     LotteryPanel,
 )
 from bot.repositories.economy import STATE_ACCOUNT_ID, EconomyRepository
 from bot.repositories.lottery import LotteryRepository
-from bot.services.achievements import lottery_buy_stats, lottery_check_stats, scratch_stats
+from bot.services.achievements import (
+    lottery_buy_stats,
+    lottery_check_stats,
+    scratch_autoplay_stats,
+    scratch_stats,
+)
+from bot.services.autoplay import AutoplaySession, StopReason
 from bot.services.economy import STARTING_BALANCE, EconomyService
 from bot.services.lottery import DRAW_TIMEZONE, GAME_BY_KEY, Pick, next_draw, random_pick
 
@@ -283,3 +290,102 @@ async def test_el_libro_cuadra_tras_rascar_varias_veces(tmp_path: Path) -> None:
     state = await cog.economy.state_balance(GUILD)
     assert alice + state == STARTING_BALANCE
     assert STATE_ACCOUNT_ID != ALICE
+
+
+def button(panel: LotteryPanel, custom_id: str) -> discord.ui.Button:
+    (found,) = [c for c in panel.walk_children() if getattr(c, "custom_id", None) == custom_id]
+    return found  # type: ignore[return-value]
+
+
+async def test_el_turbo_ensena_el_rasca_ya_rascado_en_una_sola_edicion(tmp_path: Path) -> None:
+    cog = await make(tmp_path, Clock())
+    panel = LotteryPanel(cog, MagicMock(id=GUILD), owner())
+    panel.tab = "rasca"
+    panel.rebuild()
+    toggle = click(panel.owner)
+    await button(panel, "loteria:turbo").callback(toggle)
+    assert panel.turbo and (GUILD, ALICE) in cog.turbo
+    # Se recuerda al abrir otro panel.
+    assert LotteryPanel(cog, MagicMock(id=GUILD), owner()).turbo
+    interaction = click(panel.owner)
+
+    await cog.scratch(interaction, panel, X10)
+
+    (call,) = interaction.edit_original_response.await_args_list
+    assert attachments(call) == [SCRATCH_PNG]
+    assert "Rascando" not in (panel.notice or "") and "premio" in (panel.notice or "").lower()
+    assert not cog._later  # noqa: SLF001 - nada espera a una animación
+    assert panel.balance == await cog.economy.balance(GUILD, ALICE)
+
+
+async def run_auto(cog: Loteria, panel: LotteryPanel, interaction: MagicMock) -> AutoplaySession:
+    cog.start_autoplay(interaction, panel, X10)
+    session = panel.autoplay
+    assert session is not None and session.task is not None
+    await session.task
+    return session
+
+
+async def test_el_auto_rasca_hasta_una_parada_y_el_libro_cuadra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(Loteria.scratch.__globals__, "AUTOPLAY_MIN_GAP", 0)
+    cog = await make(tmp_path, Clock())
+    panel = LotteryPanel(cog, MagicMock(id=GUILD), owner())
+    panel.tab = "rasca"
+
+    session = await run_auto(cog, panel, click(panel.owner))
+
+    assert session.spins >= 1 and panel.autoplay is None
+    assert "▶️ Auto:" in (panel.notice or "") and "rascas" in (panel.notice or "")
+    alice = await cog.economy.balance(GUILD, ALICE)
+    assert alice + await cog.economy.state_balance(GUILD) == STARTING_BALANCE
+    assert alice - STARTING_BALANCE == session.net
+    assert not cog._autoplays  # noqa: SLF001
+
+
+async def test_con_el_auto_en_marcha_solo_vale_parar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(Loteria.scratch.__globals__, "AUTOPLAY_MIN_GAP", 0)
+    cog = await make(tmp_path, Clock())
+    panel = LotteryPanel(cog, MagicMock(id=GUILD), owner())
+    panel.tab = "rasca"
+    panel.rebuild()
+    await button(panel, "loteria:auto:x10").callback(click(panel.owner))
+    session = panel.autoplay
+    assert session is not None
+    while not session.armed:
+        await asyncio.sleep(0)
+    enabled = [
+        c.custom_id
+        for c in panel.walk_children()
+        if isinstance(c, discord.ui.Button)
+        if not c.disabled
+    ]
+    assert enabled == ["loteria:auto:x10"]
+    late = click(panel.owner)
+    late.data = {"custom_id": "loteria:rascar:x10"}
+    assert not await panel.interaction_check(late)
+
+    await button(panel, "loteria:auto:x10").callback(click(panel.owner))
+    assert session.stop_requested
+    assert session.task is not None
+    await session.task
+
+    assert session.spins <= 2 and panel.autoplay is None
+    assert "Parado a mano" in (panel.notice or "")
+
+
+def test_estadisticas_del_auto_de_rascas() -> None:
+    assert scratch_autoplay_stats(spins=0, net=0, reason=StopReason.NO_FUNDS).add == {}
+    quit_ = scratch_autoplay_stats(spins=1, net=-20, reason=StopReason.MANUAL).add
+    assert quit_ == {"lottery_scratch_auto_sessions": 1, "lottery_scratch_auto_quick_quit": 1}
+    assert (
+        "lottery_scratch_auto_full"
+        in scratch_autoplay_stats(spins=25, net=0, reason=StopReason.MAX_SPINS).add
+    )
+    rasca = scratch_stats(
+        cost=20, prize=0, tax=0, top=False, balance_after=5, turbo=True, auto=True
+    )
+    assert rasca.add["lottery_scratch_turbo"] == rasca.add["lottery_scratch_auto"] == 1

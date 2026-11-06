@@ -192,6 +192,7 @@ def test_el_gif_acaba_en_la_misma_imagen_que_el_png(
     assert media.seconds > 0
 
 
+@pytest.mark.lenta
 def test_la_misma_tanda_se_dibuja_siempre_igual_y_otra_caida_se_ve_distinta(
     renderer: PachinkoRenderer,
 ) -> None:
@@ -267,6 +268,7 @@ def test_el_render_usa_los_png_del_tablero(renderer: PachinkoRenderer) -> None:
     assert assets.bulbs is not None
 
 
+@pytest.mark.lenta
 def test_sin_piezas_el_render_sigue_funcionando_con_pillow_y_avisa_una_vez(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

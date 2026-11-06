@@ -194,6 +194,7 @@ from bot.services.porras import PROPOSITIONS as PORRA_PROPOSITIONS
 from bot.services.porras import allowed_games as porra_allowed_games
 from bot.services.predice import MAX_STAKE as PREDICT_MAX_STAKE
 from bot.services.predice import MIN_STAKE as PREDICT_MIN_STAKE
+from bot.services.predice import SECTION_BY_KEY as PREDICT_SECTION_BY_KEY
 from bot.services.predice import SECTIONS as PREDICT_SECTIONS
 from bot.services.robuso import ROBUSO_ID
 from bot.services.roulette import DOUBLE_ZERO, ZEROS, RoundOutcome
@@ -722,8 +723,15 @@ SPORTS_MARKETS = tuple(market.value for market in SportsMarket)
 SPORTS_LONG_ODDS = 500
 SPORTS_SAFE_ODDS = 130
 
-#: Prefijo de las predicciones de `predice` por sección (`bot.services.predice.SECTIONS`).
+#: Prefijo de las predicciones de `predice` por sección y por tema
+#: (`bot.services.predice.SECTIONS` y sus `topics`; sus claves no se repiten).
 PREDICT_SECTION_PREFIX = "predict_section_"
+#: Países distintos de 🏛️ Política y temas distintos de cualquier sección en los que ha
+#: hecho alguna predicción (`with_derived`).
+PREDICT_COUNTRIES_STAT = "predict_countries"
+PREDICT_TOPICS_STAT = "predict_topics"
+_PREDICT_COUNTRIES = tuple(topic.key for topic in PREDICT_SECTION_BY_KEY["politica"].topics)
+_PREDICT_TOPICS = tuple(topic.key for section in PREDICT_SECTIONS for topic in section.topics)
 #: Cuota desde la que una predicción es un tiro largo (×10, menos de un 10 % de verdad).
 PREDICT_LONG_ODDS = 1_000
 #: Cuota hasta la que una predicción es casi segura (×1,10, más de un 85 %).
@@ -10041,6 +10049,19 @@ def _build_catalog() -> tuple[Achievement, ...]:
          f"Financia una compra con el IPC del crédito a la mitad de su tope "
          f"({IPC_CAP // 2} %) o más.", E),
     ])  # fmt: skip
+    a += _tiers("bizum", "financed_mixed", [
+        (1, "financed_mixed", "A pachas con el banco",
+         "Financia una compra pagando al contado la parte que no se financia.", C),
+    ])  # fmt: skip
+    a += _tiers("bizum", "financed_entrada", [
+        (1, "financed_entrada", "Entrada sin entrada", "Financia una mejora de tus entradas.", C),
+    ])  # fmt: skip
+    a += _tiers("bizum", "financed_negocio", [
+        (1, "financed_negocio", "Hoy no se fía, mañana sí",
+         "Financia una compra de tu negocio.", C),
+        (10, "financed_negocio_10", "El banco es mi socio",
+         "Financia 10 compras de tu negocio.", R),
+    ])  # fmt: skip
     # Rehipotecas (`banco`, 🔐 Garantías: remortgage_*_stats).
     a += _tiers("bizum", "remortgages_signed", [
         (1, "remortgage_1", "Ladrillo líquido", "Rehipoteca un inmueble.", C),
@@ -10420,6 +10441,39 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Comprueba tu último boleto sorteado en 30 días distintos.", R),
         (100, "lottery_check_100", "Notario del bombo",
          "Comprueba tu último boleto sorteado en 100 días distintos.", E),
+    ])  # fmt: skip
+
+    # 🎟️ Loterías: ⚡ Turbo y ▶️ Auto en los rascas (9.48.0).
+    a += _tiers("lottery", "lottery_scratch_turbo", [
+        (1, "rasca_turbo", "Rasca y no mira", "Rasca un boleto en ⚡ Turbo.", C),
+        (100, "rasca_turbo_100", "Fast & Rascarious", "Rasca 100 boletos en ⚡ Turbo.", R),
+        (500, "rasca_turbo_500", "El Correcaminos del quiosco",
+         "Rasca 500 boletos en ⚡ Turbo.", E),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto", [
+        (25, "rasca_auto_25", "Rasca, que yo miro", "Rasca 25 boletos con ▶️ Auto.", C),
+        (250, "rasca_auto_250", "Piloto rascautomático", "Rasca 250 boletos con ▶️ Auto.", R),
+        (1_000, "rasca_auto_1k", "Rascatrón 3000", "Rasca 1.000 boletos con ▶️ Auto.", E),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_sessions", [
+        (1, "rasca_auto_sesion", "Rasca en bucle", "Empieza un ▶️ Auto de rascas.", C),
+        (20, "rasca_auto_sesion_20", "El quiosquero ya te pone el tuyo",
+         "Empieza 20 sesiones de ▶️ Auto de rascas.", R),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_full", [
+        (1, "rasca_auto_full", "La tira entera",
+         "Acaba un ▶️ Auto de rascas por el tope de rascas de la sesión.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_loss", [
+        (1, "rasca_auto_techo", "Techo de cartón",
+         "Acaba un ▶️ Auto de rascas por el techo de pérdidas.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_quick_quit", [
+        (1, "rasca_auto_raja", "Rasca y se raja", "Para un ▶️ Auto de rascas tras el primero.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_bigwin", [
+        (1, "rasca_auto_gordo", "Me lo rascó la máquina",
+         "Acaba un ▶️ Auto de rascas con un premio de 50 veces su precio o más.", L),
     ])  # fmt: skip
 
     # 🛍️ Tienda ---------------------------------------------------------------------------
@@ -10985,6 +11039,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("shop", "lootbox_tapete", [
         (1, "box_tapete", "Alfombra de la suerte",
          "Que una caja te dé un tapete.", L, True),
+    ])  # fmt: skip
+    a += _tiers("shop", "lootbox_hielo", [
+        (1, "box_hielo", "Mejor que un Alpha Pack", "Saca el Tapete Hielo Negro de una caja.", M),
+    ])  # fmt: skip
+    a += _tiers("shop", "lootbox_hielo_carton", [
+        (1, "box_hielo_carton", "Hielo a precio de cubito",
+         "Saca el Tapete Hielo Negro de una Caja de cartón.", M, True),
     ])  # fmt: skip
     a += _tiers("shop", "lootbox_season", [
         (1, "box_season_1", "Caja con fecha de caducidad", "Abre una caja de temporada.", R),
@@ -16532,6 +16593,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("rueda", "rueda_prize_expositor", [
         (1, "rueda_expositor_1", "Pieza de museo", "Gana el expositor de la semana.", M),
     ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_hielo", [
+        (1, "rueda_hielo_1", "Vuelta al hielo", "Gana el Tapete Hielo Negro en la Rueda.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_again_hielo", [
+        (1, "rueda_again_hielo_1", "Segunda ronda, con hielo",
+         "Gana el Tapete Hielo Negro en una Otra vuelta de la Rueda.", M, True),
+    ])  # fmt: skip
     a.append(
         Achievement(
             id="rueda_all",
@@ -16649,9 +16717,9 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10, "predict_streak_10", "Pulpo Paul", "Acierta 10 predicciones seguidas.", L),
     ])  # fmt: skip
     section_names = {
-        "espana": (
-            ("predict_espana_1", "Marca España", C),
-            ("predict_espana_10", "Escrutinio de sofá", R),
+        "politica": (
+            ("predict_politica_1", "Encuesta a pie de barra", C),
+            ("predict_politica_10", "Politólogo de sobremesa", R),
         ),
         "mundo": (
             ("predict_mundo_1", "Geopolítica de barra de bar", C),
@@ -16661,9 +16729,21 @@ def _build_catalog() -> tuple[Achievement, ...]:
             ("predict_economia_1", "Cripto, luego existo", C),
             ("predict_economia_10", "Gurú de LinkedIn", R),
         ),
+        "ia": (
+            ("predict_ia_1", "Prompt-nóstico", C),
+            ("predict_ia_10", "Red neuronal de pitonisa", R),
+        ),
         "cultura": (
             ("predict_cultura_1", "Spoiler del futuro", C),
             ("predict_cultura_10", "Trending topic con antelación", R),
+        ),
+        "tuits": (
+            ("predict_tuits_1", "Vidente de timeline", C),
+            ("predict_tuits_10", "Doomscrolling con apuesta", R),
+        ),
+        "tiempo": (
+            ("predict_tiempo_1", "Cabañuelista", C),
+            ("predict_tiempo_10", "Ponle nombre a la borrasca", R),
         ),
     }
     for section in PREDICT_SECTIONS:
@@ -16675,6 +16755,25 @@ def _build_catalog() -> tuple[Achievement, ...]:
             (1, first_id, first_name, f"Haz una predicción en la sección {label}.", first_rarity),
             (10, ten_id, ten_name, f"Haz 10 predicciones en la sección {label}.", ten_rarity),
         ])  # fmt: skip
+    # España era una sección y ahora es un país de 🏛️ Política: sus logros siguen igual.
+    a += _tiers("predice", f"{PREDICT_SECTION_PREFIX}espana", [
+        (1, "predict_espana_1", "Marca España",
+         "Haz una predicción sobre España en la sección Política.", C),
+        (10, "predict_espana_10", "Escrutinio de sofá",
+         "Haz 10 predicciones sobre España en la sección Política.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", PREDICT_COUNTRIES_STAT, [
+        (3, "predict_countries_3", "Turismo electoral",
+         "Haz predicciones sobre 3 países distintos en la sección Política.", C),
+        (6, "predict_countries_6", "Observador internacional",
+         "Haz predicciones sobre 6 países distintos en la sección Política.", R),
+    ])  # fmt: skip
+    a += _tiers("predice", PREDICT_TOPICS_STAT, [
+        (5, "predict_topics_5", "De tapeo por la actualidad",
+         "Haz predicciones en 5 temas distintos de `predice`.", C),
+        (15, "predict_topics_15", "Zapping de bola de cristal",
+         "Haz predicciones en 15 temas distintos de `predice`.", R),
+    ])  # fmt: skip
     a.append(
         Achievement(
             id="predict_all_sections",
@@ -23132,7 +23231,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     `slots_switch_kinds`, las tragaperras distintas a las que ha cambiado con 🔀;
     `shop_use_kinds`, los objetos distintos usados de la tienda;
     `shop_aisles`, los pasillos del colmado en los que ha comprado;
-    `perfil_sections`, las secciones distintas de `perfil` que ha mirado, y
+    `perfil_sections`, las secciones distintas de `perfil` que ha mirado;
+    `predict_countries` y `predict_topics`, los países de 🏛️ Política y los temas de
+    `predice` distintos con alguna predicción, y
     `horse_backed_kinds` y `horse_backed_max`, los caballos distintos por los
     que ha apostado y los boletos al que más; `pisos_barrios` y `pisos_kinds`, los
     barrios y los tipos de inmueble distintos en los que ha comprado, y `pisos_terms`,
@@ -23172,6 +23273,12 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[SHOP_AISLES_STAT] = len(visited_aisles(stats))
     full[PERFIL_SECTIONS_STAT] = sum(
         1 for key in PERFIL_SECTIONS if stats.get(f"{PERFIL_SEEN_PREFIX}{key}", 0) > 0
+    )
+    full[PREDICT_COUNTRIES_STAT] = sum(
+        1 for key in _PREDICT_COUNTRIES if stats.get(f"{PREDICT_SECTION_PREFIX}{key}", 0) > 0
+    )
+    full[PREDICT_TOPICS_STAT] = sum(
+        1 for key in _PREDICT_TOPICS if stats.get(f"{PREDICT_SECTION_PREFIX}{key}", 0) > 0
     )
     pets = {
         stat[len(PET_SPECIES_PREFIX) :]
@@ -25506,6 +25613,7 @@ def predict_bet_stats(
     lead: float,
     when: datetime,
     event_markets: int = 1,
+    topics: Iterable[str] = (),
 ) -> StatDelta:
     """Lo que cuenta una predicción (`predice`) al hacerla.
 
@@ -25519,6 +25627,8 @@ def predict_bet_stats(
         when: Hora canaria de la apuesta.
         event_markets: Preguntas distintas del mismo evento con predicción suya, contando
             esta.
+        topics: Temas de la sección a los que pertenece la pregunta
+            (`bot.services.predice.offer_topics`); cada uno cuenta como su sección.
     """
     add = {
         "predict_bets": 1,
@@ -25526,6 +25636,8 @@ def predict_bet_stats(
         f"{PREDICT_SECTION_PREFIX}{section}": 1,
         "predict_side_no" if side else "predict_side_yes": 1,
     }
+    for topic in topics:
+        add[f"{PREDICT_SECTION_PREFIX}{topic}"] = 1
 
     def bump(stat: str, condition: bool) -> None:
         if condition:
@@ -26534,6 +26646,8 @@ def rueda_stats(
         peak["rueda_col"] = pieces_owned
     if after_again and prize == "nada":
         add["rueda_again_nothing"] = 1
+    if after_again and prize == "hielo":
+        add["rueda_again_hielo"] = 1
     minutes = when.hour * 60 + when.minute
     for stat, condition in (
         ("rueda_midnight", minutes < 5),
@@ -27640,6 +27754,7 @@ def lootbox_stats(
     collection: str | None,
     owned: int,
     when: float,
+    hielo: bool = False,
 ) -> StatDelta:
     """Estadísticas de quien abre una caja de `bot.services.lootboxes`.
 
@@ -27652,6 +27767,7 @@ def lootbox_stats(
         collection: Colección de la pieza, o `None` si fue un tapete.
         owned: Piezas distintas que tiene ya de esa colección.
         when: Momento de abrirla (epoch).
+        hielo: Si el tapete es el Hielo Negro (`skins.HIELO`).
     """
     delta = StatDelta(add={"lootbox_opened": 1, f"{LOOTBOX_BOX_PREFIX}{box}": 1})
 
@@ -27660,6 +27776,8 @@ def lootbox_stats(
             delta.add[stat] = delta.add.get(stat, 0) + 1
 
     bump("lootbox_tapete", tapete)
+    bump("lootbox_hielo", hielo)
+    bump("lootbox_hielo_carton", hielo and box == "caja_carton")
     bump(f"{LOOTBOX_RARITY_PREFIX}{rarity}", not tapete)
     bump("lootbox_dupes", dupe)
     bump("lootbox_season", seasonal)
@@ -28198,6 +28316,8 @@ def financed_stats(
     open_count: int,
     ipc: int,
     trap: bool,
+    category: str = "",
+    cash: int = 0,
 ) -> StatDelta:
     """Estadísticas de quien financia una compra (💳 Financiar).
 
@@ -28208,6 +28328,8 @@ def financed_stats(
         open_count: Compras financiadas sin terminar de pagar, contando esta.
         ipc: El IPC del crédito al firmar, en %.
         trap: Si es el 0 % en el plazo más corto (peor TAE que el normal).
+        category: La categoría de la compra (`credit.categories`, «entrada», «negocio»…).
+        cash: Lo que se pagó al contado en la misma compra (lo único de un carrito).
     """
     delta = StatDelta(
         add={"financed": 1},
@@ -28222,6 +28344,9 @@ def financed_stats(
         ("financed_works", works),
         ("financed_could_pay", could_pay),
         ("financed_high_ipc", ipc >= IPC_CAP // 2),
+        ("financed_mixed", cash > 0),
+        ("financed_entrada", category == "entrada"),
+        ("financed_negocio", category == "negocio"),
     ):
         if hit:
             delta.add[stat] = 1
@@ -29239,6 +29364,8 @@ def scratch_stats(
     balance_after: int,
     near: bool = False,
     when: datetime | None = None,
+    turbo: bool = False,
+    auto: bool = False,
 ) -> StatDelta:
     """Estadísticas de un rasca.
 
@@ -29250,8 +29377,14 @@ def scratch_stats(
         balance_after: Saldo tras cobrar el premio.
         near: Si, sin premio, enseñaba dos casillas del premio más alto.
         when: Hora local (la racha de días y las fechas).
+        turbo: Si salió en ⚡ Turbo (ya rascado, sin animación).
+        auto: Si lo rascó ▶️ Auto.
     """
     delta = StatDelta(add={"lottery_scratches": 1, "lottery_spent": cost})
+    if turbo:
+        delta.add["lottery_scratch_turbo"] = 1
+    if auto:
+        delta.add["lottery_scratch_auto"] = 1
     if balance_after == 0:
         delta.add["lottery_broke_buy"] = 1
     if prize:
@@ -29266,6 +29399,33 @@ def scratch_stats(
             delta.add["lottery_scratch_night"] = 1
         if when.weekday() == 4 and when.day == 13:
             delta.add["lottery_scratch_friday13"] = 1
+    return delta
+
+
+def scratch_autoplay_stats(*, spins: int, net: int, reason: StopReason) -> StatDelta:
+    """Contadores de una sesión de ▶️ Auto de los rascas, al terminar.
+
+    Los rascas ya se contaron uno a uno en `scratch_stats`; aquí solo cuenta la
+    sesión y cómo acabó. Una sesión sin ningún rasca (no llegaba el saldo) no cuenta.
+
+    Args:
+        spins: Rascas de la sesión.
+        net: Neto de la sesión (ganado menos pagado).
+        reason: Por qué paró.
+    """
+    delta = StatDelta()
+    if spins <= 0:
+        return delta
+    add = delta.add
+    add["lottery_scratch_auto_sessions"] = 1
+    if reason is StopReason.MAX_SPINS:
+        add["lottery_scratch_auto_full"] = 1
+    elif reason is StopReason.LOSS_LIMIT:
+        add["lottery_scratch_auto_loss"] = 1
+    elif reason is StopReason.BIG_PRIZE:
+        add["lottery_scratch_auto_bigwin"] = 1
+    elif reason is StopReason.MANUAL and spins == 1:
+        add["lottery_scratch_auto_quick_quit"] = 1
     return delta
 
 

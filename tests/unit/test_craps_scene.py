@@ -40,6 +40,7 @@ def test_la_escena_existe_y_trae_sus_funciones() -> None:
         assert function in html
 
 
+@pytest.mark.lenta
 async def test_sin_navegador_dibuja_con_pillow_y_se_queda_desactivado() -> None:
     scene = CrapsScene(executable_path="/no/existe/chromium", node=NO_NODE)
     assert not scene.disabled

@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready
+from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready, open_helpers
 
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
@@ -167,6 +167,7 @@ async def test_con_node_cada_animacion_es_un_gif_que_acaba_en_su_png(
     assert difference(last_frame(media.gif), png) < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_imagen_quieta_es_un_png_de_su_tamano_y_siempre_el_mismo(
@@ -231,6 +232,7 @@ async def test_el_boleto_sorteado_enseña_los_aciertos_llenos_y_el_resto_apagado
     assert any(g > r + 40 and g > b + 20 for _, (r, g, b) in tag)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_resultado_se_ve_distinto_y_pinta_lo_mismo_dos_veces(
@@ -280,6 +282,7 @@ async def test_con_node_solo_viaja_lo_que_cambia(scene: LotteryScene, name: str)
 @pytest.mark.parametrize(
     "name", ["rasca_x10_premio", "rasca_7m_nada", "sorteo_primitiva_bote", "sorteo_navidad"]
 )
+@pytest.mark.lenta
 async def test_repartido_pinta_lo_mismo_que_de_un_tiron(scene: LotteryScene, name: str) -> None:
     painter = scene.painter
     original = painter._request
@@ -290,6 +293,7 @@ async def test_repartido_pinta_lo_mismo_que_de_un_tiron(scene: LotteryScene, nam
         return original(call, args, **extra)
 
     meta, states, _ = ANIMATIONS[name]
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)

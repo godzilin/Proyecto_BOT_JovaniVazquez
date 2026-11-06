@@ -19,6 +19,7 @@ from bot.services.lootboxes import (
     BOX_BY_KEY,
     BOXES,
     COLLECTIONS,
+    HIELO_ODDS,
     NORMAL_COLLECTIONS,
     ODDS,
     PIECE_BY_KEY,
@@ -37,7 +38,7 @@ from bot.services.lootboxes import (
 )
 from bot.services.rastro import untradeable
 from bot.services.shop import Kind
-from bot.services.skins import SKIN_BY_CATALOG_KEY
+from bot.services.skins import HIELO, SKIN_BY_CATALOG_KEY, SKIN_BY_KEY
 
 # -- Retorno ----------------------------------------------------------------------------
 
@@ -51,7 +52,7 @@ def test_cada_caja_devuelve_de_media_entre_93_y_97_por_ciento(box: Box) -> None:
 @pytest.mark.parametrize("box", BOXES, ids=lambda b: b.key)
 def test_las_probabilidades_de_cada_caja_suman_uno(box: Box) -> None:
     assert sum(box.odds.values()) == pytest.approx(1.0, abs=1e-6)
-    assert set(box.odds) <= {"C", "R", "E", "L", "M", TAPETE}
+    assert set(box.odds) <= {"C", "R", "E", "L", "M", TAPETE, HIELO_ODDS}
     assert all(chance > 0 for chance in box.odds.values())
 
 
@@ -136,6 +137,8 @@ def test_las_frecuencias_del_sorteo_siguen_la_tabla() -> None:
     runs = 30_000
     seen = Counter(roll(box, rng).rarity for _ in range(runs))  # type: ignore[union-attr]
     for letter, chance in box.odds.items():
+        if letter == HIELO_ODDS:
+            continue
         rarity = {"C": Rarity.COMMON, "R": Rarity.RARE, "E": Rarity.EPIC, "L": Rarity.LEGENDARY,
                   "M": Rarity.MYTHIC}[letter]  # fmt: skip
         assert seen[rarity] / runs == pytest.approx(chance, abs=0.012), letter
@@ -183,6 +186,25 @@ def test_un_tapete_que_el_servidor_no_vende_tampoco_sale() -> None:
     only_pieces = {p.key for p in PIECES}
     drop = roll(box, Scripted([TAPETE]), have=only_pieces)
     assert drop is not None and drop.skin is None and drop.rerolled
+
+
+@pytest.mark.parametrize("box", BOXES, ids=lambda b: b.key)
+def test_el_hielo_negro_sale_de_cualquier_caja_una_vez_de_cada_50_000(box: Box) -> None:
+    assert box.odds[HIELO_ODDS] == pytest.approx(1 / 50_000)
+    hielo = SKIN_BY_KEY[HIELO]
+    assert not hielo.for_sale and hielo not in tapetes_for(box)
+    drop = roll(box, Scripted([HIELO_ODDS]))
+    assert drop is not None and drop.skin == hielo and not drop.rerolled
+    text = reveal_frame("**Ana**", box, drop, dupe=False, owned=0, rng=random.Random(1),
+                        price_text="80.000 Y$")  # fmt: skip
+    assert "HIELO NEGRO" in text
+
+
+def test_el_hielo_negro_repetido_se_vuelve_a_sortear() -> None:
+    box = BOX_BY_KEY["caja_carton"]
+    drop = roll(box, Scripted([HIELO_ODDS, "R"]), owned={SKIN_BY_KEY[HIELO].catalog_key})
+    assert drop is not None and drop.skin is None and drop.rerolled
+    assert drop.piece is not None and drop.piece.rarity is Rarity.RARE
 
 
 def test_sin_piezas_en_el_servidor_la_caja_no_da_nada() -> None:

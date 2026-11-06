@@ -75,10 +75,12 @@ from discord.ext import commands, tasks
 
 from bot.cogs import achievements as logros
 from bot.cogs import banco, renta
+from bot.cogs import banco_compras as financiar
 from bot.repositories.business import companies_in
 from bot.services import business_chain as chain
 from bot.services import business_sl as sl
 from bot.services import business_staff as staff
+from bot.services import credit as financing
 from bot.services.achievements import (
     StatDelta,
     business_loan_night_stats,
@@ -96,12 +98,14 @@ from bot.services.achievements import (
 from bot.services.business import (
     MAX_LOCALES,
     Business,
+    MoveQuote,
     move_quote,
     nightly_bill,
     opening_quote,
     rating,
     recommended,
     sale_price,
+    wholesale,
 )
 from bot.services.business_catalog import (
     CAMPAIGN_BY_KEY,
@@ -166,6 +170,7 @@ from bot.services.pets import Event as PetEvent
 from bot.services.pets import Moment, Mood
 from bot.services.taxes import TAX_COLLECTOR, igic
 from bot.services.telemetry import LISTENER_ITEM, TimedLock
+from bot.services.work import week_of
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, claim_custom_ids, edit, notify
 
@@ -686,6 +691,13 @@ class NegocioPanel(ui.LayoutView):
                 f"Total al montarlo: **{format_amount(quote.total)}** (más la cuota de autónomo)"
             )
             if self.screen == CONFIRMAR:
+                lines.extend(
+                    self._hint(
+                        self.chain[0] if self.chain else None,
+                        quote.setup + quote.setup_igic,
+                        works=True,
+                    )
+                )
                 lines.append("\n**¿Lo montas?** La fianza vuelve al cerrar; lo demás, no.")
         elif status is not None and self.screen == CADENA:
             lines.extend(self._cadena_lines())
@@ -707,6 +719,9 @@ class NegocioPanel(ui.LayoutView):
                 )
                 if self.screen == ALMACEN:
                     lines.extend(self._stock_lines(business))
+                    if product := business.sector_info.product(self.product):
+                        base, tax = wholesale(product, product.pack)
+                        lines.extend(self._hint(business, base + tax))
                 elif self.screen == CUENTAS:
                     totals = business.week_totals
                     lines.append(
@@ -915,6 +930,10 @@ class NegocioPanel(ui.LayoutView):
                 f"- {campaign.name}: +{round(campaign.boost * 100)} % de clientes, "
                 f"{campaign.days} días · {format_amount(campaign.cost)} + IGIC"
             )
+        if item := EQUIPMENT_BY_KEY.get(self.equipment):
+            lines.extend(self._hint(business, item.cost + igic(item.cost)))
+        elif active is None and (picked := CAMPAIGN_BY_KEY.get(self.campaign)):
+            lines.extend(self._hint(business, picked.cost + igic(picked.cost)))
         return lines
 
     @staticmethod
@@ -1005,6 +1024,8 @@ class NegocioPanel(ui.LayoutView):
                 f"{round(employee['humor'])} · "
                 f"{skills}"
             )
+            if employee["id"] == self.employee and not employee["course"]:
+                lines.extend(self._hint(business, self._course_price(business, employee)))
             if role.effects and employee["id"] == self.employee:
                 lines.append(
                     f"-# {role.emoji} {staff.effect_text(role, staff.strength(employee))}."
@@ -1089,6 +1110,9 @@ class NegocioPanel(ui.LayoutView):
                 else f"🔑 Alquiler: {format_amount(quote.opening.rent)} cada noche, más IGIC."
             ),
         ]
+        lines.extend(
+            self._hint(business, quote.opening.setup + quote.opening.setup_igic, works=True)
+        )
         if not quote.same_barrio:
             lines.append("-# Cambias de barrio: la reputación y la fidelidad bajan a la mitad.")
         if not self.own_locals:
@@ -1279,17 +1303,23 @@ class NegocioPanel(ui.LayoutView):
             total = opening_quote(
                 SECTOR_BY_KEY[self.draft["sector"]], BARRIO_BY_KEY[self.draft["barrio"]]
             ).total
-            return [
-                ui.ActionRow(
-                    self._button(
-                        f"✅ Montarlo · {format_amount(total)}",
-                        self._open,
-                        "abrir-negocio",
-                        style=green,
-                    ),
-                    self._button("⬅️ Atrás", self._back_to_draft, "atras"),
-                )
-            ]
+            confirm = ui.ActionRow(
+                self._button(
+                    f"✅ Montarlo · {format_amount(total)}",
+                    self._open,
+                    "abrir-negocio",
+                    style=green,
+                ),
+            )
+            quote = opening_quote(
+                SECTOR_BY_KEY[self.draft["sector"]], BARRIO_BY_KEY[self.draft["barrio"]]
+            )
+            self._add_finance(
+                confirm, self.chain[0] if self.chain else None, quote.setup + quote.setup_igic,
+                self._finance_open, "financiar-abrir",
+            )  # fmt: skip
+            confirm.add_item(self._button("⬅️ Atrás", self._back_to_draft, "atras"))
+            return [confirm]
         if self.screen == TURNO:
             return self._game_rows()
         if self.status is None:
@@ -1355,6 +1385,20 @@ class NegocioPanel(ui.LayoutView):
                         )
                     )
                 rows.append(buy)
+                pack = ui.ActionRow()
+                product = business.sector_info.product(self.product)
+                for lots in (1, 5, MAX_LOTS // 2) if product else ():
+                    base, tax = wholesale(product, product.pack * lots)
+                    self._add_finance(
+                        pack,
+                        business,
+                        base + tax,
+                        self._finance_stock(lots),
+                        f"financiar:{lots}",
+                        label=f"💳 {lots} lote{'s' if lots > 1 else ''} a plazos",
+                    )
+                if pack.children:
+                    rows.append(pack)
                 if fetch := self._fetch_row(business):
                     rows.append(fetch)
             rows.append(ui.ActionRow(back, home))
@@ -1682,6 +1726,20 @@ class NegocioPanel(ui.LayoutView):
                         self._select("🎓 Pagarle un curso", courses, "curso", self._course)
                     )
                 )
+                if (
+                    not business.is_company
+                    and financing.refusal(self._course_price(business, employee)) is None
+                ):
+                    rows.append(
+                        ui.ActionRow(
+                            self._select(
+                                f"{financiar.LABEL} un curso",
+                                courses,
+                                "curso-financiar",
+                                self._finance_course,
+                            )
+                        )
+                    )
             if (hours := self._horario_options(employee)) is not None:
                 rows.append(
                     ui.ActionRow(
@@ -1890,12 +1948,17 @@ class NegocioPanel(ui.LayoutView):
                 )
             )
         last = ui.ActionRow()
+        finance = ui.ActionRow()
         if (item := EQUIPMENT_BY_KEY.get(self.equipment)) and item in items:
             last.add_item(
                 self._button(
                     f"🛒 Instalar · {format_amount(item.cost)} + IGIC",
                     self._install, "instalar", style=green,
                 )
+            )  # fmt: skip
+            self._add_finance(
+                finance, business, item.cost + igic(item.cost), self._finance_install,
+                "financiar-mejora", label=f"{financiar.LABEL} la mejora",
             )  # fmt: skip
         if active is None and (campaign := CAMPAIGN_BY_KEY.get(self.campaign)):
             last.add_item(
@@ -1904,8 +1967,14 @@ class NegocioPanel(ui.LayoutView):
                     self._launch, "lanzar", style=green,
                 )
             )  # fmt: skip
+            self._add_finance(
+                finance, business, campaign.cost + igic(campaign.cost), self._finance_launch,
+                "financiar-campana", label=f"{financiar.LABEL} la campaña",
+            )  # fmt: skip
         last.add_item(back)
         last.add_item(home)
+        if finance.children:
+            rows.append(finance)
         rows.append(last)
         return rows
 
@@ -2037,7 +2106,15 @@ class NegocioPanel(ui.LayoutView):
             style=discord.ButtonStyle.success,
             disabled=here,
         )
-        rows.append(ui.ActionRow(go, back))
+        go_row = ui.ActionRow(go)
+        if not here:
+            opening = quote.opening
+            self._add_finance(
+                go_row, business, opening.setup + opening.setup_igic, self._finance_move,
+                "financiar-traslado",
+            )  # fmt: skip
+        go_row.add_item(back)
+        rows.append(go_row)
         return rows
 
     def _style_rows(self) -> list[ui.ActionRow]:
@@ -2413,12 +2490,24 @@ class NegocioPanel(ui.LayoutView):
     async def _course(self, interaction: discord.Interaction, value: str) -> None:
         await ack(interaction)
         try:
-            _business, employee, paid, credit = await self.service.train(
+            bought = await self.service.train(
                 self.guild_id, self.owner.id, self.employee or 0, value, biz=self.biz
             )
         except BusinessError as error:
             await notify(interaction, str(error))
             return
+        await self._course_done(interaction, value, *bought)
+
+    async def _course_done(
+        self,
+        interaction: discord.Interaction | None,
+        value: str,
+        _business: Business,
+        employee: dict[str, Any],
+        paid: int,
+        credit: int,
+    ) -> None:
+        """Lo de después de un curso. Sin `interaction`, se financió."""
         self.notes.append(
             f"🎓 **{employee['name']}** empieza un curso de "
             f"{staff.SKILL_NAMES[value].lower()}: pagas {format_amount(paid)}"
@@ -2426,7 +2515,8 @@ class NegocioPanel(ui.LayoutView):
             + f". La noche que viene, +{staff.COURSE_POINTS}."
         )
         await self.show(interaction)
-        await renta.remind(self.cog.bot, interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
         await self._track(staff_course_stats(employee, paid, credit))
 
     async def _permanent(self, interaction: discord.Interaction) -> None:
@@ -2916,6 +3006,12 @@ class NegocioPanel(ui.LayoutView):
         except BusinessError as error:
             await notify(interaction, str(error))
             return
+        await self._opened(interaction, business, fee)
+
+    async def _opened(
+        self, interaction: discord.Interaction | None, business: Business, fee: int
+    ) -> None:
+        """Lo de después de montar un negocio. Sin `interaction`, se financió."""
         before = len(self.chain)
         self.biz, self.plan, self.product, self.employee = business.id, None, "", None
         quote = opening_quote(business.sector_info, business.barrio_info)
@@ -2927,7 +3023,8 @@ class NegocioPanel(ui.LayoutView):
         self.notes.append("-# Ahora llena el 📦 almacén: sin stock no hay nada que vender.")
         self.screen = PORTADA
         await self.show(interaction)
-        await renta.remind(self.cog.bot, interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
         barrio = business.barrio_info
         opened = {
             "biz_opened": 1,
@@ -2983,12 +3080,24 @@ class NegocioPanel(ui.LayoutView):
         await ack(interaction)
         key = self.equipment
         try:
-            business, base, tax, _balance = await self.service.buy_equipment(
+            bought = await self.service.buy_equipment(
                 self.guild_id, self.owner.id, key, biz=self.biz
             )
         except BusinessError as error:
             await notify(interaction, str(error))
             return
+        await self._installed(interaction, key, *bought)
+
+    async def _installed(
+        self,
+        interaction: discord.Interaction | None,
+        key: str,
+        business: Business,
+        base: int,
+        tax: int,
+        _balance: int,
+    ) -> None:
+        """Lo de después de instalar. Sin `interaction`, se financió."""
         item = EQUIPMENT_BY_KEY[key]
         self.equipment = ""
         self.notes.append(
@@ -2997,7 +3106,8 @@ class NegocioPanel(ui.LayoutView):
         )
         await self._pet_note()
         await self.show(interaction)
-        await renta.remind(self.cog.bot, interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
         await self._track(
             StatDelta(
                 add={"biz_equipment": 1, "biz_spent_equipment": base + tax},
@@ -3009,12 +3119,24 @@ class NegocioPanel(ui.LayoutView):
         await ack(interaction)
         key = self.campaign
         try:
-            _business, base, tax, _balance = await self.service.start_campaign(
+            bought = await self.service.start_campaign(
                 self.guild_id, self.owner.id, key, biz=self.biz
             )
         except BusinessError as error:
             await notify(interaction, str(error))
             return
+        await self._launched(interaction, key, *bought)
+
+    async def _launched(
+        self,
+        interaction: discord.Interaction | None,
+        key: str,
+        _business: Business,
+        base: int,
+        tax: int,
+        _balance: int,
+    ) -> None:
+        """Lo de después de lanzar una campaña. Sin `interaction`, se financió."""
         campaign = CAMPAIGN_BY_KEY[key]
         self.campaign = ""
         self.notes.append(
@@ -3023,7 +3145,8 @@ class NegocioPanel(ui.LayoutView):
         )
         await self._pet_note()
         await self.show(interaction)
-        await renta.remind(self.cog.bot, interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
         await self._track(
             StatDelta(
                 add={
@@ -3055,6 +3178,17 @@ class NegocioPanel(ui.LayoutView):
         except BusinessError as error:
             await notify(interaction, str(error))
             return
+        await self._moved(interaction, business, quote, size, own)
+
+    async def _moved(
+        self,
+        interaction: discord.Interaction | None,
+        business: Business,
+        quote: MoveQuote,
+        size: int,
+        own: bool,
+    ) -> None:
+        """Lo de después del traslado. Sin `interaction`, se financió el acondicionamiento."""
         self.notes.append(
             f"🚚 **{business.name}** ya está en {business.barrio_info.name}, en un "
             f"{size_text(business).lower()}. Has pagado {format_amount(quote.total)}"
@@ -3064,7 +3198,8 @@ class NegocioPanel(ui.LayoutView):
         self.screen = PORTADA
         await self._pet_note()
         await self.show(interaction)
-        await renta.remind(self.cog.bot, interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
         place = business.barrio_info
         await self._track(
             StatDelta(
@@ -3086,22 +3221,276 @@ class NegocioPanel(ui.LayoutView):
         async def callback(interaction: discord.Interaction) -> None:
             await ack(interaction)
             try:
-                _business, base, tax, _balance = await self.service.buy(
+                bought = await self.service.buy(
                     self.guild_id, self.owner.id, self.product, lots, biz=self.biz
                 )
             except BusinessError as error:
                 await notify(interaction, str(error))
                 return
-            self.notes.append(
-                f"📦 Comprado: {format_amount(base)}"
-                + (f" + IGIC {format_amount(tax)}" if tax else " (IGIC tipo cero)")
-                + "."
-            )
-            await self.show(interaction)
-            await renta.remind(self.cog.bot, interaction)
-            await self._track(StatDelta(add={"biz_purchases": 1, "biz_spent_stock": base + tax}))
+            await self._stocked(interaction, *bought)
 
         return callback
+
+    async def _stocked(
+        self,
+        interaction: discord.Interaction | None,
+        _business: Business,
+        base: int,
+        tax: int,
+        _balance: int,
+    ) -> None:
+        """Lo de después de comprar mercancía. Sin `interaction`, se financió."""
+        self.notes.append(
+            f"📦 Comprado: {format_amount(base)}"
+            + (f" + IGIC {format_amount(tax)}" if tax else " (IGIC tipo cero)")
+            + "."
+        )
+        await self.show(interaction)
+        if interaction is not None:
+            await renta.remind(self.cog.bot, interaction)
+        await self._track(StatDelta(add={"biz_purchases": 1, "biz_spent_stock": base + tax}))
+
+    # -- 💳 Financiar (autónomos): la oferta va en un mensaje privado y el panel se repinta --
+
+    def _add_finance(
+        self,
+        row: ui.ActionRow,
+        business: Business | None,
+        amount: int,
+        callback: Callable[[discord.Interaction], Awaitable[None]],
+        name: str,
+        *,
+        label: str = financiar.LABEL,
+    ) -> None:
+        """Añade 💳 Financiar a `row` si es un autónomo y el banco financia `amount`.
+
+        La sociedad paga con su caja y sigue con el préstamo de 🏪 Negocio.
+        """
+        if (business is not None and business.is_company) or financing.refusal(amount):
+            return
+        row.add_item(self._button(label, callback, name))
+
+    @staticmethod
+    def _hint(business: Business | None, amount: int, *, works: bool = False) -> list[str]:
+        """La línea del 💳 junto al precio; la sociedad paga con su caja y no la ve."""
+        if business is not None and business.is_company:
+            return []
+        hint = financiar.teaser(amount, "negocio", works=works)
+        return [f"-# {hint}."] if hint else []
+
+    async def _finance(
+        self,
+        interaction: discord.Interaction,
+        purchase: financing.Purchase,
+        buy: financiar.Buy,
+        after: Callable[[discord.Interaction], Awaitable[None]],
+    ) -> None:
+        deal = financiar.Deal(purchase, buy, after=after)
+        if not await financiar.open_finance(self.cog.bot, interaction, deal):
+            await interaction.response.send_message(
+                "El banco está cerrado ahora mismo.", ephemeral=True
+            )
+
+    async def _finance_install(self, interaction: discord.Interaction) -> None:
+        item = EQUIPMENT_BY_KEY.get(key := self.equipment)
+        if item is None:
+            await ack(interaction)
+            return
+        done: list[tuple[Business, int, int, int]] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                done.append(
+                    await self.service.buy_equipment(
+                        self.guild_id, self.owner.id, key, biz=self.biz
+                    )
+                )
+            except BusinessError as error:
+                return str(error)
+            return None
+
+        async def after(_interaction: discord.Interaction) -> None:
+            await self._installed(None, key, *done[0])
+
+        purchase = financing.Purchase(f"🛠️ {item.name}", item.cost + igic(item.cost), "negocio")
+        await self._finance(interaction, purchase, buy, after)
+
+    async def _finance_launch(self, interaction: discord.Interaction) -> None:
+        campaign = CAMPAIGN_BY_KEY.get(key := self.campaign)
+        if campaign is None:
+            await ack(interaction)
+            return
+        done: list[tuple[Business, int, int, int]] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                done.append(
+                    await self.service.start_campaign(
+                        self.guild_id, self.owner.id, key, biz=self.biz
+                    )
+                )
+            except BusinessError as error:
+                return str(error)
+            return None
+
+        async def after(_interaction: discord.Interaction) -> None:
+            await self._launched(None, key, *done[0])
+
+        purchase = financing.Purchase(
+            f"📣 {campaign.name}", campaign.cost + igic(campaign.cost), "negocio"
+        )
+        await self._finance(interaction, purchase, buy, after)
+
+    def _finance_stock(self, lots: int) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def callback(interaction: discord.Interaction) -> None:
+            business = self.status.business if self.status else None
+            product = business.sector_info.product(self.product) if business else None
+            if product is None:
+                await ack(interaction)
+                return
+            key = self.product
+            done: list[tuple[Business, int, int, int]] = []
+
+            async def buy(_interaction: discord.Interaction) -> str | None:
+                try:
+                    done.append(
+                        await self.service.buy(
+                            self.guild_id, self.owner.id, key, lots, biz=self.biz
+                        )
+                    )
+                except BusinessError as error:
+                    return str(error)
+                return None
+
+            async def after(_interaction: discord.Interaction) -> None:
+                await self._stocked(None, *done[0])
+
+            base, tax = wholesale(product, product.pack * lots)
+            purchase = financing.Purchase(
+                f"📦 {lots} lote{'s' if lots > 1 else ''} de {product.name.lower()}",
+                base + tax,
+                "negocio",
+            )
+            await self._finance(interaction, purchase, buy, after)
+
+        return callback
+
+    def _course_price(self, business: Business, employee: dict[str, Any]) -> int:
+        """Lo que sale del monedero por un curso hoy: la base menos lo que bonifica FUNDAE, más
+        el IGIC del precio entero (como en `BusinessService.train`)."""
+        used = business.fundae_used if business.fundae_week == week_of(self._today()) else 0
+        credit = 0
+        if employee["contract"] != "b":
+            credit = min(staff.COURSE_COST, staff.fundae_week() - used)
+        return staff.COURSE_COST - credit + igic(staff.COURSE_COST)
+
+    async def _finance_course(self, interaction: discord.Interaction, value: str) -> None:
+        business = self.status.business if self.status else None
+        employee = self._chosen(business) if business else None
+        if business is None or employee is None or value not in staff.SKILLS:
+            await ack(interaction)
+            return
+        employee_id = employee["id"]
+        done: list[tuple[Business, dict[str, Any], int, int]] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                done.append(
+                    await self.service.train(
+                        self.guild_id, self.owner.id, employee_id, value, biz=self.biz
+                    )
+                )
+            except BusinessError as error:
+                return str(error)
+            return None
+
+        async def after(_interaction: discord.Interaction) -> None:
+            await self._course_done(None, value, *done[0])
+
+        name = staff.SKILL_NAMES[value].lower()
+        purchase = financing.Purchase(
+            f"🎓 Curso de {name} para {employee['name']}",
+            self._course_price(business, employee),
+            "negocio",
+        )
+        await self._finance(interaction, purchase, buy, after)
+
+    async def _finance_open(self, interaction: discord.Interaction) -> None:
+        """Financia el acondicionamiento; la tasa, la fianza y la cuota van al contado."""
+        draft = dict(self.draft)
+        quote = opening_quote(SECTOR_BY_KEY[draft["sector"]], BARRIO_BY_KEY[draft["barrio"]])
+        done: list[tuple[Business, int]] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                done.append(
+                    await self.service.open(
+                        self.guild_id,
+                        self.owner.id,
+                        sector=draft["sector"],
+                        barrio=draft["barrio"],
+                        name=draft["name"],
+                        palette=draft["palette"],
+                        emblem=draft["emblem"],
+                    )  # fmt: skip
+                )
+            except BusinessError as error:
+                return str(error)
+            return None
+
+        async def after(_interaction: discord.Interaction) -> None:
+            await self._opened(None, *done[0])
+
+        purchase = financing.Purchase(
+            f"🏪 Acondicionamiento de {draft['name']}",
+            quote.setup + quote.setup_igic,
+            "negocio",
+            works=True,
+            cash=max(0, quote.total - quote.setup - quote.setup_igic),
+        )
+        await self._finance(interaction, purchase, buy, after)
+
+    async def _finance_move(self, interaction: discord.Interaction) -> None:
+        """Financia el acondicionamiento del local nuevo; la tasa y la fianza, al contado."""
+        target = self._move_target()
+        if self.turn is not None or target is None:
+            await ack(interaction)
+            return
+        barrio, size, quote, own = target
+        own_key = self.move["own"]
+        done: list[tuple[Business, MoveQuote, int]] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                if own:
+                    done.append(
+                        await self.service.move_to_own(
+                            self.guild_id, self.owner.id, own_key, biz=self.biz
+                        )
+                    )
+                else:
+                    done.append(
+                        await self.service.move(
+                            self.guild_id, self.owner.id, barrio, size, biz=self.biz
+                        )
+                    )
+            except BusinessError as error:
+                return str(error)
+            return None
+
+        async def after(_interaction: discord.Interaction) -> None:
+            business, paid, _balance = done[0]
+            await self._moved(None, business, paid, size, own)
+
+        opening = quote.opening
+        purchase = financing.Purchase(
+            "🚚 Acondicionamiento del local nuevo",
+            opening.setup + opening.setup_igic,
+            "negocio",
+            works=True,
+            cash=max(0, quote.total - opening.setup - opening.setup_igic),
+        )
+        await self._finance(interaction, purchase, buy, after)
 
     async def _close(self, interaction: discord.Interaction) -> None:
         await self._shut(interaction, traspaso=False)

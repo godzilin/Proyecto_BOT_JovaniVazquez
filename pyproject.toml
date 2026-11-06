@@ -40,10 +40,14 @@ dev = [
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-# En paralelo, un proceso por núcleo; `worksteal` reparte de nuevo las pruebas
+# En paralelo, un proceso por núcleo físico (`tests/conftest.py`); `worksteal` reparte de nuevo las pruebas
 # cuando un proceso se queda libre, para que las lentas no se acumulen en uno.
 # `-n 0` lo apaga (para depurar con `pdb` o ver un `print`).
 addopts = "-n auto --dist worksteal"
+# `lenta`: lo que tarda y casi nunca rompe un commit (dibujo repartido, Node contra Chromium,
+# estadística, auditorías de todo el código). Antes de cada commit, `pytest -m "not lenta"`;
+# la tanda entera, antes de subir a `main` (Biblia, «Pruebas rápidas»).
+markers = ["lenta: prueba de más de 3 s de CPU que solo corre en la tanda entera"]
 
 [tool.ruff]
 line-length = 100

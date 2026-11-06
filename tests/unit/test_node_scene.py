@@ -46,6 +46,20 @@ def node_ready() -> bool:
 needs_node = pytest.mark.skipif(not node_ready(), reason="No hay Node con @napi-rs/canvas")
 
 
+async def open_helpers(painter: NodeScene, meta: object, states: list) -> None:
+    """Abre los procesos de refuerzo antes de una prueba de dibujo repartido.
+
+    Sin ellos, con la máquina cargada (toda la tanda en paralelo), el primer proceso lo
+    pinta todo antes de que se abra otro y la prueba no ve el reparto.
+    """
+    assert await painter.render(meta, states[:8]) is not None
+    pool = painter._use_pool()
+    deadline = asyncio.get_running_loop().time() + 20
+    while len([w for w in pool.workers if w.alive and not w.busy]) < 3:
+        assert asyncio.get_running_loop().time() < deadline, "No se abren los procesos de refuerzo"
+        await asyncio.sleep(0.05)
+
+
 def lost_game() -> CoinGame:
     """Dos aciertos y luego fallo (pidió cara, salió cruz)."""
     rng = Scripted(Outcome.CARA, Outcome.CARA, Outcome.CRUZ, Outcome.CARA)
@@ -70,6 +84,7 @@ async def test_sin_node_se_desactiva_y_devuelve_none() -> None:
     await scene.close()
 
 
+@pytest.mark.lenta
 async def test_sin_node_la_moneda_pasa_a_chromium_y_luego_a_pillow() -> None:
     scene = CoinScene(executable_path="/no/existe/chromium", node="/no/existe/node")
     png = await scene.board(None, stake=100, face=Side.CARA)
@@ -325,6 +340,7 @@ def test_robar_se_lleva_la_mitad_final_del_tramo_con_mas_trabajo() -> None:
     assert node_scene._steal([node_scene._Span(0, 2 * node_scene.MIN_STEAL - 1)]) is None
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_los_que_se_unen_a_mitad_pintan_lo_mismo_que_uno_solo(

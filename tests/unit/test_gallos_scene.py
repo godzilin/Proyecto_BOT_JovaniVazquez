@@ -123,6 +123,7 @@ async def test_con_node_la_presentacion_es_un_png_de_la_mesa_y_no_esta_vacia(
     assert len(image.getcolors(1 << 20) or []) > 1000
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_la_pelea_es_un_gif_de_muchos_fotogramas(scene: GallosScene) -> None:
@@ -163,6 +164,7 @@ async def test_con_node_cada_final_y_cada_pose_se_pinta(scene: GallosScene) -> N
             assert difference(first, other) > 0.05
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_skin_y_cada_rival_se_pinta(scene: GallosScene) -> None:

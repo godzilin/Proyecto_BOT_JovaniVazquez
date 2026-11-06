@@ -8,6 +8,45 @@ criterio.
 
 ## 9.x
 
+### 9.53.0 · 2026-11-06
+
+- Pisos: el botón 🏗️ Reformas sale en la ficha, también antes de comprar, y dice si puedes reformar o qué te falta
+
+### 9.52.0 · 2026-11-06
+
+- Backgammon: los dados son de madera marrón y en 3D, como los del craps: vuelcan de verdad al rodar y se paran con la tirada arriba (caramelo los de las blancas y chocolate los de las negras)
+
+### 9.51.0 · 2026-11-06
+
+- Financiar: en el carrito se financia lo que se puede y lo numerado o un título va al contado, sin quitar el botón al resto
+- Financiar: las mejoras de `entrada` y las compras de un negocio de autónomo (mercancía, mejoras, campañas, cursos y el acondicionamiento al montarlo o trasladarlo)
+- Financiar: el 0 % TIN de la semana solo vale para un carrito de un solo pasillo
+- Financiar: lo que se puede financiar lo dice junto al precio (💳 en el escaparate, y en la ficha, la caja, el carrito y cada compra la cuota de Paga en 3 o del 0 % TIN de la semana), y la tienda anuncia qué tiene 0 % TIN esta semana
+- Logros: 4 nuevos en 🏦 Banco por financiar con una parte al contado, una mejora de `entrada` y compras del negocio
+
+### 9.50.2 · 2026-11-06
+
+- Interno: las pruebas tardan mucho menos (tanda rápida sin las lentas, arranque del bot de prueba cuatro veces más barato) y avisan de las que se alargan
+
+### 9.50.1 · 2026-11-06
+
+- Timba: la mesa ya enseña los botones para jugar la mano (el de 🃏 Mis cartas llevaba un emoji que Discord no acepta y tumbaba la mesa entera en cuanto empezaba la mano)
+
+### 9.50.0 · 2026-11-06
+
+- Predicciones: `predice` con siete secciones y temas (países, guerras, tuits, el tiempo…)
+- Logros: 12 nuevos en 🔮 Predicciones por las secciones nuevas, los países y los temas
+
+### 9.49.0 · 2026-11-06
+
+- Tapetes: el Hielo Negro, solo en la Rueda y, rarísimo, en las cajas
+- Logros: 4 nuevos por sacar el Tapete Hielo Negro (2 en 🎪 Rueda y 2 en 🛍️ Tienda)
+
+### 9.48.0 · 2026-11-06
+
+- Loterías: ▶️ Auto y ⚡ Turbo en los rascas, como en las tragaperras
+- Logros: 12 nuevos en 🎟️ Loterías por rascar en Turbo y con Auto
+
 ### 9.47.1 · 2026-11-06
 
 - Jovaniverso: el túnel del NAS pasa a Tailscale Funnel, gratis y sin dominio propio

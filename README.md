@@ -297,8 +297,9 @@ python -m bot
     Bobbleheads de líderes mundiales o las Pegatinas de Hacienda, y tres de temporada
     de 6) con rareza Común, Rara, Épica, Legendaria y Mítica, que solo salen de cajas y
     se pueden vender y cambiar en el Rastro. El maletín y el cofre pueden dar, rarísimo,
-    un tapete del casino. Cada caja devuelve de media un 95 % de lo que cuesta a valor de
-    catálogo. 🎄 Navidad (dic. y ene.), 🎃 Halloween y 🎂 aniversario (oct.) cuestan 5.000
+    un tapete del casino, y cualquier caja, una vez de cada 50.000, el 🧊 Tapete Hielo
+    Negro, que no se vende y, fuera de las cajas, solo sale en la Rueda. Cada caja
+    devuelve de media un 95 % de lo que cuesta a valor de catálogo. 🎄 Navidad (dic. y ene.), 🎃 Halloween y 🎂 aniversario (oct.) cuestan 5.000
     Y$, solo se venden en su temporada y sacan antes su colección. Una 📦 gratis cada 100
     jugadas del casino y una 🎁 cada 5 niveles. Comprar paga IGIC; abrir no mueve dinero.
     La caja botín de siempre ya no se vende, pero se sigue abriendo.
@@ -733,7 +734,7 @@ python -m bot
   con canvas en Node (si no hay Node, en Chromium y, si tampoco, con Pillow).
 - **Timba** (`/poker timba [ciega]`, `.poker timba`): Texas Hold'em sin límite entre
   miembros, de dos a seis en una mesa por canal; las ciegas las pone quien la
-  abre (por defecto 10/20). Cada uno ve sus cartas en privado con 🂠 Mis cartas y
+  abre (por defecto 10/20). Cada uno ve sus cartas en privado con 🃏 Mis cartas y
   habla por turnos de 30 s con botones (pasar, igualar, subir al mínimo, medio
   bote, bote, todo o una cantidad, y retirarse). Botes secundarios, ficha suelta
   para el primero tras el botón y comisión del 5 % (tope de 3 ciegas) de cada
@@ -892,7 +893,7 @@ python -m bot
   cartel de la administración con los botes al abrir, el décimo o el resguardo
   con las bolas al comprar, el último boleto sorteado con los aciertos marcados
   en 🎟️ Mis boletos, el rasca rascándose en un GIF (pintado antes del clic, así
-  que sale al instante) y el sorteo en el canal con las bolas saliendo del
+  que sale al instante; con ⚡ Turbo, ya rascado, y con ▶️ Auto, uno tras otro) y el sorteo en el canal con las bolas saliendo del
   bombo. Precios, bolas y categorías son los reales (normas de SELAE y tablas
   de la ONCE) a 10 Y$ por euro, y las probabilidades de la Nacional y los rascas
   también. En los juegos de bote se ajustan al servidor (si cada persona, sin
@@ -1424,8 +1425,14 @@ ruff check .
 
 Las pruebas no requieren un token real ni conexión a Discord: se aíslan
 mediante dobles de prueba (`unittest.mock`). Corren en paralelo, un proceso
-por núcleo (`pytest-xdist`, configurado en `pyproject.toml`); `pytest -n 0`
+por núcleo físico (`pytest-xdist`, configurado en `pyproject.toml`); `pytest -n 0`
 las corre en uno solo, para depurar.
+
+`pytest -m "not lenta"` se salta las lentas (dibujos de verdad, simulaciones,
+auditorías de todo el código): es la tanda de cada commit, y la entera va antes de
+subir a `main`. Al final de cada tanda salen las pruebas sin esa marca que gastan
+más de 3 s de CPU, y la tanda falla si alguna pasa de 10 s de CPU o de 30 s de reloj
+(`tests/conftest.py`).
 
 ## Estructura del proyecto
 

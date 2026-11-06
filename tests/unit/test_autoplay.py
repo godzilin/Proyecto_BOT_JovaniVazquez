@@ -332,8 +332,8 @@ def test_los_motivos_de_parada_usan_la_unidad_del_juego() -> None:
     assert stop_text(StopReason.MAX_SPINS, max_spins=25, unit="tandas") == (
         "Parado: tope de 25 tandas por sesión."
     )
-    assert stop_text(StopReason.NO_FUNDS, unit="tandas") == "Parado: no te llega para otra tanda."
-    assert stop_text(StopReason.NO_FUNDS) == "Parado: no te llega para otra tirada."
+    assert stop_text(StopReason.NO_FUNDS, unit="tandas") == "Parado: no te llega para más tandas."
+    assert stop_text(StopReason.NO_FUNDS) == "Parado: no te llega para más tiradas."
     assert stop_text(StopReason.MANUAL, unit="tandas") == stop_text(StopReason.MANUAL)
 
 

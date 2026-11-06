@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import needs_node, node_ready
+from test_node_scene import needs_node, node_ready, open_helpers
 
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
@@ -168,6 +168,7 @@ async def test_con_node_cada_tema_es_un_png_distinto(scene: TowerScene) -> None:
     assert len({png for png in pngs}) == len(pngs)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_es_un_gif_que_acaba_en_su_png(scene: TowerScene) -> None:
@@ -187,6 +188,7 @@ async def test_con_node_cada_jugada_es_un_gif_que_acaba_en_su_png(scene: TowerSc
         assert sum(ImageStat.Stat(ImageChops.difference(last, png)).mean) / 3 < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_repartida_pinta_lo_mismo_que_de_un_tiron(scene: TowerScene) -> None:
@@ -201,6 +203,7 @@ async def test_repartida_pinta_lo_mismo_que_de_un_tiron(scene: TowerScene) -> No
         calls.append(call)
         return original(call, args, **extra)
 
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)

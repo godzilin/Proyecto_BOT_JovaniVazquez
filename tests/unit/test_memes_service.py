@@ -55,6 +55,7 @@ def test_cada_efecto_esta_documentado_y_trae_un_ejemplo_valido(name: str) -> Non
     assert effect.texts <= len(texts) <= effect.texts + effect.optional_texts
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("name", sorted(EFFECTS))
 def test_cada_efecto_genera_un_archivo_valido(name: str) -> None:
     """Se ejecuta de verdad cada efecto con su ejemplo y se valida el archivo resultante."""

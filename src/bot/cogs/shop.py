@@ -193,6 +193,7 @@ from bot.services.shop_wishlist import (
 from bot.services.skin_images import SkinImage
 from bot.services.skins import (
     GAMES,
+    HIELO,
     SKIN_BY_KEY,
     Skin,
     fits,
@@ -476,6 +477,10 @@ def item_card(item: ShopItem, now: float, *, best_seller: bool = False, owned: i
     if item.per_user is not None:
         tags.append(f"👤 Máx. {item.per_user} por persona")
     lines.append("-# " + " · ".join(tags))
+    if emblematic(item):
+        lines.append("-# 💳 No se financia: lo numerado y los títulos se pagan al contado.")
+    elif hint := financiar.teaser(quote(item, now).total, item_category(item)):
+        lines.append(f"**{hint}**")
     return "\n".join(lines)
 
 
@@ -532,6 +537,8 @@ def compact_line(
         tags.append("🔥")
     if item.is_new(now):
         tags.append("🆕")
+    if not emblematic(item) and (mark := financiar.badge(price.total, item_category(item))):
+        tags.append(mark)
     if not on_sale(item, local_now(now)):
         tags.append(f"🗓️ {season_name(item) or 'fuera de temporada'}")
     return f"{item.emoji} **{item.name}** · {cost}" + (f" · {' '.join(tags)}" if tags else "")
@@ -540,6 +547,7 @@ def compact_line(
 #: Qué quiere decir cada etiqueta de `compact_line`, para el pie del escaparate.
 LEGEND = (
     "✅ lo tienes · ⭐ en tu lista · 🛒 en el carrito · 🔒 nivel · 🔥 lo más vendido · 🆕 nuevo"
+    " · 💳 a plazos (💳 0 %: sin intereses esta semana)"
 )
 
 
@@ -549,19 +557,35 @@ def fold(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).strip()
 
 
+def item_category(item: ShopItem) -> str:
+    """La categoría de un artículo para financiarlo (su pasillo, `credit.categories`)."""
+    return f"tienda:{aisle_of(item.catalog_key).key}"
+
+
 def financed_purchase(lines: Sequence[TicketLine]) -> credit.Purchase | None:
-    """Lo que se financia de unas líneas del ticket (💳 Financiar), o `None` si no se puede:
-    algo emblemático (numerado o un título) o un importe que el banco no financia."""
-    if not lines or any(emblematic(line.item) for line in lines):
+    """Lo que se financia de unas líneas del ticket (💳 Financiar), o `None` si no se puede.
+
+    Solo entra lo que no es emblemático (numerado o un título): en un carrito mezclado, eso se
+    paga al contado en la misma compra (`cash_part`). `None` si no queda nada que financiar o
+    el banco no financia su importe. Con artículos de varios pasillos, la categoría es «la
+    tienda», que nunca tiene el 0 % TIN de la semana.
+    """
+    financeable = [line for line in lines if not emblematic(line.item)]
+    total = sum(line.total for line in financeable)
+    if not financeable or credit.refusal(total) is not None:
         return None
-    total = sum(line.total for line in lines)
-    if credit.refusal(total) is not None:
-        return None
-    top = max(lines, key=lambda line: line.total)
+    top = max(financeable, key=lambda line: line.total)
     label = f"{top.item.emoji} {top.item.name}" + (f" × {top.qty}" if top.qty > 1 else "")
-    if len(lines) > 1:
-        label += f" y {len(lines) - 1} más"
-    return credit.Purchase(label, total, f"tienda:{aisle_of(top.item.catalog_key).key}")
+    if len(financeable) > 1:
+        label += f" y {len(financeable) - 1} más"
+    categories = {item_category(line.item) for line in financeable}
+    category = categories.pop() if len(categories) == 1 else "tienda"
+    return credit.Purchase(label, total, category, cash=cash_part(lines))
+
+
+def cash_part(lines: Sequence[TicketLine]) -> int:
+    """Lo que se paga al contado al financiar unas líneas: lo emblemático."""
+    return sum(line.total for line in lines if emblematic(line.item))
 
 
 def ticket_preview(price: Quote) -> str:
@@ -800,6 +824,8 @@ class Checkout(ui.LayoutView):
                 f"{CURRENCY_EMOJI} Tienes {format_amount(self.balance)} → te quedan "
                 f"**{format_amount(self.balance - price.total)}**"
             )
+        if not emblematic(item) and (hint := financiar.teaser(price.total, item_category(item))):
+            lines.append(f"-# ¿No te llega? {hint}." if missing > 0 else f"-# {hint}.")
         container.add_item(ui.TextDisplay("\n".join(lines)))
         self.add_item(container)
         row: ui.ActionRow = ui.ActionRow()
@@ -2094,6 +2120,7 @@ class Tienda(commands.Cog):
                 box=box.key,
                 rarity=drop.rarity.stat,
                 tapete=drop.skin is not None,
+                hielo=drop.skin is not None and drop.skin.key == HIELO,
                 dupe=dupe,
                 seasonal=box.season is not None,
                 collection=collection.key if collection is not None else None,

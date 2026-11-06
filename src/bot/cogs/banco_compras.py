@@ -91,6 +91,47 @@ class Deal:
     after: Callable[[discord.Interaction], Awaitable[None]] | None = None
 
 
+def _plans_today(amount: int, category: str, works: bool) -> tuple[credit.Plan, ...]:
+    if credit.refusal(amount) is not None:
+        return ()
+    today = local_day(datetime.now(TIMEZONE).timestamp())
+    return credit.plans_for(credit.Purchase("", amount, category, works), today)
+
+
+def teaser(amount: int, category: str, *, works: bool = False) -> str | None:
+    """Lo que se enseña junto al precio de algo que se puede financiar, o `None` si no.
+
+    Lo más atractivo que le toca hoy: Paga en 3 (sin intereses) o el 0 % TIN de la semana con
+    su cuota exacta, que no depende de quién compra. El plan normal va al tipo de cada perfil,
+    así que solo se dice hasta cuántas cuotas llega.
+    """
+    plans = _plans_today(amount, category, works)
+    if credit.Plan.BNPL in plans:
+        monthly = credit.offer(amount, credit.Plan.BNPL, 3).quote.monthly
+        return f"💳 Paga en 3 de {format_amount(monthly)}, sin intereses"
+    if credit.Plan.ZERO in plans:
+        months = max(credit.ZERO_TERMS)
+        monthly = credit.offer(amount, credit.Plan.ZERO, months).quote.monthly
+        return f"💳 0 % TIN esta semana: {months} cuotas de {format_amount(monthly)}"
+    if plans:
+        return f"💳 A plazos, hasta {max(credit.terms(credit.Plan.NORMAL, works=works))} cuotas"
+    return None
+
+
+def zero_pitch() -> str:
+    """Las categorías con 0 % TIN esta semana («🌴 Canarias y 🔨 Obras de pisos»)."""
+    today = local_day(datetime.now(TIMEZONE).timestamp())
+    return " y ".join(credit.category_name(c) for c in credit.zero_picks(today))
+
+
+def badge(amount: int, category: str) -> str | None:
+    """La etiqueta corta de una lista: `💳` si se financia, `💳 0 %` con el 0 % TIN."""
+    plans = _plans_today(amount, category, False)
+    if not plans:
+        return None
+    return "💳 0 %" if credit.Plan.ZERO in plans else "💳"
+
+
 def _pct(rate: float) -> str:
     """`7,25 %`."""
     return f"{rate * 100:.2f}".replace(".", ",") + " %"
@@ -203,6 +244,11 @@ class FinanceView(ui.LayoutView):
             f"-# «{SLOGANS[self.day.toordinal() % len(SLOGANS)]}» — Banco",
             f"Cuesta **{format_amount(purchase.amount)}** con impuestos.",
         ]
+        if purchase.cash:
+            lines.append(
+                f"-# Y **{format_amount(purchase.cash)}** al contado de tu saldo: lo que no se "
+                "financia (lo numerado, los títulos, tasas y fianzas)."
+            )
         if not self.plans:
             return "\n".join([*lines, self.problem() or ""])
         wait = credit.GRACE_DAYS if offer.grace else 0
@@ -415,6 +461,7 @@ class FinanceView(ui.LayoutView):
                 could_pay=self.balance_before >= purchase.amount,
                 open_count=len(self.desk.purchases) + 1, ipc=credit.ipc(self.guild_id),
                 trap=offer.plan is credit.Plan.ZERO and offer.months == min(credit.ZERO_TERMS),
+                category=purchase.category, cash=purchase.cash,
             ),
         )  # fmt: skip
 

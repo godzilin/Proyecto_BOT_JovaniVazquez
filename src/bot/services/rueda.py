@@ -30,6 +30,8 @@ pruebas fijan las cifras para que nadie las suba sin querer.
 - 🔎 Inspección: no hay premio.
 - 🏆 El expositor: el título numerado de la semana (`showcase_for`). Si ya no
   quedan, se paga `SHOWCASE_FALLBACK` en dinero.
+- 🧊 El Tapete Hielo Negro (`skins.HIELO`): la porción más fina (1 de 1.000). Solo
+  sale aquí y, muy rara vez, en las cajas. Si ya se tiene, se paga `SHOWCASE_FALLBACK`.
 
 **El sorteo se guarda al abrir el panel.** El resultado de la próxima vuelta se
 sortea (`draw`) cuando el miembro abre la rueda y se guarda en la base
@@ -69,6 +71,7 @@ class PrizeKind(StrEnum):
     AGAIN = "otra"
     NOTHING = "nada"
     SHOWCASE = "expositor"
+    SKIN = "tapete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +117,8 @@ PRIZES: tuple[Prize, ...] = (
     Prize("otra", PrizeKind.AGAIN, "OTRA", "otra vuelta", "🔁"),
     Prize("nada", PrizeKind.NOTHING, "NADA", "nada", "🔎"),
     Prize("expositor", PrizeKind.SHOWCASE, "EXPOSITOR", "el expositor de la semana", "🏆"),
+    Prize("hielo", PrizeKind.SKIN, "HIELO", "el Tapete Hielo Negro", "🧊",
+          item="skin_tapete_hielo"),
 )
 # fmt: on
 PRIZE_BY_KEY: dict[str, Prize] = {p.key: p for p in PRIZES}
@@ -162,7 +167,8 @@ _RING: tuple[tuple[str, int], ...] = (
     ("y5000", 8), ("y600", 38), ("pieza", 27), ("xp1000", 40), ("y300", 38),
     ("carton", 40), ("y1000", 30), ("maletin", 5), ("regalo", 30), ("y600", 37),
     ("xp250", 40), ("y300", 38), ("otra", 30), ("chuche", 40), ("y1000", 30),
-    ("y15000", 2), ("carton", 40), ("y600", 37), ("nada", 25), ("pieza", 26),
+    ("y15000", 2), ("carton", 40), ("y600", 37), ("nada", 24), ("hielo", 1),
+    ("pieza", 26),
     ("xp250", 40), ("y300", 38),
 )
 # fmt: on

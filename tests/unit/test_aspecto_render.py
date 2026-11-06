@@ -108,6 +108,7 @@ def test_un_emoji_no_cambia_lo_que_se_pinta() -> None:
     assert plain == emoji
 
 
+@pytest.mark.lenta
 def test_el_texto_no_pinta_nada_en_el_38_por_ciento_izquierdo() -> None:
     width = render.BANNER_SIZE[0]
     strip = (0, 0, int(width * 0.38), render.BANNER_SIZE[1])

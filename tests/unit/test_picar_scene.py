@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import needs_node
+from test_node_scene import needs_node, open_helpers
 
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
@@ -121,6 +121,7 @@ def test_la_pausa_tapa_lo_que_tarda_en_subirse_el_siguiente() -> None:
     assert swap_ms(8 * 1024 * 1024) > swap_ms(2 * 1024 * 1024) > swap_ms(500_000)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_la_tirada_sale_en_gif_que_caben_en_el_limite(
@@ -163,6 +164,7 @@ async def test_repartida_pinta_lo_mismo_que_de_un_tiron(cal: Calibration, deep: 
         calls.append(call)
         return original(call, args, **extra)
 
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)

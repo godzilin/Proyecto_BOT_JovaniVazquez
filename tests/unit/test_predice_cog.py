@@ -54,14 +54,15 @@ from bot.services.polymarket import (
     parse_time,
 )
 from bot.services.predice import (
-    EVENTS_PER_TAG,
     GAME,
     LOOKAHEAD,
     MAX_STAKE,
     MIN_STAKE,
     SECTIONS,
+    TOPIC_BY_KEY,
     VOID_AFTER,
     build_sections,
+    fetch_plan,
     payout,
 )
 
@@ -142,6 +143,15 @@ MULTI = make_event(
     title="Who wins the election?",
     tags=("geopolitics",),
 )
+
+
+def fetched(*events: Event) -> dict[str, list[Event]]:
+    """Lo que daría Polymarket por etiqueta: cada evento, bajo cada una de las suyas."""
+    result: dict[str, list[Event]] = {}
+    for event in events:
+        for tag in event.tags:
+            result.setdefault(tag, []).append(event)
+    return result
 
 
 class FakeClock:
@@ -271,9 +281,7 @@ def open_view(
 
 def load_offers(cog: Predice) -> None:
     """Las preguntas en memoria, como si acabaran de llegar de Polymarket."""
-    cog.offers = build_sections(
-        {"economia": [SINGLE], "mundo": [MULTI], "espana": elecciones()}, now=NOW
-    )
+    cog.offers = build_sections(fetched(SINGLE, MULTI, *elecciones()), now=NOW)
     cog.offers_at = NOW
 
 
@@ -440,18 +448,31 @@ async def test_refresh_rellena_cada_seccion_con_sus_etiquetas(tmp_path: Path) ->
 
     assert [o.event.id for o in cog.offers["economia"]] == ["s1"]
     assert [o.event.id for o in cog.offers["mundo"]] == ["w1"]
-    assert {o.event.id for o in cog.offers["espana"]} == {"1138701", "1178432"}
+    assert {"1138701", "1178432"} <= {o.event.id for o in cog.offers["politica"]}
     assert cog.offers["cultura"] == []
     assert cog.offers_at == NOW
     calls = client.calls  # type: ignore[union-attr]
-    assert {c["tag_slug"] for c in calls} == {t for s in SECTIONS for t in s.tags}
     for call in calls:
         assert call["closed"] is False
         assert (call["end_min"], call["end_max"]) == (NOW, NOW + LOOKAHEAD)
-        assert (call["order"], call["limit"]) == ("volume24hr", EVENTS_PER_TAG)
+        assert call["order"] == "volume24hr"
 
 
-async def test_si_falla_una_etiqueta_su_seccion_conserva_lo_anterior(tmp_path: Path) -> None:
+async def test_refresh_pide_cada_etiqueta_una_vez_con_su_limite(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path, offers=False)
+
+    await cog.refresh(NOW)
+
+    plan = fetch_plan()
+    calls = cog.client.calls  # type: ignore[union-attr]
+    assert sorted(c["tag_slug"] for c in calls) == sorted(plan)
+    assert {c["tag_slug"]: c["limit"] for c in calls} == plan
+    assert plan["weather"] > plan["economy"]
+
+
+async def test_si_falla_una_etiqueta_conserva_lo_anterior_de_esa_etiqueta(
+    tmp_path: Path,
+) -> None:
     cog, _ = await make_cog(tmp_path, offers=False)
     cog.client.by_tag = {"spain": elecciones(), "economy": [SINGLE], "geopolitics": [MULTI]}  # type: ignore[union-attr]
     await cog.refresh(NOW)
@@ -466,7 +487,8 @@ async def test_si_falla_una_etiqueta_su_seccion_conserva_lo_anterior(tmp_path: P
     await cog.refresh(NOW + 60)
 
     assert cog.offers["economia"] == before
-    assert {o.event.id for o in cog.offers["mundo"]} == {"w1", "s2"}
+    assert {o.event.id for o in cog.offers["economia"]} == {"s1"}
+    assert {o.event.id for o in cog.offers["mundo"]} == {"w1"}
     assert cog.offers_at == NOW + 60
 
 
@@ -474,9 +496,7 @@ async def test_si_fallan_todas_las_etiquetas_no_cambia_la_hora_de_los_precios(
     tmp_path: Path,
 ) -> None:
     cog, _ = await make_cog(tmp_path, offers=False)
-    cog.client.by_tag = {  # type: ignore[union-attr]
-        tag: PolymarketError("caído") for s in SECTIONS for tag in s.tags
-    }
+    cog.client.by_tag = {tag: PolymarketError("caído") for tag in fetch_plan()}  # type: ignore[union-attr]
 
     await cog.refresh(NOW)
 
@@ -598,8 +618,10 @@ async def test_el_panel_se_construye_en_cada_seccion_dentro_de_los_limites(
     assert view.content_length() <= 4_000
     assert all(i.startswith("predice:") for i in ids(view))
     assert len(ids(view)) == len(set(ids(view)))
-    assert f"predice:seccion:{section}" in ids(view)
-    assert widget(view, f"predice:seccion:{section}").disabled is True
+    select = widget(view, "predice:seccion")
+    assert isinstance(select, ui.Select)
+    assert [o.value for o in select.options] == [s.key for s in SECTIONS]
+    assert [o.value for o in select.options if o.default] == [section]
     assert "predice:mis" in ids(view)
     assert "Polymarket" in texts(view)
 
@@ -612,7 +634,7 @@ async def test_la_portada_enseña_las_preguntas_con_sus_dos_primeras_opciones(
     mundo = texts(open_view(cog, "mundo"))
     economia = texts(open_view(cog, "economia"))
 
-    assert "🔮 **Predicciones** · 🌍 Mundo" in mundo
+    assert "🔮 **Predicciones** · ⚔️ Guerras" in mundo
     assert "**Who wins the election?**" in mundo
     assert "PP 70 % · PSOE 20 %" in mundo
     assert "Vox" not in mundo
@@ -620,6 +642,149 @@ async def test_la_portada_enseña_las_preguntas_con_sus_dos_primeras_opciones(
     assert "Will inflation fall?" in economia
     assert "Sí 62 %" in economia
     assert "Precios de hace menos de 1 min" in economia
+
+
+def pick(view: PredictView, custom_id: str, value: str) -> ui.Select:
+    """Elige una opción de un desplegable del panel, como lo haría Discord."""
+    select = widget(view, custom_id)
+    assert isinstance(select, ui.Select)
+    select._values = [value]  # type: ignore[attr-defined]  # noqa: SLF001
+    return select
+
+
+def with_crypto(cog: Predice) -> Event:
+    """Pone en Economía la pregunta de siempre y otra de cripto; devuelve la de cripto."""
+    coin = make_event(
+        "c1", make_market("mc1", mid=0.3), title="Will Bitcoin rise?", tags=("crypto",)
+    )
+    cog.offers = build_sections(fetched(SINGLE, coin), now=NOW)
+    return coin
+
+
+async def test_el_desplegable_de_temas_solo_lista_los_que_tienen_preguntas(
+    tmp_path: Path,
+) -> None:
+    cog, _ = await make_cog(tmp_path)
+
+    politica = widget(open_view(cog, "politica"), "predice:tema")
+    mundo = open_view(cog, "mundo")
+    with_crypto(cog)
+    economia = widget(open_view(cog), "predice:tema")
+
+    assert isinstance(politica, ui.Select)
+    assert [o.value for o in politica.options] == ["tendencias", "espana"]
+    assert [o.label for o in politica.options][0] == "🔥 Tendencias"
+    assert [o.default for o in politica.options] == [True, False]
+    assert "predice:tema" not in ids(mundo)  # Guerras: la pregunta de prueba no es de un tema
+    assert isinstance(economia, ui.Select)
+    assert [o.value for o in economia.options] == ["tendencias", "cripto"]
+    assert "predice:tema" not in ids(open_view(cog, "ia"))  # una sección sin temas
+
+
+async def test_elegir_tema_filtra_la_portada_y_tendencias_las_enseña_todas(
+    tmp_path: Path,
+) -> None:
+    cog, _ = await make_cog(tmp_path)
+    with_crypto(cog)
+    view = open_view(cog)
+    assert "Will inflation fall?" in texts(view)
+    assert "Bitcoin" in texts(view)
+
+    interaction = make_interaction()
+    await pick(view, "predice:tema", "cripto").callback(interaction)
+
+    interaction.response.edit_message.assert_awaited_once_with(view=view)
+    interaction.response.defer.assert_not_awaited()
+    assert view.topic == "cripto"
+    assert "🔮 **Predicciones** · 💰 Economía y cripto · 🪙 Cripto" in texts(view)
+    assert "Bitcoin" in texts(view)
+    assert "Will inflation fall?" not in texts(view)
+    assert [o.value for o in widget(view, "predice:tema").options if o.default] == ["cripto"]  # type: ignore[attr-defined]
+
+    await pick(view, "predice:tema", "tendencias").callback(make_interaction())
+
+    assert view.topic is None
+    assert "Will inflation fall?" in texts(view)
+    assert "Bitcoin" in texts(view)
+
+
+async def test_elegir_seccion_vuelve_a_tendencias_y_a_la_portada(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path)
+    with_crypto(cog)
+    view = open_view(cog)
+    view.topic = "cripto"
+    view.rebuild()
+
+    await pick(view, "predice:seccion", "mundo").callback(make_interaction())
+
+    assert (view.section, view.topic) == ("mundo", None)
+    assert "· ⚔️ Guerras\n" in texts(view)
+
+
+async def test_un_tema_que_se_queda_sin_preguntas_vuelve_a_tendencias(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path)
+    with_crypto(cog)
+    view = open_view(cog)
+    view.topic = "cripto"
+    cog.offers = build_sections(fetched(SINGLE), now=NOW)
+
+    view.rebuild()
+
+    assert view.topic is None
+    assert "Will inflation fall?" in texts(view)
+
+
+async def test_un_evento_de_un_tema_se_abre_aunque_no_quepa_en_tendencias(
+    tmp_path: Path,
+) -> None:
+    cog, _ = await make_cog(tmp_path)
+    many = [
+        make_event(f"x{n}", make_market(f"mx{n}", mid=0.5), volume_24h=1000.0 - n)
+        for n in range(30)
+    ]
+    coin = make_event(
+        "c1", make_market("mc1", mid=0.3), title="Will Bitcoin rise?", tags=("crypto",)
+    )
+    cog.offers = build_sections(fetched(*many, coin), now=NOW)
+
+    assert "c1" not in {o.event.id for o in cog.open_offers("economia")}
+    assert "c1" in {o.event.id for o in cog.open_offers("economia", "cripto")}
+    view = open_view(cog, event_id="c1")
+
+    assert view.event_id == "c1"
+    assert "## Will Bitcoin rise?" in texts(view)
+    assert cog.find("c1", "mc1") is not None
+
+
+async def test_la_peor_portada_no_pasa_de_40_componentes(tmp_path: Path) -> None:
+    cog, _ = await make_cog(tmp_path)
+    topics = ("spain", "united-states", "france", "germany", "uk", "israel", "mexico")
+    events = [
+        make_event(
+            f"p{n}",
+            make_market(f"mp{n}", mid=0.5),
+            title="T" * 400,
+            tags=("politics", topics[n % len(topics)]),
+            volume_24h=float(n),
+        )
+        for n in range(30)
+    ]
+    cog.offers = build_sections(fetched(*events), now=NOW)
+
+    for topic in (None, "espana", "eeuu"):
+        view = open_view(cog, "politica")
+        view.topic = topic
+        view.rebuild()
+        assert len(list(view.walk_children())) <= 40
+        assert view.content_length() <= 4_000
+        assert len(ids(view)) == len(set(ids(view)))
+        assert {"predice:seccion", "predice:tema", "predice:mis"} <= set(ids(view))
+        assert ("predice:mas" in ids(view)) is (topic is None)  # 25 en Tendencias, menos en un tema
+
+
+def test_espana_es_un_tema_de_politica_y_no_una_seccion() -> None:
+    assert "espana" in TOPIC_BY_KEY
+    assert "espana" not in {s.key for s in SECTIONS}
 
 
 async def test_la_portada_dice_hace_cuanto_son_los_precios(tmp_path: Path) -> None:
@@ -652,7 +817,7 @@ async def test_la_portada_pone_seis_preguntas_y_el_resto_en_un_desplegable(
         make_event(f"x{n}", make_market(f"mx{n}", mid=0.5), volume_24h=1000.0 - n)
         for n in range(25)
     ]
-    cog.offers["economia"] = build_sections({"economia": many}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(*many), now=NOW)["economia"]
 
     view = open_view(cog)
 
@@ -677,7 +842,7 @@ async def test_con_titulos_enormes_el_panel_cabe_en_los_limites(tmp_path: Path) 
         *(make_market(f"b{n}", mid=0.04, group="G" * 200) for n in range(25)),
         title="B" * 400,
     )
-    cog.offers["economia"] = build_sections({"economia": [*many, big]}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(*many, big), now=NOW)["economia"]
 
     home = open_view(cog)
     event = open_view(cog, event_id="big")
@@ -699,7 +864,7 @@ async def test_el_panel_se_abre_en_la_primera_seccion_con_preguntas(tmp_path: Pa
 
     view = interaction.response.send_message.await_args.kwargs["view"]
     assert isinstance(view, PredictView)
-    assert view.section == "espana"
+    assert view.section == "politica"
     assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
     assert view.message is interaction.original_response.return_value
 
@@ -739,7 +904,7 @@ async def test_la_ficha_de_una_pregunta_sola_enseña_el_si_y_el_no_con_su_cuota(
 async def test_la_ficha_lleva_la_miniatura_si_el_evento_tiene_imagen(tmp_path: Path) -> None:
     cog, _ = await make_cog(tmp_path)
     cog.offers["economia"] = build_sections(
-        {"economia": [replace(SINGLE, image="https://example.com/a.png")]}, now=NOW
+        fetched(replace(SINGLE, image="https://example.com/a.png")), now=NOW
     )["economia"]
 
     view = open_view(cog, event_id="s1")
@@ -752,7 +917,7 @@ async def test_la_ficha_lleva_la_miniatura_si_el_evento_tiene_imagen(tmp_path: P
 async def test_solo_se_ofrecen_los_lados_que_tienen_cuota(tmp_path: Path) -> None:
     cog, _ = await make_cog(tmp_path)
     favorite = make_event("f1", make_market("mf1", mid=0.945), title="Almost sure")
-    cog.offers["economia"] = build_sections({"economia": [favorite]}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(favorite), now=NOW)["economia"]
 
     view = open_view(cog, event_id="f1")
 
@@ -815,9 +980,11 @@ async def test_navegar_responde_directo_con_edit_message_sin_tocar_la_base(
     for custom_id, check in (
         ("predice:evento:s1", lambda: view.event_id == "s1"),
         ("predice:volver", lambda: view.event_id is None),
-        ("predice:seccion:mundo", lambda: view.section == "mundo"),
+        ("predice:seccion", lambda: view.section == "mundo"),
     ):
         interaction = make_interaction()
+        if custom_id == "predice:seccion":
+            widget(view, custom_id)._values = ["mundo"]  # type: ignore[attr-defined]  # noqa: SLF001
         await widget(view, custom_id).callback(interaction)
         interaction.response.edit_message.assert_awaited_once_with(view=view)
         interaction.response.defer.assert_not_awaited()
@@ -830,7 +997,7 @@ async def test_el_desplegable_de_mas_preguntas_abre_la_elegida(tmp_path: Path) -
         make_event(f"x{n}", make_market(f"mx{n}", mid=0.5), volume_24h=1000.0 - n)
         for n in range(10)
     ]
-    cog.offers["economia"] = build_sections({"economia": many}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(*many), now=NOW)["economia"]
     view = open_view(cog)
     select = widget(view, "predice:mas")
     select._values = ["x8"]  # type: ignore[attr-defined]  # noqa: SLF001
@@ -1014,6 +1181,28 @@ async def test_apostar_alimenta_los_logros_con_lo_que_se_hizo(
     assert delta.add["predict_bets"] == 1
     assert delta.add["predict_staked"] == 500
     assert delta.add["predict_side_yes"] == 1
+
+
+async def test_apostar_sobre_españa_suma_la_seccion_y_el_tema_en_los_logros(
+    tmp_path: Path, hooks: SimpleNamespace
+) -> None:
+    cog, _ = await make_cog(tmp_path)
+    vote = make_event(
+        "e1",
+        make_market("me1", mid=0.62, question="Will PP win?"),
+        title="Who governs Spain?",
+        tags=("politics", "spain"),
+    )
+    cog.offers = build_sections(fetched(SINGLE, vote), now=NOW)
+    set_live(cog, vote.markets[0])
+
+    await place(cog, make_interaction(), event=vote)
+
+    delta = hooks.track.await_args.args[4]
+    assert delta.add["predict_section_politica"] == 1
+    assert delta.add["predict_section_espana"] == 1
+    [bet] = await cog.economy.open_predict_bets()
+    assert bet.section == "politica"
 
 
 async def test_apostar_a_una_opcion_guarda_su_nombre_y_el_titulo(tmp_path: Path) -> None:
@@ -1686,7 +1875,7 @@ async def test_pending_sin_el_cog_o_con_un_fallo_no_lanza(
 async def test_al_caducar_la_portada_apaga_tambien_los_desplegables(tmp_path: Path) -> None:
     cog, _ = await make_cog(tmp_path)
     many = [make_event(f"x{n}", make_market(f"mx{n}", mid=0.5)) for n in range(10)]
-    cog.offers["economia"] = build_sections({"economia": many}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(*many), now=NOW)["economia"]
     view = open_view(cog)
     view.message = MagicMock(edit=AsyncMock())
 
@@ -1699,7 +1888,7 @@ async def test_al_caducar_la_portada_apaga_tambien_los_desplegables(tmp_path: Pa
 async def test_un_evento_con_una_sola_opcion_con_nombre_ensena_la_opcion(tmp_path: Path) -> None:
     cog, _ = await make_cog(tmp_path)
     one = make_event("o1", make_market("mo1", mid=0.4, group="22%+"), title="Vox % of vote?")
-    cog.offers["economia"] = build_sections({"economia": [one]}, now=NOW)["economia"]
+    cog.offers["economia"] = build_sections(fetched(one), now=NOW)["economia"]
 
     assert "22%+ 40 %" in texts(open_view(cog))
     event_page = open_view(cog, event_id="o1")

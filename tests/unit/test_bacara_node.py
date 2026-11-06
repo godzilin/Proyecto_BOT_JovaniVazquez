@@ -98,6 +98,7 @@ async def test_con_node_la_mesa_vacia_y_con_mano_son_un_png_de_la_medida(
         assert colors(await scene.board(BEFORE, HEADER, coup)) > 100
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_la_mano_sale_con_su_gif_sin_usar_el_navegador(
