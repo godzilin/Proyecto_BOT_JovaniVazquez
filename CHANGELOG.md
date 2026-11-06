@@ -8,9 +8,11 @@ criterio.
 
 ## 9.x
 
-### 9.44.1 · 2026-11-06
+### 9.45.0 · 2026-11-06
 
+- Tragaperras: 🔀 Otras tragaperras, para cambiar de máquina sin salir del mensaje
 - Tragaperras: las barras de calor y de bonus corren al principio y se frenan al final
+- Logros: 4 nuevos en 🎰 Tragaperras por cambiar de máquina
 
 ### 9.44.0 · 2026-11-05
 
