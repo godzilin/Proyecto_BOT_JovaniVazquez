@@ -16877,7 +16877,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     # `hacienda_house_stats`): ganarles en patrimonio cuesta meses de ahorro; mirar en qué
     # punto están, no.
     a += _tiers("economy", "richer_than_casino", [
-        (1, "richer_than_casino", "La banca no siempre gana",
+        (1, "richer_than_casino", "Hacer saltar la banca",
          "Mira `fortunas` o tu patrimonio teniendo más que 🎰 El Casino.", E),
     ])  # fmt: skip
     a += _tiers("economy", "richer_than_bank", [
