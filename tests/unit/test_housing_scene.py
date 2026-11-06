@@ -23,7 +23,7 @@ from PIL import Image, ImageChops, ImageStat
 from test_node_scene import LOCAL_CHROMIUM, needs_node, node_ready, own_node
 
 from bot.repositories.housing import Decision, Holding, Market, News, Review, Split
-from bot.repositories.housing_finance import Mortgage, Promotion, VpoOwner
+from bot.repositories.housing_finance import Mortgage, Promotion, SolarWork, VpoOwner
 from bot.repositories.housing_junta import Vote
 from bot.repositories.housing_trade import Auction
 from bot.services import browser_scene, node_scene
@@ -797,6 +797,32 @@ def street_samples() -> dict[str, dict[str, Any]]:
     return out
 
 
+def solar_samples() -> dict[str, dict[str, Any]]:
+    """🏗️ Solares: libre con P10, libre sin puesto, en un barrio rural, en obras y hecho."""
+    today = date(2026, 10, 14)
+    ajena = SolarWork(
+        "triana_c2_s", 30, "bloque5", date(2026, 10, 10), date(2026, 10, 30), 9_000_000, 10_000_000
+    )
+    mia = SolarWork(
+        "triana_c3_s", 10, "torre", date(2026, 9, 1), date(2026, 10, 1), 40_000_000, 47_000_000
+    )
+    market = Market(solars={ajena.solar: ajena, mia.solar: mia})
+    gauge = (40_000_000, 10_000_000)
+    return {
+        "solar_libre": view.solar_state(market, "triana_c1_s", 10, 10, NAMES, today, gauge),
+        "solar_libre_sin_puesto": view.solar_state(Market(), "triana_c1_s", 10, 0, NAMES, today),
+        "solar_rural": view.solar_state(
+            Market(), "arucas_c1_s", 10, 10, NAMES, today, (6_000_000, 3_000_000)
+        ),
+        "solar_obras": view.solar_state(
+            market, "triana_c2_s", 10, 10, NAMES, today, (9_000_000, 9_000_000)
+        ),
+        "solar_hecho": view.solar_state(market, "triana_c3_s", 10, 10, NAMES, today),
+        "calles_solares": view.streets_state(market, "triana", 10, today),
+        "calles_solares_rural": view.streets_state(Market(), "arucas", 10, today),
+    }
+
+
 #: Un bloque de cada tema (con su sobreático `_sa` o su ático con vistas `_va` si lo tiene) y dos
 #: del mismo barrio que se parecen en todo (plantas y unidades) salvo en la clave.
 THEME_BLOCKS = {
@@ -957,6 +983,7 @@ def samples() -> dict[str, dict[str, Any]]:
     out.update(split_samples())
     out.update(street_samples())
     out.update(edificio_samples())
+    out.update(solar_samples())
     out["barrio_en_dos"] = view.barrio_state(halves_market(), "triana", 10, NAMES)
     return out
 
@@ -1084,7 +1111,8 @@ def test_solo_el_barrio_las_plantas_dividir_y_las_calles_miden_mas_que_el_resto(
     edificio (hasta diez plantas) y 1000 × 640 para las demás pantallas."""
     assert (W, H) == (1000, 640)
     assert SCREEN_H == {
-        "barrio": 760, "plantas": 760, "dividir": 700, "calles": 760, "edificio": 1000,
+        "barrio": 760, "plantas": 760, "dividir": 700, "calles": 760, "solar": 760,
+        "edificio": 1000,
     }  # fmt: skip
     assert size_of({"screen": "plantas"}) == (1000, 760)
     tall = set(SCREEN_H)
@@ -1097,12 +1125,12 @@ async def test_la_escena_y_la_reserva_saben_el_alto_de_cada_pantalla(scene: Hous
     assert await scene.painter.evaluate("SCREEN_H") == SCREEN_H
 
 
-def test_las_muestras_cubren_las_diecisiete_pantallas_y_las_claves_de_las_fases_2_a_6() -> None:
+def test_las_muestras_cubren_las_dieciocho_pantallas_y_las_claves_de_las_fases_2_a_6() -> None:
     states = samples()
     assert {s["screen"] for s in states.values()} == {
         "mapa", "barrio", "ficha", "cartera", "caja", "vpo", "gestion", "candidatos",
         "subastas", "reformas", "imprevistos", "resenas", "junta", "plantas", "dividir",
-        "calles", "edificio",
+        "calles", "solar", "edificio",
     }  # fmt: skip
     assert [len(states[k]["cards"]) for k in ("candidatos_tres", "candidatos_uno")] == [3, 1]
     assert states["candidatos_vacia"]["empty"] and not states["candidatos_vacia"]["cards"]
@@ -1191,6 +1219,72 @@ def test_las_muestras_de_dividir_traen_lo_que_pinta_la_escena() -> None:
     assert states["dividir_sin_dueno"]["options"][0]["problem"]
     assert states["dividir_por_habitaciones"]["rooms"]
     assert states["dividir_no_se_puede"]["options"] == []
+
+
+def test_las_muestras_de_solares_traen_lo_que_pinta_la_escena() -> None:
+    """Pestañas, proyectos (los que no caben, apagados con su motivo), obra y burbuja."""
+    states = samples()
+    libre, sin_puesto = states["solar_libre"], states["solar_libre_sin_puesto"]
+    rural, obras, hecho = states["solar_rural"], states["solar_obras"], states["solar_hecho"]
+    for name in (
+        "solar_libre",
+        "solar_libre_sin_puesto",
+        "solar_rural",
+        "solar_obras",
+        "solar_hecho",
+    ):
+        state = states[name]
+        assert {
+            "barrio",
+            "solar",
+            "tabs",
+            "projects",
+            "built",
+            "bubble",
+            "level",
+            "footer",
+        } <= state.keys()
+        assert {"key", "street", "number", "status", "text", "mine", "m2"} <= state["solar"].keys()
+        assert [t["slot"] for t in state["tabs"]] == [1, 2, 3], name
+        assert sum(t["selected"] for t in state["tabs"]) == 1, name
+        assert {"level", "name", "pressure", "odds", "text"} <= state["bubble"].keys(), name
+    assert libre["solar"]["status"] == "libre" and libre["built"] is None
+    assert [p["key"] for p in libre["projects"]] == [
+        "casa",
+        "bloque3",
+        "bloque5",
+        "bloque7",
+        "torre",
+    ]
+    assert all(p["can"] and not p["reason"] for p in libre["projects"])
+    assert {"name", "units", "floors", "days", "cost", "value", "margin", "level"} <= libre[
+        "projects"
+    ][0].keys()
+    assert [t["status"] for t in libre["tabs"]] == ["libre", "obras", "hecho"]
+    assert libre["bubble"]["level"] == "burbuja" and sin_puesto["bubble"]["level"] == "calma"
+    assert not any(p["can"] for p in sin_puesto["projects"])
+    assert all(p["reason"] for p in sin_puesto["projects"])
+    assert [p["can"] for p in rural["projects"]] == [True, True, False, False, False]
+    assert rural["barrio"]["theme"] == "rural"
+    assert obras["solar"]["status"] == "obras" and obras["projects"] == []
+    assert 0 < obras["built"]["progress"] < 1 and not obras["solar"]["mine"]
+    assert hecho["solar"]["status"] == "hecho" and hecho["solar"]["mine"]
+    assert hecho["built"]["progress"] == 1
+    assert {
+        "project",
+        "owner",
+        "units",
+        "mine",
+        "for_sale",
+        "value",
+        "cost",
+        "started",
+        "until",
+    } <= (hecho["built"].keys())
+    plano = states["calles_solares"]["streets"]
+    assert [s["solar"]["status"] for s in plano] == ["libre", "obras", "hecho"]
+    assert {"status", "text", "number", "mine"} <= plano[0]["solar"].keys()
+    assert all(s["solar"] for s in states["calles_solares_rural"]["streets"])
 
 
 def test_las_muestras_de_calles_y_edificios_traen_lo_que_pinta_la_escena() -> None:
