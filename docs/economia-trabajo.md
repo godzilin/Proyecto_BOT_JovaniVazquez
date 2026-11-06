@@ -121,3 +121,12 @@ en `docs/negocios.md` («Equilibrio») y salen de `docs/negocio_sim.py`.
 - **Coste:** montarlo cuesta 1-2 semanas de un P3.
 - **No toca la curva de la `pala`:** el negocio de la fase 1 no llega a los puestos altos.
 
+
+## Solares (9.56.0)
+
+La rama 🏖️ Ladrillo construye en los 60 solares de `pisos` (`docs/solares.md`). Con
+`python docs/economia_sim.py --solares`, quien sigue la referencia de la obra apenas lo nota:
+pasa por Ladrillo del día ~40 al 93 y, si compra pisos con hipoteca, nunca junta efectivo para
+una obra. El techo es quien se queda en P10 de Ladrillo y encadena obras vendiéndolo todo al
+acabar: con el margen del ~16 % y los plazos de la tabla llega al Falcon el día 305, frente al
+340 de los pisos con hipoteca. Con el primer diseño (27 % y la mitad de días), el día 171.

@@ -2701,6 +2701,18 @@ async def ladrillo_builders(bot: commands.Bot, guild_id: int) -> tuple[int, ...]
         return ()
 
 
+async def ladrillo_level(bot: commands.Bot, guild_id: int, user_id: int) -> int:
+    """El puesto de alguien en la rama Ladrillo (construye en los solares de `pisos`), o 0."""
+    cog = find_cog(bot, Work)
+    if cog is None:
+        return 0
+    try:
+        return await cog.service.ladrillo_level(guild_id, user_id)
+    except (OSError, sqlite3.Error):
+        logger.exception("No se pudo mirar el puesto en la rama Ladrillo")
+        return 0
+
+
 async def home(
     bot: commands.Bot, interaction: discord.Interaction, owner: discord.abc.User, channel: object
 ) -> None:

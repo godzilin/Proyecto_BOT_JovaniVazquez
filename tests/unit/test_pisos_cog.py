@@ -557,8 +557,10 @@ async def test_todas_las_pantallas_respetan_los_limites_de_discord(tmp_path: Pat
                             (GESTION, None), (CANDIDATOS, None), ("subastas", None),
                             ("reformas", None), ("imprevistos", None), ("resenas", None),
                             ("junta", None), ("calles", None), ("dividir", None),
-                            ("edificio", None), ("llaves", None)):  # fmt: skip
+                            ("edificio", None), ("llaves", None), ("solar", None)):  # fmt: skip
         panel.screen, panel.pending, panel.done = screen, pending, None
+        # 🏗️ Solares con más botones: un solar del centro (los cinco proyectos) y P10.
+        panel.solar, panel.level = "triana_c1_s", 10
         panel.barrio, panel.listing = "vegueta", "vegueta_edificio"
         panel.rebuild()
         rows: dict[int, int] = {}

@@ -20,6 +20,7 @@ from bot.repositories.housing import (
     AdvanceDesk,
     AuctionRun,
     Bid,
+    Built,
     DayRun,
     Decision,
     Eviction,
@@ -709,6 +710,35 @@ class HousingService:
         run = self.repository.split(guild_id, user_id, key, mode, local_day(now), now)
         done, balances = await self.economy.housing(guild_id, run)
         return done, balances[user_id]
+
+    async def build(
+        self,
+        guild_id: int,
+        user_id: int,
+        solar: str,
+        project: str,
+        level: int,
+        *,
+        expected: int | None = None,
+    ) -> tuple[Built, int]:
+        """Compra un solar y empieza a construir (rama Ladrillo de `pala`). `(la obra, saldo)`.
+
+        El dinero y su tratamiento fiscal, en `HousingRepository.build` y `docs/solares.md`.
+
+        Raises:
+            HousingError: Si no se puede (o el precio ha subido: `PriceChanged`).
+            InsufficientFundsError: Si no le llega.
+        """
+        now = self._clock()
+        run = self.repository.build(
+            guild_id, user_id, solar, project, level, local_day(now), now, expected=expected
+        )
+        done, balances = await self.economy.housing(guild_id, run)
+        return done, balances[user_id]
+
+    async def bubble_gauge(self, guild_id: int) -> tuple[int, int]:
+        """`(obra empezada, lo comprado)` de las últimas semanas, para 🏗️ Solares."""
+        return await self.repository.bubble_gauge(guild_id, local_day(self._clock()))
 
     async def join_rooms(self, guild_id: int, user_id: int, key: str) -> None:
         """Deja de alquilar un piso por habitaciones (con todas vacías). No mueve dinero.

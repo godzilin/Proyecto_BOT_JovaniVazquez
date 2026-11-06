@@ -88,6 +88,7 @@ from bot.cogs import work as curro
 from bot.repositories.economy import BalanceLimitError, InsufficientFundsError
 from bot.repositories.housing import (
     AuctionRun,
+    Built,
     DayRun,
     Eviction,
     HousingError,
@@ -104,6 +105,7 @@ from bot.repositories.housing import (
 from bot.repositories.housing_finance import HOME_OWN, HOME_RENTED, vpo_ref
 from bot.services import credit
 from bot.services import housing as rules
+from bot.services import housing_solars as solar_rules
 from bot.services import housing_view as view
 from bot.services.achievements import (
     StatDelta,
@@ -116,6 +118,7 @@ from bot.services.achievements import (
     housing_panel_stats,
     housing_purchase_stats,
     housing_sale_stats,
+    housing_solar_stats,
     housing_streets_stats,
     housing_tax_stats,
     loan_night_stats,
@@ -143,7 +146,6 @@ from bot.services.housing_market import HousingService
 from bot.services.housing_scene import HousingScene
 from bot.services.housing_streets import (
     BUILDING_BY_KEY,
-    building_of,
     buildings_of,
     map_order,
     streets_of,
@@ -179,6 +181,13 @@ GESTION, CANDIDATOS, SUBASTAS = "gestion", "candidatos", "subastas"
 REFORMAS, IMPREVISTOS, RESENAS, JUNTA = "reformas", "imprevistos", "resenas", "junta"
 PLANTAS, DIVIDIR = "plantas", "dividir"
 CALLES, EDIFICIO = "calles", "edificio"
+#: 🏗️ Solares (9.56.0): los tres solares de un barrio y lo que se construye en ellos.
+SOLAR = "solar"
+#: Cómo se llama cada proyecto en su botón (caben cinco por fila en el móvil).
+SHORT_PROJECT = {
+    "casa": "Casa", "bloque3": "3 plantas", "bloque5": "5 plantas", "bloque7": "7 plantas",
+    "torre": "Torre",
+}  # fmt: skip
 #: 🔑 Recuperar el piso (9.23.0): se ve la ficha y cambian los botones.
 LLAVES = "llaves"
 #: Cómo se llama cada edificio en su botón del plano (caben cinco por fila en el móvil).
@@ -569,6 +578,10 @@ class Panel(ui.View):
         self.listing = listings_of(self.barrio)[0].key
         #: El edificio de la pantalla 🏢 Edificio.
         self.building = f"{self.barrio}_e1"
+        #: El solar de la pantalla 🏗️ Solares y el puesto en Ladrillo de quien mira (lo
+        #: lee esa pantalla al pintarse).
+        self.solar = solar_rules.solars_of(self.barrio)[0].key
+        self.level = 0
         #: Caja abierta: `(vende, participaciones)`.
         self.pending: tuple[bool, int] | None = None
         #: Si la compra de la caja va con hipoteca.
@@ -620,6 +633,7 @@ class Panel(ui.View):
         listing: str | None = None,
         building: str | None = None,
         page: int | None = None,
+        solar: str | None = None,
     ) -> dict[str, Any]:
         market, me = self.market, self.owner.id
         names = self._names(market)
@@ -630,6 +644,12 @@ class Panel(ui.View):
             return view.streets_state(market, barrio or self.barrio, me, today)
         if screen == EDIFICIO:
             return view.building_state(market, building or self.building, me, names, today)
+        if screen == SOLAR:
+            self.level = await curro.ladrillo_level(self.cog.bot, self.guild.id, me)
+            gauge = await self.cog.service.bubble_gauge(self.guild.id)
+            return view.solar_state(
+                market, solar or self.solar, me, self.level, names, today, gauge
+            )
         if screen == BARRIO:
             return view.barrio_state(market, barrio or self.barrio, me, names, today)
         if screen == FICHA:
@@ -810,9 +830,19 @@ class Panel(ui.View):
                 for street in streets_of(self.barrio)
                 for b in buildings_of(street.key)
             ]
-            return [*buildings, (BARRIO, {}), (MAPA, {})]
+            first = solar_rules.solars_of(self.barrio)[0].key
+            return [*buildings, (BARRIO, {}), (MAPA, {}), (SOLAR, {"solar": first})]
+        if self.screen == SOLAR:
+            others = [
+                (SOLAR, {"solar": s.key})
+                for s in solar_rules.solars_of(self.barrio)
+                if s.key != self.solar
+            ]
+            built = [(EDIFICIO, {"building": self.solar})] * (self.solar in self.market.solars)
+            return [*built, *others, (CALLES, {})]
         if self.screen == EDIFICIO:
-            units = view.building_units(self.market, BUILDING_BY_KEY[self.building])
+            building = self.market.building(self.building)
+            units = view.building_units(self.market, building) if building else []
             return [*((FICHA, {"listing": u.key}) for u in units[:6]), (CALLES, {})]
         if self.screen == FICHA:
             barrio = self._at(self.listing).barrio
@@ -881,6 +911,7 @@ class Panel(ui.View):
             self.barrio,
             self.listing,
             self.building,
+            self.solar,
             self.pending,
             self.financed,
             self.done is None,
@@ -991,6 +1022,8 @@ class Panel(ui.View):
             self._streets_buttons()
         elif self.screen == EDIFICIO:
             self._building_buttons()
+        elif self.screen == SOLAR:
+            self._solar_buttons()
         elif self.screen == FICHA:
             self._ficha_buttons()
         elif self.screen == LLAVES:
@@ -1201,7 +1234,7 @@ class Panel(ui.View):
             if room or rules.halves(parent):
                 back = "◀ Habitaciones" if room else "◀ Las dos mitades"
             self._button(back, "volver", self._go_parent, row=3)
-        elif building_of(key) is not None:
+        elif self.market.building_of(key) is not None:
             self._button("◀ Su edificio", "volver", self._go_own_building, row=3)
         else:
             barrio = BARRIO_BY_KEY[self._at(key).barrio].name
@@ -1656,14 +1689,15 @@ class Panel(ui.View):
                     style=discord.ButtonStyle.success if mine else discord.ButtonStyle.primary,
                 )  # fmt: skip
         self._button("⭐ Destacados", "destacados", self._back_to_barrio, row=4)
+        self._button("🏗️ Solares", "solares", self._go_solares, row=4,
+                     style=discord.ButtonStyle.primary)  # fmt: skip
         self._button("🗺️ Mapa", "mapa", self._go_map, row=4)
         self._button("🔑 Mis pisos", "cartera", self._go_portfolio, row=4)
         self._waiting_button(row=4)
 
     def _building_buttons(self) -> None:
         """🏢 Edificio: el desplegable de sus unidades, en el orden de los números del corte."""
-        building = BUILDING_BY_KEY[self.building]
-        state = view.building_state(self.market, building.key, self.owner.id, {})
+        state = view.building_state(self.market, self.building, self.owner.id, {})
         units = sorted((u for f in state["floors"] for u in f["units"]), key=lambda u: u["slot"])
         pick: ui.Select = ui.Select(
             placeholder="Elige una unidad para ver su ficha",
@@ -1681,7 +1715,10 @@ class Panel(ui.View):
         pick.callback = self._pick_unit  # type: ignore[method-assign]
         self.add_item(pick)
         self._button("◀ Calles", "calles", self._go_streets, row=2)
-        self._button("⭐ Destacados", "destacados", self._back_to_barrio, row=2)
+        if self.building in self.market.solars:  # lo construido en un solar
+            self._button("🏗️ Su solar", "solares", self._go_solares, row=2)
+        else:
+            self._button("⭐ Destacados", "destacados", self._back_to_barrio, row=2)
         self._button("🗺️ Mapa", "mapa", self._go_map, row=2)
         self._button("🔑 Mis pisos", "cartera", self._go_portfolio, row=2)
         self._waiting_button(row=2)
@@ -1911,13 +1948,181 @@ class Panel(ui.View):
         self.building = key
         await self._go(interaction, EDIFICIO)
 
+    async def _go_solares(self, interaction: discord.Interaction) -> None:
+        """🏗️ Solares: el solar del barrio que se veía (o el de su primera calle)."""
+        if solar_rules.SOLAR_BY_KEY[self.solar].barrio != self.barrio:
+            self.solar = solar_rules.solars_of(self.barrio)[0].key
+        await self._go(interaction, SOLAR)
+
+    async def _pick_solar(self, interaction: discord.Interaction) -> None:
+        """Una pestaña de 🏗️ Solares: otro de los tres solares del barrio."""
+        custom_id = interaction.data.get("custom_id", "") if interaction.data else ""
+        number = custom_id.rsplit(":", 1)[-1]
+        solars = solar_rules.solars_of(self.barrio)
+        if not number.isdigit() or not 1 <= int(number) <= len(solars):
+            await ack(interaction)
+            return
+        self.solar = solars[int(number) - 1].key
+        await self._go(interaction, SOLAR)
+
+    async def _open_solar_building(self, interaction: discord.Interaction) -> None:
+        """De 🏗️ Solares al edificio que se ha levantado en el solar, en corte."""
+        if self.market.building(self.solar) is None:
+            await ack(interaction)
+            return
+        self.building = self.solar
+        await self._go(interaction, EDIFICIO)
+
+    def _solar_buttons(self) -> None:
+        """🏗️ Solares: una pestaña por solar del barrio y, en el libre, un botón por proyecto.
+
+        Construir cuesta dinero: pide un segundo clic (⚠️ ¿Seguro?). Lo que el puesto en Ladrillo
+        no deja, o con una obra ya en marcha, sale apagado (la imagen dice por qué).
+        """
+        market, me = self.market, self.owner.id
+        site = solar_rules.SOLAR_BY_KEY[self.solar]
+        for number, other in enumerate(solar_rules.solars_of(site.barrio), start=1):
+            work = market.solars.get(other.key)
+            emoji = solar_rules.PROJECT_BY_KEY[work.project].emoji if work else "🚧"
+            street = solar_rules.STREET_BY_KEY[other.street].name
+            self._button(
+                f"{emoji} {number} · {street}", f"solar:{number}", self._pick_solar, row=1,
+                style=discord.ButtonStyle.success if other.key == self.solar
+                else discord.ButtonStyle.secondary,
+            )  # fmt: skip
+        if self.solar in market.solars:
+            self._button("🏢 Ver el edificio", "solar_edificio", self._open_solar_building,
+                         row=2, style=discord.ButtonStyle.primary)  # fmt: skip
+        else:
+            today = self.cog.service.today()
+            busy = any(w.user_id == me and w.until > today for w in market.solars.values())
+            index = market.index(site.barrio)
+            financed: list[discord.SelectOption] = []
+            for project in solar_rules.projects_for(site):
+                label = f"{project.emoji} {SHORT_PROJECT[project.key]}"
+                action = f"construir:{project.key}"
+                if busy or self.level < project.level:
+                    self._button(f"{label} · P{project.level}", action, self._build, row=2,
+                                 disabled=True)  # fmt: skip
+                    continue
+                self._confirmable(label, action, self._build, row=2)
+                total = solar_rules.build_quote(site, project, index, market.ipc).total
+                if credit.refusal(total) is None:
+                    financed.append(
+                        discord.SelectOption(
+                            label=f"{project.name} ({format_amount(total)})"[:100],
+                            value=project.key,
+                            emoji=project.emoji,
+                        )
+                    )
+            if financed:
+                pick: ui.Select = ui.Select(
+                    placeholder="💳 Financiar una obra",
+                    custom_id=f"{GAME}:financiar_solar",
+                    row=3,
+                    options=financed,
+                )
+                pick.callback = self._finance_build  # type: ignore[method-assign]
+                self.add_item(pick)
+        self._button("◀ Calles", "calles", self._go_streets, row=4)
+        self._button("🗺️ Mapa", "mapa", self._go_map, row=4)
+        self._button("🔑 Mis pisos", "cartera", self._go_portfolio, row=4)
+
+    async def _build(self, interaction: discord.Interaction) -> None:
+        """Construye en el solar (segundo clic): paga el solar y la obra, y empieza."""
+        custom_id = interaction.data.get("custom_id", "") if interaction.data else ""
+        parts = custom_id.split(":")
+        project = solar_rules.PROJECT_BY_KEY.get(parts[2] if len(parts) > 2 else "")
+        if project is None:
+            await ack(interaction)
+            return
+        solar, me = self.solar, self.owner.id
+
+        async def run() -> Any:
+            level = await curro.ladrillo_level(self.cog.bot, self.guild.id, me)
+            return await self.cog.service.build(self.guild.id, me, solar, project.key, level)
+
+        result = await self._money(interaction, run)
+        if result is None:
+            return
+        done, _balance = result
+        await self._built(interaction, done)
+
+    async def _built(self, interaction: discord.Interaction, done: Built) -> None:
+        """Tras empezar una obra: la pantalla, la mascota, la Renta, el aviso y los logros."""
+        quote, site = done.quote, solar_rules.SOLAR_BY_KEY[done.solar]
+        await self._done(interaction, Event.BUY, housing_solar_stats(
+            project=done.project, units=quote.units, amount=quote.total, icio=quote.icio,
+            barrio=site.barrio, index=done.index,
+        ))  # fmt: skip
+        await notify(
+            interaction,
+            f"🏗️ Obra en marcha hasta el {done.until:%d/%m}: {quote.units} unidades por "
+            f"{format_amount(quote.land)} de solar y {format_amount(quote.works)} de obra, más "
+            f"{format_amount(quote.taxes)} de ITP, IGIC, ICIO, licencia y AJD. Son tuyas desde "
+            "ya: hasta que acabe no se venden al mercado, pero sí a otro miembro (sobre plano).",
+        )
+        await self.cog.announce_solar(self.guild.id, self.owner.id, done.solar)
+
+    async def _finance_build(self, interaction: discord.Interaction) -> None:
+        """💳 Financiar una obra en un solar: la oferta del banco; al firmar, empieza la obra."""
+        values = interaction.data.get("values", []) if interaction.data else []
+        project = solar_rules.PROJECT_BY_KEY.get(str(values[0])) if values else None
+        if project is None or self.solar in self.market.solars:
+            await ack(interaction)
+            return
+        solar, me = self.solar, self.owner.id
+        site = solar_rules.SOLAR_BY_KEY[solar]
+        quote = solar_rules.build_quote(
+            site, project, self.market.index(site.barrio), self.market.ipc
+        )
+        started: list[Built] = []
+
+        async def buy(_interaction: discord.Interaction) -> str | None:
+            try:
+                level = await curro.ladrillo_level(self.cog.bot, self.guild.id, me)
+                done, _balance = await self.cog.service.build(
+                    self.guild.id, me, solar, project.key, level
+                )
+            except (HousingError, InsufficientFundsError, BalanceLimitError) as error:
+                return str(error) or "No se ha podido empezar la obra."
+            started.append(done)
+            return None
+
+        async def after(after_interaction: discord.Interaction) -> None:
+            await self.repaint()
+            if not started:
+                return
+            done = started[0]
+            await logros.track(
+                self.cog.bot, self.guild.id, self.owner, after_interaction.channel,
+                housing_solar_stats(
+                    project=done.project, units=done.quote.units, amount=done.quote.total,
+                    icio=done.quote.icio, barrio=site.barrio, index=done.index,
+                ),
+            )  # fmt: skip
+            await self.cog.announce_solar(self.guild.id, me, solar)
+
+        street = solar_rules.STREET_BY_KEY[site.street].name
+        purchase = credit.Purchase(
+            f"{project.emoji} {project.name} en {street}", quote.total, "obras", works=True
+        )
+        if not await financiar.open_finance(
+            self.cog.bot, interaction, financiar.Deal(purchase, buy, after=after)
+        ):
+            await interaction.response.send_message(
+                "El banco está cerrado ahora mismo.", ephemeral=True
+            )
+
     async def _go_own_building(self, interaction: discord.Interaction) -> None:
         """De la ficha de una unidad de una calle a su edificio en corte."""
-        building = building_of(self.listing)
+        building = self.market.building_of(self.listing)
         if building is None:
             await ack(interaction)
             return
         self.building, self.barrio = building.key, building.barrio
+        if building.key in self.market.solars:
+            self.solar = building.key
         await self._go(interaction, EDIFICIO)
 
     async def _pick_unit(self, interaction: discord.Interaction) -> None:
@@ -3938,6 +4143,11 @@ class Pisos(commands.Cog):
             for builder, key in run.promotions:
                 await self._announce_promotion(guild_id, builder, key)
                 logros.note(self.bot, guild_id, builder, StatDelta(add={"pisos_promotions": 1}))
+            for builder, solar in run.solars_done:
+                await self.announce_solar(guild_id, builder, solar, finished=True)
+                logros.note(self.bot, guild_id, builder, StatDelta(add={"pisos_solars_done": 1}))
+            if run.bubble is not None:
+                await self._announce_bubble(guild_id, *run.bubble)
             events: dict[int, list[str]] = {}
             signed: dict[int, list[str]] = {}
             for item in run.news:
@@ -4306,6 +4516,71 @@ class Pisos(commands.Cog):
         except (discord.Forbidden, discord.HTTPException):
             logger.warning("No se pudieron anunciar las noticias de barrio en %s", guild_id,
                            exc_info=True)  # fmt: skip
+
+    async def _announce_text(self, guild_id: int, text: str) -> None:
+        """Publica un aviso de `pisos` en `#chat-general` (o el canal del sistema). Nunca lanza."""
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return
+        channel = (
+            discord.utils.get(guild.text_channels, name=ANNOUNCE_CHANNEL_NAME)
+            or guild.system_channel
+        )
+        if channel is None:
+            return
+        try:
+            await channel.send(text, allowed_mentions=discord.AllowedMentions.none())
+        except (discord.Forbidden, discord.HTTPException):
+            logger.warning("No se pudo publicar un aviso de pisos en %s", guild_id, exc_info=True)
+
+    async def announce_solar(
+        self, guild_id: int, builder: int, solar: str, *, finished: bool = False
+    ) -> None:
+        """Avisa de que empieza (o acaba) una obra en un solar. Nunca lanza."""
+        guild = self.bot.get_guild(guild_id)
+        try:
+            market = await self.service.market(guild_id)
+        except (OSError, sqlite3.Error):
+            logger.exception("No se pudo leer el mercado para avisar de una obra")
+            return
+        work = market.solars.get(solar)
+        if guild is None or work is None:
+            return
+        site = solar_rules.SOLAR_BY_KEY[solar]
+        project = solar_rules.PROJECT_BY_KEY[work.project]
+        units = len(solar_rules.solar_units(solar, work.project)[1])
+        where = (
+            f"{solar_rules.STREET_BY_KEY[site.street].name}, {site.number} "
+            f"({BARRIO_BY_KEY[site.barrio].name})"
+        )
+        who = _name(guild, builder)
+        if finished:
+            text = (
+                f"🏢 Terminado: el {project.name.lower()} de **{who}** en {where}. "
+                f"{units} {'unidad nueva' if units == 1 else 'unidades nuevas'} en `pisos`."
+            )
+        else:
+            text = (
+                f"🏗️ **{who}** empieza a levantar un {project.name.lower()} en {where}: "
+                f"{units} {'unidad' if units == 1 else 'unidades'}, listas el {work.until:%d/%m}. "
+                "Hasta entonces se venden sobre plano."
+            )
+        await self._announce_text(guild_id, text)
+
+    async def _announce_bubble(
+        self, guild_id: int, cut: float, barrios: tuple[str, ...], promoters: tuple[int, ...]
+    ) -> None:
+        """Avisa de que ha estallado la burbuja y apunta el logro a quien le ha pillado."""
+        names = [BARRIO_BY_KEY[b].name for b in barrios]
+        where = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" y {names[-1]}"
+        await self._announce_text(
+            guild_id,
+            "📉 **Estalla la burbuja del ladrillo.** Se ha empezado más obra nueva de la que "
+            f"compran los miembros: {where} {'baja' if len(names) == 1 else 'bajan'} un "
+            f"{cut * 100:.0f} % y las obras en marcha se retrasan {solar_rules.BUBBLE_DELAY} días.",
+        )
+        for member in promoters:
+            logros.note(self.bot, guild_id, member, StatDelta(add={"pisos_bubble_hit": 1}))
 
     async def _announce_promotion(self, guild_id: int, builder: int, key: str) -> None:
         """Publica la obra nueva del lunes con su promotor. Nunca lanza."""

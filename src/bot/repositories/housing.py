@@ -86,12 +86,13 @@ from bot.repositories.economy import (
     HousingTax,
     LedgerEntry,
 )
-from bot.repositories.housing_finance import Loan, Mortgage, Promotion, VpoOwner
+from bot.repositories.housing_finance import Loan, Mortgage, Promotion, SolarWork, VpoOwner
 from bot.repositories.housing_junta import Vote
 from bot.repositories.housing_trade import Auction
 from bot.services import credit
 from bot.services import home as casa
 from bot.services import housing as rules
+from bot.services import housing_solars as solar_rules
 from bot.services import loans as lending
 from bot.services.economy import format_amount
 from bot.services.housing_catalog import (
@@ -111,7 +112,15 @@ from bot.services.housing_catalog import (
     listings_of,
 )
 from bot.services.housing_furniture import furniture_stars, nomad_boost
-from bot.services.housing_streets import STREET_UNIT_BY_KEY, units_of_barrio
+from bot.services.housing_solars import SOLARS, solar_of, solar_units
+from bot.services.housing_streets import (
+    BUILDING_BY_KEY,
+    STREET_UNIT_BY_KEY,
+    Building,
+    building_of,
+    buildings_of,
+    units_of_barrio,
+)
 from bot.services.levels import local_day
 from bot.services.taxes import (
     INCOME_BUSINESS,
@@ -257,6 +266,7 @@ class Market:
         keys_bought: Días en que cada miembro ha comprado unas llaves (las noticias `llaves` y
             `llaves_gratis` que quedan), para su fama de casero (`fame`).
         reclaims: Los pisos pedidos para vivir (art. 9.3 LAU), por inmueble.
+        solars: Lo construido en los solares de las calles (9.56.0), por solar.
     """
 
     indexes: dict[str, float] = field(default_factory=dict)
@@ -288,7 +298,41 @@ class Market:
     ipc: int = 0
     keys_bought: dict[int, tuple[date, ...]] = field(default_factory=dict)
     reclaims: dict[str, Reclaim] = field(default_factory=dict)
+    solars: dict[str, SolarWork] = field(default_factory=dict)
     _units: dict[str, tuple[Listing, ...]] = field(default_factory=dict, repr=False, compare=False)
+    _built: dict[str, Listing] = field(default_factory=dict, repr=False, compare=False)
+
+    def built_units(self) -> dict[str, Listing]:
+        """Las unidades construidas en los solares (en obras o terminadas), por clave."""
+        if self.solars and not self._built:
+            for work in self.solars.values():
+                for unit in solar_units(work.solar, work.project)[1]:
+                    self._built[unit.key] = unit
+        return self._built
+
+    def building(self, key: str) -> Building | None:
+        """Un edificio de las calles o el levantado en un solar (`None` si no existe)."""
+        found = BUILDING_BY_KEY.get(key)
+        work = self.solars.get(key)
+        if found is None and work is not None:
+            found = solar_units(work.solar, work.project)[0]
+        return found
+
+    def buildings_on(self, street: str) -> tuple[Building, ...]:
+        """Los edificios de una calle, por su número; lo de su solar, al final si lo hay."""
+        built = tuple(
+            building
+            for solar in SOLARS
+            if solar.street == street and (building := self.building(solar.key)) is not None
+        )
+        return buildings_of(street) + built
+
+    def building_of(self, key: str) -> Building | None:
+        """El edificio en que está un inmueble (o una planta o habitación suya), si está en uno."""
+        found = building_of(key)
+        if found is None and (solar := solar_of(key)) is not None:
+            found = self.building(solar.key)
+        return found
 
     def manager(self, key: str) -> int | None:
         """Quién decide en un inmueble: a quien eligió la junta o la mayoría (art. 398 CC).
@@ -363,7 +407,9 @@ class Market:
 
     def base(self, key: str) -> Listing | None:
         """El inmueble de una clave, sin sus reformas."""
-        listing = LISTING_BY_KEY.get(key) or STREET_UNIT_BY_KEY.get(key)
+        listing = (
+            LISTING_BY_KEY.get(key) or STREET_UNIT_BY_KEY.get(key) or self.built_units().get(key)
+        )
         if listing is None and (promotion := self.promotions.get(key)) is not None:
             listing = promotion.listing
         if listing is None and (parent := rules.parent_key(key)) is not None:
@@ -415,13 +461,13 @@ class Market:
 
     def keys(self) -> list[str]:
         """Las claves de todos los inmuebles del servidor: el catálogo, las unidades de las
-        calles y la obra nueva.
+        calles, la obra nueva y lo construido en los solares.
 
         Uno dividido por plantas deja su sitio a sus plantas. Las habitaciones no salen: sus
         participaciones son las del piso (`room_keys`).
         """
         out: list[str] = []
-        for key in (*LISTING_BY_KEY, *STREET_UNIT_BY_KEY, *self.promotions):
+        for key in (*LISTING_BY_KEY, *STREET_UNIT_BY_KEY, *self.promotions, *self.built_units()):
             if self.split_mode(key) == rules.FLOORS:
                 out.extend(unit.key for unit in self.units_of(key))
             else:
@@ -439,9 +485,10 @@ class Market:
 
     def index_level(self, barrio: str) -> float:
         """El índice al que tiende un barrio con lo que tienen comprado los miembros (en sus
-        destacados, la obra nueva y las unidades de sus calles)."""
+        destacados, la obra nueva, las unidades de sus calles y lo construido en sus solares)."""
         items: list[Listing] = []
-        streets = tuple(self._improved(unit) for unit in units_of_barrio(barrio))
+        built = (unit for unit in self.built_units().values() if unit.barrio == barrio)
+        streets = tuple(self._improved(unit) for unit in (*units_of_barrio(barrio), *built))
         for item in (*self.listings_of(barrio), *streets):
             if self.split_mode(item.key) == rules.FLOORS:
                 items.extend(self._improved(unit) for unit in self.units_of(item.key))
@@ -624,6 +671,27 @@ class SplitDone:
     quote: rules.SplitQuote
     units: tuple[str, ...]
     until: date
+
+
+@dataclass(frozen=True, slots=True)
+class Built:
+    """Una obra recién empezada en un solar (9.56.0).
+
+    Attributes:
+        solar: El solar (y su edificio).
+        project: El proyecto.
+        quote: Las cuentas (`housing_solars.build_quote`).
+        units: Las claves de sus unidades.
+        until: Último día de obra.
+        index: El índice del barrio al empezar (por debajo de 1, un barrio hundido).
+    """
+
+    solar: str
+    project: str
+    quote: solar_rules.BuildQuote
+    units: tuple[str, ...]
+    until: date
+    index: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -940,6 +1008,8 @@ class DayRun:
         reimbursements: `(avalista, avalado, importe)` de lo que hoy le ha devuelto.
         homes: Lo que pasó hoy en la casa de cada miembro que vive en una (`casa`): su
             Confort y lo que pagó de suministros.
+        solars_done: `(promotor, solar)` de las obras de los solares que acaban hoy.
+        bubble: `(lo que baja, barrios, promotores)` si hoy (lunes) ha estallado la burbuja.
     """
 
     day: date
@@ -958,6 +1028,8 @@ class DayRun:
     remortgage_executions: list[int] = field(default_factory=list)
     advance_orphans: list[int] = field(default_factory=list)
     promotions: list[tuple[int, str]] = field(default_factory=list)
+    solars_done: list[tuple[int, str]] = field(default_factory=list)
+    bubble: tuple[float, tuple[str, ...], tuple[int, ...]] | None = None
     euribor: tuple[float, float] | None = None
     barrio_news: list[tuple[str, str]] = field(default_factory=list)
     candidates: list[tuple[str, str]] = field(default_factory=list)
@@ -1463,6 +1535,7 @@ def _market_in(connection: sqlite3.Connection, guild_id: int) -> Market:
         offers=finance.offers_in(connection, guild_id),
         socimi=frozenset(finance.socimi_in(connection, guild_id)),
         promotions=finance.promotions_in(connection, guild_id),
+        solars=finance.solars_in(connection, guild_id),
         candidates={k: tuple(v) for k, v in candidates.items()},
         barrio_news=barrio_news,
         bonuses={k: frozenset(v) for k, v in bonuses.items()},
@@ -1583,6 +1656,21 @@ def _bonus_ready(market: Market, key: str, listing: Listing, lease: rules.Lease,
     return empty >= rules.VACANT_BONUS_EMPTY_DAYS or fresh
 
 
+def _bubble_flows_in(
+    connection: sqlite3.Connection, guild_id: int, day: date, market: Market
+) -> tuple[list[SolarWork], int, int]:
+    """`(obras empezadas, lo que valen, lo que han pagado los miembros por pisos)` de las
+    últimas `BUBBLE_WINDOW` noches: la oferta y la demanda de la burbuja."""
+    since = day - timedelta(days=solar_rules.BUBBLE_WINDOW)
+    recent = [w for w in market.solars.values() if w.started > since]
+    demand = connection.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM housing_news WHERE guild_id = ? "
+        "AND kind IN ('compra', 'compra_miembro') AND day > ?",
+        (guild_id, since.isoformat()),
+    ).fetchone()[0]
+    return recent, sum(w.value for w in recent), int(demand)
+
+
 def _news_in(connection: sqlite3.Connection, guild_id: int, news: News, now: float) -> None:
     connection.execute(
         """
@@ -1609,7 +1697,10 @@ def assets_in(connection: sqlite3.Connection, guild_id: int) -> dict[int, int]:
       (arts. 9.Tres y 25.Tres). La VPO nunca pasa del límite: sus hipotecas no restan.
     """
     homes = finance.homes_in(connection, guild_id)
-    market = Market(promotions=finance.promotions_in(connection, guild_id))
+    market = Market(
+        promotions=finance.promotions_in(connection, guild_id),
+        solars=finance.solars_in(connection, guild_id),
+    )
     out: dict[int, int] = {}
     #: Parte que tributa de la vivienda habitual de cada miembro, por su clave.
     taxed: dict[tuple[int, str], float] = {}
@@ -2690,6 +2781,7 @@ class HousingRepository:
                 reforms=_reforms_in(connection, guild_id),
                 splits=_splits_in(connection, guild_id),
                 promotions=finance.promotions_in(connection, guild_id),
+                solars=finance.solars_in(connection, guild_id),
             )
             place = place_of(market, *found)
             if place is None:
@@ -3238,6 +3330,19 @@ class HousingRepository:
         return cursor.rowcount
 
     # -- Rehipotecar (`banco`, 🔐 Garantías) --------------------------------------------
+
+    async def bubble_gauge(self, guild_id: int, day: date) -> tuple[int, int]:
+        """`(obra empezada, lo comprado)` de las últimas semanas: el termómetro de la burbuja."""
+        return await self._run(self._bubble_gauge_sync, guild_id, day)
+
+    def _bubble_gauge_sync(self, guild_id: int, day: date) -> tuple[int, int]:
+        connection = self._connect()
+        try:
+            market = Market(solars=finance.solars_in(connection, guild_id))
+            _recent, supply, demand = _bubble_flows_in(connection, guild_id, day, market)
+            return supply, demand
+        finally:
+            connection.close()
 
     async def remortgage_desk(self, guild_id: int, user_id: int) -> RemortgageDesk:
         """Lo que ve el banco de alguien para rehipotecar sus inmuebles."""
@@ -3916,6 +4021,12 @@ class HousingRepository:
                     builder = builders[day.toordinal() // 7 % len(builders)]
                     self._promotion_in(connection, guild_id, day, now, rng, market, builder,
                                        result)  # fmt: skip
+                if self._bubble_in(connection, guild_id, day, now, rng, market, result):
+                    # Ha movido índices y obras: lo que sigue tiene que ver las fechas nuevas.
+                    market = _market_in(connection, guild_id)
+            result.solars_done.extend(
+                (work.user_id, work.solar) for work in market.solars.values() if work.until == day
+            )
             pulls = tuple(
                 HousingPull(lease.member, lease.rent, key, "pisos:alquiler", home=True)
                 for key, lease in market.leases.items()
@@ -3930,6 +4041,64 @@ class HousingRepository:
             return result, HousingMove(pulls=pulls, then=then)
 
         return run
+
+    @staticmethod
+    def _bubble_in(
+        connection: sqlite3.Connection,
+        guild_id: int,
+        day: date,
+        now: float,
+        rng: random.Random,
+        market: Market,
+        result: DayRun,
+    ) -> bool:
+        """La burbuja de la obra nueva (los lunes, 9.56.0): si estalla o no, y lo que hace.
+
+        Compara lo que valen las obras empezadas en las últimas `BUBBLE_WINDOW` noches con lo
+        que han pagado los miembros por pisos en ese tiempo (`housing_solars.bubble_odds`). Si
+        estalla, baja el índice de los barrios con obra (`bubble_cut`) y retrasa las obras en
+        marcha `BUBBLE_DELAY` días, con su bloqueo de venta al mercado. No mueve dinero.
+
+        Returns:
+            Si ha estallado.
+        """
+        recent, supply, demand = _bubble_flows_in(connection, guild_id, day, market)
+        if supply < solar_rules.BUBBLE_SUPPLY_MIN:
+            return False
+        if rng.random() >= solar_rules.bubble_odds(supply, demand):
+            return False
+        cut = solar_rules.bubble_cut(supply, demand)
+        barrios = sorted({solar_rules.SOLAR_BY_KEY[w.solar].barrio for w in recent})
+        for barrio in barrios:
+            value = solar_rules.burst_index(_index_in(connection, guild_id, barrio), cut)
+            _set_index_in(connection, guild_id, barrio, value)
+        hit = {w.solar: w for w in recent}
+        for work in market.solars.values():
+            if work.until <= day:
+                continue
+            hit[work.solar] = work
+            until = work.until + timedelta(days=solar_rules.BUBBLE_DELAY)
+            connection.execute(
+                "UPDATE housing_solars SET until = ? WHERE guild_id = ? AND solar = ?",
+                (until.isoformat(), guild_id, work.solar),
+            )
+            for unit in solar_units(work.solar, work.project)[1]:
+                connection.execute(
+                    "UPDATE housing_leases SET works_until = ? WHERE guild_id = ? AND listing = ? "
+                    "AND status = ?",
+                    (until.isoformat(), guild_id, unit.key, rules.OBRAS),
+                )
+                connection.execute(
+                    "UPDATE housing_holdings SET locked_until = ? WHERE guild_id = ? "
+                    "AND listing = ? AND locked_until = ?",
+                    (until.isoformat(), guild_id, unit.key, work.until.isoformat()),
+                )
+        for work in hit.values():
+            item = News(work.solar, day, "burbuja", 0, work.user_id, None)
+            result.news.append(item)
+            _news_in(connection, guild_id, item, now)
+        result.bubble = (cut, tuple(barrios), tuple(sorted({w.user_id for w in hit.values()})))
+        return True
 
     def _monday_in(
         self,
@@ -5815,6 +5984,115 @@ class HousingRepository:
                 connection, guild_id, market, key, mode, {user_id: rules.SHARES}, user_id, day,
                 now,
             )  # fmt: skip
+
+        return run
+
+    def build(
+        self,
+        guild_id: int,
+        user_id: int,
+        solar: str,
+        project: str,
+        level: int,
+        day: date,
+        now: float,
+        *,
+        expected: int | None = None,
+    ) -> Callable[[sqlite3.Connection], tuple[Built, HousingMove]]:
+        """Compra un solar y empieza a construir en él (la rama Ladrillo de `pala`, 9.56.0).
+
+        Las unidades existen desde ya: son del promotor entero (100 participaciones de cada una)
+        y están «En obras» hasta `until`. Hasta entonces no se venden al mercado
+        (`locked_until`), aunque sí a otros miembros: es la venta sobre plano.
+
+        Dinero (`docs/solares.md`): el solar y la obra desaparecen (el vendedor y la constructora
+        no existen); el ITP del solar (art. 31 del DL 1/2009), el IGIC de su notaría y de la obra
+        (art. 51 de la Ley 4/2012), el ICIO (art. 102 del RDL 2/2004), la tasa de la licencia de
+        obra mayor (art. 20.4.h del RDL 2/2004) y el AJD de la escritura de obra nueva y
+        división horizontal (art. 36 del DL 1/2009) van al Estado. Para el IRPF todo es coste de
+        adquisición de las unidades (art. 35.1 LIRPF), repartido por lo que vale cada una.
+
+        Args:
+            level: El puesto del promotor en la rama Ladrillo (0 si no está en ella).
+            expected: Lo que decía el cartel. Si ha subido entretanto, no se cobra.
+
+        Raises (dentro de la transacción):
+            HousingError: Si no se puede.
+            PriceChanged: Si ahora cuesta más que `expected`.
+        """
+
+        def run(connection: sqlite3.Connection) -> tuple[Built, HousingMove]:
+            market = _market_in(connection, guild_id)
+            site = solar_rules.SOLAR_BY_KEY.get(solar)
+            plan = solar_rules.PROJECT_BY_KEY.get(project)
+            if site is None or plan is None:
+                raise HousingError("Ese solar o ese proyecto no existen.")
+            if solar in market.solars:
+                raise HousingError("Ese solar ya tiene dueño: alguien se te ha adelantado.")
+            if not solar_rules.allowed(site, plan):
+                raise HousingError("El plan general del barrio no deja levantar tantas plantas.")
+            if level < plan.level:
+                raise HousingError(
+                    f"Para levantar un {plan.name.lower()} hay que llegar a P{plan.level} en la "
+                    "rama Ladrillo de la obra en `pala`."
+                )
+            busy = next(
+                (w for w in market.solars.values() if w.user_id == user_id and w.until > day),
+                None,
+            )
+            if busy is not None:
+                raise HousingError(
+                    f"Ya tienes una obra en marcha hasta el {busy.until:%d/%m}: una a la vez."
+                )
+            index = market.index(site.barrio)
+            quote = solar_rules.build_quote(site, plan, index, market.ipc)
+            if expected is not None and quote.total > expected:
+                raise PriceChanged(quote.total)
+            until = day + timedelta(days=quote.days)
+            _building, units = solar_units(solar, project)
+            finance.add_solar_in(
+                connection, guild_id,
+                SolarWork(solar, user_id, project, day, until, quote.total, quote.value), now,
+            )  # fmt: skip
+            for unit, (paid, cost) in zip(units, solar_rules.split_paid(quote, units), strict=True):
+                connection.execute(
+                    """
+                    INSERT INTO housing_holdings
+                        (guild_id, listing, user_id, shares, paid, cost, since, locked_until)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (guild_id, unit.key, user_id, rules.SHARES, paid, cost, now, _iso(until)),
+                )
+                _save_lease_in(
+                    connection, guild_id, unit.key,
+                    rules.Lease(status=rules.OBRAS, level=DEFAULT_RENT_LEVEL, since=day,
+                                works_until=until),
+                )  # fmt: skip
+            _news_in(
+                connection, guild_id, News(solar, day, "obra_solar", quote.total, user_id, None),
+                now,
+            )  # fmt: skip
+            done = Built(solar, project, quote, tuple(u.key for u in units), until, index)
+            move = HousingMove(
+                entries=(
+                    (user_id, LedgerEntry(-quote.land, "pisos:solar")),
+                    (user_id, LedgerEntry(-quote.notary, "pisos:notaria")),
+                    (user_id, LedgerEntry(-quote.works, "pisos:obra_nueva")),
+                ),
+                taxes=tuple(
+                    HousingTax(user_id, kind, base, tax)
+                    for kind, base, tax in (
+                        ("itp", quote.land, quote.itp),
+                        ("igic_gastos", quote.notary, quote.notary_igic),
+                        ("igic_gastos", quote.works, quote.works_igic),
+                        ("icio", quote.works, quote.icio),
+                        ("licencia_obra", quote.works, quote.license),
+                        ("ajd", quote.value, quote.ajd),
+                    )
+                    if tax
+                ),
+            )
+            return done, move
 
         return run
 

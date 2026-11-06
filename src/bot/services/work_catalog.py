@@ -185,8 +185,9 @@ OBRA = Job(
             "Ladrillo",
             "🏖️",
             "Promotora en la costa: pisos sobre plano, recalificaciones y la burbuja "
-            "que siempre vuelve. Autónomo. Cobra más, se jubila peor. Cada lunes levanta "
-            "una promoción de obra nueva en `pisos` y se lleva el 5 % de lo que se venda.",
+            "que siempre vuelve. Autónomo. Cobra más, se jubila peor. Construye casas, "
+            "bloques y torres en los solares de `pisos` (🏗️ Solares, en las calles) y cada "
+            "lunes levanta una promoción de obra nueva y se lleva el 5 % de lo que se venda.",
             (
                 Position(
                     6,
