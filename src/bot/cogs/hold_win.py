@@ -77,6 +77,7 @@ from discord.ext import commands
 from bot.cogs import achievements as logros
 from bot.cogs import apuestas, renta
 from bot.cogs.casino import casino_channel_error, insufficient_text
+from bot.cogs.tragas_cambio import SwitchMixin
 from bot.services.achievements import (
     StatDelta,
     casino_stats,
@@ -644,11 +645,12 @@ def still_key(theme: str, spin: BaseSpin, stake: int, panel: Panel, lit: bool) -
 # -- Máquina ------------------------------------------------------------------------
 
 
-class HoldWinView(discord.ui.View):
+class HoldWinView(SwitchMixin, discord.ui.View):
     """Máquina de un jugador: un mensaje con botones.
 
     Guarda la apuesta, el turbo y el bonus en curso. No guarda dinero ni
-    maletines: se leen y se cambian siempre a través del cog.
+    maletines: se leen y se cambian siempre a través del cog. 🔀 Otras tragaperras
+    (`SwitchMixin`) la cambia por otra en el mismo mensaje.
     """
 
     def __init__(
@@ -657,6 +659,7 @@ class HoldWinView(discord.ui.View):
         super().__init__(timeout=MACHINE_TIMEOUT)
         self.cog = cog
         self.theme = theme
+        self.machine_key = self.switch_prefix = theme.key
         self.guild_id = guild_id
         self.owner = owner
         self.stake = stake
@@ -709,6 +712,7 @@ class HoldWinView(discord.ui.View):
         self.double_button = self._add("×2", 1, self._double_stake, custom_id="x2")
         self.allin_button = self._add("💰 All-in", 1, self._all_in, custom_id="allin")
         self._add("📋 Premios", 1, self._paytable, custom_id="paytable")
+        self.add_switch_button(1)
         self._set_enabled(True)
 
     def _set_enabled(self, enabled: bool) -> None:
@@ -747,6 +751,7 @@ class HoldWinView(discord.ui.View):
     async def on_timeout(self) -> None:
         """Cierra la máquina; si queda un bonus, se juega hasta el final y se paga."""
         self.cog.machines.discard(self)
+        self.leave_picker()
         payout = await self.finish_bonus_unattended()
         for item in self.children:
             if isinstance(item, discord.ui.Button):
@@ -762,6 +767,18 @@ class HoldWinView(discord.ui.View):
                 await self.message.edit(**kwargs)
         except discord.HTTPException:
             logger.debug("No se pudo cerrar la máquina de botes", exc_info=True)
+
+    def switch_blocker(self) -> str | None:
+        """Con un bonus a medias no se cambia: hay que acabarlo aquí."""
+        if self.bonus is not None:
+            return f"Tienes un bonus a medias en {self.theme.named}. Acábalo antes de cambiar."
+        return None
+
+    async def retire(self) -> str | None:
+        """Cierra la máquina tras 🔀: deja de atender clics. Botes no tiene ticket."""
+        self.cog.machines.discard(self)
+        self.stop()
+        return None
 
     async def finish_bonus_unattended(self) -> BonusPayout | None:
         """Juega y paga el bonus pendiente sin enseñarlo (cierre o apagado)."""

@@ -75,6 +75,7 @@ from bot.cogs import achievements as logros
 from bot.cogs import apuestas, renta
 from bot.cogs import hold_win as botes
 from bot.cogs.casino import casino_channel_error, insufficient_text
+from bot.cogs.tragas_cambio import CLASSIC, SwitchMixin
 from bot.services.achievements import (
     StatDelta,
     casino_stats,
@@ -661,8 +662,6 @@ ReadyFn = Callable[[tuple[Any, ...]], "Awaitable[SlotsMedia | None] | None"]
 # -- Máquina ------------------------------------------------------------------------
 
 
-#: Clave de la tragaperras clásica en `tragas`; las demás son las de Botes.
-CLASSIC = "clasica"
 #: Las máquinas de `tragas`: la clásica y cada una de `THEMES` (una nueva sale sola).
 MACHINE_CHOICES = [
     app_commands.Choice(name="🎰 Clásica, con bote común", value=CLASSIC),
@@ -691,7 +690,7 @@ def parse_machine_args(args: tuple[str, ...]) -> tuple[str | None, str | None]:
     return machine, amount
 
 
-class SlotMachineView(discord.ui.View):
+class SlotMachineView(SwitchMixin, discord.ui.View):
     """Máquina de un jugador: un mensaje con botones.
 
     Guarda la apuesta, el modo turbo, los giros gratis pendientes y las
@@ -701,7 +700,12 @@ class SlotMachineView(discord.ui.View):
     `_busy` vale mientras hay una acción en curso (una tirada, una Ráfaga o todo
     un ▶️ Auto): un segundo clic de dos botones a la vez no puede cobrar dos
     veces. `autoplay` es la sesión de ▶️ Auto en marcha, si la hay.
+
+    🔀 Otras tragaperras (`SwitchMixin`) la cambia por otra en el mismo mensaje.
     """
+
+    machine_key = CLASSIC
+    switch_prefix = GAME
 
     def __init__(self, cog: Slots, *, guild_id: int, owner: discord.abc.User, stake: int) -> None:
         super().__init__(timeout=MACHINE_TIMEOUT)
@@ -784,6 +788,7 @@ class SlotMachineView(discord.ui.View):
         self._add("×2", 1, self._double_stake, custom_id="x2")
         self._add("💰 All-in", 1, self._all_in, custom_id="allin")
         self._add("📋 Premios", 1, self._paytable, custom_id="paytable")
+        self.add_switch_button(1)
         red = discord.ButtonStyle.danger
         self.respin_button = self._add(
             "🔁 Re-girar", 2, self._respin, style=red, custom_id="respin"
@@ -860,6 +865,7 @@ class SlotMachineView(discord.ui.View):
     async def on_timeout(self) -> None:
         """Cierra la máquina y juega los giros gratis que se hayan quedado sin usar."""
         self.cog.machines.discard(self)
+        self.leave_picker()
         await self.close_autoplay()
         plays = await self.flush_free_spins()
         for item in self.children:
@@ -885,19 +891,49 @@ class SlotMachineView(discord.ui.View):
                 await self.message.edit(**kwargs)
         except discord.HTTPException:
             logger.debug("No se pudo cerrar la tragaperras", exc_info=True)
-        if self.session_spins:
-            await logros.track(
-                self.cog.bot,
-                self.guild_id,
-                self.owner,
-                getattr(self.message, "channel", None),
-                slots_ticket_stats(
-                    spins=self.session_spins,
-                    gross=self.session_gross,
-                    staked=self.session_staked,
-                    net=self.session_gross - self.session_staked - self.session_tax,
-                ),
+        await self._track_ticket()
+
+    async def _track_ticket(self) -> None:
+        """Logros del ticket de la sesión, al cerrar la máquina o cambiar a otra."""
+        if not self.session_spins:
+            return
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            getattr(self.message, "channel", None),
+            slots_ticket_stats(
+                spins=self.session_spins,
+                gross=self.session_gross,
+                staked=self.session_staked,
+                net=self.session_gross - self.session_staked - self.session_tax,
+            ),
+        )
+
+    def switch_blocker(self) -> str | None:
+        """Con giros gratis pendientes no se cambia: se perderían."""
+        if self.free_spins:
+            return (
+                f"Te quedan {self.free_spins} giros gratis en esta máquina. "
+                "Júgalos antes de cambiar."
             )
+        if self.autoplay is not None:
+            return "Para el ▶️ Auto antes de cambiar de máquina."
+        return None
+
+    async def retire(self) -> str | None:
+        """Cierra la máquina tras 🔀: deja de atender clics y devuelve su ticket, si hay."""
+        self.cog.machines.discard(self)
+        self.stop()
+        if not self.session_spins:
+            return None
+        await self._track_ticket()
+        return ticket_text(
+            spins=self.session_spins,
+            staked=self.session_staked,
+            gross=self.session_gross,
+            tax=self.session_tax,
+        )
 
     async def close_autoplay(self) -> None:
         """Detiene un ▶️ Auto en marcha: acaba la tirada en curso y cierra la tarea."""
