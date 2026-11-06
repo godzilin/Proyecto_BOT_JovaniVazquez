@@ -1914,7 +1914,8 @@ def _solar_tag(market: Market, key: str, user_id: int, today: date | None) -> St
     work = market.solars.get(key)
     if work is None:
         return {"key": key, "street": street.name, "number": solar.number, "status": SOLAR_FREE,
-                "emoji": "🚧", "mine": False, "text": "Solar libre"}  # fmt: skip
+                "emoji": "🚧", "mine": False, "text": "Solar libre", "project_key": "",
+                "floors": 0}  # fmt: skip
     project = PROJECT_BY_KEY[work.project]
     building = today is None or work.until <= today
     return {
@@ -1925,6 +1926,9 @@ def _solar_tag(market: Market, key: str, user_id: int, today: date | None) -> St
         "emoji": project.emoji,
         "mine": work.user_id == user_id,
         "text": project.name if building else f"En obras hasta el {work.until:%d/%m}",
+        # Lo que dibuja la escena: el proyecto por su clave, no por su nombre.
+        "project_key": project.key,
+        "floors": project.floors,
     }
 
 
@@ -2009,6 +2013,8 @@ def solar_state(
         done = min(1.0, max(0.0, (today - work.started).days / days))
         built = {
             "project": project.name,
+            "project_key": project.key,
+            "floors": project.floors,
             "emoji": project.emoji,
             "owner": "Tuyo" if work.user_id == user_id else _name(names, work.user_id),
             "units": len(units),

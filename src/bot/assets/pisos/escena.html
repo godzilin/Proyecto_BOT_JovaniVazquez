@@ -3969,7 +3969,7 @@ const SOLAR_MARK_W = 200;
 function solarMark(sol, x, y) {
   const h = 38;
   card(x, y, SOLAR_MARK_W, h, { r: 10, ...(sol.mine ? { stroke: C.blue } : {}) });
-  solarStatusIcon(sol.status, sol.text, x + 22, y + h / 2 - 2, 20, sol.mine);
+  solarStatusIcon(sol, x + 22, y + h / 2 - 2, 20, sol.mine);
   fitText(sol.text, x + 42, y + 14, SOLAR_MARK_W - 52, F.d, 14, 10, { color: sol.mine ? C.blue : C.ink });
   fitText(`Solar N.º ${sol.number}${sol.mine ? " · tuyo" : ""}`, x + 42, y + 29, SOLAR_MARK_W - 52, F.m, 13, 10, { color: C.mute });
 }
@@ -4848,10 +4848,10 @@ function paintEdificio(st) {
 const SOLAR_TAB_Y = 164, SOLAR_TAB_H = 52, SOLAR_Y = 226, SOLAR_H = 220, SOLAR_LOW_Y = 458, SOLAR_LOW_H = 184, BUBBLE_Y = 650;
 const SOLAR_STATUS = { libre: ["LIBRE", "green"], obras: ["EN OBRAS", "amber"], hecho: ["HECHO", "blue"] };
 
-// Qué se construye, sacado del nombre del proyecto («Casa», «Bloque de 5 plantas», «Torre de 8 plantas»).
-function projectOf(name) {
-  const n = String(name || ""), m = n.match(/(\d+) plantas/);
-  return /^Torre/.test(n) ? { kind: "torre", floors: m ? +m[1] : 8 } : m ? { kind: "bloque", floors: +m[1] } : { kind: "casa", floors: 1 };
+// Qué se construye: la clave del proyecto (`housing_solars.PROJECTS`) y sus plantas, que manda Python.
+function projectOf(item) {
+  const key = item && item.project_key, floors = (item && item.floors) || 1;
+  return { kind: key === "torre" || key === "casa" ? key : "bloque", floors };
 }
 // El icono de un proyecto, de trazos: una casa con su tejado, un bloque con tantas filas de ventanas como
 // plantas o una torre estrecha con su antena. `by` es el suelo y `hh` la altura.
@@ -4872,10 +4872,11 @@ function solarGlyph(kind, floors, cx, by, hh, col) {
   else rect(cx - w / 2 - 1, by - hh - 1.5, w + 2, 2, dark);
 }
 // El icono de cada estado (para las pestañas y la marca del plano): valla, grúa o el edificio.
-function solarStatusIcon(status, text, cx, cy, sz, mine) {
+function solarStatusIcon(item, cx, cy, sz) {
+  const status = item.status, mine = item.mine;
   const col = mine ? C.blue : status === "hecho" ? C.laurelDk : status === "obras" ? C.sunDk : C.mute;
   if (status === "obras") crane(cx, cy, sz * 0.5, col);
-  else if (status === "hecho") { const p = projectOf(text); solarGlyph(p.kind, p.floors, cx, cy + sz * 0.5, sz, col); }
+  else if (status === "hecho") { const p = projectOf(item); solarGlyph(p.kind, p.floors, cx, cy + sz * 0.5, sz, col); }
   else { // la valla: tres postes y dos travesaños
     const w = sz * 1.1;
     for (const dx of [-0.5, 0, 0.5]) rect(cx + dx * w - 1.5, cy - sz * 0.25, 3, sz * 0.75, col);
@@ -4889,7 +4890,7 @@ function solarTabs(st) {
     const x = 16 + i * (tw + gap), y = SOLAR_TAB_Y, h = SOLAR_TAB_H;
     card(x, y, tw, h, { r: 12, fill: t.selected ? "#fff1c9" : C.card, stroke: t.selected ? C.sun : t.mine ? C.blue : undefined });
     bigSlot(t.slot, x + 28, y + h / 2, 17);
-    solarStatusIcon(t.status, t.text, x + 72, y + h / 2 - 2, 24, t.mine);
+    solarStatusIcon(t, x + 72, y + h / 2 - 2, 24, t.mine);
     fitText(t.street, x + 96, y + 18, tw - 110, F.d, 18, 12, { color: C.ink });
     fitText(t.text, x + 96, y + 38, tw - 110, F.m, 15, 11, { color: t.mine ? C.blue : C.mute });
   });
@@ -4992,7 +4993,7 @@ function solarScene(st, x, y, w, h) {
   for (let k = x + 10; k < x + w; k += 34) rect(k, gy + 17, 16, 2.4, "rgba(255,255,255,0.75)");
   streetProp(theme, x + 52, gy, seed); streetProp(theme, x + w - 52, gy, seed + 1);
   rect(lx0 - 6, gy - 5, lx1 - lx0 + 12, 12, "#bfa574"); // el terreno del solar
-  const p = built ? projectOf(built.project) : { kind: "casa", floors: 1 };
+  const p = built ? projectOf(built) : { kind: "casa", floors: 1 };
   const fh = Math.min(30, 150 / p.floors * (p.kind === "torre" ? 0.9 : 0.82)), bw = p.kind === "casa" ? 120 : p.kind === "torre" ? 108 : p.floors > 5 ? 150 : 170;
   if (sol.status === "libre") {
     speckle(lx0, gy - 4, lx1 - lx0, 8, seed, 40, 3, "rgba(90,70,40,0.5)");

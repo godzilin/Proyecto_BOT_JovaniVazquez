@@ -1272,6 +1272,8 @@ def test_las_muestras_de_solares_traen_lo_que_pinta_la_escena() -> None:
     assert hecho["built"]["progress"] == 1
     assert {
         "project",
+        "project_key",
+        "floors",
         "owner",
         "units",
         "mine",
@@ -1283,7 +1285,8 @@ def test_las_muestras_de_solares_traen_lo_que_pinta_la_escena() -> None:
     } <= (hecho["built"].keys())
     plano = states["calles_solares"]["streets"]
     assert [s["solar"]["status"] for s in plano] == ["libre", "obras", "hecho"]
-    assert {"status", "text", "number", "mine"} <= plano[0]["solar"].keys()
+    assert {"status", "text", "number", "mine", "project_key", "floors"} <= plano[0]["solar"].keys()
+    assert plano[2]["solar"]["project_key"] and plano[2]["solar"]["floors"] > 1
     assert all(s["solar"] for s in states["calles_solares_rural"]["streets"])
 
 
