@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.47.0 · 2026-11-06
+
+- Fortunas y Hacienda: el casino y el banco, dos ricos más a los que ganar
+- Hacienda: el casino paga la tasa del juego y el banco Sociedades cada lunes, con todo lo ganado desde el primer día
+- Logros: 8 nuevos en 🏛️ Economía y Hacienda por ganar al casino y al banco
+
 ### 9.46.0 · 2026-11-06
 
 - Jovaniverso: `universo`, primera prueba del bot dentro de una Activity de Discord

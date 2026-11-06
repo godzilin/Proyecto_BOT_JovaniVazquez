@@ -3369,6 +3369,38 @@ class HousingRepository:
             asnef=sum(1 for member in members if market.in_asnef(member)),
         )
 
+    async def bank_exposure(self, guild_id: int) -> tuple[int, int]:
+        """`(lo prestado en hipotecas de compra, lo que le deben ahora)` al banco. Solo lee.
+
+        Lo primero es lo que el banco ha prestado sin pasar por el monedero de nadie (paga
+        al vendedor o al catálogo): el capital de todas las hipotecas de compra, también las
+        ya canceladas o ejecutadas. Las rehipotecas no, porque entran en el monedero
+        (`banco:rehipoteca`). Lo segundo, lo que le deben hoy: el capital pendiente y las
+        cuotas sin pagar de hipotecas y préstamos (también los de los negocios) y la deuda
+        tras una ejecución o un vencimiento. Es lo que necesita
+        `bot.services.house_books.BankBook`.
+        """
+        return await self._run(self._bank_exposure_sync, guild_id)
+
+    def _bank_exposure_sync(self, guild_id: int) -> tuple[int, int]:
+        connection = self._connect()
+        try:
+            (lent,) = connection.execute(
+                "SELECT COALESCE(SUM(principal), 0) FROM housing_mortgages "
+                "WHERE guild_id = ? AND kind = ?",
+                (guild_id, finance.MORTGAGE_PURCHASE),
+            ).fetchone()
+            mortgages = finance.mortgages_in(connection, guild_id)
+            loans = finance.loans_in(connection, guild_id)
+            (debts,) = connection.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM housing_bank_debts WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        owed = sum(m.owed for m in mortgages) + sum(loan.owed for loan in loans) + int(debts)
+        return int(lent), owed
+
     async def last_day(self, guild_id: int) -> date | None:
         """Último día cerrado en el servidor, o `None` si nunca se cerró ninguno."""
         return await self._run(self._last_day_sync, guild_id)

@@ -69,10 +69,12 @@ from bot.cogs import pets as mascotas
 from bot.cogs import shop as tienda
 from bot.cogs import work as curro
 from bot.cogs.hacienda_panel import HaciendaPanel, bill_card
+from bot.repositories.economy import BANK_ACCOUNT_ID, CASINO_ACCOUNT_ID
 from bot.services import skins
 from bot.services.achievements import (
     StatDelta,
     casino_stats,
+    hacienda_house_stats,
     hacienda_stats,
     roulette_stats,
     saldo_peek_stats,
@@ -95,6 +97,8 @@ from bot.services.economy import (
     next_daily_at,
     parse_amount,
 )
+from bot.services.house_books import BANK, CASINO
+from bot.services.house_books import NAMES as HOUSE_NAMES
 from bot.services.levels import TIMEZONE, local_day
 from bot.services.pending import Pending, Side, pending_fields
 from bot.services.pets import Event, Moment, bet_moment
@@ -129,6 +133,9 @@ if TYPE_CHECKING:
     from bot.app import BotClient
 
 logger = logging.getLogger(__name__)
+
+#: Nombre del Casino y del Banco en las facturas de `hacienda`.
+HOUSE_BILL_NAMES = {CASINO_ACCOUNT_ID: HOUSE_NAMES[CASINO], BANK_ACCOUNT_ID: HOUSE_NAMES[BANK]}
 
 GAME = "ruleta"
 #: Ficha por defecto al abrir una mesa sin indicar cantidad.
@@ -1483,31 +1490,35 @@ class Casino(commands.Cog):
         now = datetime.now(TIMEZONE)
         year_start = datetime(now.year, 1, 1, tzinfo=TIMEZONE).timestamp()
         if member is not None:
-            everything, this_year, housing, business = await asyncio.gather(
+            everything, this_year, housing, business, houses, houses_year = await asyncio.gather(
                 self.economy.tax_breakdown(guild.id),
                 self.economy.tax_breakdown(guild.id, since=year_start),
                 self.economy.housing_tax_breakdown(guild.id),
                 self.economy.business_tax_breakdown(guild.id),
+                self.economy.house_tax_breakdown(guild.id),
+                self.economy.house_tax_breakdown(guild.id, since=year_start),
             )
-            all_bills = tax_bills(everything)
+            all_bills = tax_bills({**everything, **houses})
             text = member_page(
                 member_name=discord.utils.escape_markdown(member.display_name),
                 all_bills=all_bills,
-                year_bills=tax_bills(this_year),
+                year_bills=tax_bills({**this_year, **houses_year}),
                 user_id=member.id,
                 year=now.year,
                 homes=housing.get(member.id, {}),
                 business=business.get(member.id, {}),
             )
             return bill_card(text), all_bills
-        everything, treasury, housing, business, solidarity = await asyncio.gather(
+        everything, treasury, housing, business, solidarity, houses = await asyncio.gather(
             self.economy.tax_breakdown(guild.id),
             self.economy.treasury(guild.id, since=year_start),
             self.economy.housing_tax_breakdown(guild.id),
             self.economy.business_tax_breakdown(guild.id),
             self.economy.solidarity_summary(guild.id),
+            self.economy.house_tax_breakdown(guild.id),
         )
-        all_bills = tax_bills(everything)
+        # El Casino y el Banco pagan como uno más (`bot.services.house_books`).
+        all_bills = tax_bills({**everything, **houses})
         people = {bill.user_id for bill in all_bills} | set(housing) | set(business)
         snapshot = Snapshot(
             guild_id=guild.id,
@@ -1534,6 +1545,15 @@ class Casino(commands.Cog):
         server = server_bill(all_bills)
         mine = next((b for b in all_bills if b.user_id == author.id), None)
         share = (mine.total / server.total) if mine and server.total > 0 else 0.0
+        houses = {b.user_id: b.total for b in all_bills if b.user_id in HOUSE_BILL_NAMES}
+        if houses and mine is not None:
+            await logros.track(
+                self.bot, guild.id, author, channel,
+                hacienda_house_stats(
+                    paid=mine.total, casino=houses.get(CASINO_ACCOUNT_ID, 0),
+                    bank=houses.get(BANK_ACCOUNT_ID, 0),
+                ),
+            )  # fmt: skip
         await logros.track(
             self.bot,
             guild.id,
@@ -1549,6 +1569,8 @@ class Casino(commands.Cog):
 
     @staticmethod
     def _display_name(guild: discord.Guild, user_id: int) -> str:
+        if (house := HOUSE_BILL_NAMES.get(user_id)) is not None:
+            return house
         found = guild.get_member(user_id)
         if found is None:
             return f"<@{user_id}>"

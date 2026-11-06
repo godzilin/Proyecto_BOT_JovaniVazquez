@@ -32,6 +32,14 @@ Consultas (no mueven dinero; ver `bot.services.net_worth`):
 Logros de las dos: `patrimonio_stats`, y de los botones de `fortunas`,
 `fortunas_click_stats` (Economía y Hacienda).
 
+El 🎰 Casino y el 🏦 Banco salen en `fortunas` como dos fortunas más, en su puesto y con
+medalla si les toca (`houses`, cuentas en `bot.services.house_books`): lo que gana la casa y
+el beneficio del banco desde el primer día, menos lo que han pagado a Hacienda. El puesto
+de cada miembro cuenta con ellos, y `fortunas` y `perfil` dicen cuánto le falta (o le saca)
+a cada uno; los logros de superarlos salen de `house_rivals_stats`. Cada lunes, con el
+Patrimonio, pagan su impuesto (`EconomyService.charge_house_taxes`): el casino la tasa del
+juego y el banco el Impuesto sobre Sociedades, y el anuncio lo cuenta.
+
 Permisos: enviar mensajes e insertar enlaces en el canal del anuncio.
 """
 
@@ -41,7 +49,7 @@ import logging
 import sqlite3
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
@@ -54,16 +62,36 @@ from bot.cogs import business as negocio
 from bot.cogs import pisos
 from bot.cogs import shop as tienda
 from bot.repositories.business import companies_in
+from bot.repositories.economy import BANK_ACCOUNT_ID, CASINO_ACCOUNT_ID
 from bot.repositories.housing import assets_in as housing_assets_in
 from bot.repositories.shop import wealth_goods_in
 from bot.services import housing as rules
-from bot.services.achievements import StatDelta, fortunas_click_stats, patrimonio_stats
+from bot.services.achievements import (
+    StatDelta,
+    fortunas_click_stats,
+    house_rivals_stats,
+    patrimonio_stats,
+)
 from bot.services.economy import (
     EconomyService,
     WealthCharge,
     format_amount,
     week_label,
     week_start,
+)
+from bot.services.house_books import (
+    BANK,
+    CASINO,
+    BankBook,
+    CasinoBook,
+    HouseCharge,
+    rate_of,
+)
+from bot.services.house_books import (
+    NAMES as HOUSE_NAMES,
+)
+from bot.services.house_books import (
+    TAX_NAMES as HOUSE_TAX_NAMES,
 )
 from bot.services.housing_catalog import BARRIO_BY_KEY, VPO_BY_KEY
 from bot.services.levels import local_day
@@ -185,11 +213,99 @@ def _breakdown(worth: NetWorth) -> str:
     )
 
 
+#: Ids del Casino y del Banco en las listas de `fortunas`.
+HOUSE_IDS = (CASINO_ACCOUNT_ID, BANK_ACCOUNT_ID)
+
+
+def is_house(user_id: int) -> bool:
+    """Si un id de `fortunas` es el Casino o el Banco, no un miembro."""
+    return user_id in HOUSE_IDS
+
+
+def house_worths(casino: CasinoBook, bank: BankBook) -> tuple[NetWorth, NetWorth]:
+    """El Casino y el Banco como dos `NetWorth` más, para ponerlos en la lista.
+
+    El casino lo tiene todo en caja. El banco tiene su caja (lo cobrado menos lo prestado,
+    casi siempre negativa) y lo que le deben, que va en `debts` en negativo: así su total
+    es la caja más lo que le deben, igual que el de un avalista al que le deben dinero.
+    """
+    return (
+        NetWorth(user_id=CASINO_ACCOUNT_ID, cash=casino.total),
+        NetWorth(user_id=BANK_ACCOUNT_ID, cash=bank.cash - bank.taxes, debts=-bank.owed),
+    )
+
+
+def casino_line(book: CasinoBook) -> str:
+    """De qué es la fortuna del casino, en una línea de subtexto."""
+    return (
+        f"-# 🎲 apostado {format_amount(book.staked)} · 💸 pagado en premios "
+        f"{format_amount(book.paid)}"
+        + (f" · 🐶 −{format_amount(book.taxes)}" if book.taxes else "")
+    )
+
+
+def bank_line(book: BankBook) -> str:
+    """De qué es la fortuna del banco, en una línea de subtexto."""
+    cash = book.cash - book.taxes
+    return (
+        f"-# 💵 caja {'−' if cash < 0 else ''}{format_amount(abs(cash))} · 🤝 le deben "
+        f"{format_amount(book.owed)}"
+        + (f" · 🐶 −{format_amount(book.taxes)}" if book.taxes else "")
+    )
+
+
+def rival_part(name: str, mine: int, theirs: int) -> str:
+    """Cómo está alguien frente al casino o al banco: «🎰 El Casino: te faltan 300 Y$»."""
+    if theirs <= 0:
+        return f"{name}: en números rojos"
+    if mine > theirs:
+        return f"{name}: le sacas {format_amount(mine - theirs)}"
+    if mine == theirs:
+        return f"{name}: empatas"
+    return f"{name}: te faltan {format_amount(theirs - mine)}"
+
+
+def rivals_line(everyone: tuple[NetWorth, ...] | list[NetWorth], user_id: int) -> str:
+    """Una línea con lo que separa a `user_id` del Casino y del Banco (vacía sin ellos)."""
+    mine = next((w.total for w in everyone if w.user_id == user_id), 0)
+    return " · ".join(
+        rival_part(HOUSE_NAMES[key], mine, worth.total)
+        for key, account in ((CASINO, CASINO_ACCOUNT_ID), (BANK, BANK_ACCOUNT_ID))
+        if (worth := next((w for w in everyone if w.user_id == account), None)) is not None
+    )
+
+
+def house_tax_embed(week: date, charges: list[HouseCharge]) -> discord.Embed:
+    """Anuncio de lo que han pagado el Casino y el Banco el lunes."""
+    lines = []
+    for charge in charges:
+        name = HOUSE_NAMES[charge.entity]
+        tax = HOUSE_TAX_NAMES[charge.entity]
+        rate = f"{rate_of(charge.entity) * 100:.0f} %"
+        if charge.tax:
+            lines.append(
+                f"{name} paga **{format_amount(charge.tax)}** de {tax} ({rate} de "
+                f"{format_amount(charge.base)} ganados por encima de lo que ya tributó)"
+            )
+        else:
+            lines.append(f"{name} no paga {tax}: no ha ganado nada por encima de lo que ya tributó")
+    return discord.Embed(
+        title=f"🐶 {TAX_COLLECTOR} también pasó por la banca",
+        description=f"Semana {week_label(week)}.\n\n" + "\n".join(lines),
+        color=COLOR,
+    ).set_footer(
+        text="El casino paga la tasa del juego sobre lo que gana la casa y el banco, "
+        "Sociedades sobre su beneficio. Las semanas en pérdidas se compensan después."
+    )
+
+
 def fortunes_summary(ranked: list[NetWorth]) -> str:
     """Cabecera de `fortunas`: el patrimonio de todos, de qué es y cómo de repartido está.
 
     Los tantos por ciento son de lo que tienen (sin restar deudas), del más grande al menor.
+    Solo cuentan los miembros: el Casino y el Banco salen en la lista, pero no en el total.
     """
+    ranked = [w for w in ranked if not is_house(w.user_id)]
     totals = [w.total for w in ranked]
     assets = sum(w.assets for w in ranked)
     debts = sum(w.debts for w in ranked)
@@ -238,6 +354,12 @@ def you_line(everyone: tuple[NetWorth, ...], user_id: int) -> str:
     return f"{line} · te faltan {format_amount(gap)} para el {rank}.º"
 
 
+def you_lines(everyone: tuple[NetWorth, ...], user_id: int) -> str:
+    """`you_line` y, debajo, lo que le separa del Casino y del Banco."""
+    rivals = rivals_line(everyone, user_id)
+    return you_line(everyone, user_id) + (f"\n🎯 {rivals}" if rivals else "")
+
+
 @dataclass(frozen=True, slots=True)
 class Fortunes:
     """Lo que enseña `fortunas`, leído una vez al abrirlo.
@@ -249,6 +371,8 @@ class Fortunes:
         names: El nombre de cada uno de la lista, con su título.
         avatars: El avatar de los del podio que siguen en el servidor.
         read_at: Cuándo se leyeron las cifras.
+        houses: La línea de desglose del Casino y del Banco (`HOUSE_IDS`), si están en
+            `everyone`.
     """
 
     guild_id: int
@@ -256,6 +380,12 @@ class Fortunes:
     names: dict[int, str]
     avatars: dict[int, str]
     read_at: float
+    houses: dict[int, str] = field(default_factory=dict)
+
+    @property
+    def members(self) -> int:
+        """Cuántos miembros salen en la lista (sin el Casino ni el Banco)."""
+        return sum(1 for w in self.ranked if not is_house(w.user_id))
 
     @property
     def ranked(self) -> list[NetWorth]:
@@ -298,8 +428,9 @@ class FortunasPanel(ui.LayoutView):
         box = ui.Container(accent_colour=COLOR)
         box.add_item(
             ui.TextDisplay(
-                f"# 💎 Fortunas del servidor\n-# {len(ranked)} con patrimonio · cifras de "
-                f"<t:{int(self.fortunes.read_at)}:R>"
+                f"# 💎 Fortunas del servidor\n-# {self.fortunes.members} con patrimonio"
+                + (" y la banca" if self.fortunes.houses else "")
+                + f" · cifras de <t:{int(self.fortunes.read_at)}:R>"
             )
         )
         box.add_item(ui.Separator())
@@ -319,7 +450,7 @@ class FortunasPanel(ui.LayoutView):
                 continue
             text = (
                 f"{_MEDALS[rank - 1]}{you} {name}\n**{format_amount(worth.total)}**\n"
-                + _breakdown(worth)
+                + self.fortunes.houses.get(worth.user_id, _breakdown(worth))
             )
             avatar = self.fortunes.avatars.get(worth.user_id)
             box.add_item(
@@ -332,10 +463,11 @@ class FortunasPanel(ui.LayoutView):
         box.add_item(ui.Separator())
         box.add_item(
             ui.TextDisplay(
-                you_line(self.fortunes.everyone, self.owner.id)
+                you_lines(self.fortunes.everyone, self.owner.id)
                 + "\n-# Efectivo, pisos, sociedades, bienes de la tienda, boletos por sortear "
-                "y renta por cobrar, menos lo que se debe. Gini: 0 si todos tienen lo mismo, "
-                "1 si uno lo tiene todo."
+                "y renta por cobrar, menos lo que se debe. El casino cuenta lo que gana la casa "
+                "y el banco, su caja más lo que le deben, menos sus impuestos. Gini (solo "
+                "miembros): 0 si todos tienen lo mismo, 1 si uno lo tiene todo."
             )
         )
         if self.pages > 1:
@@ -473,25 +605,34 @@ class Patrimonio(commands.Cog):
             # Patrimonio para siempre (ahora lee también los pisos).
             logger.exception("No se pudo cobrar el Patrimonio en el servidor %s", guild.id)
             return
-        self._done.add((guild.id, week))
-        if not run.charges:
+        houses = await self.charge_houses(guild.id, week)
+        if houses is not None:
+            # Si falla el de la banca, se vuelve a intentar en 10 minutos: el Patrimonio de
+            # los miembros no se repite, porque `charge_wealth_tax` ya apuntó la semana.
+            self._done.add((guild.id, week))
+        embeds = []
+        if run.charges:
+            names = {}
+            for charge in run.charges:
+                member = guild.get_member(charge.user_id)
+                names[charge.user_id] = (
+                    discord.utils.escape_markdown(member.display_name)
+                    if member is not None
+                    else f"<@{charge.user_id}>"
+                )
+            embeds.append(wealth_embed(week, run.charges, names))
+        if houses and any(charge.tax for charge in houses):
+            embeds.append(house_tax_embed(week, houses))
+        if not embeds:
             return
         channel = (
             discord.utils.get(guild.text_channels, name=ANNOUNCE_CHANNEL_NAME)
             or guild.system_channel
         )
-        names = {}
-        for charge in run.charges:
-            member = guild.get_member(charge.user_id)
-            names[charge.user_id] = (
-                discord.utils.escape_markdown(member.display_name)
-                if member is not None
-                else f"<@{charge.user_id}>"
-            )
         if channel is not None:
             try:
                 await channel.send(
-                    embed=wealth_embed(week, run.charges, names),
+                    embeds=embeds,
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
             except (discord.Forbidden, discord.HTTPException):
@@ -513,6 +654,21 @@ class Patrimonio(commands.Cog):
                 ),
                 channel.id if channel is not None else None,
             )
+
+    async def charge_houses(self, guild_id: int, week: date) -> list[HouseCharge] | None:
+        """Cobra la semana al Casino y al Banco. `None` si falla (no lanza).
+
+        Devuelve lo cobrado ahora (vacío si ya estaba o es la primera semana, que solo se
+        apunta: el lunes siguiente pagan todo lo de antes).
+        """
+        try:
+            lent, owed = await self.housing.bank_exposure(guild_id) if self.housing else (0, 0)
+            return await self.economy.charge_house_taxes(
+                guild_id, week=week, purchase_lent=lent, owed=owed
+            )
+        except Exception:
+            logger.exception("No se pudo cobrar a la banca en el servidor %s", guild_id)
+            return None
 
     # -- Patrimonio y `fortunas` --------------------------------------------------------
 
@@ -552,9 +708,37 @@ class Patrimonio(commands.Cog):
             return f"{name} · *{title}*"
         return name
 
-    async def net_worth(self, guild_id: int, user_id: int) -> tuple[NetWorth, int, int]:
-        """Patrimonio de un miembro, su puesto en `fortunas` y cuántos tienen algo."""
+    async def houses(self, guild_id: int) -> tuple[CasinoBook, BankBook] | None:
+        """Las cuentas del Casino y del Banco, o `None` si no se pueden leer (no lanza)."""
+        try:
+            lent, owed = await self.housing.bank_exposure(guild_id) if self.housing else (0, 0)
+            return await self.economy.house_books(guild_id, purchase_lent=lent, owed=owed)
+        except (OSError, sqlite3.Error):
+            logger.exception("No se pudieron leer las cuentas del casino y del banco")
+            return None
+
+    async def standings(
+        self, guild_id: int
+    ) -> tuple[list[NetWorth], tuple[CasinoBook, BankBook] | None]:
+        """Los miembros con el Casino y el Banco entre ellos, del más rico al menos.
+
+        Returns:
+            `(la lista, las cuentas de la banca)`; sin cuentas, la lista es solo de miembros.
+        """
         everyone = await self.fortunes(guild_id)
+        books = await self.houses(guild_id)
+        if books is not None:
+            everyone = sorted(
+                [*everyone, *house_worths(*books)], key=lambda w: (-w.total, w.user_id)
+            )
+        return everyone, books
+
+    async def net_worth(self, guild_id: int, user_id: int) -> tuple[NetWorth, int, int]:
+        """Patrimonio de un miembro, su puesto en `fortunas` y cuántos tienen algo.
+
+        El puesto cuenta con el Casino y el Banco, como en `fortunas`.
+        """
+        everyone, _books = await self.standings(guild_id)
         worth = next((w for w in everyone if w.user_id == user_id), None)
         if worth is None:
             worth = NetWorth(user_id=user_id)
@@ -619,7 +803,14 @@ class Patrimonio(commands.Cog):
 
         Apunta los logros de mirar el patrimonio (propio o ajeno) a `author`.
         """
-        worth, rank, people = await self.net_worth(guild.id, target.id)
+        everyone, books = await self.standings(guild.id)
+        worth = next((w for w in everyone if w.user_id == target.id), None) or NetWorth(
+            user_id=target.id
+        )
+        ranked = [w for w in everyone if w.total > 0]
+        rank = next((i for i, w in enumerate(ranked, 1) if w.user_id == target.id), len(ranked))
+        people = len(ranked)
+        rivals = rivals_line(everyone, target.id)
         lines = [
             f"💵 Efectivo: **{format_amount(worth.cash)}**",
             f"🏠 Pisos: **{format_amount(worth.homes)}**",
@@ -644,6 +835,7 @@ class Patrimonio(commands.Cog):
             description=(
                 f"# {format_amount(worth.total)}\n"
                 + (f"Puesto {rank} de {people} en `fortunas`\n" if worth.total > 0 else "")
+                + (f"🎯 {rivals}\n" if rivals else "")
                 + f"*{verdict(worth, rank, people)}*"
             ),
             color=COLOR,
@@ -734,6 +926,11 @@ class Patrimonio(commands.Cog):
                     people=people,
                 ),
             )
+            rivals_delta = house_rivals_stats(
+                mine=worth.total, casino=books[0].total, bank=books[1].total, debts=worth.debts
+            ) if own and books is not None else None  # fmt: skip
+            if rivals_delta is not None and rivals_delta.add:
+                await logros.track(self.bot, guild.id, author, channel, rivals_delta)
         return embed
 
     async def _patrimonio_impl(
@@ -771,18 +968,30 @@ class Patrimonio(commands.Cog):
 
     async def fortunas_panel(self, guild: discord.Guild, author: discord.abc.User) -> FortunasPanel:
         """El panel de `fortunas` de `author`, con las cifras de ahora."""
-        everyone = await self.fortunes(guild.id)
+        everyone, books = await self.standings(guild.id)
         ranked = [w for w in everyone if w.total > 0]
         avatars = {}
         for worth in ranked[: len(_MEDALS)]:
+            if is_house(worth.user_id):
+                continue
             if (found := guild.get_member(worth.user_id)) is not None:
                 avatars[worth.user_id] = found.display_avatar.url
+        names = {
+            w.user_id: self._titled(guild, w.user_id) for w in ranked if not is_house(w.user_id)
+        }
+        houses: dict[int, str] = {}
+        if books is not None:
+            casino, bank = books
+            names[CASINO_ACCOUNT_ID] = f"**{HOUSE_NAMES[CASINO]}**"
+            names[BANK_ACCOUNT_ID] = f"**{HOUSE_NAMES[BANK]}**"
+            houses = {CASINO_ACCOUNT_ID: casino_line(casino), BANK_ACCOUNT_ID: bank_line(bank)}
         fortunes = Fortunes(
             guild_id=guild.id,
             everyone=tuple(everyone),
-            names={w.user_id: self._titled(guild, w.user_id) for w in ranked},
+            names=names,
             avatars=avatars,
             read_at=time.time(),
+            houses=houses,
         )
         return FortunasPanel(self.bot, fortunes, author)
 
@@ -808,6 +1017,16 @@ class Patrimonio(commands.Cog):
                 people=len(ranked),
             ),
         )
+        casino = next((w for w in fortunes.everyone if w.user_id == CASINO_ACCOUNT_ID), None)
+        bank = next((w for w in fortunes.everyone if w.user_id == BANK_ACCOUNT_ID), None)
+        if casino is not None and bank is not None:
+            mine = next((w for w in fortunes.everyone if w.user_id == author.id), None)
+            delta = house_rivals_stats(
+                mine=mine.total if mine else 0, casino=casino.total, bank=bank.total,
+                debts=mine.debts if mine else 0,
+            )  # fmt: skip
+            if delta.add:
+                await logros.track(self.bot, fortunes.guild_id, author, channel, delta)
 
     @app_commands.command(
         name="fortunas", description="Lista de todos los miembros por patrimonio."

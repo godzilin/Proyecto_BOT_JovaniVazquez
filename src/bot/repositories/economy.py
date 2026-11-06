@@ -119,6 +119,10 @@ Modelo de datos:
   de `pisos`: la mejor puja de cada una (con su ITP y su notaría) espera aquí.
   Guarda la puja más alta de cada subasta (con su ITP) hasta que se adjudica, o
   hasta devolverla entera a quien es superado.
+- `economy_house_tax`: lo que paga cada lunes el 🎰 Casino (tasa del juego) y el 🏦 Banco
+  (Impuesto sobre Sociedades), con su beneficio acumulado, el máximo que ya ha tributado
+  (`peak`) y la base de esa semana (`bot.services.house_books`). Ninguno tiene monedero:
+  lo pagado entra en la cuenta del Estado sin salir de ningún sitio.
 - `economy_market_tax`: el ITP (de quien compra) y el IRPF de la plusvalía (de
   quien vende) de cada venta del Rastro, para que `hacienda` los cuente.
 - `economy_housing_tax`: el ITP de cada compra de `pisos`, el IBI de cada mes y
@@ -235,6 +239,16 @@ PAWN_ACCOUNT_ID = -1000
 #: `user_id` del depósito de las predicciones (`predice`): lo apostado a una pregunta de
 #: Polymarket espera aquí hasta que se resuelve (o se anula), como en `deportes`.
 PREDICT_ACCOUNT_ID = -1100
+
+#: Ids con los que el 🎰 Casino y el 🏦 Banco salen en `fortunas` y `hacienda` como si fueran
+#: miembros. No tienen monedero: su fortuna se calcula con el libro
+#: (`bot.services.house_books`) y lo que pagan a Hacienda va a `economy_house_tax`.
+CASINO_ACCOUNT_ID = -1200
+BANK_ACCOUNT_ID = -1300
+#: Cuenta de cada una por su clave en `economy_house_tax`.
+HOUSE_ACCOUNTS = {"casino": CASINO_ACCOUNT_ID, "banco": BANK_ACCOUNT_ID}
+#: Clase de impuesto (`tax_report.TAX_KINDS`) que paga cada una.
+HOUSE_TAX_KINDS = {"casino": "tasa_juego", "banco": "sociedades_banco"}
 
 #: Las cuentas de las sociedades limitadas de los negocios de `pala` (fase 3): la de un
 #: negocio es `COMPANY_ACCOUNT_BASE - id del negocio`. Negativas y lejos de las fijas y de
@@ -1857,6 +1871,18 @@ class EconomyRepository:
                     porra_id INTEGER NOT NULL,
                     tax INTEGER NOT NULL CHECK (tax >= 0),
                     created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS economy_house_tax (
+                    guild_id INTEGER NOT NULL,
+                    entity TEXT NOT NULL,
+                    week_start TEXT NOT NULL,
+                    profit INTEGER NOT NULL,
+                    peak INTEGER NOT NULL,
+                    base INTEGER NOT NULL CHECK (base >= 0),
+                    tax INTEGER NOT NULL CHECK (tax >= 0),
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (guild_id, entity, week_start)
                 );
 
                 CREATE TABLE IF NOT EXISTS economy_market_tax (
@@ -4963,6 +4989,123 @@ class EconomyRepository:
             connection.close()
         return {str(reason): (int(count), int(total or 0)) for reason, count, total in rows}
 
+    async def ledger_flow(self, guild_id: int, reasons: Sequence[str]) -> int:
+        """Lo que han pagado miembros y sociedades con unos motivos, menos lo que han recibido.
+
+        Solo lee. Es la caja del 🏦 Banco según el libro (`house_books.BANK_REASONS`): cuenta
+        los monederos de los miembros (ids positivos) y los de las sociedades
+        (`COMPANY_ACCOUNT_BASE` y más abajo), no los del Estado ni las cuentas de la casa.
+        """
+        return await self._run(self._ledger_flow_sync, guild_id, tuple(reasons))
+
+    def _ledger_flow_sync(self, guild_id: int, reasons: tuple[str, ...]) -> int:
+        if not reasons:
+            return 0
+        marks = ", ".join("?" for _ in reasons)
+        connection = self._connect()
+        try:
+            (total,) = connection.execute(
+                "SELECT COALESCE(SUM(delta), 0) FROM economy_ledger WHERE guild_id = ? "
+                "AND (user_id > 0 OR user_id <= ?) "
+                f"AND reason IN ({marks})",  # solo marcadores `?`
+                (guild_id, COMPANY_ACCOUNT_BASE, *reasons),
+            ).fetchone()
+        finally:
+            connection.close()
+        return -int(total)
+
+    async def house_taxes(self, guild_id: int) -> dict[str, tuple[int, int, bool]]:
+        """`{cuenta: (pagado, máximo tributado, ¿ya empezó?)}` del Casino y del Banco. Solo lee."""
+        return await self._run(self._house_taxes_sync, guild_id)
+
+    def _house_taxes_sync(self, guild_id: int) -> dict[str, tuple[int, int, bool]]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT entity, SUM(tax), MAX(peak) FROM economy_house_tax WHERE guild_id = ? "
+                "GROUP BY entity",
+                (guild_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return {str(entity): (int(tax), int(peak), True) for entity, tax, peak in rows}
+
+    async def charge_house_taxes(
+        self,
+        guild_id: int,
+        week: str,
+        charges: Sequence[tuple[str, int, int, int, int]],
+        now: float,
+    ) -> list[str]:
+        """Apunta lo que pagan el Casino y el Banco la semana `week` y lo ingresa al Estado.
+
+        Cada cuenta paga una vez por semana: si `(cuenta, week)` ya está apuntada, no se
+        vuelve a cobrar. El dinero entra en la cuenta del Estado sin salir de ningún
+        monedero, porque ninguno de los dos tiene (`bot.services.house_books`). Fiscalidad
+        en `EconomyService.charge_house_taxes`.
+
+        Args:
+            week: El lunes de la semana (ISO).
+            charges: `(cuenta, beneficio, máximo, base, cuota)` de cada una.
+
+        Returns:
+            Las cuentas que se han apuntado ahora (las que ya estaban, no).
+        """
+        return await self._run(self._charge_house_taxes_sync, guild_id, week, tuple(charges), now)
+
+    def _charge_house_taxes_sync(
+        self,
+        guild_id: int,
+        week: str,
+        charges: tuple[tuple[str, int, int, int, int], ...],
+        now: float,
+    ) -> list[str]:
+        done: list[str] = []
+        with self._transaction() as connection:
+            for entity, profit, peak, base, tax in charges:
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO economy_house_tax
+                        (guild_id, entity, week_start, profit, peak, base, tax, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (guild_id, entity, week, profit, peak, base, tax, now),
+                )
+                if cursor.rowcount == 0:
+                    continue
+                done.append(entity)
+                if tax > 0:
+                    self._credit_state_in(connection, guild_id, tax, f"{entity}:hacienda")
+        return done
+
+    async def house_tax_breakdown(
+        self, guild_id: int, *, since: float | None = None
+    ) -> dict[int, dict[str, int]]:
+        """Lo que han pagado el Casino y el Banco, con la forma de `tax_breakdown`. Solo lee.
+
+        Las claves son `CASINO_ACCOUNT_ID` y `BANK_ACCOUNT_ID`, y la clase, la de
+        `HOUSE_TAX_KINDS`.
+        """
+        return await self._run(self._house_tax_breakdown_sync, guild_id, since)
+
+    def _house_tax_breakdown_sync(
+        self, guild_id: int, since: float | None
+    ) -> dict[int, dict[str, int]]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT entity, SUM(tax) FROM economy_house_tax WHERE guild_id = ? "
+                "AND (? IS NULL OR created_at >= ?) GROUP BY entity",
+                (guild_id, since, since),
+            ).fetchall()
+        finally:
+            connection.close()
+        return {
+            HOUSE_ACCOUNTS[str(entity)]: {HOUSE_TAX_KINDS[str(entity)]: int(tax)}
+            for entity, tax in rows
+            if tax and str(entity) in HOUSE_ACCOUNTS
+        }
+
     async def system_balances(self, guild_id: int, accounts: Sequence[int]) -> dict[int, int]:
         """Saldo de unas cuentas que no son de miembros, sin abrir las que no existen (0)."""
         return await self._run(self._system_balances_sync, guild_id, tuple(accounts))
@@ -5295,14 +5438,19 @@ class EconomyRepository:
                 UNION ALL
                 SELECT user_id, charged AS withheld, created_at AS at FROM economy_irpf_returns
                 WHERE guild_id = :guild
+                UNION ALL
+                SELECT CASE entity WHEN 'casino' THEN :casino ELSE :bank END AS user_id,
+                       tax AS withheld, created_at AS at
+                FROM economy_house_tax WHERE guild_id = :guild
             """
+            houses = {"casino": CASINO_ACCOUNT_ID, "bank": BANK_ACCOUNT_ID}
             total, recent = connection.execute(
                 f"""
                 SELECT COALESCE(SUM(withheld), 0),
                        COALESCE(SUM(CASE WHEN at >= :since THEN withheld END), 0)
                 FROM ({taxes})
                 """,
-                {"guild": guild_id, "since": since},
+                {"guild": guild_id, "since": since, **houses},
             ).fetchone()
             contributors = connection.execute(
                 f"""
@@ -5310,7 +5458,7 @@ class EconomyRepository:
                 GROUP BY user_id HAVING paid > 0
                 ORDER BY paid DESC, user_id ASC LIMIT :top
                 """,
-                {"guild": guild_id, "top": top},
+                {"guild": guild_id, "top": top, **houses},
             ).fetchall()
             (debt,) = connection.execute(
                 "SELECT COALESCE(SUM(amount), 0) FROM economy_public_debt WHERE guild_id = ?",
@@ -8705,6 +8853,7 @@ class EconomyRepository:
                 "economy_sports_combos",
                 "economy_predict_bets",
                 "economy_gaming_tax",
+                "economy_house_tax",
                 "economy_market_tax",
                 "economy_housing_tax",
                 "economy_tax_debts",
