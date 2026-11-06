@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.51.0 · 2026-11-06
+
+- Pisos: el botón 🏗️ Reformas sale en la ficha, también antes de comprar, y dice si puedes reformar o qué te falta
+
 ### 9.50.2 · 2026-11-06
 
 - Interno: las pruebas tardan mucho menos (tanda rápida sin las lentas, arranque del bot de prueba cuatro veces más barato) y avisan de las que se alargan
