@@ -543,6 +543,7 @@ PERFIL_SECTIONS = (
     "gallo",
     "enraya",
     "backgammon",
+    "casa",
 )
 #: Apuestas exactas con logro secreto propio (`casino_bet_<cifra>`), en cualquier juego.
 SECRET_STAKES = (1, 23, 33, 44, 47, 69, 87, 176, 600, 777, 1975, 1978)
