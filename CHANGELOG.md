@@ -8,9 +8,13 @@ criterio.
 
 ## 9.x
 
-### 9.52.0 · 2026-11-06
+### 9.53.0 · 2026-11-06
 
 - Pisos: el botón 🏗️ Reformas sale en la ficha, también antes de comprar, y dice si puedes reformar o qué te falta
+
+### 9.52.0 · 2026-11-06
+
+- Backgammon: los dados son de madera marrón y en 3D, como los del craps: vuelcan de verdad al rodar y se paran con la tirada arriba (caramelo los de las blancas y chocolate los de las negras)
 
 ### 9.51.0 · 2026-11-06
 
