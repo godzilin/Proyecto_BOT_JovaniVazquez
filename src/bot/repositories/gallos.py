@@ -6,7 +6,8 @@ victorias, KO, rachas y el último día que peleó), sus tres stats (fuerza,
 velocidad y aguante, que sí tocan las probabilidades) y lo que necesita el
 entrenamiento (la hora del último y cuántos lleva hoy) la forma (`form`, guardada
 con su instante `form_at`: la de ahora la calcula `gallos.form_now`), el combo del
-gimnasio (`combo`, `combo_day`) y hasta cuándo está lesionado (`injured_until`). Las columnas de los
+gimnasio (`combo`, `combo_day`), hasta cuándo está lesionado (`injured_until`) y el
+pique con un rival de la casa (`grudge_rival`, `grudge_wins`). Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
@@ -72,6 +73,8 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         combo=int(row["combo"]),
         combo_day=date.fromisoformat(combo_day) if combo_day else None,
         injured_until=float(row["injured_until"]),
+        grudge_rival=str(row["grudge_rival"]),
+        grudge_wins=int(row["grudge_wins"]),
     )
 
 
@@ -89,6 +92,8 @@ _NEW_COLUMNS = (
     ("combo", "INTEGER NOT NULL DEFAULT 0"),
     ("combo_day", "TEXT"),
     ("injured_until", "REAL NOT NULL DEFAULT 0"),
+    ("grudge_rival", "TEXT NOT NULL DEFAULT ''"),
+    ("grudge_wins", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -185,16 +190,20 @@ class GallosRepository:
         finish: Finish,
         day: date,
         now: float | None = None,
+        rival: str | None = None,
     ) -> tuple[RoosterRecord, RoosterRecord]:
         """Apunta una pelea en la ficha del gallo.
 
         Args:
             now: Instante de la pelea si gasta forma (contra la casa); `None` si no.
+            rival: Clave del rival de la casa (lleva el pique); `None` en un duelo.
 
         Returns:
             La ficha de antes y la de después.
         """
-        return await self._run(self._record_fight_sync, guild_id, user_id, won, finish, day, now)
+        return await self._run(
+            self._record_fight_sync, guild_id, user_id, won, finish, day, now, rival
+        )
 
     def _record_fight_sync(
         self,
@@ -204,10 +213,11 @@ class GallosRepository:
         finish: Finish,
         day: date,
         now: float | None,
+        rival: str | None,
     ) -> tuple[RoosterRecord, RoosterRecord]:
         with self._connect() as connection:
             before = self._get_in(connection, guild_id, user_id)
-            after = after_fight(before, won=won, finish=finish, day=day, now=now)
+            after = after_fight(before, won=won, finish=finish, day=day, now=now, rival=rival)
             self._save_in(connection, guild_id, user_id, after)
         return before, after
 
@@ -253,8 +263,9 @@ class GallosRepository:
             INSERT INTO gallos
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
-                 train_day, trains_today, form, form_at, combo, combo_day, injured_until)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 train_day, trains_today, form, form_at, combo, combo_day, injured_until,
+                 grudge_rival, grudge_wins)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -265,7 +276,8 @@ class GallosRepository:
                 train_day = excluded.train_day, trains_today = excluded.trains_today,
                 form = excluded.form, form_at = excluded.form_at,
                 combo = excluded.combo, combo_day = excluded.combo_day,
-                injured_until = excluded.injured_until
+                injured_until = excluded.injured_until,
+                grudge_rival = excluded.grudge_rival, grudge_wins = excluded.grudge_wins
             """,
             (
                 guild_id,
@@ -290,6 +302,8 @@ class GallosRepository:
                 record.combo,
                 record.combo_day.isoformat() if record.combo_day else None,
                 record.injured_until,
+                record.grudge_rival,
+                record.grudge_wins,
             ),
         )
 

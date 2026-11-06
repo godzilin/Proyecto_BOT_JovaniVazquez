@@ -101,11 +101,15 @@ from bot.services.economy import (
     parse_amount,
 )
 from bot.services.gallos import (
+    DEADLY_EDGE,
     DUEL_CUT,
     FORM_DECAY_PER_DAY,
     FORM_PER_FIGHT,
     FORM_PER_TRAIN,
     GAME,
+    GRUDGE_DEATH,
+    GRUDGE_EDGE,
+    GRUDGE_WINS,
     HOUSE,
     INJURY_HOURS,
     NAME_MAX,
@@ -134,6 +138,7 @@ from bot.services.gallos import (
     fight_injury,
     form_now,
     format_odds,
+    grudge_against,
     house_edge,
     house_multiplier,
     house_odds,
@@ -465,8 +470,10 @@ class HousePanel(ui.View):
         self.training = False
         #: El minijuego de la sesión que se acaba de pagar (`None` si no hay ninguno).
         self.drill: Drill | None = None
+        #: ☠️ A muerte: paga más, pero perder por KO mata seguro.
+        self.deadly = False
         #: Qué presentación se ve ahora (rival, nombre, apuesta, poder); `None` si otra imagen.
-        self._poster: tuple[object, str, int, float, int] | None = None
+        self._poster: tuple[object, ...] | None = None
         self.channel: object = None
         self.message: discord.Message | None = None
         self.result: str | None = None
@@ -487,8 +494,19 @@ class HousePanel(ui.View):
         return round(form_now(self.record, self.cog.wall_clock()))
 
     def odds(self, rival: Rival | None = None) -> tuple[Fraction, Fraction]:
-        """Probabilidad y cuota contra `rival` (el elegido) con la apuesta, poder y forma."""
-        return house_odds(rival or self.rival, self.power, self.form, self.stake)
+        """Probabilidad y cuota contra `rival` (el elegido) con la apuesta, poder y forma.
+
+        Con ☠️ a muerte y el pique del rival, si lo hay.
+        """
+        rival = rival or self.rival
+        return house_odds(
+            rival,
+            self.power,
+            self.form,
+            self.stake,
+            deadly=self.deadly,
+            grudge=grudge_against(self.record, rival.key),
+        )
 
     def description(self) -> str:
         """Texto del embed: tu gallo, el rival elegido y, si lo hay, el último resultado."""
@@ -511,6 +529,19 @@ class HousePanel(ui.View):
             f"**{format_amount(int(self.stake * multiplier))}**"
         )
         lines.append(f"-# {edge_line(rival, self.form, self.power)}")
+        if grudge_against(self.record, rival.key):
+            lines.append(
+                f"🔥 **{rival.label} está picado** contigo: le has ganado "
+                f"{self.record.grudge_wins} seguidas. La ventaja de la forma vale "
+                f"×{float(GRUDGE_EDGE):g}".replace(".", ",")
+                + f", pero si pierdes por KO hay ×{GRUDGE_DEATH:g}".replace(".", ",")
+                + " de probabilidades de morir."
+            )
+        if self.deadly:
+            lines.append(
+                f"☠️ **A muerte:** la casa paga hasta un +{float(DEADLY_EDGE) * 100:g} % más "
+                "(según lo duro que sea el rival), pero **si pierdes por KO, tu gallo muere**."
+            )
         lines.append(
             f"-# Apuesta {format_amount(self.stake)} · Saldo {format_amount(self.balance)}"
         )
@@ -702,6 +733,14 @@ class HousePanel(ui.View):
             row=1,
             disabled=busy,
         )
+        self._button(
+            "☠️ A muerte: sí" if self.deadly else "☠️ A muerte: no",
+            "deadly",
+            self._toggle_deadly,
+            style=discord.ButtonStyle.danger if self.deadly else discord.ButtonStyle.secondary,
+            row=3,
+            disabled=busy,
+        )
         self._button("½", "half", self._halve, row=1, disabled=busy)
         self._button("×2", "x2", self._double, row=1, disabled=busy)
         self._button("💰 All-in", "allin", self._all_in, row=1, disabled=busy)
@@ -789,7 +828,7 @@ class HousePanel(ui.View):
 
     async def repaint(self, interaction: discord.Interaction) -> None:
         """Repinta la presentación, el texto y los botones."""
-        key = (self.rival, self.record.name, self.stake, self.power, self.form)
+        key = (self.rival, self.record.name, self.stake, self.power, self.form, self.odds())
         if key == self._poster:
             # Ya se ve esta misma presentación: subirla otra vez cuesta ~1 s y no cambia nada.
             self.rebuild()
@@ -816,6 +855,15 @@ class HousePanel(ui.View):
         if self._busy or not values or values[0] not in RIVAL_BY_KEY:
             return
         self.rival = RIVAL_BY_KEY[values[0]]
+        self.result = None
+        await self.repaint(interaction)
+
+    async def _toggle_deadly(self, interaction: discord.Interaction) -> None:
+        """☠️ A muerte: cambia la cuota, así que se repinta (se acepta antes)."""
+        await ack(interaction)
+        if self._busy:
+            return
+        self.deadly = not self.deadly
         self.result = None
         await self.repaint(interaction)
 
@@ -1252,7 +1300,9 @@ class HousePanel(ui.View):
             # La probabilidad y la cuota salen del poder y la forma que se vieron en el
             # panel: la misma `p` que se sortea es la que fija lo que se cobra.
             form = self.form
-            chance, multiplier = house_odds(rival, self.power, form, stake)
+            deadly = self.deadly
+            grudge = grudge_against(self.record, rival.key)
+            chance, multiplier = self.odds(rival)
             fight = simulate(draw_winner(chance, rng), rng)
             won = fight.winner is Corner.RED
             payout = int(stake * multiplier) if won else 0
@@ -1269,6 +1319,7 @@ class HousePanel(ui.View):
                 finish=fight.finish,
                 day=datetime.now(TIMEZONE).date(),
                 now=self.cog.wall_clock(),
+                rival=rival.key,
             )
             owner = Owner(
                 self.owner,
@@ -1278,7 +1329,11 @@ class HousePanel(ui.View):
             self.record = after
             fallen = None
             hurt = False
-            if not won and fight.finish is Finish.KO and dies(after, rng, form):
+            if (
+                not won
+                and fight.finish is Finish.KO
+                and dies(after, rng, form, deadly=deadly, grudge=grudge)
+            ):
                 fallen = after
                 self.record = await self.cog.bury(
                     self.guild_id, self.owner.id, killer_kind="casa", killer=rival.key
@@ -1301,6 +1356,9 @@ class HousePanel(ui.View):
                 multiplier=multiplier,
                 form=form,
                 hurt=hurt,
+                deadly=deadly,
+                grudge=grudge,
+                grudge_wins=after.grudge_wins if grudge_against(after, rival.key) else 0,
                 fallen=fallen,
                 reborn=self.record.name if fallen else None,
             )
@@ -1411,6 +1469,9 @@ class HousePanel(ui.View):
             full_cap=game.stake == edge_cap(game.owner.record.power)
             and house_edge(game.rival, game.form) > 0,
             hurt=game.hurt,
+            deadly=game.deadly,
+            grudge=game.grudge,
+            grudge_wins=game.grudge_wins,
         )
         delta.merge(
             casino_stats(stake=game.stake, net=game.net, balance_after=self.balance, tax_delta=tax)
@@ -1429,6 +1490,14 @@ class HousePanel(ui.View):
             tax=tax,
             details=(("ko", int(game.fight.finish is Finish.KO)), ("won", int(game.won))),
         )
+        if game.grudge_wins == GRUDGE_WINS:
+            await self.cog.shout(
+                self.channel,
+                f"🔥 {game.rival.label} se ha picado con **{game.owner.record.name}**, el gallo "
+                f"de {self.owner.mention}: le ha ganado {GRUDGE_WINS} seguidas. La próxima vez "
+                "paga más, pero pega más fuerte.",
+                self.owner,
+            )
         if game.won and game.net >= SHOUT_NET:
             await self.cog.shout(
                 self.channel,
@@ -1456,6 +1525,11 @@ class HouseFight:
     form: int
     #: Si se ha lesionado por perder por KO agotado.
     hurt: bool = False
+    #: Si fue ☠️ a muerte y si el rival estaba picado al empezar.
+    deadly: bool = False
+    grudge: bool = False
+    #: Victorias seguidas contra el rival tras la pelea, si con ellas está picado (0 si no).
+    grudge_wins: int = 0
     #: La ficha del gallo si ha muerto en esta pelea, y el nombre del que lo sustituye.
     fallen: RoosterRecord | None = None
     reborn: str | None = None

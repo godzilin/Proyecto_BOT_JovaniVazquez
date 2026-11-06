@@ -18167,6 +18167,38 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "gallos_lesion_pelea", "Parte de baja",
          "Lesiónate por perder por KO peleando agotado.", C),
     ])  # fmt: skip
+    # ☠️ A muerte y el pique de los rivales (11.x). A muerte pierde por KO ~la mitad de las
+    # derrotas: con un rival que te gana un tercio de las veces, ~1 muerte cada 6 peleas.
+    a += _tiers("gallos", "gallos_deadly_fights", [
+        (1, "gallos_muerte_1", "Morir con las botas puestas",
+         "Pelea a muerte contra la casa.", C),
+        (25, "gallos_muerte_25", "Kamikaze del corral",
+         "Pelea a muerte 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_deadly_wins", [
+        (1, "gallos_muerte_gana_1", "Sobreviviente de la isla",
+         "Gana una pelea a muerte.", C),
+        (10, "gallos_muerte_gana_10", "Los juegos del gallinero",
+         "Gana 10 peleas a muerte.", R),
+        (50, "gallos_muerte_gana_50", "Valar morghulis, menos hoy",
+         "Gana 50 peleas a muerte.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_deadly_deaths", [
+        (1, "gallos_muerte_muere", "Crónica de una muerte anunciada",
+         "Que muera tu gallo en una pelea a muerte.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_grudge_max", [
+        (3, "gallos_pique_3", "Pique de patio de colegio",
+         "Gana 3 seguidas al mismo rival de la casa hasta picarlo.", C),
+        (10, "gallos_pique_10", "Némesis con plumas",
+         "Gana 10 seguidas al mismo rival de la casa.", R),
+        (25, "gallos_pique_25", "El Clásico sin VAR",
+         "Gana 25 seguidas al mismo rival de la casa.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_grudge_wins", [
+        (10, "gallos_pique_gana_10", "Echarle sal a la herida",
+         "Gana 10 peleas a rivales picados contigo.", R),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_form_max", [
         (50, "gallos_forma_50", "Pollo al punto",
          "Lleva la forma de tu gallo a 50.", C),
@@ -27138,6 +27170,9 @@ def gallos_stats(
     edge_gain: int = 0,
     full_cap: bool = False,
     hurt: bool = False,
+    deadly: bool = False,
+    grudge: bool = False,
+    grudge_wins: int = 0,
 ) -> StatDelta:
     """Contadores de una pelea de gallos para uno de los dos dueños (sin lo común del casino).
 
@@ -27161,6 +27196,9 @@ def gallos_stats(
         edge_gain: Lo que la forma le ha sumado al premio sobre la cuota de serie.
         full_cap: Si apostó justo lo que cubre la ventaja (`gallos.edge_cap`), con ventaja.
         hurt: Si salió lesionado por perder por KO agotado.
+        deadly: Si fue ☠️ a muerte.
+        grudge: Si el rival estaba picado al empezar.
+        grudge_wins: Victorias seguidas contra el rival si ya está picado (0 si no).
     """
     won = fight.winner is corner
     mine = corner
@@ -27236,6 +27274,13 @@ def gallos_stats(
         bump("gallos_tired_fights", form == 0)
         bump("gallos_full_cap", full_cap)
         bump("gallos_fight_hurt", hurt)
+        bump("gallos_deadly_fights", deadly)
+        bump("gallos_deadly_wins", deadly and won)
+        bump("gallos_grudge_wins", grudge and won)
+        if grudge_wins:
+            delta.peak["gallos_grudge_max"] = grudge_wins
+        if died is not None:
+            bump("gallos_deadly_deaths", deadly)
         if died is not None:
             bump("gallos_tired_death", form <= GALLOS_TIRED_FORM)
             bump("gallos_fit_death", form >= GALLOS_PEAK_FORM)

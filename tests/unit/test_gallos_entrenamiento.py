@@ -318,3 +318,41 @@ def test_la_cuota_con_forma_devuelve_lo_esperado() -> None:
                 assert multiplier >= Fraction(101, 100) - Fraction(1, 1000)
                 expected = float(chance) * house_payout(stake, rival, power, form)
                 assert expected == pytest.approx(float(rtp) * stake, rel=1e-3)
+
+
+# -- A muerte y el pique ------------------------------------------------------------------
+
+
+def test_a_muerte_paga_mas_y_perder_por_ko_mata_seguro() -> None:
+    from bot.services.gallos import DEADLY_EDGE
+
+    marte = RIVAL_BY_KEY["marte"]
+    stake = edge_cap(50)
+    plain = house_rtp(marte, 50, 60, stake)
+    deadly = house_rtp(marte, 50, 60, stake, deadly=True)
+    assert deadly - plain == DEADLY_EDGE
+    assert dies(RoosterRecord(name="Roca", endurance=100), Roll(0.99), 100, deadly=True)
+
+
+def test_ganar_tres_seguidas_al_mismo_rival_lo_pica_y_perder_lo_calma() -> None:
+    from bot.services.gallos import GRUDGE_EDGE, GRUDGE_WINS, grudge_against
+
+    day = date(2026, 11, 6)
+    record = RoosterRecord(name="Pepe")
+    for _ in range(GRUDGE_WINS):
+        assert not grudge_against(record, "falcon")
+        record = after_fight(record, won=True, finish=Finish.KO, day=day, rival="falcon")
+    assert grudge_against(record, "falcon") and not grudge_against(record, "marte")
+    # Ganarle a otro empieza otra cuenta; perder la corta.
+    other = after_fight(record, won=True, finish=Finish.KO, day=day, rival="marte")
+    assert (other.grudge_rival, other.grudge_wins) == ("marte", 1)
+    lost = after_fight(record, won=False, finish=Finish.KO, day=day, rival="falcon")
+    assert not grudge_against(lost, "falcon")
+    falcon = RIVAL_BY_KEY["falcon"]
+    stake = edge_cap(0)
+    gain = house_rtp(falcon, 0, 80, stake, grudge=True) - RTP
+    assert gain == house_edge(falcon, 80) * GRUDGE_EDGE
+    # Contra un rival picado, morir es más probable.
+    tough = RoosterRecord(name="Roca")
+    assert dies(tough, Roll(death_chance(0, 40) * 1.2), 40, grudge=True)
+    assert not dies(tough, Roll(death_chance(0, 40) * 1.2), 40)

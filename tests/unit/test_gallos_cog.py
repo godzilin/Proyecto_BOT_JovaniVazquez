@@ -969,3 +969,36 @@ async def test_perder_por_ko_agotado_y_sobrevivir_puede_lesionar(
     record = await cog.repository.get(GUILD_ID, OWNER_ID)
     assert injured(record, 1_000_000.0)
     assert "lesionado" in (panel.result or "")
+
+
+async def test_a_muerte_se_activa_en_el_panel_cambia_la_cuota_y_mata_al_perder_por_ko(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gallos_cog, "simulate", lambda winner, rng: ko_fight(winner))
+    cog = await make_cog(tmp_path, LOSE, rng=Scripted(LOSE, 0.99))
+    panel = await open_panel(cog)
+    panel.rival = RIVAL_BY_KEY["marte"]
+    flat = panel.odds()[1]
+    await panel._toggle_deadly(fake_interaction(make_user(OWNER_ID)))
+    assert panel.deadly and panel.odds()[1] > flat and "A muerte" in panel.description()
+    ids = {c.custom_id for c in panel.children if isinstance(c, discord.ui.Button)}
+    assert "gallos:deadly" in ids
+    await panel._fight(fake_interaction(make_user(OWNER_ID)))
+    # El 0,99 salvaría a cualquiera; a muerte no hay sorteo.
+    assert await cog.repository.graveyard(GUILD_ID, OWNER_ID)
+
+
+async def test_el_pique_se_anuncia_al_picar_al_rival(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bot.services.gallos import GRUDGE_WINS
+
+    monkeypatch.setattr(gallos_cog, "simulate", lambda winner, rng: ko_fight(winner))
+    cog = await make_cog(tmp_path, WIN, rng=Scripted(*([WIN] * GRUDGE_WINS)))
+    cog.shout = AsyncMock()  # type: ignore[method-assign]
+    panel = await open_panel(cog)
+    for _ in range(GRUDGE_WINS):
+        await panel._fight(fake_interaction(make_user(OWNER_ID)))
+    assert panel.record.grudge_wins == GRUDGE_WINS
+    assert any("picado" in call.args[1] for call in cog.shout.await_args_list)
+    assert "picado" in panel.description()

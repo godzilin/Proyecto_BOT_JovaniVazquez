@@ -438,24 +438,65 @@ def edge_cap(power: float) -> int:
     return EDGE_CAP_BASE + round(EDGE_CAP_PER_POWER * power)
 
 
-def house_rtp(rival: Rival, power: float, form: float, stake: int) -> Fraction:
+#: ☠️ A muerte: lo que suma al RTP contra el rival más duro (en lo cubierto), a cambio
+#: de que perder por KO mate seguro.
+DEADLY_EDGE = Fraction(10, 100)
+#: El pique: victorias seguidas contra un mismo rival para que se pique, y lo que
+#: multiplica entonces la ventaja de la forma y la probabilidad de morir.
+GRUDGE_WINS = 3
+GRUDGE_EDGE = Fraction(3, 2)
+GRUDGE_DEATH = 1.5
+
+
+def total_edge(
+    rival: Rival, form: float, *, deadly: bool = False, grudge: bool = False
+) -> Fraction:
+    """Lo que se suma al RTP en lo cubierto: la forma (más si el rival está picado) y ☠️."""
+    edge = house_edge(rival, form) * (GRUDGE_EDGE if grudge else 1)
+    if deadly:
+        edge += DEADLY_EDGE * difficulty(rival)
+    return edge
+
+
+def house_rtp(
+    rival: Rival,
+    power: float,
+    form: float,
+    stake: int,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> Fraction:
     """Lo que devuelve de media una pelea contra `rival` con esa apuesta, poder y forma.
 
-    El `RTP` de serie más la ventaja de la forma sobre lo cubierto
-    (`edge_cap`): lo que pase del tope juega al 95 %, así que apostar más no
-    multiplica lo que se saca.
+    El `RTP` de serie más la ventaja (`total_edge`: la forma, el pique y ☠️ a
+    muerte) sobre lo cubierto (`edge_cap`): lo que pase del tope juega al 95 %,
+    así que apostar más no multiplica lo que se saca.
     """
     if stake <= 0:
         return RTP
     covered = min(stake, edge_cap(power))
-    return RTP + house_edge(rival, form) * covered / stake
+    return RTP + total_edge(rival, form, deadly=deadly, grudge=grudge) * covered / stake
 
 
-def house_odds(rival: Rival, power: float, form: float, stake: int) -> tuple[Fraction, Fraction]:
+def house_odds(
+    rival: Rival,
+    power: float,
+    form: float,
+    stake: int,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> tuple[Fraction, Fraction]:
     """La probabilidad de ganar y la cuota (apuesta incluida) de una pelea contra la casa."""
-    rtp = house_rtp(rival, power, form, stake)
+    rtp = house_rtp(rival, power, form, stake, deadly=deadly, grudge=grudge)
     chance = house_chance(rival, power, rtp)
     return chance, house_multiplier(chance, rtp)
+
+
+def grudge_against(record: RoosterRecord, rival: str) -> bool:
+    """Si `rival` está picado con este gallo (le ha ganado `GRUDGE_WINS` seguidas o más)."""
+    return record.grudge_rival == rival and record.grudge_wins >= GRUDGE_WINS
 
 
 def format_odds(multiplier: Fraction | float) -> str:
@@ -717,6 +758,8 @@ class RoosterRecord:
         combo_day: Día canario del combo.
         injured_until: Instante (epoch) hasta el que el gallo está lesionado y no pelea
             (0 si no lo está).
+        grudge_rival: Rival de la casa al que le lleva `grudge_wins` victorias seguidas.
+        grudge_wins: Victorias seguidas contra él; desde `GRUDGE_WINS`, está picado.
     """
 
     name: str
@@ -739,6 +782,8 @@ class RoosterRecord:
     combo: int = 0
     combo_day: date | None = None
     injured_until: float = 0.0
+    grudge_rival: str = ""
+    grudge_wins: int = 0
 
     @property
     def losses(self) -> int:
@@ -832,9 +877,22 @@ def death_chance(endurance: int, form: float) -> float:
     return DEATH_CHANCE * (1 - endurance / 200) * tired
 
 
-def dies(record: RoosterRecord, rng: random.Random, form: float) -> bool:
-    """Sortea si el gallo `record`, con forma `form`, muere tras perder por KO."""
-    return rng.random() < death_chance(record.endurance, form)
+def dies(
+    record: RoosterRecord,
+    rng: random.Random,
+    form: float,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> bool:
+    """Sortea si el gallo `record`, con forma `form`, muere tras perder por KO.
+
+    ☠️ A muerte, muere seguro (sin sorteo); contra un rival picado, la
+    probabilidad se multiplica por `GRUDGE_DEATH`.
+    """
+    if deadly:
+        return True
+    return rng.random() < death_chance(record.endurance, form) * (GRUDGE_DEATH if grudge else 1)
 
 
 #: Perder por KO agotado (forma por debajo de esto) y sobrevivir puede lesionar.
@@ -908,11 +966,19 @@ class Fallen:
 
 
 def after_fight(
-    record: RoosterRecord, *, won: bool, finish: Finish, day: date, now: float | None = None
+    record: RoosterRecord,
+    *,
+    won: bool,
+    finish: Finish,
+    day: date,
+    now: float | None = None,
+    rival: str | None = None,
 ) -> RoosterRecord:
     """La ficha tras una pelea que acaba `finish` el día `day`.
 
-    Con `now` (las peleas contra la casa) gasta `FORM_PER_FIGHT` de forma.
+    Con `now` (las peleas contra la casa) gasta `FORM_PER_FIGHT` de forma. Con
+    `rival` (la clave del de la casa) lleva el pique: ganarle suma una victoria
+    seguida contra él (o empieza la cuenta, si era otro) y perder la corta.
     """
     streak = record.streak + 1 if won else 0
     if record.last_day == day:
@@ -924,6 +990,13 @@ def after_fight(
     fought = (
         record if now is None else with_form(record, form_now(record, now) - FORM_PER_FIGHT, now)
     )
+    if rival is not None:
+        if not won:
+            fought = replace(fought, grudge_rival="", grudge_wins=0)
+        elif record.grudge_rival == rival:
+            fought = replace(fought, grudge_wins=record.grudge_wins + 1)
+        else:
+            fought = replace(fought, grudge_rival=rival, grudge_wins=1)
     return replace(
         fought,
         fights=record.fights + 1,
