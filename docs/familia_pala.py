@@ -3,6 +3,9 @@
 Uso, desde la raíz del repo: `python docs/familia_pala.py` (imprime una tabla).
 Con `--casa`, repite los tres estilos viviendo con sus padres y en cada tramo de `casa`
 (`bot.services.home.TIERS`: recarga de la batería y de la familia y desgaste de cada turno).
+Resultado (9.54.0): el casual y el normal no lo notan; el grinder pasa de 5,1 turnos al día
+con sus padres a 5,3 en un zulo, 6,4 en un hogar y 6,8 en un casoplón (+4 %, +23 % y +31 % de
+bruto), con la barra al doble de ritmo. Tabla y conclusiones en `docs/casa.md`.
 
 Los estilos, durante 28 días, en un puesto 1 de obra (base 1.800 Y$, nota 75):
 

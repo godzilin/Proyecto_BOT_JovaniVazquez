@@ -84,8 +84,17 @@ def test_la_linea_de_corte_solo_sale_si_estan_cortados() -> None:
     assert "cortado" not in text_of(status(cut=TODAY - timedelta(days=1)), TODAY)
 
 
-def text_of(st: HomeStatus, today: date) -> str:
-    return "\n".join(v for _n, v in home_text(st, today))
+def text_of(st: HomeStatus | None, today: date, *, own: bool = True) -> str:
+    return "\n".join(f"{n}\n{v}" for n, v in home_text(st, today, own=own))
+
+
+def test_la_casa_de_otro_se_cuenta_en_tercera_persona() -> None:
+    assert "Vive con sus padres" in text_of(None, TODAY, own=False)
+    assert "Vivir aquí" not in text_of(None, TODAY, own=False)
+    other = text_of(status(cut=TODAY), TODAY, own=False)
+    assert "Su casa" in other and "Tu casa" not in other
+    for second_person in ("Te ", " te ", "tus "):
+        assert second_person not in other
 
 
 def test_la_pista_apunta_al_pilar_mas_lejos_de_su_maximo() -> None:

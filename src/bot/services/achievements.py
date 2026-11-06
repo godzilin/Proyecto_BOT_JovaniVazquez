@@ -8826,7 +8826,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Duerme en una casa con exactamente 42 de Confort.", C, True),
     ])  # fmt: skip
     a += _tiers("casa", "casa_open", [
-        (1, "casa_open_1", "Pasen y vean", "Abre el panel de `casa`.", C),
+        (1, "casa_open_1", "Mi casa es tu casa", "Abre el panel de `casa`.", C),
         (50, "casa_open_50", "Revisando que la puerta esté cerrada",
          "Abre el panel de `casa` 50 veces.", R),
     ])  # fmt: skip

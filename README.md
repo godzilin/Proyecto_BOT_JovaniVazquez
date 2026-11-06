@@ -213,6 +213,14 @@ python -m bot
   Alquiler Joven, licencia vacacional con IGIC, la Ley de Vivienda, el fondo
   buitre, la SOCIMI y la obra nueva que levanta cada lunes la rama Ladrillo de
   `pala` (una promoción por barrio, con su comisión de promotor).
+- **Casa (`casa`):** la vivienda en la que vives (tu piso, tu VPO o de alquiler en
+  el de otro miembro) tiene un Confort de 0 a 100 por su espacio, su calidad
+  (certificado energético y reformas) y su barrio. Su tramo, de 🛏️ Zulo a
+  🏰 Casoplón, hace que la batería y la familia de `pala` se recuperen antes y que
+  cada turno desgaste menos. Cada noche paga la luz (con el Impuesto sobre la
+  Electricidad), el agua y la fibra (con su IGIC); si no llega, cortan la luz un
+  día y la casa no da bufos. Vivir con tus padres no cambia nada. También es la
+  sección 🏡 Casa de `perfil`. Diseño por fases en `docs/casa.md`.
 - **Cuenta remunerada:** cada día el monedero paga intereses sobre el saldo
   medio del día anterior, por tramos: 2,5 % hasta 4.000 Y$, 1,25 % hasta 20.000
   y 0,4 % hasta 70.000 (500 Y$ brutos al día como mucho). Cobran también los

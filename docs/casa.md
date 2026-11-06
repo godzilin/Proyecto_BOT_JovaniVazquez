@@ -82,8 +82,9 @@ mes (un día del juego es un mes). Cifras a la escala de los pisos (10 Y$ = 1 �
 - **Corte de suministros:** si el monedero no llega, no se queda debiendo; le cortan la luz.
   Al día siguiente la casa no da bufos (vuelve a lo neutro, como en casa de tus padres) y el
   panel lo dice. La noche siguiente se vuelve a cobrar con normalidad.
-- `hacienda` enseña los dos impuestos nuevos en el bloque 🏠 (claves `electricidad` e
-  `igic_suministros`).
+- `hacienda` los cuenta con el IGIC de las compras (la factura personal ya no cabía con una
+  línea más) y en el bloque 🏠 juntos, «Impuestos de la luz y la fibra de casa» (las clases
+  `electricidad` e `igic_suministros` de `economy_housing_tax` van a la clave `suministros`).
 
 Un piso de 2 dormitorios de 55 m² con certificado D, una persona: unos 1.050 Y$ al día. Un
 chalet de 120 m² con una E: unos 1.900. Un turno del puesto 1 deja unos 1.600 netos.
@@ -96,7 +97,6 @@ chalet de 120 m² con una E: unos 1.900. Un turno del puesto 1 deja unos 1.600 n
 - El Confort con sus cuatro pilares, el tramo y lo que da, y cuánto falta para el siguiente.
 - Los suministros de anoche y la previsión de esta noche, con el corte si lo hubo.
 - Pistas para subir: qué pilar está más lejos de su máximo y qué lo mejora.
-- Botón 🏘️ que abre `pisos`.
 
 ### Logros (categoría 🏡 Casa)
 
@@ -169,3 +169,20 @@ mascota activa. Se sube solo si cambia (como el retrato de la mascota).
 
 Cada fase es una versión MENOR. La fase 1 añade una regla que se nota (los suministros a
 quien ya vive en su casa): se avisa en la descripción de la PR.
+
+## Lo que dijo la calibración de la fase 1
+
+`python docs/familia_pala.py --casa` (28 días, puesto 1 de obra, medias por día):
+
+| Estilo | Con sus padres | Zulo | Hogar | Casoplón |
+|---|---|---|---|---|
+| Casual (2 turnos) | 2,0 turnos | igual | igual | igual |
+| Normal (4 turnos) | 4,0 turnos | igual | igual | igual |
+| Grinder (extras, B, cafés) | 5,1 turnos, barra +30 | 5,3 (+4 % bruto) | 6,4 (+23 %), barra +52 | 6,8 (+31 %), barra +61 |
+
+Quien juega normal no nota la casa: va siempre en casa feliz y la batería le sobra. Los bufos
+solo se notan si se encadenan turnos o la familia anda baja. Un Casoplón da a un grinder unos
+2.800 Y$ brutos más al día, lo mismo que pagan de suministros las casas grandes: no es una
+fuente de dinero, es tiempo. Queda abierto darle a quien juega normal algo que sí note en la
+fase 1 (por ejemplo, más barra por turno en las casas buenas); no se ha hecho porque cambia el
+ritmo de ascensos de `docs/economia_sim.py` y pide recalibrar.

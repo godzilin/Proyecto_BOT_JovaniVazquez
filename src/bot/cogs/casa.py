@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 COLOR = discord.Color.from_rgb(214, 158, 46)
 _BAR_WIDTH = 10
+#: Cómo vive, en segunda persona (la casa propia) y en tercera (la de otro miembro).
 _KIND_NAMES = {casa.OWN: "Tu casa", casa.VPO: "Tu VPO", casa.RENTED: "De alquiler"}
+_KIND_NAMES_OTHER = {casa.OWN: "Su casa", casa.VPO: "Su VPO", casa.RENTED: "De alquiler"}
 
 
 def _num(value: float) -> str:
@@ -53,7 +55,7 @@ def _bar(total: int) -> str:
     return "▰" * full + "▱" * (_BAR_WIDTH - full)
 
 
-def _hint(comfort: casa.Comfort) -> str:
+def _hint(comfort: casa.Comfort, own: bool = True) -> str:
     """Qué mejorar: el pilar más lejos de su máximo (el equipamiento llega en la fase 2)."""
     gaps = {
         "space": casa.SPACE_POINTS - comfort.space,
@@ -62,19 +64,31 @@ def _hint(comfort: casa.Comfort) -> str:
     }
     worst = max(gaps, key=lambda k: gaps[k])
     if gaps[worst] <= 0:
-        return "💡 Tu casa está al máximo en espacio, calidad y entorno."
+        whose = "Tu" if own else "Su"
+        return f"💡 {whose} casa está al máximo en espacio, calidad y entorno."
     if worst == "space":
-        return "💡 Lo que más te falta es espacio: una casa más grande sube el Confort."
+        return "💡 Lo que más falta es espacio: una casa más grande sube el Confort."
     if worst == "quality":
         return (
-            "💡 Lo que más te falta es calidad: las reformas de `pisos` suman puntos "
+            "💡 Lo que más falta es calidad: las reformas de `pisos` suman puntos "
             "(☀️ Eficiencia energética sube el certificado a B) y no subir escaleras ayuda."
         )
-    return "💡 Lo que más te falta es entorno: los barrios de lujo o de playa puntúan más."
+    return "💡 Lo que más falta es entorno: los barrios de lujo o de playa puntúan más."
 
 
-def home_text(status: HomeStatus | None, today: date) -> list[tuple[str, str]]:
-    """Los campos del panel como `(título, texto)`; sin casa, cómo emanciparse."""
+def home_text(status: HomeStatus | None, today: date, *, own: bool = True) -> list[tuple[str, str]]:
+    """Los campos del panel como `(título, texto)`; sin casa, cómo emanciparse.
+
+    Args:
+        own: Si quien mira es el dueño del panel (si no, se habla en tercera persona).
+    """
+    if status is None and not own:
+        return [
+            (
+                "🏠 Vive con sus padres",
+                "No tiene casa propia en `pisos`: ni Confort, ni bufos, ni suministros.",
+            )
+        ]
     if status is None:
         return [
             (
@@ -90,7 +104,7 @@ def home_text(status: HomeStatus | None, today: date) -> list[tuple[str, str]]:
     fields = [
         (
             "📍 Dónde vives",
-            f"**{place.name}** · {_KIND_NAMES.get(place.kind, place.kind)}\n"
+            f"**{place.name}** · {(_KIND_NAMES if own else _KIND_NAMES_OTHER)[place.kind]}\n"
             f"{place.m2} m² · certificado energético {place.energy}",
         ),
         (
@@ -104,7 +118,7 @@ def home_text(status: HomeStatus | None, today: date) -> list[tuple[str, str]]:
     ]
     nxt = comfort.next_tier
     upto = (
-        f"Te faltan **{nxt.low - comfort.total}** puntos para {nxt.emoji} {nxt.name}."
+        f"Faltan **{nxt.low - comfort.total}** puntos para {nxt.emoji} {nxt.name}."
         if nxt
         else "Es el tramo más alto."
     )
@@ -128,11 +142,11 @@ def home_text(status: HomeStatus | None, today: date) -> list[tuple[str, str]]:
     )
     if status.cut(today):
         bills += (
-            "\n🔌 Te han cortado los suministros por no pagar: hasta que vuelvan, la casa no "
-            "da bufos (todo como en casa de tus padres). Esta noche se te cobran otra vez."
+            "\n🔌 Suministros cortados por no pagar: hasta que vuelvan, la casa no da bufos "
+            "(todo como en casa de los padres). Esta noche se cobran otra vez."
         )
     fields.append(("🧾 Suministros de esta noche", bills))
-    fields.append(("💡 Para subir el Confort", _hint(comfort).removeprefix("💡 ")))
+    fields.append(("💡 Para subir el Confort", _hint(comfort, own).removeprefix("💡 ")))
     return fields
 
 
@@ -143,8 +157,14 @@ class Casa(commands.Cog):
         self.bot = bot
         self.repository = repository
 
-    async def home_embed(self, guild_id: int, member: discord.abc.User) -> discord.Embed:
-        """El panel de la casa de `member` (también la sección de `perfil`)."""
+    async def home_embed(
+        self, guild_id: int, member: discord.abc.User, *, own: bool = True
+    ) -> discord.Embed:
+        """El panel de la casa de `member` (también la sección de `perfil`).
+
+        Args:
+            own: Si lo mira el propio `member` (si no, se habla en tercera persona).
+        """
         embed = discord.Embed(
             title=f"🏡 Casa de {discord.utils.escape_markdown(member.display_name)}", color=COLOR
         )
@@ -155,7 +175,7 @@ class Casa(commands.Cog):
             embed.description = "No he podido leer la casa ahora mismo. Inténtalo en un rato."
             return embed
         now = datetime.now(TIMEZONE)
-        for name, value in home_text(status, local_day(now.timestamp())):
+        for name, value in home_text(status, local_day(now.timestamp()), own=own):
             embed.add_field(name=name, value=value, inline=False)
         return embed
 
@@ -165,8 +185,8 @@ class Casa(commands.Cog):
             await responder.send_error("La casa solo se mira dentro de un servidor.")
             return
         target = member or author
-        embed = await self.home_embed(guild.id, target)
         own = target.id == author.id
+        embed = await self.home_embed(guild.id, target, own=own)
         if own and (pet := await mascotas.cameo(self.bot, guild.id, author.id, Moment(Event.HOME))):
             embed.set_footer(text=pet)
         await responder.finish(embed=embed, allowed_mentions=discord.AllowedMentions.none())

@@ -361,7 +361,7 @@ class Perfil(commands.Cog):
             house = find_cog(self.bot, Casa)
             if house is None:
                 return missing_embed("🏡 Casa")
-            return await house.home_embed(guild.id, target)
+            return await house.home_embed(guild.id, target, own=target.id == view.owner.id)
         return await self.summary(view)
 
     async def _stats(self, guild_id: int, user_id: int) -> dict[str, int]:
