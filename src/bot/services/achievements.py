@@ -585,6 +585,10 @@ JOVANI_LOOKS_STAT = "jovani_looks"
 UNIVERSO_DAY_PREFIX = "universo_day_"
 #: Días distintos entrando en el universo; se calcula en `with_derived`.
 UNIVERSO_DAYS_STAT = "universo_days"
+#: Prefijo de cada persona con la que has coincidido en el universo (`universo_met_<id>`).
+UNIVERSO_MET_PREFIX = "universo_met_"
+#: Personas distintas con las que has coincidido; se calcula en `with_derived`.
+UNIVERSO_PEOPLE_STAT = "universo_people"
 #: Prefijo de cada lugar de Gran Canaria pisado en el universo (`universo_place_faro`).
 UNIVERSO_PLACE_PREFIX = "universo_place_"
 #: Lugares del mundo con su logro: clave (la de `bot.services.universo.PLACES`),
@@ -2772,6 +2776,26 @@ def _build_catalog() -> tuple[Achievement, ...]:
         a += _tiers("jovani", f"{UNIVERSO_PLACE_PREFIX}{place}", [
             (1, f"{UNIVERSO_PLACE_PREFIX}{place}", name, text, C, secret),
         ])  # fmt: skip
+    # Coincidir con otros en el mundo (`universo_meet_stats`): lo cuenta el servidor al
+    # entrar en la sala, así que no se puede inventar desde la página.
+    a += _tiers("jovani", UNIVERSO_PEOPLE_STAT, [
+        (1, "universo_people_1", "Encuentros en la tercera fase",
+         "Coincide en el Jovaniverso con otra persona.", C),
+        (5, "universo_people_5", "El club de los cinco",
+         "Coincide en el Jovaniverso con 5 personas distintas.", R),
+        (15, "universo_people_15", "Parranda de cumbre",
+         "Coincide en el Jovaniverso con 15 personas distintas.", E),
+        (40, "universo_people_40", "Romería galáctica",
+         "Coincide en el Jovaniverso con 40 personas distintas.", L),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_crowd_max", [
+        (3, "universo_crowd_3", "Tres son multitud",
+         "Estad 3 personas a la vez en el Jovaniverso.", C),
+        (6, "universo_crowd_6", "Guagua en hora punta",
+         "Estad 6 personas a la vez en el Jovaniverso.", R),
+        (12, "universo_crowd_12", "Carnaval en la plaza",
+         "Estad 12 personas a la vez en el Jovaniverso.", E),
+    ])  # fmt: skip
     a.append(Achievement(
         id="universo_places_all", name="Canarión de pura cepa",
         description="Visita todos los lugares de Gran Canaria en el Jovaniverso.",
@@ -23906,6 +23930,7 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
         value for stat, value in stats.items() if stat.startswith(VOICE_WITH_PREFIX) and value > 0
     ]
     full[VOICE_PEOPLE_STAT] = len(partners)
+    full[UNIVERSO_PEOPLE_STAT] = sum(1 for stat in stats if stat.startswith(UNIVERSO_MET_PREFIX))
     full[VOICE_BESTIE_STAT] = max(partners, default=0)
     plays = [stats.get(f"{CASINO_GAME_PREFIX}{game}", 0) for game in CASINO_GAMES]
     full[CASINO_GAMES_STAT] = sum(1 for n in plays if n > 0)
@@ -25053,6 +25078,19 @@ def universo_stats(platform: str | None, *, when: datetime) -> StatDelta:
     if when.month == 5 and when.day == 30:
         add["universo_canarias"] = 1
     return StatDelta(add=add)
+
+
+def universo_meet_stats(met: Iterable[int], crowd: int) -> StatDelta:
+    """Lo que suma coincidir con otros en una sala del Jovaniverso.
+
+    Args:
+        met: IDs de las personas con las que se coincide al entrar alguien.
+        crowd: Cuántos hay en la sala contando a todos.
+    """
+    return StatDelta(
+        add={f"{UNIVERSO_MET_PREFIX}{user_id}": 1 for user_id in met},
+        peak={"universo_crowd_max": crowd},
+    )
 
 
 def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatDelta:
