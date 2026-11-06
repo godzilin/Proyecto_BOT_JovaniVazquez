@@ -348,6 +348,7 @@ PRODUCED_STATS = {
     "universo_days", "universo_mobile", "universo_desktop", "universo_night", "universo_canarias",
     # 🎤 Jovani: pasear por el Jovaniverso (`universo_walk_stats`)
     "universo_meters", "universo_jumps",
+    "universo_people", "universo_crowd_max",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
     *(f"jovani_look_{key}" for key in (
         "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",

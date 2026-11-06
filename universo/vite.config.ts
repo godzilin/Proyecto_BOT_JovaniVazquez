@@ -9,6 +9,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 900, // three.js solo pesa ~700 kB; no hay nada que partir
   },
   server: {
-    proxy: { "/api": "http://localhost:8080" },
+    proxy: { "/api": { target: "http://localhost:8080", ws: true } },
   },
 });

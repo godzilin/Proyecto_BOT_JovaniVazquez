@@ -9,6 +9,7 @@ pruebas de aiohttp sobre `Universo.build_app`, sin abrir puertos.
 from __future__ import annotations
 
 import asyncio
+import struct
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -339,3 +340,44 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
 async def test_pasear_sin_sesion_no_deja(world: World) -> None:
     response = await world.web.post("/api/paseo", json={"guild_id": str(GUILD_ID), "meters": 5})
     assert response.status == 401
+
+
+# -- Multijugador (`/api/sala`) ------------------------------------------------------------
+
+
+async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) -> None:
+    other = member(777)
+    other.display_name = "Bea"
+    guild = world.client.get_guild(GUILD_ID)
+    members = {USER_ID: guild.get_member(USER_ID), 777: other}
+    guild.get_member = members.get
+    hello = {"t": "hola", "guild_id": str(GUILD_ID)}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({**hello, "session": await login(world)})
+    welcome = await ana.receive_json()
+    assert welcome["t"] == "bienvenida" and welcome["jugadores"] == []
+    bea = await world.web.ws_connect("/api/sala")
+    await bea.send_json({**hello, "session": world.cog.signer.issue(777)})
+    assert (await bea.receive_json())["jugadores"][0]["nombre"] == "Yeyo"
+    assert (await ana.receive_json())["nombre"] == "Bea"
+    await bea.send_bytes(struct.pack("<BhhhBB", 1, 15, 3, -40, 128, 2))
+    tick = await ana.receive_bytes(timeout=2)
+    assert tick[:2] == bytes((1, 1)) and struct.unpack_from("<hhh", tick, 3) == (15, 3, -40)
+    await bea.close()
+    assert (await ana.receive_json(timeout=2))["t"] == "sale"
+    await ana.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_met_777"] == 1
+    assert "universo_people_1" in profile.unlocked
+    assert world.cog.salas.rooms == {}
+
+
+async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
+    ws = await world.web.ws_connect("/api/sala")
+    await ws.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": "falsa"})
+    assert (await ws.receive_json())["t"] == "error"
+    assert (await ws.receive()).type.name in {"CLOSE", "CLOSED", "CLOSING"}
+    garbage = await world.web.ws_connect("/api/sala")
+    await garbage.send_bytes(b"\x01")
+    assert (await garbage.receive()).type.name in {"CLOSE", "CLOSED", "CLOSING"}

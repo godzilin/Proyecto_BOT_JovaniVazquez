@@ -30,34 +30,44 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
   lo que da tiempo a hacer (`bot.services.universo.walk_report`).
+- `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
+  `{t: "hola", session, guild_id}`; después, poses en binario. El reparto lo hace
+  `bot.services.universo_sala.Salas` (una sala por servidor, ticks fijos y binarios).
 
 La página no decide nada: todo lo que enseña sale de aquí, y lo que algún día mueva
 dinero se decidirá aquí con `EconomyService`, nunca en el navegador.
 
 Logros: entrar (`universo_stats`, días distintos, móvil, ordenador, madrugada y
-Día de Canarias) y pasear (`universo_walk_stats`, metros, saltos y lugares),
-categoría 🎤 Jovani. La mascota no sale: la página no es un mensaje de Discord y,
-de momento, no enseña ningún resultado en el que pueda hablar.
+Día de Canarias), pasear (`universo_walk_stats`, metros, saltos y lugares) y
+coincidir con otros (`universo_meet_stats`, al entrar en la sala), categoría
+🎤 Jovani. La mascota no sale: la página no es un mensaje de Discord y, de momento,
+no enseña ningún resultado en el que pueda hablar.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import discord
-from aiohttp import web
+from aiohttp import WSMsgType, web
 from discord import ui
 from discord.ext import commands
 
 from bot import __version__
 from bot.cogs import achievements as logros
-from bot.services.achievements import universo_stats, universo_walk_stats
+from bot.services.achievements import (
+    universo_meet_stats,
+    universo_stats,
+    universo_walk_stats,
+)
 from bot.services.economy import format_amount
 from bot.services.levels import TIMEZONE
 from bot.services.universo import (
@@ -70,6 +80,7 @@ from bot.services.universo import (
     snowflake,
     walk_report,
 )
+from bot.services.universo_sala import Player, SalaError, Salas
 
 if TYPE_CHECKING:
     from bot.app import BotClient
@@ -87,6 +98,13 @@ MAX_BODY_BYTES = 16 * 1024
 #: Dirección en que escucha el servidor. En Docker hay que escuchar en todas para
 #: que el túnel, en otro contenedor, llegue; el puerto no se publica fuera.
 LISTEN_HOST = "0.0.0.0"  # noqa: S104
+
+#: Segundos que tiene la página para decir quién es al abrir el multijugador.
+HELLO_SECONDS = 10
+#: Lo más que acepta el multijugador en un mensaje: el saludo es lo más grande.
+MAX_WS_BYTES = 1024
+#: Latido del multijugador: una conexión que no contesta en este tiempo se cierra.
+HEARTBEAT_SECONDS = 20
 
 #: Clave de la aplicación de aiohttp donde vive el cog.
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
@@ -166,6 +184,7 @@ class Universo(commands.Cog, name="Universo"):
         # Último informe de paseo (o entrada) de cada miembro, en segundos de
         # `time.monotonic`: dice cuánto ha podido andar desde entonces.
         self._last_walk: dict[tuple[int, int], float] = {}
+        self.salas = Salas()
 
     @property
     def is_open(self) -> bool:
@@ -195,6 +214,7 @@ class Universo(commands.Cog, name="Universo"):
 
     async def cog_unload(self) -> None:
         """Cierra el servidor web, la sesión HTTP y espera los logros pendientes."""
+        await self.salas.close()
         if self.runner is not None:
             await self.runner.cleanup()
             self.runner = None
@@ -213,6 +233,7 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_post("/api/token", _token)
         app.router.add_post("/api/entrar", _entrar)
         app.router.add_post("/api/paseo", _paseo)
+        app.router.add_get("/api/sala", _sala)
         assets = self.static_dir / "assets"
         if assets.is_dir():
             app.router.add_static("/assets", assets)
@@ -288,6 +309,47 @@ class Universo(commands.Cog, name="Universo"):
         if delta.add:
             channel_id = snowflake(body.get("channel_id"))
             logros.note(self.bot, guild.id, member.id, delta, channel_id)
+
+    async def play(self, ws: web.WebSocketResponse, backlog: Callable[[], int]) -> None:
+        """Atiende el multijugador de una página hasta que se va.
+
+        El primer mensaje dice quién es (la misma sesión que `enter`); si no vale, se
+        contesta `{t: "error"}` y se cierra. Luego cada mensaje binario es una pose.
+        """
+        try:
+            first = await ws.receive(timeout=HELLO_SECONDS)
+            hello = json.loads(first.data) if first.type == WSMsgType.TEXT else None
+        except (TimeoutError, ValueError):
+            hello = None
+        if not isinstance(hello, dict) or hello.get("t") != "hola":
+            await ws.close()
+            return
+        try:
+            guild, member = self._member(hello.get("session"), hello)
+            player = await self.salas.join(guild.id, member.id, member.display_name, ws, backlog)
+        except (UniversoError, SalaError) as error:
+            text = error.message if isinstance(error, UniversoError) else str(error)
+            await ws.send_json({"t": "error", "error": text})
+            await ws.close()
+            return
+        self.bot.telemetry.count("universo", "sala", guild_id=guild.id, user_id=member.id)
+        self._meet(guild.id, player)
+        try:
+            async for message in ws:
+                if message.type == WSMsgType.BINARY:
+                    self.salas.pose(guild.id, player, message.data)
+        finally:
+            await self.salas.leave(guild.id, player)
+
+    def _meet(self, guild_id: int, player: Player) -> None:
+        """Logros de coincidir: quien entra y cada uno de los que ya estaban."""
+        present = self.salas.present(guild_id)
+        others = [p for p in present if p is not player]
+        joined = universo_meet_stats([p.user_id for p in others], len(present))
+        logros.note(self.bot, guild_id, player.user_id, joined)
+        for other in others:
+            seen = universo_meet_stats([player.user_id], len(present))
+            logros.note(self.bot, guild_id, other.user_id, seen)
 
     def _member(
         self, session: str | None, body: dict[str, Any]
@@ -375,6 +437,15 @@ async def _paseo(request: web.Request) -> web.Response:
     body = await _json_body(request)
     cog.walk(bearer(request.headers.get("Authorization")), body)
     return web.json_response({"ok": True})
+
+
+async def _sala(request: web.Request) -> web.WebSocketResponse:
+    cog = request.app[_COG_KEY]
+    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECONDS, max_msg_size=MAX_WS_BYTES)
+    await ws.prepare(request)
+    transport = request.transport
+    await cog.play(ws, lambda: transport.get_write_buffer_size() if transport else 0)
+    return ws
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]

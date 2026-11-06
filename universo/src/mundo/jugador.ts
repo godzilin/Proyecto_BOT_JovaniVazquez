@@ -14,8 +14,8 @@ const VEL_SALTO = Math.sqrt(2 * GRAVEDAD * 1.3); // 1,3 m de altura
 const RADIO = 0.45;
 const ALTO_ROBOT = 1.9;
 // Velocidad (m/s) a la que el clip, a escala 1, no hace patinar los pies. Medida a ojo en el modelo; ajustable.
-const PASO_ANDAR = 2.1;
-const PASO_CORRER = 4.2;
+export const PASO_ANDAR = 2.1;
+export const PASO_CORRER = 4.2;
 
 export interface Entrada {
   /** Dirección deseada ya en el mundo (x, z) y fuerza 0..1. */
@@ -46,7 +46,10 @@ export class Jugador {
   private actual = "Idle";
   private tmp = { x: 0, z: 0 };
 
-  private constructor(modelo: Object3D, clips: AnimationClip[]) {
+  private constructor(
+    readonly modelo: Object3D,
+    readonly clips: AnimationClip[],
+  ) {
     modelo.updateMatrixWorld(true);
     const caja = new Box3().setFromObject(modelo);
     const esc = ALTO_ROBOT / (caja.max.y - caja.min.y);
@@ -203,6 +206,11 @@ export class Jugador {
     this.acciones.Walking.timeScale = clamp(this.velH / PASO_ANDAR, 0.4, 3);
     this.acciones.Running.timeScale = clamp(this.velH / PASO_CORRER, 0.5, 3);
     this.mixer.update(dt);
+  }
+
+  /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar. */
+  get anim(): number {
+    return { Idle: 0, Walking: 1, Running: 2, Jump: 3 }[this.actual] ?? 0;
   }
 
   get posicion(): Vector3 {

@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.58.0 · 2026-11-06
+
+- Jovaniverso: multijugador, ves a los demás del servidor moviéndose por la isla
+- Logros: 7 nuevos en 🎤 Jovani por coincidir con otros en el Jovaniverso
+
 ### 9.57.0 · 2026-11-06
 
 - Jovaniverso: Gran Canaria en 3D para pasear, con controles de móvil tipo Roblox

@@ -1385,6 +1385,11 @@ mundo igual (sin login: la píldora pide abrirlo desde Discord). Para probar los
 controles táctiles en el móvil, abre desde el móvil la dirección de red que enseña
 Vite (`http://192.168.x.x:5173`) con el PC y el móvil en la misma wifi.
 
+Para el multijugador, `PYTHONPATH=src python docs/sala_local.py` levanta en el
+puerto 8080 la misma sala que el bot, sin login (Vite le reenvía `/api`): con dos
+pestañas, cada una ve a la otra. `--medir 30` mete 30 jugadores falsos dando vueltas
+por la plaza y dice cuánta CPU gasta el servidor.
+
 Solo hace falta desplegar para lo que pasa en el servidor (login, saldo, logros del
 paseo) o para verlo dentro de Discord. Lo de Python no se puede cambiar en caliente:
 el bot instala el paquete en la imagen y cada cambio en `main` sube la versión.
