@@ -21,10 +21,10 @@ from bot.services.gallos import (
     FORM_DECAY_PER_DAY,
     FORM_MAX,
     FORM_PER_FIGHT,
-    FORM_PER_TRAIN,
     HOUSE,
     MAX_WIN,
     MIN_WIN,
+    PAID_FORM,
     RIVAL_BY_KEY,
     RTP,
     TRAIN_COOLDOWN,
@@ -152,7 +152,7 @@ def test_un_stat_nunca_pasa_de_100_pero_al_maximo_se_entrena_por_la_forma() -> N
     maxed = RoosterRecord(name="Pepe", speed=100)
     check_training(maxed, Stat.SPEED, now=TRAIN_COOLDOWN, day=day)
     trained = after_train(maxed, Stat.SPEED, now=TRAIN_COOLDOWN, day=day)
-    assert trained.speed == 100 and trained.form == FORM_PER_TRAIN
+    assert trained.speed == 100 and trained.form == PAID_FORM
 
 
 def test_hay_una_hora_de_espera_entre_entrenamientos() -> None:
@@ -249,12 +249,12 @@ def test_contra_la_casa_la_cuota_nunca_baja_de_1_01() -> None:
 def test_entrenar_da_forma_y_la_forma_baja_con_el_tiempo_sin_pasar_de_cero() -> None:
     day = date(2026, 10, 15)
     record = after_train(RoosterRecord(name="Pepe"), Stat.STRENGTH, now=0, day=day)
-    assert form_now(record, 0) == FORM_PER_TRAIN
-    assert form_now(record, 86_400 / 2) == pytest.approx(FORM_PER_TRAIN - FORM_DECAY_PER_DAY / 2)
+    assert form_now(record, 0) == PAID_FORM
+    assert form_now(record, 86_400 / 2) == pytest.approx(PAID_FORM - FORM_DECAY_PER_DAY / 2)
     assert form_now(record, 86_400 * 30) == 0
     # La siguiente sesión suma a lo que queda, no a lo guardado.
     later = after_train(record, Stat.SPEED, now=86_400 / 2, day=day)
-    assert later.form == pytest.approx(2 * FORM_PER_TRAIN - FORM_DECAY_PER_DAY / 2)
+    assert later.form == pytest.approx(2 * PAID_FORM - FORM_DECAY_PER_DAY / 2)
 
 
 def test_la_forma_no_pasa_del_maximo() -> None:

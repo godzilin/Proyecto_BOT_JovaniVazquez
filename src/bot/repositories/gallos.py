@@ -4,8 +4,9 @@ Tabla `gallos` (en el mismo archivo SQLite que el resto del bot): por servidor
 y miembro, el nombre de su gallo, su historial (`RoosterRecord`: peleas,
 victorias, KO, rachas y el último día que peleó), sus tres stats (fuerza,
 velocidad y aguante, que sí tocan las probabilidades) y lo que necesita el
-entrenamiento (la hora del último y cuántos lleva hoy) y la forma (`form`, guardada
-con su instante `form_at`: la de ahora la calcula `gallos.form_now`). Las columnas de los
+entrenamiento (la hora del último y cuántos lleva hoy) la forma (`form`, guardada
+con su instante `form_at`: la de ahora la calcula `gallos.form_now`), el combo del
+gimnasio (`combo`, `combo_day`) y hasta cuándo está lesionado (`injured_until`). Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
@@ -49,6 +50,7 @@ T = TypeVar("T")
 def _record(row: sqlite3.Row) -> RoosterRecord:
     last_day = str(row["last_day"] or "")
     train_day = str(row["train_day"] or "")
+    combo_day = str(row["combo_day"] or "")
     return RoosterRecord(
         name=str(row["name"]),
         fights=int(row["fights"]),
@@ -67,6 +69,9 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         trains_today=int(row["trains_today"]),
         form=float(row["form"]),
         form_at=float(row["form_at"]),
+        combo=int(row["combo"]),
+        combo_day=date.fromisoformat(combo_day) if combo_day else None,
+        injured_until=float(row["injured_until"]),
     )
 
 
@@ -81,6 +86,9 @@ _NEW_COLUMNS = (
     ("trains_today", "INTEGER NOT NULL DEFAULT 0"),
     ("form", "REAL NOT NULL DEFAULT 0"),
     ("form_at", "REAL NOT NULL DEFAULT 0"),
+    ("combo", "INTEGER NOT NULL DEFAULT 0"),
+    ("combo_day", "TEXT"),
+    ("injured_until", "REAL NOT NULL DEFAULT 0"),
 )
 
 
@@ -203,6 +211,28 @@ class GallosRepository:
             self._save_in(connection, guild_id, user_id, after)
         return before, after
 
+    async def change(
+        self, guild_id: int, user_id: int, change: Callable[[RoosterRecord], RoosterRecord]
+    ) -> tuple[RoosterRecord, RoosterRecord]:
+        """Lee la ficha, le aplica `change` (una función pura) y la guarda, en una transacción.
+
+        Para lo que cambia la ficha sin mover dinero: el final del minijuego, los
+        eventos del gimnasio y las lesiones.
+
+        Returns:
+            La ficha de antes y la de después.
+        """
+        return await self._run(self._change_sync, guild_id, user_id, change)
+
+    def _change_sync(
+        self, guild_id: int, user_id: int, change: Callable[[RoosterRecord], RoosterRecord]
+    ) -> tuple[RoosterRecord, RoosterRecord]:
+        with self._connect() as connection:
+            before = self._get_in(connection, guild_id, user_id)
+            after = change(before)
+            self._save_in(connection, guild_id, user_id, after)
+        return before, after
+
     async def rename(self, guild_id: int, user_id: int, name: str) -> RoosterRecord:
         """Le cambia el nombre al gallo (ya validado con `gallos.clean_name`)."""
         return await self._run(self._rename_sync, guild_id, user_id, name)
@@ -223,8 +253,8 @@ class GallosRepository:
             INSERT INTO gallos
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
-                 train_day, trains_today, form, form_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 train_day, trains_today, form, form_at, combo, combo_day, injured_until)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -233,7 +263,9 @@ class GallosRepository:
                 speed = excluded.speed, endurance = excluded.endurance,
                 deaths = excluded.deaths, last_train = excluded.last_train,
                 train_day = excluded.train_day, trains_today = excluded.trains_today,
-                form = excluded.form, form_at = excluded.form_at
+                form = excluded.form, form_at = excluded.form_at,
+                combo = excluded.combo, combo_day = excluded.combo_day,
+                injured_until = excluded.injured_until
             """,
             (
                 guild_id,
@@ -255,6 +287,9 @@ class GallosRepository:
                 record.trains_today,
                 record.form,
                 record.form_at,
+                record.combo,
+                record.combo_day.isoformat() if record.combo_day else None,
+                record.injured_until,
             ),
         )
 

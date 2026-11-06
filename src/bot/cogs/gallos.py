@@ -81,10 +81,12 @@ from bot.cogs import shop as tienda
 from bot.cogs.casino import casino_channel_error, insufficient_text
 from bot.repositories.gallos import GallosRepository
 from bot.services import credit, skins
+from bot.services import gallos_gym as gym
 from bot.services.achievements import (
     StatDelta,
     casino_stats,
     gallos_bet_stats,
+    gallos_drill_stats,
     gallos_stats,
     gallos_train_stats,
 )
@@ -105,6 +107,7 @@ from bot.services.gallos import (
     FORM_PER_TRAIN,
     GAME,
     HOUSE,
+    INJURY_HOURS,
     NAME_MAX,
     POOL_CUT,
     RIVAL_BY_KEY,
@@ -128,11 +131,15 @@ from bot.services.gallos import (
     duel_chance,
     duel_prize,
     edge_cap,
+    fight_injury,
     form_now,
     format_odds,
     house_edge,
     house_multiplier,
     house_odds,
+    injure,
+    injured,
+    injury_text,
     narrate,
     pool_odds,
     pool_payouts,
@@ -456,6 +463,8 @@ class HousePanel(ui.View):
         self.balance = 0
         #: Si se ve el gimnasio (🏋️) en lugar del reñidero.
         self.training = False
+        #: El minijuego de la sesión que se acaba de pagar (`None` si no hay ninguno).
+        self.drill: Drill | None = None
         #: Qué presentación se ve ahora (rival, nombre, apuesta, poder); `None` si otra imagen.
         self._poster: tuple[object, str, int, float, int] | None = None
         self.channel: object = None
@@ -492,6 +501,8 @@ class HousePanel(ui.View):
         lines.append(f"-# {record_line(self.record)}")
         lines.append(f"-# {stat_line(self.record)}")
         lines.append(form_line(self.form))
+        if injured(self.record, self.cog.wall_clock()):
+            lines.append(injury_text(self.record, self.cog.wall_clock()))
         lines.append(f"### 🆚 {rival.label}")
         lines.append(f"*{rival.blurb}*")
         lines.append(
@@ -517,11 +528,24 @@ class HousePanel(ui.View):
         lines.append(f"### 🏋️ Gimnasio de {self.record.name}")
         lines += stat_lines(self.record)
         lines.append(form_line(round(form_now(self.record, now))))
+        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        lines.append(f"-# Personalidad: {trait.label}. {trait.blurb}")
+        if combo := gym.combo_now(self.record, today_day := local_day(now)):
+            lines.append(
+                f"🔥 Combo de hoy: {combo} sesión{'es' if combo != 1 else ''} buena"
+                f"{'s' if combo != 1 else ''} seguida{'s' if combo != 1 else ''} "
+                f"(×{gym.combo_factor(combo):.1f} de forma en la siguiente)".replace(".", ",")
+            )
+        del today_day
+        if injured(self.record, now):
+            lines.append(injury_text(self.record, now) + " Entrenar sí puede.")
         lines.append(
             f"-# Entrenar sube un stat +3 hasta el 40, +2 hasta el 70 y +1 después, sin pasar "
-            f"de {STAT_MAX}, y da +{FORM_PER_TRAIN} de forma (un stat al máximo solo da forma). "
-            f"Cuesta lo que marca cada botón (IGIC del {IGIC_GENERAL_RATE * 100:g} % incluido) "
-            "y sube con el nivel."
+            f"de {STAT_MAX} (un stat al máximo solo da forma). Después juegas un minijuego: "
+            f"según la nota, la sesión da de {FORM_PER_TRAIN // 2} a "
+            f"{FORM_PER_TRAIN * 3 // 2} de forma, y las sesiones buenas seguidas del día, "
+            "más. Cuesta lo que marca cada botón (IGIC del "
+            f"{IGIC_GENERAL_RATE * 100:g} % incluido) y sube con el nivel."
         )
         lines.append(
             f"-# La forma baja {FORM_DECAY_PER_DAY} al día y cada pelea contra la casa gasta "
@@ -540,12 +564,42 @@ class HousePanel(ui.View):
             lines.append(f"⏳ Tu gallo descansa {math.ceil(wait / 60)} min más.")
         return "\n".join(lines)
 
+    def drill_text(self) -> str:
+        """Texto del minijuego en marcha (o de la decisión del suplemento)."""
+        drill = self.drill
+        assert drill is not None
+        stat = drill.stat
+        lines = [f"### {gym.TITLES[drill.game.kind]} · {stat.emoji} {stat.label}"]
+        if drill.event is not None:
+            lines.append(drill.result)
+            lines.append(gym.event_text(drill.event, self.record.name))
+            return "\n".join(lines)
+        lines.append(drill.game.text())
+        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        factor = gym.trait_factor(trait, stat)
+        combo = gym.combo_now(self.record, local_day(self.cog.wall_clock()))
+        extras = []
+        if combo:
+            extras.append(f"🔥 combo ×{gym.combo_factor(combo):.1f}".replace(".", ","))
+        if factor != 1:
+            extras.append(f"{trait.label} ×{factor:.1f}".replace(".", ","))
+        lines.append(
+            "-# La sesión ya está pagada y el stat ya ha subido. El minijuego suma forma según "
+            f"la nota (de ×0,5 a ×1,5) y con {round(gym.PERFECT_SCORE * 10)}/10 o más, +1 al "
+            "stat. Si lo dejas, te quedas con lo pagado."
+            + (f" Ahora: {' · '.join(extras)}." if extras else "")
+        )
+        return "\n".join(lines)
+
     def embed(
         self, *, image: str = PNG_NAME, text: str | None = None, color: discord.Color | None = None
     ) -> discord.Embed:
         """Embed con la imagen adjunta (`attachment://`)."""
         if text is None:
-            text = self.gym_text() if self.training else self.description()
+            if self.drill is not None:
+                text = self.drill_text()
+            else:
+                text = self.gym_text() if self.training else self.description()
         embed = discord.Embed(
             title=f"🐓 Reñidero de {self.owner.display_name}",
             description=text,
@@ -589,9 +643,34 @@ class HousePanel(ui.View):
                     disabled=busy or today >= TRAIN_PER_DAY,
                 )
 
+    def _rebuild_drill(self, *, busy: bool) -> None:
+        """Los botones del minijuego (o de la decisión del suplemento), con `custom_id` fijo."""
+        drill = self.drill
+        assert drill is not None
+        if drill.event is not None:
+            self._button(
+                "💊 Tomárselo", "evt_yes", self._supplement_yes, style=discord.ButtonStyle.danger,
+                row=0, disabled=busy,
+            )  # fmt: skip
+            self._button("🚫 Ni de broma", "evt_no", self._supplement_no, row=0, disabled=busy)
+            return
+        for button in drill.game.buttons():
+            self._button(
+                button.label,
+                f"gym:{button.key}",
+                self._presser(button.key),
+                style=getattr(discord.ButtonStyle, button.style),
+                row=button.row,
+                disabled=busy or button.disabled,
+            )
+        self._button("🏳️ Dejarlo", "gym_quit", self._quit_drill, row=4, disabled=busy)
+
     def rebuild(self, *, busy: bool = False) -> None:
         """Vuelve a montar el desplegable y los botones con el estado actual."""
         self.clear_items()
+        if self.drill is not None:
+            self._rebuild_drill(busy=busy)
+            return
         if self.training:
             self._rebuild_gym(busy=busy)
             return
@@ -813,7 +892,7 @@ class HousePanel(ui.View):
             else:
                 training = outcome
                 self.record, self.balance = outcome.after, outcome.balance
-                self.result = await self._train_text(outcome)
+                self._start_drill(outcome, await self._train_text(outcome))
             self.rebuild()
             await edit(interaction, embed=self.embed(), view=self)
         except discord.HTTPException:
@@ -850,7 +929,7 @@ class HousePanel(ui.View):
         async def after(after_interaction: discord.Interaction) -> None:
             training = done[0]
             self.record, self.balance = training.after, training.balance
-            self.result = await self._train_text(training)
+            self._start_drill(training, await self._train_text(training))
             self.rebuild()
             try:
                 if self._last_interaction is not None:
@@ -872,6 +951,196 @@ class HousePanel(ui.View):
                 "El banco está cerrado ahora mismo.", ephemeral=True
             )
 
+    def _start_drill(self, training: Training, paid: str) -> None:
+        """Empieza el minijuego de una sesión recién pagada (uno de los dos de su stat)."""
+        rng = self.cog.rng
+        game = gym.start(gym.pick_kind(training.stat, rng), rng, self.cog.wall_clock())
+        self.drill = Drill(stat=training.stat, game=game, paid=paid)
+        self.result = None
+
+    def _presser(self, key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def callback(interaction: discord.Interaction) -> None:
+            await self._press(interaction, key)
+
+        return callback
+
+    async def _press(self, interaction: discord.Interaction, key: str) -> None:
+        """Un botón del minijuego: solo cambia memoria hasta que acaba (entonces, guarda)."""
+        drill = self.drill
+        if drill is None or drill.event is not None or self._busy:
+            await interaction.response.defer()
+            return
+        drill.game.press(key, self.cog.wall_clock())
+        if not drill.game.done:
+            self.rebuild()
+            self._last_interaction = interaction
+            await interaction.response.edit_message(embed=self.embed(), view=self)
+            return
+        # Acaba: la forma y el combo se guardan en la base de datos, así que se acepta antes.
+        await ack(interaction)
+        await self._finish_drill(interaction)
+
+    async def _finish_drill(self, interaction: discord.Interaction) -> None:
+        """Guarda lo que deja el minijuego, sortea un evento y enseña el resultado."""
+        drill = self.drill
+        assert drill is not None
+        self._busy = True
+        self._last_interaction = interaction
+        now = self.cog.wall_clock()
+        day = local_day(now)
+        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        event = gym.roll_event(self.cog.rng)
+        sessions: list[gym.Session] = []
+
+        def change(record: RoosterRecord) -> RoosterRecord:
+            after, session = gym.after_session(
+                record, drill.stat, drill.game.score, trait=trait, now=now, day=day
+            )
+            sessions.append(session)
+            if event is not None and not event.choice:
+                after = gym.apply_event(after, event, now)
+            return after
+
+        try:
+            before, self.record = await self.cog.repository.change(
+                self.guild_id, self.owner.id, change
+            )
+            session = sessions[-1]
+            drill.result = self._session_text(drill, before, session, event)
+            if event is not None and event.choice:
+                drill.event = event
+            else:
+                self.drill = None
+                self.result = drill.result + "\n" + drill.paid
+            self.rebuild()
+            await edit(interaction, embed=self.embed(), view=self)
+        except discord.HTTPException:
+            logger.warning("No se pudo enseñar el final de un minijuego de gallos", exc_info=True)
+            return
+        finally:
+            self._busy = False
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            self.channel,
+            gallos_drill_stats(
+                kind=drill.game.kind,
+                score=session.score,
+                bonus=session.bonus,
+                combo=session.combo,
+                event=event.key if event is not None else None,
+                form=round(form_now(self.record, now)),
+            ),
+        )
+
+    def _session_text(
+        self,
+        drill: Drill,
+        before: RoosterRecord,
+        session: gym.Session,
+        event: gym.GymEvent | None,
+    ) -> str:
+        """El resultado del minijuego: la nota, la forma, el combo y el +1 si lo hay."""
+        now = self.cog.wall_clock()
+        grade = round(session.score * 10)
+        lines = [
+            f"# {gym.TITLES[drill.game.kind]}: {grade}/10",
+            drill.game.summary(),
+            f"🔋 Forma {round(form_now(before, now))} → {round(form_now(self.record, now))} "
+            f"(+{round(session.form)} del minijuego)",
+        ]
+        if session.bonus:
+            stat = drill.stat
+            lines.append(
+                f"⭐ Sesión perfecta: {stat.emoji} {stat.label} +{session.bonus} "
+                f"({self.record.stat(stat)})."
+            )
+        if session.combo >= 2:
+            lines.append(f"🔥 {session.combo} sesiones buenas seguidas hoy.")
+        if event is not None and not event.choice:
+            lines.append(gym.event_text(event, self.record.name))
+        return "\n".join(lines)
+
+    async def _quit_drill(self, interaction: discord.Interaction) -> None:
+        """🏳️ Dejarlo: cierra el minijuego sin tocar nada (lo pagado ya está guardado)."""
+        drill = self.drill
+        if drill is None or self._busy:
+            await interaction.response.defer()
+            return
+        self.drill = None
+        self.result = "🏳️ Dejas el minijuego. Te quedas con lo pagado.\n" + drill.paid
+        self.rebuild()
+        self._last_interaction = interaction
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def _supplement_yes(self, interaction: discord.Interaction) -> None:
+        """💊 Tomárselo: sube el stat y sortea la lesión (se guarda: se acepta antes)."""
+        drill = self.drill
+        if drill is None or drill.event is None or self._busy:
+            await interaction.response.defer()
+            return
+        await ack(interaction)
+        self._busy = True
+        self._last_interaction = interaction
+        now = self.cog.wall_clock()
+        hurt: list[bool] = []
+
+        def change(record: RoosterRecord) -> RoosterRecord:
+            after, injured_now = gym.take_supplement(record, drill.stat, self.cog.rng, now)
+            hurt.append(injured_now)
+            return after
+
+        try:
+            before, self.record = await self.cog.repository.change(
+                self.guild_id, self.owner.id, change
+            )
+            stat = drill.stat
+            line = (
+                f"💊 Se lo toma: {stat.emoji} {stat.label} {before.stat(stat)} → "
+                f"{self.record.stat(stat)}."
+            )
+            if hurt[-1]:
+                line += " " + injury_text(self.record, now)
+            self.drill = None
+            self.result = "\n".join([drill.result, line, drill.paid])
+            self.rebuild()
+            await edit(interaction, embed=self.embed(), view=self)
+        except discord.HTTPException:
+            logger.warning("No se pudo enseñar el suplemento de gallos", exc_info=True)
+            return
+        finally:
+            self._busy = False
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            self.channel,
+            StatDelta(
+                add={"gallos_supplements": 1, ("gallos_supplement_hurt" if hurt[-1] else
+                                               "gallos_supplement_safe"): 1}
+            ),
+        )  # fmt: skip
+
+    async def _supplement_no(self, interaction: discord.Interaction) -> None:
+        """🚫 Ni de broma: no se lo toma (solo cambia memoria)."""
+        drill = self.drill
+        if drill is None or drill.event is None or self._busy:
+            await interaction.response.defer()
+            return
+        self.drill = None
+        self.result = "\n".join([drill.result, "🚫 Lo rechaza. Mejor así.", drill.paid])
+        self.rebuild()
+        self._last_interaction = interaction
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            self.channel,
+            StatDelta(add={"gallos_supplement_refused": 1}),
+        )
+
     async def _train_text(self, training: Training) -> str:
         """El resultado del entrenamiento: lo que sube, una frase y la mordida del IGIC."""
         stat, before, after = training.stat, training.before, training.after
@@ -883,7 +1152,7 @@ class HousePanel(ui.View):
             else form
         )
         lines = [
-            f"# 🏋️ {title}",
+            f"### 🏋️ {title}",
             random.choice(TRAIN_LINES[stat]).format(name=after.name),
             f"-# 🐶 {TAX_COLLECTOR} se lleva {format_amount(training.tax)} de IGIC "
             f"(tipo general, {IGIC_GENERAL_RATE * 100:g} % de {format_amount(training.base)}). "
@@ -971,6 +1240,8 @@ class HousePanel(ui.View):
             # Con un duelo abierto el gallo ya está apostado: no pelea dos veces a la vez.
             if (self.guild_id, self.owner.id) in self.cog.busy:
                 return "Tu gallo está en un duelo: nada de peleas con la casa hasta que acabe."
+            if injured(self.record, self.cog.wall_clock()):
+                return injury_text(self.record, self.cog.wall_clock())
             try:
                 await self.cog.economy.place_bet(
                     self.guild_id, self.owner.id, game=GAME, stake=stake
@@ -1006,10 +1277,17 @@ class HousePanel(ui.View):
             )
             self.record = after
             fallen = None
+            hurt = False
             if not won and fight.finish is Finish.KO and dies(after, rng, form):
                 fallen = after
                 self.record = await self.cog.bury(
                     self.guild_id, self.owner.id, killer_kind="casa", killer=rival.key
+                )
+            elif not won and fight.finish is Finish.KO and fight_injury(form, rng):
+                hurt = True
+                now = self.cog.wall_clock()
+                _, self.record = await self.cog.repository.change(
+                    self.guild_id, self.owner.id, lambda record: injure(record, now)
                 )
             return HouseFight(
                 rival=rival,
@@ -1022,6 +1300,7 @@ class HousePanel(ui.View):
                 chance=chance,
                 multiplier=multiplier,
                 form=form,
+                hurt=hurt,
                 fallen=fallen,
                 reborn=self.record.name if fallen else None,
             )
@@ -1089,6 +1368,11 @@ class HousePanel(ui.View):
         lines += narrate(fight, names, {Corner.BLUE: game.rival.signature})
         if game.fallen is not None and game.reborn is not None:
             lines += mourning_lines(game.fallen, game.reborn)
+        elif game.hurt:
+            lines.append(
+                "🤕 Peleó agotado y sale lesionado: no podrá pelear en "
+                f"{INJURY_HOURS} h. Entrenar sí puede."
+            )
         if game.settlement is not None and (tax := gambling_tax_line(game.settlement)):
             lines.append(tax)
         if hint := await renta.hint(
@@ -1126,6 +1410,7 @@ class HousePanel(ui.View):
             else 0,
             full_cap=game.stake == edge_cap(game.owner.record.power)
             and house_edge(game.rival, game.form) > 0,
+            hurt=game.hurt,
         )
         delta.merge(
             casino_stats(stake=game.stake, net=game.net, balance_after=self.balance, tax_delta=tax)
@@ -1169,6 +1454,8 @@ class HouseFight:
     multiplier: Fraction
     #: Forma con la que salió a pelear (antes de gastarla).
     form: int
+    #: Si se ha lesionado por perder por KO agotado.
+    hurt: bool = False
     #: La ficha del gallo si ha muerto en esta pelea, y el nombre del que lo sustituye.
     fallen: RoosterRecord | None = None
     reborn: str | None = None
@@ -1935,6 +2222,25 @@ class Duel:
 # -- Cog ---------------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
+class Drill:
+    """El minijuego de una sesión ya pagada, mientras se juega.
+
+    Attributes:
+        stat: El stat entrenado.
+        game: El minijuego (`gallos_gym`).
+        paid: El texto del pago (lo que subió, la frase y el IGIC), para el final.
+        result: El texto del final del minijuego, cuando acaba.
+        event: El evento que pide decidir (el suplemento), mientras se decide.
+    """
+
+    stat: Stat
+    game: gym.GymGame
+    paid: str
+    result: str = ""
+    event: gym.GymEvent | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class Training:
     """Un entrenamiento ya cobrado y apuntado.
@@ -2112,8 +2418,11 @@ class Gallos(commands.Cog, name="Gallos"):
             f"Aspecto: {skin.label if skin else '🐓 Gallo colorado (de serie)'}",
             *stat_lines(record),
             form_line(round(form_now(record, self.wall_clock()))),
+            f"Personalidad: {gym.trait_of(member.id, record.deaths).label}",
             record_line(record),
         ]
+        if injured(record, self.wall_clock()):
+            lines.append(injury_text(record, self.wall_clock()))
         if record.fights:
             lines.append(
                 f"{record.losses} derrota{'s' if record.losses != 1 else ''} · "
@@ -2186,6 +2495,10 @@ class Gallos(commands.Cog, name="Gallos"):
                 return False
         red = await self._corner(guild.id, user)
         blue = await self._corner(guild.id, rival)
+        for owner in (red, blue):
+            if injured(owner.record, self.wall_clock()):
+                await send_error(injury_text(owner.record, self.wall_clock()))
+                return False
         duel = Duel(self, guild_id=guild.id, channel=channel, red=red, blue=blue, stake=stake)
         self.busy.update({(guild.id, user.id), (guild.id, rival.id)})
         self.duels.add(duel)

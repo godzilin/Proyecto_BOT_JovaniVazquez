@@ -22,11 +22,12 @@ from bot.cogs.gallos import Duel, Gallos, HousePanel, Phase
 from bot.repositories import sqlite as sqlite_module
 from bot.repositories.economy import SHOP_ACCOUNT_ID, STATE_ACCOUNT_ID, EconomyRepository
 from bot.repositories.gallos import GallosRepository
+from bot.services import gallos_gym as gym
 from bot.services.economy import STARTING_BALANCE, EconomyService
 from bot.services.gallos import (
     FORM_PER_FIGHT,
-    FORM_PER_TRAIN,
     HOUSE,
+    PAID_FORM,
     RIVAL_BY_KEY,
     TRAIN_COOLDOWN,
     TRAIN_PER_DAY,
@@ -41,7 +42,9 @@ from bot.services.gallos import (
     format_odds,
     house_odds,
     house_payout,
+    injured,
     pool_payouts,
+    stat_bar,
     train_price,
 )
 from bot.services.gallos_render import Media
@@ -473,7 +476,9 @@ async def test_entrenar_cobra_con_igic_al_estado_y_sube_el_stat(tmp_path: Path) 
     assert await cog.economy.balance(GUILD_ID, OWNER_ID) == STARTING_BALANCE - base - tax
     stored = await cog.repository.get(GUILD_ID, OWNER_ID)
     assert stored.strength == panel.record.strength == 3 and stored.speed == 0
-    assert "IGIC" in (panel.result or "") and "Perro Sanxe" in (panel.result or "")
+    # Tras pagar empieza el minijuego; el texto del pago sale al acabarlo.
+    assert panel.drill is not None and panel.drill.stat is Stat.STRENGTH
+    assert "IGIC" in panel.drill.paid and "Perro Sanxe" in panel.drill.paid
     # Es un sumidero: el dinero cambia de manos (caja y Estado) y no se crea ni se destruye.
     assert wallet_total(tmp_path) == total_before
     assert books_balance(tmp_path)
@@ -544,8 +549,9 @@ async def test_un_stat_al_maximo_se_entrena_solo_por_la_forma(tmp_path: Path) ->
         ("tienda:igic", -igic(base)),
     ]
     record = await cog.repository.get(GUILD_ID, OWNER_ID)
-    assert record.strength == 100 and record.form == FORM_PER_TRAIN
-    assert f"🔋 Forma 0 → {FORM_PER_TRAIN}" in (panel.result or "")
+    assert record.strength == 100 and record.form == PAID_FORM
+    assert panel.drill is not None
+    assert f"🔋 Forma 0 → {round(PAID_FORM)}" in panel.drill.paid
 
 
 async def test_el_gimnasio_tiene_un_boton_por_stat_con_custom_id_fijo(tmp_path: Path) -> None:
@@ -816,5 +822,150 @@ async def test_entrenar_guarda_la_forma(tmp_path: Path) -> None:
     panel = await open_panel(cog)
     await panel._train(fake_interaction(make_user(OWNER_ID)), Stat.SPEED)
     record = await cog.repository.get(GUILD_ID, OWNER_ID)
-    assert (record.speed, record.form, record.form_at) == (3, FORM_PER_TRAIN, 1_000_000.0)
-    assert f"{FORM_PER_TRAIN}" in panel.gym_text()
+    assert (record.speed, record.form, record.form_at) == (3, PAID_FORM, 1_000_000.0)
+    assert f"`{stat_bar(round(PAID_FORM))}` {round(PAID_FORM)}" in panel.gym_text()
+
+
+# -- Minijuegos del gimnasio ----------------------------------------------------------------
+
+
+class Graded(gym.GymGame):
+    """Minijuego de prueba: un botón `ok` lo acaba con la nota fijada."""
+
+    kind = "pesas"
+    stat = Stat.STRENGTH
+
+    def __init__(self, grade: float) -> None:
+        super().__init__()
+        self.grade = grade
+
+    def text(self) -> str:
+        return "Pulsa ok."
+
+    def _buttons(self) -> list[gym.GymButton]:
+        return [gym.GymButton("ok", "OK", "primary")]
+
+    def _apply(self, key: str, now: float) -> None:
+        self._finish(self.grade)
+
+    def summary(self) -> str:
+        return "Hecho."
+
+
+async def paid_drill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, grade: float, event: str | None = None
+) -> tuple[Gallos, HousePanel]:
+    """Un panel con una sesión de fuerza recién pagada y su minijuego de prueba."""
+    monkeypatch.setattr(gallos_cog.gym, "start", lambda kind, rng, now: Graded(grade))
+    monkeypatch.setattr(
+        gallos_cog.gym,
+        "roll_event",
+        lambda rng: gym.EVENT_BY_KEY[event] if event else None,
+    )
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    await panel._train(fake_interaction(make_user(OWNER_ID)), Stat.STRENGTH)
+    assert panel.drill is not None
+    return cog, panel
+
+
+async def test_pagar_abre_el_minijuego_con_botones_de_custom_id_fijo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cog, panel = await paid_drill(tmp_path, monkeypatch, 0.5)
+    ids = {c.custom_id for c in panel.children if isinstance(c, discord.ui.Button)}
+    assert ids == {"gallos:gym:ok", "gallos:gym_quit"}
+    assert "Pulsa ok." in panel.drill_text()
+
+
+async def test_acabar_bien_el_minijuego_suma_forma_combo_y_el_punto_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 1.0)
+    trait = gym.trait_of(OWNER_ID, 0)
+    interaction = fake_interaction(make_user(OWNER_ID))
+    await panel._press(interaction, "ok")
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    extra = gym.session_form(1.0, 0, gym.trait_factor(trait, Stat.STRENGTH))
+    assert record.form == pytest.approx(PAID_FORM + extra)
+    assert record.strength == 3 + 1  # +3 del pago y +1 por la nota perfecta
+    assert record.combo == 1
+    assert panel.drill is None
+    assert "10/10" in (panel.result or "") and "IGIC" in (panel.result or "")
+    assert not panel._busy and interaction.response.is_done()
+
+
+async def test_dejar_el_minijuego_se_queda_con_lo_pagado_y_no_toca_la_ficha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 1.0)
+    before = await cog.repository.get(GUILD_ID, OWNER_ID)
+    await panel._quit_drill(fake_interaction(make_user(OWNER_ID)))
+    assert panel.drill is None and "Dejas" in (panel.result or "")
+    assert await cog.repository.get(GUILD_ID, OWNER_ID) == before
+
+
+async def test_un_evento_de_forma_se_aplica_al_acabar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 0.0, event="paloma")
+    await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    paloma = gym.EVENT_BY_KEY["paloma"]
+    assert record.form == pytest.approx(max(0.0, PAID_FORM + paloma.form))
+    assert "paloma" in (panel.result or "")
+
+
+@pytest.mark.parametrize(("roll", "hurt"), [(0.0, True), (0.99, False)])
+async def test_el_suplemento_sube_el_stat_y_puede_lesionar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, roll: float, hurt: bool
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 0.5, event="suplemento")
+    await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
+    assert panel.drill is not None and panel.drill.event is not None
+    ids = {c.custom_id for c in panel.children if isinstance(c, discord.ui.Button)}
+    assert ids == {"gallos:evt_yes", "gallos:evt_no"}
+    cog.rng = Scripted(roll)
+    await panel._supplement_yes(fake_interaction(make_user(OWNER_ID)))
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert record.strength == 3 + gym.SUPPLEMENT_GAIN
+    assert injured(record, 1_000_000.0) is hurt
+    assert panel.drill is None
+
+
+async def test_rechazar_el_suplemento_no_toca_la_ficha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cog, panel = await paid_drill(tmp_path, monkeypatch, 0.5, event="suplemento")
+    await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
+    before = await cog.repository.get(GUILD_ID, OWNER_ID)
+    await panel._supplement_no(fake_interaction(make_user(OWNER_ID)))
+    assert await cog.repository.get(GUILD_ID, OWNER_ID) == before
+    assert panel.drill is None and "rechaza" in (panel.result or "")
+
+
+async def test_un_gallo_lesionado_no_pelea_contra_la_casa(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    panel.record = await set_stats(cog, injured_until=1_000_000 + 3600)
+    interaction = fake_interaction(make_user(OWNER_ID))
+    await panel._fight(interaction)
+    assert ledger(tmp_path, OWNER_ID) == []
+    cog.renderer.fight.assert_not_awaited()
+    assert "lesionado" in panel.description()
+
+
+async def test_perder_por_ko_agotado_y_sobrevivir_puede_lesionar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gallos_cog, "simulate", lambda winner, rng: ko_fight(winner))
+    # Pierde (LOSE), no muere (0.99) y se lesiona (0.0).
+    cog = await make_cog(tmp_path, LOSE, rng=Scripted(LOSE, 0.99, 0.0))
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    await panel._fight(fake_interaction(make_user(OWNER_ID)))
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert injured(record, 1_000_000.0)
+    assert "lesionado" in (panel.result or "")

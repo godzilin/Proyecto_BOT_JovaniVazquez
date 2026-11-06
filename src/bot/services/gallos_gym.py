@@ -10,16 +10,38 @@ salvo el límite total de `obstaculos`, que es generoso.
 - 💪 fuerza: `pesas` (arriesgar o soltar) y `pulso` (leer las pistas del rival).
 - 🪶 velocidad: `secuencia` (memoria) y `obstaculos` (acertar rápido).
 - ❤️ aguante: `fondo` (repartir la energía) y `sauna` (arriesgar con el riesgo a la vista).
+
+**La sesión** (al final del módulo). Pagar el entrenamiento ya sube el stat y da
+la mitad de la forma (`gallos.after_train`); el minijuego da el resto según la
+nota (`after_session`): la forma de una sesión va de ×0,5 (nota 0) a ×1,5 (nota
+1) de `FORM_PER_TRAIN`, y una nota de `PERFECT_SCORE` o más sube el stat +1 más.
+Encima van el combo del día (sesiones buenas seguidas: +10 % de forma cada una,
+hasta +30 %) y la personalidad del gallo (`Trait`: un stat se le da mejor y otro
+peor). Abandonar el minijuego no devuelve nada ni quita lo pagado: solo pierde el
+extra, así que no se puede repetir hasta que salga bien. Tras la sesión, a veces
+pasa algo (`roll_event`): forma de más o de menos, o una decisión arriesgada (el
+suplemento dudoso, que sube el stat y puede lesionar).
 """
 
 from __future__ import annotations
 
 import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
+from enum import Enum
 from itertools import product
 
-from bot.services.gallos import Stat
+from bot.services.gallos import (
+    FORM_ON_PAYMENT,
+    FORM_PER_TRAIN,
+    STAT_MAX,
+    RoosterRecord,
+    Stat,
+    form_now,
+    injure,
+    with_form,
+)
 
 KINDS: dict[Stat, tuple[str, str]] = {
     Stat.STRENGTH: ("pesas", "pulso"),
@@ -560,3 +582,197 @@ def autoplay(game: GymGame, policy: str, rng: random.Random, now: float = 0.0) -
         game.press(key, now)
         now += 1.0
     return game.score
+
+
+# -- La sesión --------------------------------------------------------------------------
+
+#: Nota con la que una sesión cuenta como buena (suma al combo) y como perfecta (+1 al stat).
+GOOD_SCORE = 0.7
+PERFECT_SCORE = 0.9
+#: Forma de más por cada sesión buena seguida del día, y cuántas cuentan como mucho.
+COMBO_STEP = 0.10
+COMBO_MAX = 3
+
+
+class Trait(Enum):
+    """La personalidad del gallo: qué minijuegos se le dan mejor (y peor)."""
+
+    BALANCED = "equilibrado"
+    COCKY = "chulo"
+    NERVOUS = "nervioso"
+    STUBBORN = "cabezota"
+
+    @property
+    def label(self) -> str:
+        """`😎 Chulo`."""
+        return {
+            Trait.BALANCED: "⚖️ Equilibrado",
+            Trait.COCKY: "😎 Chulo",
+            Trait.NERVOUS: "⚡ Nervioso",
+            Trait.STUBBORN: "🐂 Cabezota",
+        }[self]
+
+    @property
+    def blurb(self) -> str:
+        """Qué hace, en claro."""
+        if self is Trait.BALANCED:
+            return "Entrena igual de bien todo."
+        good, bad = TRAIT_STATS[self]
+        return (
+            f"La forma que saca entrenando {good.label.lower()} sube un "
+            f"{round((TRAIT_GOOD - 1) * 100)} % y la de {bad.label.lower()} baja un "
+            f"{round((1 - TRAIT_BAD) * 100)} %."
+        )
+
+
+#: El stat que se le da mejor y el que peor a cada personalidad.
+TRAIT_STATS: dict[Trait, tuple[Stat, Stat]] = {
+    Trait.COCKY: (Stat.STRENGTH, Stat.ENDURANCE),
+    Trait.NERVOUS: (Stat.SPEED, Stat.STRENGTH),
+    Trait.STUBBORN: (Stat.ENDURANCE, Stat.SPEED),
+}
+TRAIT_GOOD = 1.2
+TRAIT_BAD = 0.9
+
+
+def trait_of(user_id: int, deaths: int) -> Trait:
+    """La personalidad del gallo de `user_id`: fija mientras viva, otra con cada gallo nuevo."""
+    return list(Trait)[(user_id + deaths) % len(Trait)]
+
+
+def trait_factor(trait: Trait, stat: Stat) -> float:
+    """Lo que la personalidad multiplica la forma de entrenar `stat`."""
+    good_bad = TRAIT_STATS.get(trait)
+    if good_bad is None:
+        return 1.0
+    return TRAIT_GOOD if stat is good_bad[0] else TRAIT_BAD if stat is good_bad[1] else 1.0
+
+
+def combo_now(record: RoosterRecord, day: date) -> int:
+    """Sesiones buenas seguidas que lleva hoy el dueño."""
+    return record.combo if record.combo_day == day else 0
+
+
+def combo_factor(combo: int) -> float:
+    """Lo que multiplica la forma de la sesión un combo de `combo` sesiones buenas."""
+    return 1 + COMBO_STEP * min(combo, COMBO_MAX)
+
+
+@dataclass(frozen=True, slots=True)
+class Session:
+    """Lo que deja un minijuego al acabar (`after_session`)."""
+
+    score: float
+    form: float
+    bonus: int
+    combo: int
+
+
+def session_form(score: float, combo: int, factor: float) -> float:
+    """Forma que da el minijuego (sin la del pago): lo que pasa de `FORM_ON_PAYMENT`."""
+    total = FORM_PER_TRAIN * (0.5 + score) * combo_factor(combo) * factor
+    return max(0.0, total - float(FORM_PER_TRAIN * FORM_ON_PAYMENT))
+
+
+def after_session(
+    record: RoosterRecord, stat: Stat, score: float, *, trait: Trait, now: float, day: date
+) -> tuple[RoosterRecord, Session]:
+    """La ficha tras acabar el minijuego de una sesión ya pagada, y lo que ha dejado.
+
+    Suma la forma del minijuego (`session_form`, con el combo que se traía y la
+    personalidad), +1 al stat con una nota perfecta (sin pasar de `STAT_MAX`) y
+    lleva el combo: una sesión buena lo sube y una mala lo rompe.
+    """
+    combo = combo_now(record, day)
+    form = session_form(score, combo, trait_factor(trait, stat))
+    bonus = 1 if score >= PERFECT_SCORE and record.stat(stat) < STAT_MAX else 0
+    next_combo = combo + 1 if score >= GOOD_SCORE else 0
+    after = with_form(record, form_now(record, now) + form, now)
+    after = replace(
+        after,
+        **{stat.column: min(STAT_MAX, record.stat(stat) + bonus)},
+        combo=next_combo,
+        combo_day=day,
+    )
+    return after, Session(score=score, form=form, bonus=bonus, combo=next_combo)
+
+
+# -- Eventos -----------------------------------------------------------------------------
+
+#: Probabilidad de que pase algo al acabar una sesión.
+EVENT_CHANCE = 0.2
+#: El suplemento dudoso: lo que sube el stat, la probabilidad de lesión y cuánto dura.
+SUPPLEMENT_GAIN = 3
+SUPPLEMENT_INJURY = 0.25
+SUPPLEMENT_HOURS = 8
+
+
+@dataclass(frozen=True, slots=True)
+class GymEvent:
+    """Algo que pasa tras una sesión.
+
+    Attributes:
+        key: Clave estable (la cuentan los logros: `gallos_evt_<clave>`).
+        text: Lo que pasa; `{name}` es el nombre del gallo.
+        form: Forma que suma o resta al momento.
+        choice: Si pide decidir (aceptar o no el suplemento).
+    """
+
+    key: str
+    text: str
+    form: int = 0
+    choice: bool = False
+
+
+EVENTS: tuple[GymEvent, ...] = (
+    GymEvent("gofio", "🌽 La abuela le pone a **{name}** un plato de gofio. +{form} de forma.", 6),
+    GymEvent("masaje", "💆 **{name}** se lleva un masaje en las plumas. +{form} de forma.", 4),
+    GymEvent(
+        "siesta", "😴 **{name}** se echa una siesta canaria de las buenas. +{form} de forma.", 5
+    ),
+    GymEvent(
+        "paloma",
+        "🕊️ **{name}** se pica con una paloma del parque y pierde. {form} de forma.",
+        -5,
+    ),
+    GymEvent(
+        "lluvia",
+        "🌧️ Le pilla un chaparrón volviendo del gimnasio. {form} de forma.",
+        -3,
+    ),
+    GymEvent(
+        "suplemento",
+        "💊 Un tipo con chándal de tactel le ofrece a **{name}** un suplemento sin etiqueta. "
+        f"Sube el stat +{SUPPLEMENT_GAIN} al momento, pero hay un "
+        f"{round(SUPPLEMENT_INJURY * 100)} % de que se lesione y no pueda pelear en "
+        f"{SUPPLEMENT_HOURS} h.",
+        choice=True,
+    ),
+)
+EVENT_BY_KEY: dict[str, GymEvent] = {e.key: e for e in EVENTS}
+
+
+def roll_event(rng: random.Random) -> GymEvent | None:
+    """Sortea si pasa algo tras la sesión, y qué (todos los eventos igual de probables)."""
+    if rng.random() >= EVENT_CHANCE:
+        return None
+    return rng.choice(EVENTS)
+
+
+def event_text(event: GymEvent, name: str) -> str:
+    """El texto del evento con el nombre del gallo y su forma."""
+    return event.text.format(name=name, form=event.form)
+
+
+def apply_event(record: RoosterRecord, event: GymEvent, now: float) -> RoosterRecord:
+    """La ficha tras un evento sin decisión (solo cambia la forma)."""
+    return with_form(record, form_now(record, now) + event.form, now)
+
+
+def take_supplement(
+    record: RoosterRecord, stat: Stat, rng: random.Random, now: float
+) -> tuple[RoosterRecord, bool]:
+    """Toma el suplemento: sube `stat` y sortea la lesión. Devuelve la ficha y si se lesiona."""
+    raised = replace(record, **{stat.column: min(STAT_MAX, record.stat(stat) + SUPPLEMENT_GAIN)})
+    hurt = rng.random() < SUPPLEMENT_INJURY
+    return (injure(raised, now, SUPPLEMENT_HOURS) if hurt else raised), hurt

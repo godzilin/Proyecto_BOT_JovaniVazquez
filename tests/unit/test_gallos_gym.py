@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import random
 import re
+from datetime import date
 
 import pytest
 
 from bot.services import gallos_gym as gym
-from bot.services.gallos import Stat
+from bot.services.achievements import gallos_drill_stats, with_derived
+from bot.services.gallos import FORM_PER_TRAIN, PAID_FORM, RoosterRecord, Stat
 
 ALL_KINDS = [k for pair in gym.KINDS.values() for k in pair]
 KEY_RE = re.compile(r"^[a-z0-9_]+$")
@@ -223,3 +225,99 @@ def test_pick_kind_and_start():
     assert set(gym.TITLES) == set(ALL_KINDS)
     with pytest.raises(ValueError):
         gym.start("nope", random.Random(0), 0.0)
+
+
+# -- La sesión: calidad, combo, personalidad y eventos ---------------------------------------
+
+
+def _session(record: RoosterRecord, score: float, trait: gym.Trait = gym.Trait.BALANCED):
+    return gym.after_session(
+        record, Stat.STRENGTH, score, trait=trait, now=0.0, day=date(2026, 11, 6)
+    )
+
+
+def test_la_forma_de_la_sesion_va_de_la_mitad_a_vez_y_media_segun_la_nota() -> None:
+    fresh = RoosterRecord(name="Pepe")
+    zero, _ = _session(fresh, 0.0)
+    full, session = _session(fresh, 1.0)
+    # El pago ya dio la mitad: con nota 0 el minijuego no suma nada, con nota 1 suma 1×.
+    assert zero.form == 0
+    assert full.form == pytest.approx(FORM_PER_TRAIN) == pytest.approx(session.form)
+    assert PAID_FORM + session.form == pytest.approx(FORM_PER_TRAIN * 1.5)
+
+
+def test_una_nota_perfecta_sube_el_stat_uno_mas_sin_pasar_del_maximo() -> None:
+    record, session = _session(RoosterRecord(name="Pepe", strength=40), gym.PERFECT_SCORE)
+    assert record.strength == 41 and session.bonus == 1
+    record, session = _session(RoosterRecord(name="Pepe", strength=40), gym.PERFECT_SCORE - 0.01)
+    assert record.strength == 40 and session.bonus == 0
+    maxed, session = _session(RoosterRecord(name="Pepe", strength=100), 1.0)
+    assert maxed.strength == 100 and session.bonus == 0
+
+
+def test_el_combo_sube_con_las_sesiones_buenas_se_rompe_y_cambia_de_dia() -> None:
+    record = RoosterRecord(name="Pepe")
+    forms = []
+    for _ in range(5):
+        record, session = _session(record, gym.GOOD_SCORE)
+        forms.append(session.form)
+    assert record.combo == 5
+    # Cada sesión buena seguida da más forma, hasta el tope del combo.
+    assert forms[0] < forms[1] < forms[2] < forms[3] == forms[4]
+    record, session = _session(record, 0.1)
+    assert record.combo == 0 and session.combo == 0
+    assert gym.combo_now(RoosterRecord(name="P", combo=3, combo_day=date(2026, 11, 5)),
+                         date(2026, 11, 6)) == 0  # fmt: skip
+
+
+def test_la_personalidad_sube_un_stat_y_baja_otro() -> None:
+    assert gym.trait_factor(gym.Trait.BALANCED, Stat.SPEED) == 1
+    for trait, (good, bad) in gym.TRAIT_STATS.items():
+        assert gym.trait_factor(trait, good) == gym.TRAIT_GOOD
+        assert gym.trait_factor(trait, bad) == gym.TRAIT_BAD
+    cocky, _ = _session(RoosterRecord(name="Pepe"), 1.0, gym.Trait.COCKY)
+    plain, _ = _session(RoosterRecord(name="Pepe"), 1.0)
+    assert cocky.form > plain.form
+    # Fija para un gallo y cambia con el siguiente.
+    assert gym.trait_of(7, 0) == gym.trait_of(7, 0) != gym.trait_of(7, 1)
+    assert {gym.trait_of(user, 0) for user in range(8)} == set(gym.Trait)
+
+
+class _Fixed(random.Random):
+    def __init__(self, value: float) -> None:
+        super().__init__(3)
+        self.value = value
+
+    def random(self) -> float:
+        return self.value
+
+
+def test_los_eventos_salen_a_veces_y_el_suplemento_puede_lesionar() -> None:
+    assert gym.roll_event(_Fixed(gym.EVENT_CHANCE)) is None
+    assert gym.roll_event(_Fixed(0.0)) in gym.EVENTS
+    gofio = gym.EVENT_BY_KEY["gofio"]
+    after = gym.apply_event(RoosterRecord(name="Pepe"), gofio, 0.0)
+    assert after.form == gofio.form and "Pepe" in gym.event_text(gofio, "Pepe")
+    raised, hurt = gym.take_supplement(RoosterRecord(name="Pepe"), Stat.SPEED, _Fixed(0.0), 0.0)
+    assert raised.speed == gym.SUPPLEMENT_GAIN and hurt
+    assert raised.injured_until == gym.SUPPLEMENT_HOURS * 3600
+    safe, hurt = gym.take_supplement(RoosterRecord(name="Pepe"), Stat.SPEED, _Fixed(0.99), 0.0)
+    assert not hurt and safe.injured_until == 0
+
+
+def test_los_contadores_de_un_minijuego() -> None:
+    delta = gallos_drill_stats(kind="sauna", score=1.0, bonus=1, combo=3, event="gofio", form=40)
+    assert delta.add == {
+        "gallos_drills": 1,
+        "gallos_drill_sauna": 1,
+        "gallos_drill_perfect": 1,
+        "gallos_drill_full": 1,
+        "gallos_evt_gofio": 1,
+    }
+    assert delta.peak == {"gallos_combo_max": 3, "gallos_form_max": 40}
+    zero = gallos_drill_stats(kind="pulso", score=0.0, bonus=0, combo=0, event=None, form=0)
+    assert zero.add["gallos_drill_zero"] == 1
+    derived = with_derived(
+        {"gallos_drill_pesas": 2, "gallos_drill_sauna": 1, "gallos_evt_gofio": 1}
+    )
+    assert derived["gallos_drill_kinds"] == 2 and derived["gallos_event_kinds"] == 1

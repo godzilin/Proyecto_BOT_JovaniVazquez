@@ -12,12 +12,14 @@ Uso:
     .venv/Scripts/python docs/gallos_sim.py --dias 30 --jugadores 500
     .venv/Scripts/python docs/gallos_sim.py --solo constante
 
-Cada día el jugador entrena sus sesiones (el stat más bajo, repartido entre los tres) y
-luego pelea mientras le quede forma para la ventaja (o las peleas fijas de su estrategia),
-apostando lo que cubre la ventaja (`edge_cap`) o la apuesta fija de la estrategia. La
-pelea se sortea con `house_odds` y la muerte con `dies`, como en el cog; el final (KO,
-huida o puntos) sale de `simulate`. No cuenta impuestos del juego (la retención del 19 %
-del neto diario): es el margen antes de Hacienda.
+Cada día el jugador entrena sus sesiones (el stat más bajo, repartido entre los tres),
+juega el minijuego de cada una con `gallos_gym.autoplay` (con el combo y los eventos de
+forma; el suplemento no se lo toma) y luego pelea mientras le quede forma para la
+ventaja (o las peleas fijas de su estrategia), apostando lo que cubre la ventaja
+(`edge_cap`) o la apuesta fija de la estrategia. La pelea se sortea con `house_odds`, la
+muerte con `dies` y la lesión con `fight_injury` (lesionado, ese día ya no pelea), como
+en el cog; el final (KO, huida o puntos) sale de `simulate`. No cuenta impuestos del
+juego (la retención del 19 % del neto diario): es el margen antes de Hacienda.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bot.services import gallos  # noqa: E402
+from bot.services import gallos_gym as gym  # noqa: E402
 from bot.services.gallos import (  # noqa: E402
     RIVAL_BY_KEY,
     STAT_MAX,
@@ -47,6 +50,7 @@ from bot.services.gallos import (  # noqa: E402
     dies,
     draw_winner,
     edge_cap,
+    fight_injury,
     form_now,
     house_odds,
     reborn,
@@ -70,6 +74,7 @@ class Strategy:
         fights: Peleas fijas al día; `None` = mientras la forma cubra una pelea entera.
         stake: Apuesta fija; `None` = lo que cubre la ventaja (`edge_cap`).
         min_form: Con peleas libres, solo pelea mientras la forma no baje de esto.
+        policy: Cómo juega los minijuegos (`gallos_gym.autoplay`): "best" o "random".
     """
 
     name: str
@@ -78,6 +83,7 @@ class Strategy:
     fights: int | None = None
     stake: int | None = None
     min_form: int = 50
+    policy: str = "best"
 
 
 STRATEGIES = (
@@ -85,6 +91,7 @@ STRATEGIES = (
     Strategy("constante_media", 6, "credito"),
     Strategy("constante_facil", 6, "falcon"),
     Strategy("agotador", 6, "credito", min_form=10),
+    Strategy("torpe", 6, "credito", policy="random"),
     Strategy("casual", 3, "arancel"),
     Strategy("vago", 0, "falcon", fights=5, stake=1_000),
     Strategy("vago_marte", 0, "marte", fights=5, stake=1_000),
@@ -121,6 +128,14 @@ def play(strategy: Strategy, days: int, rng: random.Random) -> Outcome:
             base = train_price(record.stat(stat))
             spent_today += base + igic(base)
             record = after_train(record, stat, now=now, day=day)
+            game = gym.start(gym.pick_kind(stat, rng), rng, now)
+            score = gym.autoplay(game, strategy.policy, rng, now)
+            record, _ = gym.after_session(
+                record, stat, score, trait=gym.Trait.BALANCED, now=now, day=day
+            )
+            event = gym.roll_event(rng)
+            if event is not None and not event.choice:
+                record = gym.apply_event(record, event, now)
             now += TRAIN_COOLDOWN
         net_today = 0
         fights = 0
@@ -145,6 +160,8 @@ def play(strategy: Strategy, days: int, rng: random.Random) -> Outcome:
                 born = d
                 record = replace(reborn(record, 1), form=0.0, form_at=now)
                 break
+            if not won and fight.finish is Finish.KO and fight_injury(form, rng):
+                break  # lesionado: hoy ya no pelea
         out.trained += spent_today
         out.fought += net_today
         out.fights += fights

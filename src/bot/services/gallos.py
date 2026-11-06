@@ -393,8 +393,13 @@ def house_payout(stake: int, rival: Rival, power: float = 0.0, form: float = 0.0
 FORM_MAX = 100
 #: Lo que baja la forma cada día sin entrenar (se descuenta por horas, sin tareas nocturnas).
 FORM_DECAY_PER_DAY = 12
-#: Forma que da un entrenamiento normal (calidad 1).
+#: Forma que da un entrenamiento de calidad 1 (minijuego a media nota, sin combo).
 FORM_PER_TRAIN = 12
+#: Parte de esa forma que se gana al pagar; el resto depende del minijuego
+#: (`gallos_gym.after_session`): quien lo abandona se queda con esta.
+FORM_ON_PAYMENT = Fraction(1, 2)
+#: Forma que da pagar un entrenamiento.
+PAID_FORM = float(FORM_PER_TRAIN * FORM_ON_PAYMENT)
 #: Forma que gasta cada pelea contra la casa.
 FORM_PER_FIGHT = 10
 #: Lo que la forma al máximo suma al RTP contra el rival más duro (en lo cubierto).
@@ -708,6 +713,10 @@ class RoosterRecord:
         form: Forma guardada en `form_at` (0 a `FORM_MAX`); la de ahora sale de
             `form_now`, que descuenta lo que baja con el tiempo.
         form_at: Instante (epoch) en que se guardó `form`.
+        combo: Sesiones buenas seguidas del día `combo_day` (`gallos_gym.after_session`).
+        combo_day: Día canario del combo.
+        injured_until: Instante (epoch) hasta el que el gallo está lesionado y no pelea
+            (0 si no lo está).
     """
 
     name: str
@@ -727,6 +736,9 @@ class RoosterRecord:
     trains_today: int = 0
     form: float = 0.0
     form_at: float = 0.0
+    combo: int = 0
+    combo_day: date | None = None
+    injured_until: float = 0.0
 
     @property
     def losses(self) -> int:
@@ -792,7 +804,11 @@ def check_training(record: RoosterRecord, stat: Stat, *, now: float, day: date) 
 
 
 def after_train(record: RoosterRecord, stat: Stat, *, now: float, day: date) -> RoosterRecord:
-    """La ficha tras un entrenamiento válido: sube el stat (sin pasar de `STAT_MAX`) y la forma."""
+    """La ficha tras pagar un entrenamiento: sube el stat (sin pasar de `STAT_MAX`) y la forma.
+
+    Solo la forma que da el pago (`FORM_ON_PAYMENT`); la del minijuego la suma
+    `gallos_gym.after_session` al acabarlo.
+    """
     level = record.stat(stat)
     trained = replace(
         record,
@@ -801,7 +817,7 @@ def after_train(record: RoosterRecord, stat: Stat, *, now: float, day: date) -> 
         train_day=day,
         trains_today=trains_today(record, day) + 1,
     )
-    return with_form(trained, form_now(record, now) + FORM_PER_TRAIN, now)
+    return with_form(trained, form_now(record, now) + PAID_FORM, now)
 
 
 def death_chance(endurance: int, form: float) -> float:
@@ -819,6 +835,35 @@ def death_chance(endurance: int, form: float) -> float:
 def dies(record: RoosterRecord, rng: random.Random, form: float) -> bool:
     """Sortea si el gallo `record`, con forma `form`, muere tras perder por KO."""
     return rng.random() < death_chance(record.endurance, form)
+
+
+#: Perder por KO agotado (forma por debajo de esto) y sobrevivir puede lesionar.
+INJURY_FORM = 20
+#: Probabilidad de lesionarse así y horas que dura la lesión.
+FIGHT_INJURY_CHANCE = 0.25
+INJURY_HOURS = 6
+
+
+def injured(record: RoosterRecord, now: float) -> bool:
+    """Si el gallo está lesionado en `now` (no puede pelear, sí entrenar)."""
+    return record.injured_until > now
+
+
+def injury_text(record: RoosterRecord, now: float) -> str:
+    """El aviso de que no puede pelear, con lo que le queda (en horas o minutos)."""
+    left = max(0.0, record.injured_until - now)
+    time = f"{math.ceil(left / 3600)} h" if left >= 3600 else f"{math.ceil(left / 60)} min"
+    return f"🤕 **{record.name}** está lesionado: no puede pelear hasta dentro de {time}."
+
+
+def injure(record: RoosterRecord, now: float, hours: float = INJURY_HOURS) -> RoosterRecord:
+    """La ficha con una lesión de `hours` horas desde `now` (o la que ya tenía, si dura más)."""
+    return replace(record, injured_until=max(record.injured_until, now + hours * 3600))
+
+
+def fight_injury(form: float, rng: random.Random) -> bool:
+    """Tras perder por KO sin morir: si se lesiona por haber peleado agotado."""
+    return form < INJURY_FORM and rng.random() < FIGHT_INJURY_CHANCE
 
 
 def stat_bar(value: int, width: int = 10) -> str:
@@ -921,6 +966,8 @@ def reborn(record: RoosterRecord, user_id: int) -> RoosterRecord:
     return RoosterRecord(
         name=default_name(user_id),
         deaths=record.deaths + 1,
+        combo=record.combo,
+        combo_day=record.combo_day,
         last_train=record.last_train,
         train_day=record.train_day,
         trains_today=record.trains_today,
