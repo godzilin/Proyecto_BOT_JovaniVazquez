@@ -35,6 +35,7 @@ def test_los_caballos_dejan_que_el_pintor_ponga_su_exportframe() -> None:
     assert "toDataURL" not in html.split("window.exportFrame ??=")[0]
 
 
+@pytest.mark.lenta
 async def test_sin_node_ni_chromium_la_carrera_cae_a_pillow() -> None:
     renderer = SceneRenderer(executable_path=NO_CHROMIUM, node=NO_NODE)
     media = await renderer.race(card_of(), fixed_result((0, 1, 2, 3, 4, 5)))
@@ -54,6 +55,7 @@ async def renderer() -> SceneRenderer:
     await pintor.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_la_carrera_sale_como_gif_sin_abrir_el_navegador(
@@ -71,6 +73,7 @@ async def test_con_node_la_carrera_sale_como_gif_sin_abrir_el_navegador(
     assert len(png.convert("RGB").getcolors(1 << 20) or []) > 100
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_la_carrera_repartida_pinta_lo_mismo_que_de_un_tiron(

@@ -239,6 +239,7 @@ def colors(png: bytes) -> int:
     return len(image.convert("RGB").getcolors(1 << 20) or [])
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_sale_con_su_gif_sin_usar_el_navegador(
@@ -321,6 +322,7 @@ async def test_node_y_chromium_pintan_lo_mismo_la_guerra() -> None:
         assert sum(ImageStat.Stat(ImageChops.difference(x, y)).mean) / 3 < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_la_guerra_repartida_pinta_lo_mismo_que_de_un_tiron(

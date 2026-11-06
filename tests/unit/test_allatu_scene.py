@@ -130,6 +130,7 @@ async def scene() -> AllatuScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_es_un_gif_que_acaba_en_su_png(scene: AllatuScene) -> None:

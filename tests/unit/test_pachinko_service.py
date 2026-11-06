@@ -124,6 +124,7 @@ def test_las_cifras_de_la_documentacion_son_las_reales() -> None:
 SIMULATED_VOLLEYS = {"sakura": 16_000, "clasica": 16_000, "dragon": 30_000, "oni": 30_000}
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("board", ALL_BOARDS, ids=lambda b: b.key)
 def test_la_simulacion_se_acerca_al_retorno_exacto(board: Board) -> None:
     """La máquina de verdad sigue las mismas reglas que las cuentas.

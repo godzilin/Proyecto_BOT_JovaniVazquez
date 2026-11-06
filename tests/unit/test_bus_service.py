@@ -223,6 +223,7 @@ def _longshot(hand: Hand, table: list[Card]) -> Pick:
     return min(possible, key=lambda p: chance(p, table))
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("choose", [_best, _longshot])
 @pytest.mark.parametrize("hands", [1, 2, 3])
 def test_cobrar_en_cualquier_parada_devuelve_el_99_por_ciento(choose, hands: int) -> None:

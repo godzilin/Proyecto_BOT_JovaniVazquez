@@ -37,6 +37,7 @@ def card(c: int) -> Card:
     return Card(1 if height == 12 else height + 2, c % 4)
 
 
+@pytest.mark.lenta
 def test_el_evaluador_y_el_pago_coinciden_con_los_del_bot(rtp: ModuleType) -> None:
     cards = rtp.deal(np.random.default_rng(7), 200_000)
     player = rtp.evaluate(np.concatenate([cards[:, :2], cards[:, 4:]], axis=1))

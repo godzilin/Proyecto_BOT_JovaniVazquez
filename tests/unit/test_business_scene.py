@@ -197,6 +197,7 @@ async def scene() -> BusinessScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_pantalla_es_un_png_del_tamano_y_distinta(scene: BusinessScene) -> None:
@@ -240,6 +241,7 @@ async def test_con_node_una_pantalla_desconocida_desactiva_el_pintor() -> None:
     assert other.painter.disabled and other.disabled
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_las_pantallas_repartidas_pintan_lo_mismo_que_con_un_proceso(
@@ -329,6 +331,7 @@ def catalog_states() -> list[dict[str, Any]]:
     return states
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_cada_clave_del_catalogo_se_pinta_sin_error(scene: BusinessScene) -> None:

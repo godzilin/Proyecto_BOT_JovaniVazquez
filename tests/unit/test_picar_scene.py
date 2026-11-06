@@ -121,6 +121,7 @@ def test_la_pausa_tapa_lo_que_tarda_en_subirse_el_siguiente() -> None:
     assert swap_ms(8 * 1024 * 1024) > swap_ms(2 * 1024 * 1024) > swap_ms(500_000)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_la_tirada_sale_en_gif_que_caben_en_el_limite(

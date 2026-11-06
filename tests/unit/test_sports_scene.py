@@ -87,6 +87,7 @@ async def scene() -> SportsScene:
     await escena.close()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_muestra_es_un_png_del_tamano_y_distinta(scene: SportsScene) -> None:

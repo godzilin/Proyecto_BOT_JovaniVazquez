@@ -539,6 +539,7 @@ def test_los_niveles_son_cuatro_y_piensan_cada_vez_mas() -> None:
     assert len({lv.name for lv in LEVELS}) == 4
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("level", LEVELS, ids=lambda level: level.key)
 def test_jovani_siempre_juega_una_jugada_legal(level: bg.Level) -> None:
     rng = random.Random(7)
@@ -547,6 +548,7 @@ def test_jovani_siempre_juega_una_jugada_legal(level: bg.Level) -> None:
         assert play in legal_plays(position, side, dice_of(roll))
 
 
+@pytest.mark.lenta
 def test_jovani_con_la_misma_semilla_juega_lo_mismo() -> None:
     states = random_game_states(5, limit=20)
     for level in LEVELS:
@@ -669,6 +671,7 @@ def play_game(
     raise AssertionError("La partida no ha acabado en mil turnos.")
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("batch", range(4))
 def test_imposible_gana_a_facil_en_la_mayoria_de_las_partidas(batch: int) -> None:
     """20 partidas en 4 tandas de 5 (se reparten entre procesos): gana la mayoría de cada una."""
@@ -694,6 +697,7 @@ def test_dificil_gana_a_facil_en_la_mayoria_de_20_partidas() -> None:
     assert wins >= 15
 
 
+@pytest.mark.lenta
 def test_jovani_imposible_tarda_menos_de_un_segundo_y_medio_por_jugada() -> None:
     imposible = LEVEL_BY_KEY["imposible"]
     _, _, times = play_game(imposible, imposible, 11)

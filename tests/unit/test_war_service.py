@@ -166,6 +166,7 @@ def test_el_zapato_real_tiene_seis_barajas_y_alcanza_para_una_guerra() -> None:
     assert real.settled
 
 
+@pytest.mark.lenta
 def test_frecuencia_de_empates_en_6_barajas_es_23_de_311() -> None:
     rng = random.Random(7)
     base = WarGame(stake=1).shoe

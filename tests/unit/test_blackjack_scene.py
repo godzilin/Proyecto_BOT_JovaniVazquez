@@ -284,6 +284,7 @@ def frames_of(gif: bytes) -> int:
     return Image.open(io.BytesIO(gif)).n_frames
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_sale_con_su_gif(scene: BlackjackScene) -> None:
@@ -379,6 +380,7 @@ async def test_node_y_chromium_pintan_lo_mismo_el_blackjack() -> None:
         assert sum(ImageStat.Stat(ImageChops.difference(x, y)).mean) / 3 < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_reparto_repartido_pinta_lo_mismo_que_de_un_tiron(

@@ -391,6 +391,7 @@ def check_media(media, states: list[dict]) -> None:  # noqa: ANN001
     assert png.size == (OUT_W, OUT_H) and len(png.convert("RGB").getcolors(1 << 20) or []) > 200
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_de_cada_maquina_sale_con_su_gif(scene: HoldWinScene) -> None:
@@ -453,6 +454,7 @@ async def test_la_entrada_al_bonus_se_pinta_con_node(scene: HoldWinScene) -> Non
     check_media(media, states)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_png_final_es_el_ultimo_fotograma_y_la_maquina_quieta(
@@ -511,6 +513,7 @@ async def test_cada_maquina_pinta_con_su_estilo(scene: HoldWinScene) -> None:
         assert sum(ImageStat.Stat(ImageChops.difference(shots[a], shots[b])).mean) / 3 > 12
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_gif_no_pesa_mas_de_lo_acordado(scene: HoldWinScene) -> None:
@@ -590,6 +593,7 @@ async def split_and_whole(
         assert a["image"].tobytes() == b["image"].tobytes()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_la_tirada_repartida_pinta_lo_mismo_que_de_un_tiron(
@@ -610,6 +614,7 @@ async def test_la_tirada_repartida_pinta_lo_mismo_que_de_un_tiron(
         await node_scene.shutdown()
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_el_bonus_repartido_pinta_lo_mismo_que_de_un_tiron(

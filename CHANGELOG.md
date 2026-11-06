@@ -16,6 +16,10 @@ criterio.
 - Financiar: lo que se puede financiar lo dice junto al precio (💳 en el escaparate, y en la ficha, la caja, el carrito y cada compra la cuota de Paga en 3 o del 0 % TIN de la semana), y la tienda anuncia qué tiene 0 % TIN esta semana
 - Logros: 4 nuevos en 🏦 Banco por financiar con una parte al contado, una mejora de `entrada` y compras del negocio
 
+### 9.50.2 · 2026-11-06
+
+- Interno: las pruebas tardan mucho menos (tanda rápida sin las lentas, arranque del bot de prueba cuatro veces más barato) y avisan de las que se alargan
+
 ### 9.50.1 · 2026-11-06
 
 - Timba: la mesa ya enseña los botones para jugar la mano (el de 🃏 Mis cartas llevaba un emoji que Discord no acepta y tumbaba la mesa entera en cuanto empezaba la mano)
