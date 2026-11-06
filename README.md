@@ -1293,38 +1293,56 @@ accion:Apagar`, que quita el perfil del servidor y vuelve al global.
 ### Jovaniverso (Activity): `universo`
 
 El Jovaniverso es una página web que Discord abre dentro de la aplicación (una
-Activity). Discord no la carga del NAS directamente: la pide a una URL pública por
-HTTPS y hace de proxy. El bot sirve la página y su API en `UNIVERSO_PORT` (8080)
-dentro del contenedor, y un túnel de Cloudflare (servicio `tunel` de
-`docker-compose.yml`) la saca a Internet sin abrir puertos en el router. La imagen
-compila la página sola (fase `universo` del `Dockerfile`).
+Activity). Discord no la carga del NAS directamente: la pide a una dirección pública
+por HTTPS y hace de proxy. El bot sirve la página y su API en `UNIVERSO_PORT` (8080)
+dentro del contenedor, y Tailscale Funnel (servicio `tunel` de `docker-compose.yml`,
+con su `tailscale/serve.json`) la publica en `https://jovaniverso.<red>.ts.net` sin
+abrir puertos en el router y sin dominio propio. Es gratis con el plan personal de
+Tailscale. La imagen compila la página sola (fase `universo` del `Dockerfile`).
 
 Puesta en marcha, una sola vez:
 
-1. **Cloudflare**: en Zero Trust > Networks > Tunnels, crear un túnel (tipo
-   Cloudflared), copiar su token y añadirle un «Public hostname» con un dominio
-   gestionado en Cloudflare (por ejemplo `universo.tudominio.es`) que apunte al
-   servicio `http://bot:8080`.
-2. **`.env` del NAS**: `DISCORD_CLIENT_SECRET` (el del paso 3), `TUNNEL_TOKEN` (el
-   del paso 1) y `COMPOSE_PROFILES=universo`, que hace que compose arranque el túnel.
-   Los tres son secretos o de despliegue: nunca al repositorio.
+1. **Tailscale** (https://login.tailscale.com, cuenta gratuita):
+   - DNS: activar **HTTPS Certificates** (MagicDNS ya viene activado) y apuntar el
+     nombre de la red, del tipo `tail1234.ts.net`.
+   - Settings > Keys > **Generate auth key**: sin marcar Reusable ni Ephemeral y
+     sin etiquetas. Copiar la clave (`tskey-auth-…`).
+2. **`.env` del NAS**: `DISCORD_CLIENT_SECRET` (el del paso 3), `TS_AUTHKEY` (la del
+   paso 1) y `COMPOSE_PROFILES=universo`, que hace que compose arranque el túnel.
+   Son secretos o de despliegue: nunca al repositorio.
 3. **Portal de desarrolladores de Discord**, en la aplicación del bot:
+   - OAuth2: copiar el Client Secret (o generarlo) para el paso 2, y en Redirects
+     añadir `https://127.0.0.1`, que Discord pide para el login de las Activities.
    - Activities > Settings: activarlas. Discord crea entonces el comando de entrada
-     («launch») y el bot lo renombra a `/universo` en el siguiente arranque.
-   - Activities > URL Mappings: `/` → el dominio del paso 1, sin `https://`.
-   - OAuth2: copiar el Client Secret (o generarlo) para el paso 2. Si se regenera,
-     hay que cambiarlo en el `.env`.
-4. `docker compose up -d` (o esperar a `actualizar.sh`). En el log del bot sale
-   «Servidor del Jovaniverso escuchando en el puerto 8080».
+     («launch») y el bot lo renombra a `/universo` en el siguiente arranque. **Antes,
+     el bot tiene que estar en la 9.46.0 o posterior**: con una versión anterior, la
+     sincronización de comandos falla y el bot no arranca.
+   - Activities > URL Mappings: `/` → `jovaniverso.<red>.ts.net`, sin `https://`.
+4. `docker compose up -d --force-recreate`. En el log del bot sale «Servidor del
+   Jovaniverso escuchando en el puerto 8080».
+5. **Tailscale otra vez**, en Machines: a `jovaniverso` le aparece una caducidad.
+   Menú `…` > **Disable key expiry**; si no, a los 180 días se desconecta y el
+   universo se cierra.
 
-Comprobar: `/universo` en un canal del servidor abre la Activity, que enseña tu
-nombre y tu saldo. Si la Activity se queda en blanco, el túnel no llega: `docker
-logs bot-jovani-vazquez-tunel`. Si dice que Discord no ha aceptado el login, el
-secreto del `.env` no es el de la aplicación.
+Comprobar: `docker exec bot-jovani-vazquez-tunel tailscale funnel status` dice que
+Funnel está activo en `https://jovaniverso.<red>.ts.net`; esa dirección en el
+navegador enseña la página («se abre desde Discord»), y `/universo` en un canal del
+servidor abre la Activity con tu nombre y tu saldo. La primera vez la dirección puede
+tardar unos minutos en funcionar desde fuera.
 
-El servidor web pesa unos pocos MB dentro del mismo proceso del bot y el túnel
-tiene un límite de 128 MB: la cuenta de memoria de `docker-compose.yml` no cambia.
-Sin `COMPOSE_PROFILES=universo`, el túnel no arranca y el bot funciona igual.
+Si falla: «funnel not available» en el log del túnel es que la política de acceso de
+Tailscale (Access controls) no da el atributo `funnel` a los miembros; se añade
+`"nodeAttrs": [{"target": ["autogroup:member"], "attr": ["funnel"]}]`. Si la máquina
+sale como `jovaniverso-1` (ya había una con ese nombre), la URL Mapping tiene que
+llevar ese nombre. Si la Activity se queda en blanco, la URL Mapping no coincide con
+la dirección del túnel. Si dice que Discord no ha aceptado el login, el secreto del
+`.env` no es el de la aplicación.
+
+El servidor web pesa unos pocos MB dentro del mismo proceso del bot y el túnel tiene
+un límite de 128 MB: la cuenta de memoria de `docker-compose.yml` no cambia. Sin
+`COMPOSE_PROFILES=universo`, el túnel no arranca y el bot funciona igual. La sesión
+de Tailscale se guarda en el volumen `bot-jovani-vazquez-tunel`: `TS_AUTHKEY` solo
+hace falta la primera vez (o si se borra ese volumen).
 
 ### Telemetría interna: `informe`
 

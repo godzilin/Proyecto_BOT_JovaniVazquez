@@ -47,28 +47,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Túnel de Cloudflare para el Jovaniverso (`universo`, la Activity de Discord).
-  # Discord llega a la página por aquí sin abrir puertos en el router: el túnel sale
-  # hacia Cloudflare y reenvía al servidor web del bot (http://bot:8080) por la red
-  # interna de compose. El puerto 8080 no se publica fuera.
-  # Solo arranca con `COMPOSE_PROFILES=universo` en el .env, y necesita
-  # `TUNNEL_TOKEN` (secreto: lo da Cloudflare al crear el túnel). Pasos en el README,
-  # «Jovaniverso (Activity)».
+  # Túnel de Tailscale Funnel para el Jovaniverso (`universo`, la Activity de Discord).
+  # Discord llega a la página por aquí sin abrir puertos en el router y sin dominio
+  # propio: Tailscale da una dirección fija `https://jovaniverso.<red>.ts.net` y
+  # reenvía al servidor web del bot (http://bot:8080) por la red interna de compose,
+  # según `tailscale/serve.json`. El puerto 8080 no se publica fuera.
+  # Solo arranca con `COMPOSE_PROFILES=universo` en el .env y, la primera vez,
+  # necesita `TS_AUTHKEY` (secreto: una clave de Tailscale). Después recuerda su
+  # sesión en el volumen `tunel-state`. Pasos en el README, «Jovaniverso (Activity)».
+  # Modo userspace: no necesita /dev/net/tun ni permisos de red del NAS.
   tunel:
-    image: cloudflare/cloudflared:2026.10.7
+    image: tailscale/tailscale:v1.104.2
     container_name: bot-jovani-vazquez-tunel
     profiles: ["universo"]
+    hostname: jovaniverso
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_HOSTNAME: jovaniverso
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tunel-state:/var/lib/tailscale
+      - ./tailscale/serve.json:/config/serve.json:ro
     depends_on:
       - bot
     mem_limit: 128m
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
     logging:
       driver: json-file
       options:
@@ -78,3 +85,6 @@ services:
 volumes:
   bot-data:
     name: bot-jovani-vazquez-data
+  # Sesión de Tailscale del túnel: sin ella habría que dar una clave nueva en cada arranque.
+  tunel-state:
+    name: bot-jovani-vazquez-tunel
