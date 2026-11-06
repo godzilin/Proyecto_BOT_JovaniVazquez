@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.50.2 · 2026-11-06
+
+- Interno: las pruebas tardan mucho menos (tanda rápida sin las lentas, arranque del bot de prueba cuatro veces más barato) y avisan de las que se alargan
+
 ### 9.50.1 · 2026-11-06
 
 - Timba: la mesa ya enseña los botones para jugar la mano (el de 🃏 Mis cartas llevaba un emoji que Discord no acepta y tumbaba la mesa entera en cuanto empezaba la mano)

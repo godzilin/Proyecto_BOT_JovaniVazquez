@@ -296,7 +296,7 @@ Criterios para dar una parte por buena:
 
 Herramienta: `docs/auditoria_frases.py` cuenta coletillas, repeticiones y fuentes, y con `--parte cogs/tower` saca la tabla de una parte: por lista, la parte de frases normales (la meta es la mitad), las comparaciones «como…», lo boricua que no es de Jovani y las familias de temas (`FAMILIES`). Se pasa antes y después de revisar cada parte.
 
-**Lo vigilan las pruebas.** `tests/unit/test_auditoria_frases.py` falla si una lista de frases pasa de la mitad de coletillas, si una broma se copia de un juego a otro, si una lista nueva tiene menos de la mitad de frases normales (las que ya estaban por debajo van en `KNOWN_UNDER_PLAIN`; si una mejora, se saca de ahí), si aparece lo boricua que no es de Jovani fuera del contenido (`BORICUA_CONTENT_MODULES` y `BORICUA_CONTENT_TEXTS`) o si un nombre de logro usa «X, como [referencia]». Un aviso se arregla cambiando el texto, no ampliando las listas de excepciones; solo entra en ellas contenido nuevo de verdad.
+**Lo vigilan las pruebas.** `tests/unit/test_auditoria_frases.py` (marcada `lenta`: va en la tanda entera, y al tocar frases se pasa a mano con `python -m pytest -q tests/unit/test_auditoria_frases.py`) falla si una lista de frases pasa de la mitad de coletillas, si una broma se copia de un juego a otro, si una lista nueva tiene menos de la mitad de frases normales (las que ya estaban por debajo van en `KNOWN_UNDER_PLAIN`; si una mejora, se saca de ahí), si aparece lo boricua que no es de Jovani fuera del contenido (`BORICUA_CONTENT_MODULES` y `BORICUA_CONTENT_TEXTS`) o si un nombre de logro usa «X, como [referencia]». Un aviso se arregla cambiando el texto, no ampliando las listas de excepciones; solo entra en ellas contenido nuevo de verdad.
 
 **El contenido se queda.** La auditoría cambia textos, nunca quita contenido: el tapete monoestrellado, el coquí, el caballo Wepa Boricua o el nivel del café de Puerto Rico siguen; solo cambian las frases y nombres que los rodean.
 
@@ -441,6 +441,20 @@ El bot sigue versionado semántico (MAYOR.MENOR.PARCHE), juzgado desde quien usa
 - Las pruebas usan las constantes del código (`WAGE_YAPDOLLARS_PER_EURO`, `IMV_WORK_EXEMPT`, `SELF_EMPLOYED_FEE`…), no cifras copiadas, para que recalibrar la economía no rompa decenas de pruebas por un número. Si una prueba necesita saldo, lo da con margen.
 - El azar se fuerza en la prueba (sustituyendo `random` o pasando la tirada), no se confía en que dos probabilidades distintas den resultados distintos: dos constantes con el mismo valor hacen que la prueba acierte por casualidad.
 - Al cambiar una cifra visible (sueldo, precio, umbral, exención), buscarla en README, FUNCIONALIDADES, la Biblia y los textos de los cogs (`grep` de la cifra con y sin punto de miles) y actualizarla en el mismo cambio.
+
+**Pruebas rápidas.** La tanda entera tiene que tardar poco, o se deja de pasar. Ya creció dos veces hasta varios minutos, siempre por lo mismo: pruebas que pintan, simulan o recorren todo el código sin hacer falta.
+
+- Dos tandas. Antes de cada commit, la rápida: `python -m pytest -q -m "not lenta"`. Antes de subir a `main`, la entera: `python -m pytest -q`.
+- `@pytest.mark.lenta` es para lo que gasta más de 3 s de CPU y casi nunca lo rompe un commit normal: dibujo repartido contra un proceso, Node contra Chromium, todas las pantallas o combinaciones de un catálogo pintadas de verdad, simulaciones de retorno o de fuerza de la IA y auditorías de todo el código. Una prueba de lógica, de un cog o de un botón no se marca: se acorta.
+- Al final de cada tanda, `tests/conftest.py` lista las pruebas sin `lenta` que gastaron más de 3 s de CPU («Pruebas lentas sin @pytest.mark.lenta»). Mide CPU y no reloj porque, con la tanda en paralelo, el reloj de una prueba normal se triplica. La tanda falla si una pasa de 10 s de CPU o de 30 s de reloj (esperas, Node). Lo que salga ahí se arregla en el mismo cambio que lo trae.
+- Cómo se acorta, por orden:
+  1. Que no dibuje sin mirar la imagen: el doble de `render_fakes`, o el `renderer` de prueba del cog (la Torre pintaba un GIF de verdad en una prueba de récords: de 10 s a 0,1).
+  2. Pocos datos que prueben lo mismo: 60 escrituras de 80 KB llenan el registro de SQLite igual que 1.500 de 3 KB (de 47 s a 1).
+  3. Una sola pasada por lo caro: si varias pruebas recorren lo mismo (la auditoría de frases), se juntan en una o comparten el resultado. Con xdist cada prueba puede caer en otro proceso, así que una caché de módulo no basta.
+  4. Nada de esperas de reloj: el tiempo se fuerza (`monkeypatch` de la constante o del reloj), nunca con `sleep` de verdad.
+  5. Si aun así comprueba algo que vale la pena y tarda, `lenta`.
+- Una prueba de dibujo repartido abre antes los procesos de refuerzo (`open_helpers` de `tests/unit/test_node_scene.py`). Si no, con la tanda en paralelo el primer proceso lo pinta todo antes de que se abra otro, y la prueba falla a veces.
+- Antes de optimizar las pruebas, se mide: `python -m pytest -q --durations=30`, o el resumen del final de la tanda. xdist abre un proceso por núcleo físico: con uno por hilo, la tanda no acaba antes (medido: 118 s con 12 y con 24 procesos en un Ryzen de 12 núcleos) y cada prueba tarda el doble de reloj.
 
 ### 8.0. Agentes y subagentes
 

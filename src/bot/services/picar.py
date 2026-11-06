@@ -40,6 +40,7 @@ import json
 import secrets
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import cache
 from pathlib import Path
 
 from bot.services.picar_physics import PICKS, Run, params_hash, simulate
@@ -173,6 +174,7 @@ class Calibration:
         )
 
 
+@cache  # el motor no cambia en un proceso: ~1 s de CPU que no se repite en cada arranque
 def fingerprint(seeds: int = FINGERPRINT_SEEDS) -> str:
     """Huella de las primeras `seeds` semillas de cada pico, jugadas con este motor."""
     digest = hashlib.sha256()

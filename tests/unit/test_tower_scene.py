@@ -168,6 +168,7 @@ async def test_con_node_cada_tema_es_un_png_distinto(scene: TowerScene) -> None:
     assert len({png for png in pngs}) == len(pngs)
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_con_node_cada_jugada_es_un_gif_que_acaba_en_su_png(scene: TowerScene) -> None:
@@ -187,6 +188,7 @@ async def test_con_node_cada_jugada_es_un_gif_que_acaba_en_su_png(scene: TowerSc
         assert sum(ImageStat.Stat(ImageChops.difference(last, png)).mean) / 3 < 4
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_repartida_pinta_lo_mismo_que_de_un_tiron(scene: TowerScene) -> None:

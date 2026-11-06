@@ -40,6 +40,7 @@ def test_cada_pico_devuelve_el_995_sin_pasarse(cal: Calibration) -> None:
         assert all(v >= 1 for v in pick.values.values())
 
 
+@pytest.mark.lenta
 def test_la_calibracion_detecta_lo_que_cambia(cal: Calibration, monkeypatch) -> None:
     assert "física" in check(replace(cal, params="otro"), replay=False)
     assert "huella" in check(replace(cal, fingerprint="otra"))

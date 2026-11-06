@@ -77,6 +77,7 @@ def _overlap(world: World, x: float, y: float) -> float:
     return worst
 
 
+@pytest.mark.lenta
 @pytest.mark.parametrize("pick", list(PICKS))
 def test_el_pico_nunca_atraviesa_un_bloque_sin_romperlo(pick: str) -> None:
     for seed in range(25):

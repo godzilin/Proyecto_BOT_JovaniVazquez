@@ -1418,8 +1418,14 @@ ruff check .
 
 Las pruebas no requieren un token real ni conexión a Discord: se aíslan
 mediante dobles de prueba (`unittest.mock`). Corren en paralelo, un proceso
-por núcleo (`pytest-xdist`, configurado en `pyproject.toml`); `pytest -n 0`
+por núcleo físico (`pytest-xdist`, configurado en `pyproject.toml`); `pytest -n 0`
 las corre en uno solo, para depurar.
+
+`pytest -m "not lenta"` se salta las lentas (dibujos de verdad, simulaciones,
+auditorías de todo el código): es la tanda de cada commit, y la entera va antes de
+subir a `main`. Al final de cada tanda salen las pruebas sin esa marca que gastan
+más de 3 s de CPU, y la tanda falla si alguna pasa de 10 s de CPU o de 30 s de reloj
+(`tests/conftest.py`).
 
 ## Estructura del proyecto
 

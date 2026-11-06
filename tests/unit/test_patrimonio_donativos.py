@@ -484,6 +484,7 @@ def test_los_mecenas_llevan_mas_boletos() -> None:
     assert draw_winner({1: (RAFFLE_MIN - 1, 10**9), 2: (RAFFLE_MIN, 0)}, rng) == 2
 
 
+@pytest.mark.lenta
 def test_las_rarezas_de_suerte_de_las_ongs_salen_de_la_simulacion() -> None:
     import importlib.util
 

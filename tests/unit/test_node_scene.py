@@ -84,6 +84,7 @@ async def test_sin_node_se_desactiva_y_devuelve_none() -> None:
     await scene.close()
 
 
+@pytest.mark.lenta
 async def test_sin_node_la_moneda_pasa_a_chromium_y_luego_a_pillow() -> None:
     scene = CoinScene(executable_path="/no/existe/chromium", node="/no/existe/node")
     png = await scene.board(None, stake=100, face=Side.CARA)
@@ -339,6 +340,7 @@ def test_robar_se_lleva_la_mitad_final_del_tramo_con_mas_trabajo() -> None:
     assert node_scene._steal([node_scene._Span(0, 2 * node_scene.MIN_STEAL - 1)]) is None
 
 
+@pytest.mark.lenta
 @needs_node
 @module_loop
 async def test_los_que_se_unen_a_mitad_pintan_lo_mismo_que_uno_solo(
