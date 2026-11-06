@@ -676,6 +676,8 @@ PRODUCED_STATS = {
     "gallos_nochevieja", "gallos_friday13",
     # stats, entrenamiento y muertes (`gallos_stats` y `gallos_train_stats`)
     "gallos_trains", "gallos_train_spent", "gallos_train_dawn", "gallos_trains_day_max",
+    "gallos_form_max", "gallos_edge_wins", "gallos_edge_gain", "gallos_fit_marte",
+    "gallos_tired_fights", "gallos_full_cap", "gallos_tired_death", "gallos_fit_death",
     "gallos_strength_max", "gallos_speed_max", "gallos_endurance_max", "gallos_power_max",
     "gallos_upset", "gallos_deaths", "gallos_kills", "gallos_phoenix",
     "gallos_death_veteran", "gallos_death_debut",

@@ -24,6 +24,8 @@ from bot.repositories.economy import SHOP_ACCOUNT_ID, STATE_ACCOUNT_ID, EconomyR
 from bot.repositories.gallos import GallosRepository
 from bot.services.economy import STARTING_BALANCE, EconomyService
 from bot.services.gallos import (
+    FORM_PER_FIGHT,
+    FORM_PER_TRAIN,
     HOUSE,
     RIVAL_BY_KEY,
     TRAIN_COOLDOWN,
@@ -37,6 +39,7 @@ from bot.services.gallos import (
     default_name,
     duel_prize,
     format_odds,
+    house_odds,
     house_payout,
     pool_payouts,
     train_price,
@@ -530,13 +533,19 @@ async def test_una_hora_de_espera_y_seis_entrenamientos_al_dia(tmp_path: Path) -
     assert books_balance(tmp_path)
 
 
-async def test_un_stat_al_maximo_no_se_entrena(tmp_path: Path) -> None:
+async def test_un_stat_al_maximo_se_entrena_solo_por_la_forma(tmp_path: Path) -> None:
     cog = await make_cog(tmp_path, WIN)
     panel = await open_panel(cog)
     panel.record = await set_stats(cog, strength=100)
     await panel._train(fake_interaction(make_user(OWNER_ID)), Stat.STRENGTH)
-    assert "máximo" in (panel.result or "")
-    assert ledger(tmp_path, OWNER_ID) == []
+    base = train_price(100)
+    assert ledger(tmp_path, OWNER_ID) == [
+        ("tienda:gallos:entreno", -base),
+        ("tienda:igic", -igic(base)),
+    ]
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert record.strength == 100 and record.form == FORM_PER_TRAIN
+    assert f"🔋 Forma 0 → {FORM_PER_TRAIN}" in (panel.result or "")
 
 
 async def test_el_gimnasio_tiene_un_boton_por_stat_con_custom_id_fijo(tmp_path: Path) -> None:
@@ -660,15 +669,30 @@ async def test_el_sorteo_de_la_muerte_se_salva_si_cae_por_encima(
 
 
 @pytest.mark.parametrize(
-    ("endurance", "roll", "dies"), [(0, 0.07, True), (100, 0.07, False), (100, 0.04, True)]
+    ("endurance", "form", "roll", "dies"),
+    [
+        # Agotado (forma 0): del 15 % sin aguante al 7,5 % con aguante 100.
+        (0, 0, 0.14, True),
+        (100, 0, 0.14, False),
+        (100, 0, 0.07, True),
+        # En plena forma, la cuarta parte: el 7 % ya no mata ni sin aguante.
+        (0, 100, 0.07, False),
+        (0, 100, 0.02, True),
+    ],
 )
-async def test_el_aguante_baja_la_probabilidad_de_morir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endurance: int, roll: float, dies: bool
+async def test_el_aguante_y_la_forma_bajan_la_probabilidad_de_morir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    endurance: int,
+    form: int,
+    roll: float,
+    dies: bool,
 ) -> None:
     monkeypatch.setattr(gallos_cog, "simulate", lambda winner, rng: ko_fight(winner))
     cog = await make_cog(tmp_path, LOSE, rng=Scripted(LOSE, roll))
+    cog.wall_clock = lambda: 1_000_000.0
     panel = await open_panel(cog)
-    panel.record = await set_stats(cog, endurance=endurance)
+    panel.record = await set_stats(cog, endurance=endurance, form=form, form_at=1_000_000)
     await panel._fight(fake_interaction(make_user(OWNER_ID)))
     assert bool(await cog.repository.graveyard(GUILD_ID, OWNER_ID)) is dies
 
@@ -756,3 +780,41 @@ def test_las_frases_de_entrenamiento_y_luto_se_arman_sin_huecos() -> None:
         text = line.format(name="Roca", new="Pluma")
         assert "{" not in text and "Pluma" in text
     assert len(gallos_cog.DEATH_LINES) >= 10 and len(gallos_cog.BURIAL_LINES) >= 6
+
+
+# -- Forma ----------------------------------------------------------------------------------
+
+
+async def test_en_forma_contra_un_rival_duro_cobra_la_cuota_con_ventaja_y_gasta_forma(
+    tmp_path: Path,
+) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    panel.rival = RIVAL_BY_KEY["marte"]
+    panel.stake = 1_000
+    flat = house_odds(panel.rival, 0, 0, 1_000)[1]
+    panel.record = await set_stats(cog, form=80, form_at=1_000_000)
+    assert panel.form == 80
+    chance, multiplier = panel.odds()
+    assert multiplier > flat
+    text = panel.description()
+    assert format_odds(multiplier) in text and "🔋" in text and "Ventaja" in text
+    await panel._fight(fake_interaction(make_user(OWNER_ID)))
+    # Detrás va la retención del juego: el premio pasa de lo exento.
+    assert ledger(tmp_path, OWNER_ID)[:2] == [
+        ("gallos:apuesta", -1_000),
+        ("gallos:premio", int(1_000 * multiplier)),
+    ]
+    assert (await cog.repository.get(GUILD_ID, OWNER_ID)).form == 80 - FORM_PER_FIGHT
+    assert books_balance(tmp_path)
+
+
+async def test_entrenar_guarda_la_forma(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    cog.wall_clock = lambda: 1_000_000.0
+    panel = await open_panel(cog)
+    await panel._train(fake_interaction(make_user(OWNER_ID)), Stat.SPEED)
+    record = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert (record.speed, record.form, record.form_at) == (3, FORM_PER_TRAIN, 1_000_000.0)
+    assert f"{FORM_PER_TRAIN}" in panel.gym_text()

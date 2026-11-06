@@ -4,7 +4,8 @@ Tabla `gallos` (en el mismo archivo SQLite que el resto del bot): por servidor
 y miembro, el nombre de su gallo, su historial (`RoosterRecord`: peleas,
 victorias, KO, rachas y el último día que peleó), sus tres stats (fuerza,
 velocidad y aguante, que sí tocan las probabilidades) y lo que necesita el
-entrenamiento (la hora del último y cuántos lleva hoy). Las columnas de los
+entrenamiento (la hora del último y cuántos lleva hoy) y la forma (`form`, guardada
+con su instante `form_at`: la de ahora la calcula `gallos.form_now`). Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
@@ -64,6 +65,8 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         last_train=float(row["last_train"]),
         train_day=date.fromisoformat(train_day) if train_day else None,
         trains_today=int(row["trains_today"]),
+        form=float(row["form"]),
+        form_at=float(row["form_at"]),
     )
 
 
@@ -76,6 +79,8 @@ _NEW_COLUMNS = (
     ("last_train", "REAL NOT NULL DEFAULT 0"),
     ("train_day", "TEXT"),
     ("trains_today", "INTEGER NOT NULL DEFAULT 0"),
+    ("form", "REAL NOT NULL DEFAULT 0"),
+    ("form_at", "REAL NOT NULL DEFAULT 0"),
 )
 
 
@@ -164,21 +169,37 @@ class GallosRepository:
         return _record(row) if row is not None else RoosterRecord(name=default_name(user_id))
 
     async def record_fight(
-        self, guild_id: int, user_id: int, *, won: bool, finish: Finish, day: date
+        self,
+        guild_id: int,
+        user_id: int,
+        *,
+        won: bool,
+        finish: Finish,
+        day: date,
+        now: float | None = None,
     ) -> tuple[RoosterRecord, RoosterRecord]:
         """Apunta una pelea en la ficha del gallo.
+
+        Args:
+            now: Instante de la pelea si gasta forma (contra la casa); `None` si no.
 
         Returns:
             La ficha de antes y la de después.
         """
-        return await self._run(self._record_fight_sync, guild_id, user_id, won, finish, day)
+        return await self._run(self._record_fight_sync, guild_id, user_id, won, finish, day, now)
 
     def _record_fight_sync(
-        self, guild_id: int, user_id: int, won: bool, finish: Finish, day: date
+        self,
+        guild_id: int,
+        user_id: int,
+        won: bool,
+        finish: Finish,
+        day: date,
+        now: float | None,
     ) -> tuple[RoosterRecord, RoosterRecord]:
         with self._connect() as connection:
             before = self._get_in(connection, guild_id, user_id)
-            after = after_fight(before, won=won, finish=finish, day=day)
+            after = after_fight(before, won=won, finish=finish, day=day, now=now)
             self._save_in(connection, guild_id, user_id, after)
         return before, after
 
@@ -202,8 +223,8 @@ class GallosRepository:
             INSERT INTO gallos
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
-                 train_day, trains_today)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 train_day, trains_today, form, form_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -211,7 +232,8 @@ class GallosRepository:
                 last_day = excluded.last_day, strength = excluded.strength,
                 speed = excluded.speed, endurance = excluded.endurance,
                 deaths = excluded.deaths, last_train = excluded.last_train,
-                train_day = excluded.train_day, trains_today = excluded.trains_today
+                train_day = excluded.train_day, trains_today = excluded.trains_today,
+                form = excluded.form, form_at = excluded.form_at
             """,
             (
                 guild_id,
@@ -231,6 +253,8 @@ class GallosRepository:
                 record.last_train,
                 record.train_day.isoformat() if record.train_day else None,
                 record.trains_today,
+                record.form,
+                record.form_at,
             ),
         )
 

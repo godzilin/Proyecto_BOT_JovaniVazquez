@@ -852,22 +852,27 @@ python -m bot
   velocidad y ❤️ aguante) y su *poder* es la media; el aspecto (skins de la
   tienda) no pelea, los stats sí. Con poder 0 se juega como siempre; entrenar
   sube la probabilidad de ganar (`p = sigmoid(logit(p0) + 3·Δpoder/100)`,
-  entre el 3 y el 97 %) y la **cuota se recalcula con cada pelea** (`95 % / p`),
-  así que lo esperado contra la casa sigue siendo el 95 %: entrenar cambia el
-  riesgo, no el margen. En un duelo la ventaja del más entrenado es real
+  entre el 3 y el 97 %) y la **cuota se recalcula con cada pelea** (`RTP / p`).
+  Lo que da margen es la **forma** (🔋, de 0 a 100): cada entrenamiento da +12,
+  cada pelea contra la casa gasta 10 y baja 12 al día. Con forma, la casa paga
+  por encima de su 95 % (hasta un +20 % contra el Gallo de Marte en plena
+  forma, menos cuanto más flojo el rival) sobre la parte de la apuesta que
+  cubre el tope, `2.000 + 150·poder` Y$: quien entrena a diario y pelea en
+  forma contra rivales duros gana dinero, y quien pelea agotado lo pierde
+  (`docs/gallos_sim.py`). En un duelo la ventaja del más entrenado es real
   (es dinero entre jugadores). El botón 🏋️ **Entrenar** abre el gimnasio, con un
-  botón por stat: cuesta `200·(1 + nivel/20)²` Y$ redondeado a la decena (200
-  a 0, 1.800 a 40, 7.200 a 100) y sube +3 por debajo de 40, +2 hasta 70 y +1
-  después. Una hora de descanso entre entrenamientos y 6 al día (día
-  canario). **Entrenar paga IGIC general (7 %)** por una prestación de
+  botón por stat: cuesta `150 + 4·nivel` Y$ redondeado a la decena (150 a 0,
+  310 a 40, 550 a 100) y sube +3 por debajo de 40, +2 hasta 70 y +1
+  después; con el stat al máximo se entrena solo por la forma. Una hora de
+  descanso entre entrenamientos y 6 al día (día canario). **Entrenar paga IGIC general (7 %)** por una prestación de
   servicios hecha en Canarias (art. 4 de la Ley 20/1991; tipo general del
   art. 51 de la Ley 4/2012): la base va a la caja de la tienda, el IGIC al
   Estado, y es un sumidero de dinero. Quien **pierde por KO** (contra la casa o
-  en un duelo) muere con un 10 % de probabilidad, que baja con el aguante
-  hasta el 5 %: su ficha pasa al cementerio (la ficha enseña los tres últimos
-  caídos), el miembro empieza con un gallo nuevo a cero y la skin no se
-  pierde. Morir no mueve dinero. 140 logros en 🐓 Gallos (39 de stats,
-  entrenamiento y muertes). Reglas en `bot.services.gallos`.
+  en un duelo) puede morir: un 10 % que baja con el aguante hasta la mitad y
+  que la forma multiplica de ×1,5 (agotado) a ×0,25 (en plena forma). Su ficha
+  pasa al cementerio (la ficha enseña los tres últimos caídos), el miembro
+  empieza con un gallo nuevo a cero y la skin no se pierde. Morir no mueve
+  dinero. 205 logros en 🐓 Gallos. Reglas en `bot.services.gallos`.
 - **Porras** (`porra`): apuestas entre miembros sobre las próximas jugadas
   de otro. `/porra @ana minas mina 3 500` le monta a Ana una porra: «¿pisa
   alguna mina en sus próximas 3 partidas de al menos 500 Y$?». Nadie puede

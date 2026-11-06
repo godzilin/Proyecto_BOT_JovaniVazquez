@@ -39,9 +39,15 @@ caja de la tienda, el IGIC al Estado y el stat sube en la misma transacción
 (`GallosRepository.train`). Es un sumidero: no crea dinero. Sin IRPF (gastar no
 es renta) y sin retención de juego (no es una apuesta).
 
+**La forma.** El panel enseña la forma del gallo (`gallos.form_now`), la ventaja
+que da contra el rival elegido (`gallos.house_edge`) y hasta qué apuesta llega
+(`gallos.edge_cap`). La cuota de cada pelea sale de `gallos.house_odds` con la
+forma que se ve en el panel, y la pelea gasta forma (`record_fight` con `now`).
+Entrenar da forma. Los duelos no la gastan.
+
 **Morir.** Quien pierde por KO, contra la casa o en un duelo, muere con
-probabilidad `gallos.death_chance` (del 10 % al 5 % según el aguante), sorteada
-con el azar del cog. La ficha pasa al cementerio, el dueño empieza con un gallo
+probabilidad `gallos.death_chance` (baja con el aguante y con la forma),
+sorteada con el azar del cog. La ficha pasa al cementerio, el dueño empieza con un gallo
 nuevo y se cuenta con una línea de luto. Morir no mueve dinero.
 
 Solo se pelea en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
@@ -94,6 +100,9 @@ from bot.services.economy import (
 )
 from bot.services.gallos import (
     DUEL_CUT,
+    FORM_DECAY_PER_DAY,
+    FORM_PER_FIGHT,
+    FORM_PER_TRAIN,
     GAME,
     HOUSE,
     NAME_MAX,
@@ -118,10 +127,12 @@ from bot.services.gallos import (
     draw_winner,
     duel_chance,
     duel_prize,
+    edge_cap,
+    form_now,
     format_odds,
-    house_chance,
+    house_edge,
     house_multiplier,
-    house_payout,
+    house_odds,
     narrate,
     pool_odds,
     pool_payouts,
@@ -294,6 +305,26 @@ def stat_lines(record: RoosterRecord) -> list[str]:
     return lines
 
 
+def form_line(form: int) -> str:
+    """`🔋 Forma ███████░░░ 70`: la forma del gallo con su barra."""
+    return f"🔋 **Forma** `{stat_bar(form)}` {form}"
+
+
+def edge_line(rival: Rival, form: int, power: float) -> str:
+    """Lo que la forma le saca a la casa contra `rival`, y hasta qué apuesta llega."""
+    edge = house_edge(rival, form)
+    if not edge:
+        return (
+            "Sin forma la casa paga su 95 % de siempre. Entrena para ganarle ventaja."
+            if form <= 0
+            else f"{rival.label} es tan flojo que la forma no te da ventaja contra él."
+        )
+    return (
+        f"Ventaja por la forma: +{float(edge) * 100:.1f} % de lo apostado, hasta "
+        f"{format_amount(edge_cap(power))} de apuesta. Cada pelea gasta forma."
+    )
+
+
 def killer_text(fallen: Fallen) -> str:
     """Quién mató a un gallo: el rival de la casa o el gallo de un miembro."""
     if fallen.killer_kind == "casa":
@@ -355,8 +386,8 @@ def fighter_of(owner: Owner, odds: str = "") -> Fighter:
     )
 
 
-def fighter_of_rival(rival: Rival, power: float = 0.0) -> Fighter:
-    """Un gallo de la casa tal como lo pinta la escena, con la cuota para un gallo de `power`."""
+def fighter_of_rival(rival: Rival, multiplier: Fraction) -> Fighter:
+    """Un gallo de la casa tal como lo pinta la escena, con la cuota de la pelea."""
     look = dict(skins.GAMES[SKIN_GAME].defaults)
     look.update(rival.look)
     look["key"] = f"casa_{rival.key}"
@@ -364,7 +395,7 @@ def fighter_of_rival(rival: Rival, power: float = 0.0) -> Fighter:
         name=rival.name,
         tag=rival.origin,
         skin=look,
-        odds=format_odds(rival.multiplier_for(power)),
+        odds=format_odds(multiplier),
     )
 
 
@@ -426,7 +457,7 @@ class HousePanel(ui.View):
         #: Si se ve el gimnasio (🏋️) en lugar del reñidero.
         self.training = False
         #: Qué presentación se ve ahora (rival, nombre, apuesta, poder); `None` si otra imagen.
-        self._poster: tuple[object, str, int, float] | None = None
+        self._poster: tuple[object, str, int, float, int] | None = None
         self.channel: object = None
         self.message: discord.Message | None = None
         self.result: str | None = None
@@ -441,23 +472,34 @@ class HousePanel(ui.View):
         """Poder del gallo del panel (0 a 100)."""
         return self.record.power
 
+    @property
+    def form(self) -> int:
+        """Forma del gallo ahora mismo, redondeada (la que fija la cuota)."""
+        return round(form_now(self.record, self.cog.wall_clock()))
+
+    def odds(self, rival: Rival | None = None) -> tuple[Fraction, Fraction]:
+        """Probabilidad y cuota contra `rival` (el elegido) con la apuesta, poder y forma."""
+        return house_odds(rival or self.rival, self.power, self.form, self.stake)
+
     def description(self) -> str:
         """Texto del embed: tu gallo, el rival elegido y, si lo hay, el último resultado."""
         rival = self.rival
-        chance = rival.chance_for(self.power)
+        chance, multiplier = self.odds()
         lines = []
         if self.result:
             lines.append(self.result)
         lines.append(f"### 🐓 {self.record.name}")
         lines.append(f"-# {record_line(self.record)}")
         lines.append(f"-# {stat_line(self.record)}")
+        lines.append(form_line(self.form))
         lines.append(f"### 🆚 {rival.label}")
         lines.append(f"*{rival.blurb}*")
         lines.append(
-            f"Cuota **{format_odds(rival.multiplier_for(self.power))}** · le ganas el "
+            f"Cuota **{format_odds(multiplier)}** · le ganas el "
             f"{_percent(chance)} de las veces · si ganas, cobras "
-            f"**{format_amount(house_payout(self.stake, rival, self.power))}**"
+            f"**{format_amount(int(self.stake * multiplier))}**"
         )
+        lines.append(f"-# {edge_line(rival, self.form, self.power)}")
         lines.append(
             f"-# Apuesta {format_amount(self.stake)} · Saldo {format_amount(self.balance)}"
         )
@@ -474,10 +516,17 @@ class HousePanel(ui.View):
             lines.append(self.result)
         lines.append(f"### 🏋️ Gimnasio de {self.record.name}")
         lines += stat_lines(self.record)
+        lines.append(form_line(round(form_now(self.record, now))))
         lines.append(
             f"-# Entrenar sube un stat +3 hasta el 40, +2 hasta el 70 y +1 después, sin pasar "
-            f"de {STAT_MAX}. Cuesta lo que marca cada botón (IGIC del "
-            f"{IGIC_GENERAL_RATE * 100:g} % incluido) y sube con el nivel."
+            f"de {STAT_MAX}, y da +{FORM_PER_TRAIN} de forma (un stat al máximo solo da forma). "
+            f"Cuesta lo que marca cada botón (IGIC del {IGIC_GENERAL_RATE * 100:g} % incluido) "
+            "y sube con el nivel."
+        )
+        lines.append(
+            f"-# La forma baja {FORM_DECAY_PER_DAY} al día y cada pelea contra la casa gasta "
+            f"{FORM_PER_FIGHT}. Con forma, la casa paga más contra los rivales duros; agotado, "
+            "tu gallo tiene más papeletas de morir si cae por KO."
         )
         lines.append(
             f"-# Hoy {today}/{TRAIN_PER_DAY} entrenamientos · una hora de descanso entre uno y "
@@ -510,27 +559,25 @@ class HousePanel(ui.View):
         for stat in Stat:
             level = self.record.stat(stat)
             base = train_price(level)
-            full = level >= STAT_MAX
             goes_to = min(STAT_MAX, level + train_gain(level))
             label = (
-                f"{stat.emoji} {stat.label} al máximo"
-                if full
+                f"{stat.emoji} {stat.label} al máximo · forma"
+                if level >= STAT_MAX
                 else f"{stat.emoji} {stat.label} {level} → {goes_to}"
-                f" · {format_amount(base + igic(base))}"
-            )
+            ) + f" · {format_amount(base + igic(base))}"
             self._button(
                 label,
                 f"train_{stat.value}",
                 self._trainer(stat),
                 style=discord.ButtonStyle.primary,
                 row=0,
-                disabled=busy or full or today >= TRAIN_PER_DAY,
+                disabled=busy or today >= TRAIN_PER_DAY,
             )
         self._button("↩️ Volver al reñidero", "train_back", self._leave_gym, row=1, disabled=busy)
         for stat in Stat:
             level = self.record.stat(stat)
             base = train_price(level)
-            if level < STAT_MAX and credit.refusal(base + igic(base)) is None:
+            if credit.refusal(base + igic(base)) is None:
                 self._button(
                     f"{financiar.LABEL} {stat.emoji} {stat.label}",
                     f"financiar_{stat.value}",
@@ -552,16 +599,15 @@ class HousePanel(ui.View):
             custom_id=f"{GAME}:rival",
             options=[
                 discord.SelectOption(
-                    label=f"{r.name} · {format_odds(r.multiplier_for(self.power))}"[:100],
+                    label=f"{r.name} · {format_odds(odds[1])}"[:100],
                     value=r.key,
                     emoji=r.emoji,
-                    description=(
-                        f"Poder {r.power} · le ganas el {_percent(r.chance_for(self.power))}. "
-                        f"{r.blurb}"
-                    )[:100],
+                    description=(f"Poder {r.power} · le ganas el {_percent(odds[0])}. {r.blurb}")[
+                        :100
+                    ],
                     default=r.key == self.rival.key,
                 )
-                for r in HOUSE
+                for r, odds in ((r, self.odds(r)) for r in HOUSE)
             ],
         )
         select.callback = self._choose_rival  # type: ignore[method-assign]
@@ -638,16 +684,20 @@ class HousePanel(ui.View):
             tienda.skin_of(self.cog.bot, self.guild_id, self.owner.id, SKIN_GAME),
         )
 
-    def _meta(self, seed: int, owner: Owner | None = None) -> dict[str, Any]:
-        """La presentación; con `owner` se pinta ese gallo (el que peleó, aunque haya muerto)."""
+    def _meta(
+        self, seed: int, owner: Owner | None = None, multiplier: Fraction | None = None
+    ) -> dict[str, Any]:
+        """La presentación; con `owner` se pinta ese gallo (el que peleó, aunque haya muerto).
+
+        `multiplier` es la cuota de la pelea ya jugada (la de antes de gastar forma).
+        """
         owner = owner or self._owner()
-        rival = self.rival
-        power = owner.record.power
+        multiplier = self.odds()[1] if multiplier is None else multiplier
         return meta_state(
             fighter_of(owner, odds=format_amount(self.stake)),
-            fighter_of_rival(rival, power),
+            fighter_of_rival(self.rival, multiplier),
             title="PELEA DE GALLOS",
-            subtitle=f"Contra la casa · {format_odds(rival.multiplier_for(power))}",
+            subtitle=f"Contra la casa · {format_odds(multiplier)}",
             seed=seed,
         )
 
@@ -657,7 +707,7 @@ class HousePanel(ui.View):
 
     async def repaint(self, interaction: discord.Interaction) -> None:
         """Repinta la presentación, el texto y los botones."""
-        key = (self.rival, self.record.name, self.stake, self.power)
+        key = (self.rival, self.record.name, self.stake, self.power, self.form)
         if key == self._poster:
             # Ya se ve esta misma presentación: subirla otra vez cuesta ~1 s y no cambia nada.
             self.rebuild()
@@ -821,9 +871,16 @@ class HousePanel(ui.View):
 
     async def _train_text(self, training: Training) -> str:
         """El resultado del entrenamiento: lo que sube, una frase y la mordida del IGIC."""
-        stat, after = training.stat, training.after
+        stat, before, after = training.stat, training.before, training.after
+        now = self.cog.wall_clock()
+        form = f"🔋 Forma {round(form_now(before, now))} → {round(form_now(after, now))}"
+        title = (
+            f"{stat.emoji} {stat.label} {before.stat(stat)} → {after.stat(stat)} · {form}"
+            if after.stat(stat) != before.stat(stat)
+            else form
+        )
         lines = [
-            f"# 🏋️ {stat.emoji} {stat.label} {training.before.stat(stat)} → {after.stat(stat)}",
+            f"# 🏋️ {title}",
             random.choice(TRAIN_LINES[stat]).format(name=after.name),
             f"-# 🐶 {TAX_COLLECTOR} se lleva {format_amount(training.tax)} de IGIC "
             f"(tipo general, {IGIC_GENERAL_RATE * 100:g} % de {format_amount(training.base)}). "
@@ -847,6 +904,7 @@ class HousePanel(ui.View):
                 paid=training.total,
                 today=today,
                 when=datetime.now(TIMEZONE),
+                form=round(form_now(training.after, self.cog.wall_clock())),
             ),
         )
 
@@ -917,12 +975,13 @@ class HousePanel(ui.View):
             except InsufficientFundsError as error:
                 return insufficient_text(error.balance, stake)
             rng = self.cog.rng
-            # La probabilidad y la cuota salen del poder que se vio en el panel: la misma
-            # `p` que se sortea es la que fija lo que se cobra, y el margen no cambia.
-            chance = house_chance(rival, self.power)
+            # La probabilidad y la cuota salen del poder y la forma que se vieron en el
+            # panel: la misma `p` que se sortea es la que fija lo que se cobra.
+            form = self.form
+            chance, multiplier = house_odds(rival, self.power, form, stake)
             fight = simulate(draw_winner(chance, rng), rng)
             won = fight.winner is Corner.RED
-            payout = int(stake * house_multiplier(chance)) if won else 0
+            payout = int(stake * multiplier) if won else 0
             settlement = await self.cog.pay(self.guild_id, self.owner.id, payout)
             self.balance = (
                 settlement.balance
@@ -935,6 +994,7 @@ class HousePanel(ui.View):
                 won=won,
                 finish=fight.finish,
                 day=datetime.now(TIMEZONE).date(),
+                now=self.cog.wall_clock(),
             )
             owner = Owner(
                 self.owner,
@@ -943,7 +1003,7 @@ class HousePanel(ui.View):
             )
             self.record = after
             fallen = None
-            if not won and fight.finish is Finish.KO and dies(after, rng):
+            if not won and fight.finish is Finish.KO and dies(after, rng, form):
                 fallen = after
                 self.record = await self.cog.bury(
                     self.guild_id, self.owner.id, killer_kind="casa", killer=rival.key
@@ -957,6 +1017,8 @@ class HousePanel(ui.View):
                 seed=rng.randrange(1, 2**31),
                 owner=owner,
                 chance=chance,
+                multiplier=multiplier,
+                form=form,
                 fallen=fallen,
                 reborn=self.record.name if fallen else None,
             )
@@ -967,7 +1029,7 @@ class HousePanel(ui.View):
         waiting = (
             f"# {random.choice(WAITING_LINES)}\n"
             f"**{game.owner.record.name}** 🆚 **{game.rival.label}** · "
-            f"{format_amount(game.stake)} a {format_odds(house_multiplier(game.chance))}"
+            f"{format_amount(game.stake)} a {format_odds(game.multiplier)}"
         )
         names = {Corner.RED: game.owner.record.name, Corner.BLUE: game.rival.name}
 
@@ -977,7 +1039,7 @@ class HousePanel(ui.View):
             except discord.HTTPException:
                 logger.warning("No se pudo apagar el reñidero", exc_info=True)
 
-        meta = self._meta(game.seed, game.owner)
+        meta = self._meta(game.seed, game.owner, game.multiplier)
         _, media = await asyncio.gather(
             show_waiting(), self.cog.renderer.fight(meta, game.fight, names, seed=game.seed)
         )
@@ -1005,7 +1067,7 @@ class HousePanel(ui.View):
             # Con un gallo muy entrenado contra uno flojo la cuota baja de ×1: ganar sale caro.
             lines.append(
                 f"# 🏆 {random.choice(WIN_LINES)} {format_amount(game.net)}\n"
-                f"Tu gallo gana, pero a {format_odds(house_multiplier(game.chance))} "
+                f"Tu gallo gana, pero a {format_odds(game.multiplier)} "
                 "la casa te devuelve menos de lo apostado. Así de favorito eres."
             )
             lines.append(
@@ -1054,6 +1116,13 @@ class HousePanel(ui.View):
             when=datetime.now(TIMEZONE),
             power=game.owner.record.power,
             died=game.fallen,
+            form=game.form,
+            # Lo que paga de más la forma frente a la cuota de serie con la misma probabilidad.
+            edge_gain=game.payout - int(game.stake * house_multiplier(game.chance))
+            if game.won
+            else 0,
+            full_cap=game.stake == edge_cap(game.owner.record.power)
+            and house_edge(game.rival, game.form) > 0,
         )
         delta.merge(
             casino_stats(stake=game.stake, net=game.net, balance_after=self.balance, tax_delta=tax)
@@ -1092,8 +1161,11 @@ class HouseFight:
     settlement: BetSettlement | None
     seed: int
     owner: Owner
-    #: Probabilidad que tenía tu gallo de ganar (la que fija la cuota).
+    #: Probabilidad que tenía tu gallo de ganar y la cuota que se le pagaba.
     chance: Fraction
+    multiplier: Fraction
+    #: Forma con la que salió a pelear (antes de gastarla).
+    form: int
     #: La ficha del gallo si ha muerto en esta pelea, y el nombre del que lo sustituye.
     fallen: RoosterRecord | None = None
     reborn: str | None = None
@@ -1633,7 +1705,9 @@ class Duel:
                 self._corner_line(Corner.BLUE)
             )
             meta = self.meta()
-            if fight.finish is Finish.KO and dies(self.finals[fight.loser], self.cog.rng):
+            loser_record = self.finals[fight.loser]
+            loser_form = form_now(loser_record, self.cog.wall_clock())
+            if fight.finish is Finish.KO and dies(loser_record, self.cog.rng, loser_form):
                 self.fallen[fight.loser] = self.finals[fight.loser]
                 loser = self.owners[fight.loser]
                 loser.record = await self.cog.bury(
@@ -2034,6 +2108,7 @@ class Gallos(commands.Cog, name="Gallos"):
             f"### 🐓 {record.name}",
             f"Aspecto: {skin.label if skin else '🐓 Gallo colorado (de serie)'}",
             *stat_lines(record),
+            form_line(round(form_now(record, self.wall_clock()))),
             record_line(record),
         ]
         if record.fights:

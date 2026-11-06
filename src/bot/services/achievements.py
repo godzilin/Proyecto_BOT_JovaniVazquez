@@ -1119,6 +1119,11 @@ BACKGAMMON_QUICK_TURNS = 15
 GALLOS_BEAT_PREFIX = "gallos_beat_"
 #: Rivales de la casa ganados con un gallo entrenado (poder `GALLOS_TRAINED_POWER` o más).
 GALLOS_TRAINED_BEAT_PREFIX = "gallos_tbeat_"
+#: Forma con la que se pelea «en forma» (`gallos_fit_marte`), «agotado» al morir
+#: (`gallos_tired_death`) y en lo mejor (`gallos_fit_death`).
+GALLOS_FIT_FORM = 80
+GALLOS_TIRED_FORM = 10
+GALLOS_PEAK_FORM = 90
 #: Un gallo que ya ha ganado esto al morir cuenta como veterano (`gallos_death_veteran`).
 GALLOS_VETERAN_WINS = 50
 #: Se llama sorpresa a ganar con menos probabilidad que esta (`gallos_upset`).
@@ -17979,9 +17984,9 @@ def _build_catalog() -> tuple[Achievement, ...]:
         a += _tiers("gallos", stat, [(1, achievement_id, name, description, C, secret)])
 
     # Stats, entrenamiento y muertes. Entrenar es cuestión de días (una hora de espera y
-    # seis al día) y de dinero (el precio sube con el stat); morir es suerte: ~3 % por pelea
-    # (un 28 % de perderlas por KO por el 10 % de morir), así que la primera muerte llega
-    # a las ~35 peleas y los duelos que acaban en muerte, a una de cada ~70.
+    # seis al día) y de dinero (el precio sube con el stat); morir es suerte: con la forma a
+    # medias, ~3 % por pelea (un 28 % de perderlas por KO por el ~10 % de morir), así que la
+    # primera muerte llega a las ~35 peleas; agotado, antes, y en plena forma, mucho después.
     a += _tiers("gallos", "gallos_trains", [
         (1, "gallos_gym_1", "Primer día de gimnasio",
          "Entrena a tu gallo por primera vez.", C),
@@ -18078,6 +18083,54 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Entrena de madrugada (de 2 a 6).",
          C, True),
     ])  # fmt: skip
+    # La forma (11.x): sube entrenando, se gasta peleando contra la casa y da ventaja contra
+    # los rivales duros. Llegar a 50 es un día de gimnasio; a 100, dos o tres seguidos.
+    a += _tiers("gallos", "gallos_form_max", [
+        (50, "gallos_forma_50", "Pollo al punto",
+         "Lleva la forma de tu gallo a 50.", C),
+        (100, "gallos_forma_100", "En la cresta de la ola",
+         "Lleva la forma de tu gallo a 100.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_edge_wins", [
+        (1, "gallos_ventaja_1", "Ventaja de campo",
+         "Gana a la casa con ventaja por la forma.", C),
+        (25, "gallos_ventaja_25", "Desplumar a la banca",
+         "Gana 25 peleas a la casa con ventaja por la forma.", R),
+        (100, "gallos_ventaja_100", "Contar cartas con plumas",
+         "Gana 100 peleas a la casa con ventaja por la forma.", E),
+        (500, "gallos_ventaja_500", "Vetado en Las Vegas",
+         "Gana 500 peleas a la casa con ventaja por la forma.", L),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_edge_gain", [
+        (10_000, "gallos_ventaja_10000", "Jugo de casino, de el bueno",
+         "Saca 10.000 Y$ de más a la casa gracias a la forma.", R),
+        (100_000, "gallos_ventaja_100000", "Atraco a la casa de papel",
+         "Saca 100.000 Y$ de más a la casa gracias a la forma.", E),
+        (1_000_000, "gallos_ventaja_1m", "Ocean's Pollo",
+         "Saca 1.000.000 Y$ de más a la casa gracias a la forma.", L),
+    ], unit="money")  # fmt: skip
+    a += _tiers("gallos", "gallos_fit_marte", [
+        (1, "gallos_marte_forma", "Aterrizaje en Marte",
+         "Gánale al Gallo de Marte con la forma a 80 o más.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tired_fights", [
+        (1, "gallos_reserva", "Con el depósito en reserva",
+         "Pelea contra la casa con la forma a cero.", C),
+        (50, "gallos_zombi", "Zombi del reñidero",
+         "Pelea 50 veces contra la casa con la forma a cero.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_full_cap", [
+        (1, "gallos_manta", "Hasta donde llega la manta",
+         "Apuesta justo lo que cubre la ventaja de la forma.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tired_death", [
+        (1, "gallos_muerto_cansancio", "Muerto de cansancio",
+         "Que tu gallo muera peleando con la forma a 10 o menos.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_fit_death", [
+        (1, "gallos_mejor_momento", "Se fue en su mejor momento",
+         "Que tu gallo muera peleando con la forma a 90 o más.", E, True),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_train_spent", [
         (10_000, "gallos_cuota_gym", "Cuota del gimnasio",
          "Gasta 10.000 Y$ en entrenar gallos, IGIC incluido.", R),
@@ -18088,7 +18141,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (100_000, "gallos_gym_ayuso", "Gimnasio con sobrecostes",
          "Gasta 100.000 Y$ en entrenar gallos.", E),
         (200_000, "gallos_train_spent_200000", "Preparador olímpico de gallos",
-         "Gasta 200.000 Y$ en entrenar gallos.", E),
+         "Gasta 200.000 Y$ en entrenar gallos.", L),
         (500_000, "gallos_train_spent_500000", "Centro de alto rendimiento avícola",
          "Gasta 500.000 Y$ en entrenar gallos.", M),
         (1_000_000, "gallos_gym_estado", "Gimnasio de Estado",
@@ -26988,6 +27041,9 @@ def gallos_stats(
     power: float = 0.0,
     died: RoosterRecord | None = None,
     killed: bool = False,
+    form: int | None = None,
+    edge_gain: int = 0,
+    full_cap: bool = False,
 ) -> StatDelta:
     """Contadores de una pelea de gallos para uno de los dos dueños (sin lo común del casino).
 
@@ -27007,6 +27063,9 @@ def gallos_stats(
         power: Poder de su gallo en la pelea (0 a 100).
         died: La ficha de su gallo si ha muerto en esta pelea.
         killed: Si en este duelo ha matado al gallo del otro.
+        form: Forma con la que salió a pelear contra la casa (`None` en un duelo).
+        edge_gain: Lo que la forma le ha sumado al premio sobre la cuota de serie.
+        full_cap: Si apostó justo lo que cubre la ventaja (`gallos.edge_cap`), con ventaja.
     """
     won = fight.winner is corner
     mine = corner
@@ -27074,11 +27133,21 @@ def gallos_stats(
         bump("gallos_death_veteran", died.wins >= GALLOS_VETERAN_WINS)
         bump("gallos_death_debut", died.fights == 1)
     bump("gallos_kills", killed)
+    if form is not None:
+        delta.peak["gallos_form_max"] = form
+        bump("gallos_edge_wins", won and edge_gain > 0)
+        bump("gallos_edge_gain", amount=edge_gain if won else 0)
+        bump("gallos_fit_marte", won and rival == "marte" and form >= GALLOS_FIT_FORM)
+        bump("gallos_tired_fights", form == 0)
+        bump("gallos_full_cap", full_cap)
+        if died is not None:
+            bump("gallos_tired_death", form <= GALLOS_TIRED_FORM)
+            bump("gallos_fit_death", form >= GALLOS_PEAK_FORM)
     return delta
 
 
 def gallos_train_stats(
-    *, record: RoosterRecord, paid: int, today: int, when: datetime
+    *, record: RoosterRecord, paid: int, today: int, when: datetime, form: int = 0
 ) -> StatDelta:
     """Contadores de un entrenamiento de gallos (se apuntan después de enseñar el resultado).
 
@@ -27087,6 +27156,7 @@ def gallos_train_stats(
         paid: Lo que ha costado, IGIC incluido.
         today: Entrenamientos que lleva el dueño hoy, este incluido.
         when: Hora local.
+        form: Forma del gallo tras entrenar.
     """
     delta = StatDelta(
         add={"gallos_trains": 1, "gallos_train_spent": paid},
@@ -27096,6 +27166,7 @@ def gallos_train_stats(
             "gallos_endurance_max": record.endurance,
             "gallos_power_max": int(record.power),
             "gallos_trains_day_max": today,
+            "gallos_form_max": form,
         },
     )
     if 2 <= when.hour < 6:
