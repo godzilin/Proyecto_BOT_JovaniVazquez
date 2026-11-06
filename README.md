@@ -1315,11 +1315,21 @@ Tailscale. La imagen compila la página sola (fase `universo` del `Dockerfile`).
 
 Puesta en marcha, una sola vez:
 
-1. **Tailscale** (https://login.tailscale.com, cuenta gratuita):
+1. **Tailscale** (https://login.tailscale.com; vale una red que ya se use para otras
+   cosas, incluso con el propio NAS dentro: el túnel es otro Tailscale, en su
+   contenedor y en modo userspace, y entra como una máquina más, `jovaniverso`):
    - DNS: activar **HTTPS Certificates** (MagicDNS ya viene activado) y apuntar el
      nombre de la red, del tipo `tail1234.ts.net`.
-   - Settings > Keys > **Generate auth key**: sin marcar Reusable ni Ephemeral y
-     sin etiquetas. Copiar la clave (`tskey-auth-…`).
+   - Access controls: dar Funnel a la etiqueta del túnel y que la etiqueta no pueda
+     llegar al resto de la red. Se añade (dentro de `tagOwners` y `nodeAttrs` si ya
+     existen) `"tagOwners": {"tag:jovaniverso": ["autogroup:admin"]}` y
+     `"nodeAttrs": [{"target": ["tag:jovaniverso"], "attr": ["funnel"]}]`, y en la
+     regla general `"src": ["*"]` pasa a `"src": ["autogroup:member"]`: una máquina
+     etiquetada no es un miembro, así que no inicia conexiones hacia los demás.
+   - Settings > Keys > **Generate auth key**: con **Tags** `tag:jovaniverso`, sin
+     Reusable ni Ephemeral. Una máquina etiquetada no caduca. Copiar la clave
+     (`tskey-auth-…`); solo se usa en el primer arranque, así que sus 90 días son
+     el plazo para hacer el paso 4.
 2. **`.env` del NAS**: `DISCORD_CLIENT_SECRET` (el del paso 3), `TS_AUTHKEY` (la del
    paso 1) y `COMPOSE_PROFILES=universo`, que hace que compose arranque el túnel.
    Son secretos o de despliegue: nunca al repositorio.
@@ -1332,10 +1342,8 @@ Puesta en marcha, una sola vez:
      sincronización de comandos falla y el bot no arranca.
    - Activities > URL Mappings: `/` → `jovaniverso.<red>.ts.net`, sin `https://`.
 4. `docker compose up -d --force-recreate`. En el log del bot sale «Servidor del
-   Jovaniverso escuchando en el puerto 8080».
-5. **Tailscale otra vez**, en Machines: a `jovaniverso` le aparece una caducidad.
-   Menú `…` > **Disable key expiry**; si no, a los 180 días se desconecta y el
-   universo se cierra.
+   Jovaniverso escuchando en el puerto 8080», y en Machines de Tailscale aparece
+   `jovaniverso` con la etiqueta y sin caducidad.
 
 Comprobar: `docker exec bot-jovani-vazquez-tunel tailscale funnel status` dice que
 Funnel está activo en `https://jovaniverso.<red>.ts.net`; esa dirección en el
@@ -1344,8 +1352,7 @@ servidor abre la Activity con tu nombre y tu saldo. La primera vez la dirección
 tardar unos minutos en funcionar desde fuera.
 
 Si falla: «funnel not available» en el log del túnel es que la política de acceso de
-Tailscale (Access controls) no da el atributo `funnel` a los miembros; se añade
-`"nodeAttrs": [{"target": ["autogroup:member"], "attr": ["funnel"]}]`. Si la máquina
+Tailscale (Access controls) no da el atributo `funnel` a `tag:jovaniverso`. Si la máquina
 sale como `jovaniverso-1` (ya había una con ese nombre), la URL Mapping tiene que
 llevar ese nombre. Si la Activity se queda en blanco, la URL Mapping no coincide con
 la dirección del túnel. Si dice que Discord no ha aceptado el login, el secreto del
