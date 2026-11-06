@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.48.0 · 2026-11-06
+
+- Loterías: ▶️ Auto y ⚡ Turbo en los rascas, como en las tragaperras
+- Logros: 12 nuevos en 🎟️ Loterías por rascar en Turbo y con Auto
+
 ### 9.47.1 · 2026-11-06
 
 - Jovaniverso: el túnel del NAS pasa a Tailscale Funnel, gratis y sin dominio propio
