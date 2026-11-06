@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.44.1 · 2026-11-06
+
+- Tragaperras: las barras de calor y de bonus corren al principio y se frenan al final
+
 ### 9.44.0 · 2026-11-05
 
 - Rueda: `rueda`, una vuelta gratis al día con dinero, XP, cajas, una colección propia y un título numerado de premio gordo que cambia cada semana

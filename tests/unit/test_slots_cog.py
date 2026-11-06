@@ -1115,7 +1115,7 @@ async def test_la_barra_de_bonus_se_guarda_y_sale_en_la_maquina(tmp_path: Path) 
     await reopened.load_heat(GUILD_ID, OWNER_ID)
     assert reopened.bonus(GUILD_ID, OWNER_ID).points == BONUS_NEAR_MISS
     embed = await make_view(reopened).current_embed()
-    assert any(f.name.startswith("🎁 Bonus") and "3 %" in f.value for f in embed.fields)
+    assert any(f.name.startswith("🎁 Bonus") and "10 %" in f.value for f in embed.fields)
 
 
 async def test_los_giros_gratis_no_llenan_la_barra(tmp_path: Path) -> None:

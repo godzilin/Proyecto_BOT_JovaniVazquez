@@ -39,7 +39,8 @@ y buscados con `docs/calibrar_tragaperras.py`):
   solo antes de llegar a `POT_CAP`.
 - Giros gratis (3 🎟️ en cualquier fila): 1 de cada 122 tiradas.
 - Barra de bonus: se llena cada ~80 tiradas pagadas, de las que ~18 las pasa
-  por encima del 90 % (`add_bonus`).
+  por encima de 90 puntos (`add_bonus`). Se pinta con una curva logarítmica
+  (`bar_fill`): a la vista, ese tramo empieza ya en los 78 puntos.
 - Celebraciones: ÉPICO (×50) 1 de cada ~2.200 tiradas, MEGA (×15) 1 de cada
   ~450 y GRAN PREMIO (×5) 1 de cada ~20.
 """
@@ -182,6 +183,15 @@ BONUS_FREE_SPINS = 3
 DOUBLE_MAX = 5
 #: Segundos sin jugar tras los que la máquina pierde un punto de calor.
 HEAT_DECAY_SECONDS = 600
+#: Curvatura de las barras de calor y de bonus. Se pintan con
+#: `log(1 + k·x) / log(1 + k)`, con `x` la parte llena de verdad: con k = 9, la
+#: mitad de los puntos llena el 74 % de la barra y el 90 % se ve a partir del 78 %.
+#: Lo que cuesta llenarlas no cambia; solo cómo se ven.
+BAR_CURVE = 9
+#: Casillas de la barra de calor: más que `HEAT_MAX` para que cada paso de la
+#: curva se vea (4, 6, 8 y 9 de 10). Con 5, la tercera y la cuarta tirada se
+#: pintarían igual.
+HEAT_CELLS = 10
 #: Apuesta del giro diario gratis por cada día seguido de racha.
 DAILY_STAKE = 100
 #: Días de racha a partir de los que el giro diario ya no sube.
@@ -564,7 +574,8 @@ def add_bonus(
     más con un casi-premio, que así «casi» da algo. A partir de
     `BONUS_SLOW_FROM` sube a cuentagotas (un punto una de cada tres tiradas):
     la barra se queda un buen rato en el 90 y pico, que es cuando más cuesta
-    levantarse. Es el efecto meta (goal gradient) de Hull y de las tarjetas de
+    levantarse. La curva del dibujo (`bar_fill`) alarga ese tramo: a la vista
+    empieza en los 78 puntos. Es el efecto meta (goal gradient) de Hull y de las tarjetas de
     fidelidad: cuanto más cerca del final, más prisa. Llena, da
     `BONUS_FREE_SPINS` giros gratis a la apuesta media y vuelve a cero.
 
@@ -583,17 +594,49 @@ def add_bonus(
     return BonusMeter(), meter.average_stake
 
 
+def bar_fill(value: int, maximum: int) -> float:
+    """Parte de una barra que se ve llena, de 0 a 1, con la curva `BAR_CURVE`.
+
+    Crece deprisa al principio y despacio al final: las primeras tiradas la
+    llenan a la vista mucho más que las últimas, y siempre parece que falta
+    poco. Solo cambia el dibujo; los puntos que hacen falta son los mismos.
+    Llena solo se ve con `value >= maximum`.
+    """
+    if value <= 0:
+        return 0.0
+    if value >= maximum:
+        return 1.0
+    return math.log1p(BAR_CURVE * value / maximum) / math.log1p(BAR_CURVE)
+
+
+def _bar_cells(value: int, maximum: int, width: int) -> int:
+    """Casillas llenas de una barra de `width`: la última solo cuando está llena."""
+    if value >= maximum:
+        return width
+    return min(width - 1, int(bar_fill(value, maximum) * width))
+
+
 def bonus_bar(points: int, width: int = 10) -> str:
-    """Barra de bonus con formas y porcentaje: `▰▰▰▰▰▰▰▱▱▱ 78 %`."""
+    """Barra de bonus con formas y porcentaje: `▰▰▰▰▰▰▰▱▱▱ 74 %`.
+
+    Barra y porcentaje siguen la curva de `bar_fill` (50 puntos se ven como
+    74 %), para que digan lo mismo. El 100 % solo sale con la barra llena.
+    """
     points = max(0, min(BONUS_MAX, points))
-    filled = points * width // BONUS_MAX
-    return "▰" * filled + "▱" * (width - filled) + f" {points * 100 // BONUS_MAX} %"
+    filled = _bar_cells(points, BONUS_MAX, width)
+    percent = 100 if points >= BONUS_MAX else min(99, int(bar_fill(points, BONUS_MAX) * 100))
+    return "▰" * filled + "▱" * (width - filled) + f" {percent} %"
 
 
 def heat_bar(heat: int) -> str:
-    """Barra de calor con formas (no solo colores): `🔥🔥🔥▫️▫️`."""
+    """Barra de calor con formas (no solo colores): `🔥🔥🔥🔥🔥🔥▫️▫️▫️▫️`.
+
+    Tiene `HEAT_CELLS` casillas y sigue la curva de `bar_fill`: la primera
+    tirada con premio enciende 4, y las siguientes, 2, 2 y 1.
+    """
     heat = max(0, min(HEAT_MAX, heat))
-    return "🔥" * heat + "▫️" * (HEAT_MAX - heat)
+    filled = _bar_cells(heat, HEAT_MAX, HEAT_CELLS)
+    return "🔥" * filled + "▫️" * (HEAT_CELLS - filled)
 
 
 def paytable_lines() -> list[str]:
