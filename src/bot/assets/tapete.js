@@ -883,9 +883,91 @@ window.Tapete = (() => {
     g.restore();
   }
 
+  // -- Hielo Negro ------------------------------------------------------------------------------
+  // Camuflaje de esquirlas de hielo: facetas angulosas de negro a blanco azulado, grietas
+  // oscuras con su filo de luz y escarcha. El tapete de premio de la Rueda y las cajas.
+
+  const ICE = ["#03070d", "#0b1d33", "#14365a", "#2a6a9c", "#5fb4e3", "#bfe7fa", "#effaff"];
+  const ICE_WEIGHTS = [0.24, 0.21, 0.18, 0.15, 0.11, 0.08, 0.03];
+  function iceColor(r) {
+    let x = r();
+    for (let i = 0; i < ICE.length; i++) { if ((x -= ICE_WEIGHTS[i]) < 0) return i; }
+    return ICE.length - 1;
+  }
+  function hielo(g, w, h) {
+    const d = Math.hypot(w, h), u = Math.min(w, h), r = rng(1337);
+    g.fillStyle = radial(g, w * 0.45, h * 0.4, 0, w * 0.5, h * 0.5, d * 0.6, [
+      [0, "#2a5a85"], [0.5, "#0f2742"], [1, "#02070f"],
+    ]);
+    g.fillRect(0, 0, w, h);
+    // Rejilla torcida: cada celda son dos triángulos y, a veces, el vecino repite color,
+    // así salen esquirlas grandes y pequeñas, no una malla.
+    const s = u / 5.5, cols = Math.ceil(w / s) + 2, rows = Math.ceil(h / s) + 2;
+    const pts = [];
+    for (let j = 0; j < rows; j++) {
+      pts.push([]);
+      for (let i = 0; i < cols; i++) {
+        pts[j].push([(i - 0.5) * s + (r() - 0.5) * s * 0.8, (j - 0.5) * s + (r() - 0.5) * s * 0.8]);
+      }
+    }
+    let last = 0;
+    for (let j = 0; j < rows - 1; j++) {
+      for (let i = 0; i < cols - 1; i++) {
+        const a = pts[j][i], b = pts[j][i + 1], c = pts[j + 1][i + 1], e = pts[j + 1][i];
+        const tris = r() < 0.5 ? [[a, b, c], [a, c, e]] : [[a, b, e], [b, c, e]];
+        for (const t of tris) {
+          const k = r() < 0.35 ? last : iceColor(r);
+          last = k;
+          const [x0, y0] = t[0], [x2, y2] = t[2];
+          // Brillo de cristal: cada faceta se aclara hacia una esquina.
+          g.fillStyle = linear(g, x0, y0, x2, y2, [[0, ICE[Math.min(k + 1, ICE.length - 1)]], [1, ICE[k]]]);
+          g.globalAlpha = 0.8;
+          g.beginPath(); g.moveTo(...t[0]); g.lineTo(...t[1]); g.lineTo(...t[2]); g.closePath(); g.fill();
+          g.globalAlpha = 1;
+          g.strokeStyle = "rgba(200,240,255,0.12)"; g.lineWidth = Math.max(0.5, u / 700); g.stroke();
+        }
+      }
+    }
+    // Un velo oscuro: que se lean los textos claros de las mesas sobre el hielo.
+    g.fillStyle = "rgba(2,8,18,0.38)"; g.fillRect(0, 0, w, h);
+    // Grietas: caminos quebrados con ramas; negro con un filo claro al lado.
+    const cracks = [];
+    for (let n = 0; n < 7; n++) {
+      let x = r() * w, y = r() * h, a = r() * TAU;
+      const path = [[x, y]];
+      for (let k = 0; k < 9; k++) {
+        a += (r() - 0.5) * 1.2; const l = u * (0.04 + r() * 0.06);
+        x += Math.cos(a) * l; y += Math.sin(a) * l; path.push([x, y]);
+        if (r() < 0.3) {
+          const b = a + (r() < 0.5 ? 1 : -1) * (0.6 + r() * 0.6), bl = u * (0.03 + r() * 0.05);
+          cracks.push([[x, y], [x + Math.cos(b) * bl, y + Math.sin(b) * bl]]);
+        }
+      }
+      cracks.push(path);
+    }
+    g.lineJoin = "miter";
+    for (const [dx, color, width] of [[0, "rgba(0,4,10,0.75)", u / 230], [u / 500, "rgba(215,245,255,0.55)", u / 700]]) {
+      g.strokeStyle = color; g.lineWidth = Math.max(0.5, width);
+      for (const path of cracks) {
+        g.beginPath(); g.moveTo(path[0][0] + dx, path[0][1] - dx);
+        for (const [x, y] of path.slice(1)) g.lineTo(x + dx, y - dx);
+        g.stroke();
+      }
+    }
+    // Escarcha.
+    for (let i = 0; i < w * h / 2200; i++) {
+      sparkle(g, r() * w, r() * h, u * (0.004 + r() * 0.009), `rgba(225,248,255,${0.25 + r() * 0.5})`);
+    }
+    // Doble filete de hielo.
+    g.strokeStyle = "rgba(170,230,255,0.6)"; g.lineWidth = u / 240;
+    g.strokeRect(u * 0.025, u * 0.025, w - u * 0.05, h - u * 0.05);
+    g.strokeStyle = "rgba(10,30,55,0.6)"; g.lineWidth = u / 400;
+    g.strokeRect(u * 0.037, u * 0.037, w - u * 0.074, h - u * 0.074);
+  }
+
   const PATTERNS = {
     oro, israel, espana, canarias, boricua, imagen,
-    kirk, psoe, nodo, diamantes, epstein, falcon, hacienda, corea, gordo, franco,
+    kirk, psoe, nodo, diamantes, epstein, falcon, hacienda, corea, gordo, franco, hielo,
   };
   // Si la skin trae un dibujo que se puede pintar: el de imagen, solo con su imagen ya cargada.
   const painter = (skin) => {

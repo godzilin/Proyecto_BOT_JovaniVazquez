@@ -51,6 +51,7 @@ from bot.services.rueda_render import (
     tension,
 )
 from bot.services.shop_catalog import CATALOG_BY_KEY
+from bot.services.skins import HIELO, SKIN_BY_KEY
 
 IMV_MAX = 1_500
 
@@ -63,7 +64,7 @@ def test_las_porciones_suman_mil_y_dan_cada_premio_su_probabilidad() -> None:
     assert odds == {
         "y300": 190, "y600": 150, "y1000": 90, "y2500": 30, "y5000": 8, "y15000": 2,
         "xp250": 120, "xp1000": 40, "carton": 120, "regalo": 30, "maletin": 5,
-        "chuche": 80, "pieza": 53, "otra": 30, "nada": 50, "expositor": 2,
+        "chuche": 80, "pieza": 53, "otra": 30, "nada": 49, "expositor": 2, "hielo": 1,
     }  # fmt: skip
     assert {w.prize.key for w in wedges} == {p.key for p in PRIZES}
 
@@ -77,7 +78,7 @@ def test_sin_niveles_no_hay_xp_y_el_resto_ocupa_la_rueda() -> None:
 
 def test_las_rayas_son_los_premios_gordos() -> None:
     slivers = {w.prize.key for w in layout() if w.sliver}
-    assert slivers == {"expositor", "y15000", "y5000", "maletin"}
+    assert slivers == {"expositor", "y15000", "y5000", "maletin", "hielo"}
 
 
 def test_lo_que_vale_una_vuelta_esta_fijado() -> None:
@@ -90,6 +91,7 @@ def test_lo_que_vale_una_vuelta_esta_fijado() -> None:
         "caja_regalo": BOX_BY_KEY["caja_regalo"].price,
         "maletin_ministro": BOX_BY_KEY["maletin_ministro"].price,
         TREAT.key: TREAT.price,
+        "skin_tapete_hielo": SKIN_BY_KEY[HIELO].price,
     }
     in_kind = expected_in_kind(prices, piece_value(), TITLES[0].price)
     assert 500 < in_kind < IMV_MAX / 2

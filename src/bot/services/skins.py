@@ -21,6 +21,9 @@ probabilidades, pagos ni tiempos (como las supersticiones de la tienda).
   logro ya estaba (`Tienda.sync_reward_skins`).
 - *Por temporada* (`season`): solo se vende en esos meses; fuera de ellos no
   sale en el escaparate ni se puede pagar. Quien ya la tiene la conserva.
+- *De premio* (`prize`): no se vende (artículo oculto); solo sale en la Rueda
+  (`bot.services.rueda`) y, muy rara vez, en las cajas (`bot.services.lootboxes`).
+  El precio es lo que vale para la Renta, el Rastro y el patrimonio.
 - *Gratis* (`free`): no se vende (artículo oculto; el precio es lo que vale
   para el patrimonio, como en las de logro); la tienda la mete en la mochila
   al abrir el 🎨 de su juego o cuando el juego la pide
@@ -79,6 +82,8 @@ from bot.services.skin_images import SkinImage
 CATALOG_PREFIX = "skin_"
 #: El grupo de los tapetes: sus skins valen en todas las mesas con fieltro.
 TAPETE = "tapete"
+#: El tapete de premio: solo sale en la Rueda y, muy rara vez, en las cajas.
+HIELO = "tapete_hielo"
 
 
 def _frozen(values: Mapping[str, object]) -> Mapping[str, object]:
@@ -158,6 +163,7 @@ class Skin:
         season: Temporada en la que se vende, si es de temporada.
         free: La tiene todo el mundo sin pagar: no se vende y la tienda la
             regala (ver la docstring del módulo).
+        prize: Solo sale de premio (la Rueda y las cajas): no se vende.
         custom: El dibujo lo pone su dueño: cada uno sube su imagen
             (`bot.services.skin_images`) y llega a la escena en el parámetro
             `image` (ver «Imágenes propias» en la docstring del módulo).
@@ -177,6 +183,7 @@ class Skin:
     achievement: str | None = None
     season: Season | None = None
     free: bool = False
+    prize: bool = False
     custom: bool = False
 
     @property
@@ -186,8 +193,8 @@ class Skin:
 
     @property
     def for_sale(self) -> bool:
-        """Si se vende en la tienda (las de logro y las gratis no)."""
-        return self.achievement is None and not self.free
+        """Si se vende en la tienda (las de logro, las gratis y las de premio no)."""
+        return self.achievement is None and not self.free and not self.prize
 
     @property
     def label(self) -> str:
@@ -451,6 +458,19 @@ SKINS: tuple[Skin, ...] = (
         "trim": "rgba(255,214,110,0.55)",
         "ink": "#1c0533",
     }), price=7_000, aisle="cotillon", season=Season("Aniversario", frozenset({10}))),
+    # El de premio: solo sale en la Rueda (una porción de 1 entre 1.000) y, una vez de cada
+    # 50.000, en cualquier caja. El precio es lo que vale para la Renta y el Rastro.
+    Skin("tapete_hielo", "tapete", "🧊", "Tapete Hielo Negro", (
+        "Esquirlas de hielo azul sobre negro, con grietas que brillan, como el camuflaje "
+        "más buscado del Siege. No se vende: solo sale en la Rueda y, muy rara vez, en "
+        "una caja."
+    ), _frozen({
+        "felt": ("#2a5a85", "#0f2742", "#02070f"),
+        "fiber": ("rgba(200,235,255,0.05)", "rgba(0,5,15,0.1)"),
+        "trim": "rgba(160,225,255,0.55)",
+        "ink": "#000000",
+        "pattern": "hielo",
+    }), price=80_000, aisle="lujo", prize=True),
     Skin("tapete_propio", "tapete", "🖼️", "Tapete propio", (
         "Un tapete con la imagen que tú subas con `pieles`: tu cara, tu perro o el "
         "Falcon. Hasta que la subas, fieltro liso. Una por persona; si Bruselas la "
