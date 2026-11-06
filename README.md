@@ -1375,6 +1375,20 @@ un límite de 128 MB: la cuenta de memoria de `docker-compose.yml` no cambia. Si
 de Tailscale se guarda en el volumen `bot-jovani-vazquez-tunel`: `TS_AUTHKEY` solo
 hace falta la primera vez (o si se borra ese volumen).
 
+#### Probar el mundo sin desplegar
+
+El mundo se pinta entero en el navegador, así que se itera en el PC sin tocar el NAS
+ni reiniciar el bot. En `universo/`, `npm ci` la primera vez y luego `npm run dev --
+--host`: Vite abre la página en `http://localhost:5173` y cada vez que guardas un
+archivo se recarga sola en menos de un segundo. Fuera de Discord la página enseña el
+mundo igual (sin login: la píldora pide abrirlo desde Discord). Para probar los
+controles táctiles en el móvil, abre desde el móvil la dirección de red que enseña
+Vite (`http://192.168.x.x:5173`) con el PC y el móvil en la misma wifi.
+
+Solo hace falta desplegar para lo que pasa en el servidor (login, saldo, logros del
+paseo) o para verlo dentro de Discord. Lo de Python no se puede cambiar en caliente:
+el bot instala el paquete en la imagen y cada cambio en `main` sube la versión.
+
 ### Telemetría interna: `informe`
 
 El bot cuenta cuánto se usa cada cosa para poder decidir mejoras con datos: comandos
