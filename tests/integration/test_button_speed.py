@@ -206,6 +206,42 @@ async def press_slots_autoplay(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+async def press_slots_switch(client: BotClient, owner: MagicMock) -> Click:
+    """🔀 Otras tragaperras: elegir el Volcán en el desplegable de la clásica."""
+    await client.hold_win.initialize()
+    client.get_cog("Botes").ahead = False
+    view = slots_view(client, owner)
+    view.stake = 50
+    view.cog.machines.add(view)
+    await view._open_picker(fake_interaction(owner))
+    view.picker._values = ["volcan"]
+
+    async def click(interaction: MagicMock) -> None:
+        await view._pick(interaction)
+
+    return click
+
+
+async def press_botes_switch(client: BotClient, owner: MagicMock) -> Click:
+    """🔀 Otras tragaperras: elegir la clásica en el desplegable de una máquina de Botes."""
+    await client.hold_win.initialize()
+    cog = client.get_cog("Botes")
+    cog.ahead = False
+    client.get_cog("Tragaperras").ahead = False
+    module = module_of(client, "Botes")
+    view = module.HoldWinView(
+        cog, theme=module.THEMES["mina"], guild_id=GUILD_ID, owner=owner, stake=50
+    )
+    cog.machines.add(view)
+    await view._open_picker(fake_interaction(owner))
+    view.picker._values = ["clasica"]
+
+    async def click(interaction: MagicMock) -> None:
+        await view._pick(interaction)
+
+    return click
+
+
 async def picar_view(client: BotClient, owner: MagicMock):  # noqa: ANN201
     """El pozo de `picar` con la calibración ya comprobada y saldo para el pico más caro."""
     cog = client.get_cog("Pico")
@@ -3242,6 +3278,8 @@ CASES: dict[str, Press] = {
     "tragaperras: re-girar": press_slots_respin,
     "tragaperras: doble o nada": press_slots_gamble,
     "tragaperras: giro del día": press_slots_daily,
+    "tragaperras: cambiar a otra máquina": press_slots_switch,
+    "botes: cambiar a otra máquina": press_botes_switch,
     "pachinko: lanzar": press_pachinko_launch,
     "pachinko: auto": press_pachinko_autoplay,
     "pico: picar": press_picar_dig,

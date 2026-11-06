@@ -735,6 +735,133 @@ async def test_auto_de_los_botes_apunta_sus_logros_con_el_bot_real(tmp_path: Pat
         await client.close()
 
 
+async def switch_setup(client: BotClient, *, to_botes: bool, stake: int):  # noqa: ANN201
+    """Una máquina abierta (la clásica o el Mina) y la interacción que elige otra en su 🔀."""
+    await client.hold_win.initialize()
+    slots = importer("Tragaperras", client)
+    botes = importer("Botes", client)
+    slots.REVEAL_MARGIN_SECONDS = 0
+    slots_cog, botes_cog = client.get_cog("Tragaperras"), client.get_cog("Botes")
+    for cog in (slots_cog, botes_cog):
+        cog.ahead = False
+        cog.renderer = MagicMock()
+        cog.renderer.still = AsyncMock(return_value=b"PNG")
+        cog.renderer.close = AsyncMock()
+    owner = MagicMock(spec=discord.Member)
+    owner.id, owner.display_name, owner.bot = OWNER_ID, "Diego", False
+    owner.mention = f"<@{OWNER_ID}>"
+    if to_botes:
+        old = slots.SlotMachineView(slots_cog, guild_id=GUILD_ID, owner=owner, stake=stake)
+    else:
+        old = botes.HoldWinView(
+            botes_cog, theme=botes.THEMES["mina"], guild_id=GUILD_ID, owner=owner, stake=stake
+        )
+    old.cog.machines.add(old)
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = GUILD_ID
+    interaction = fake_interaction(owner)
+    interaction.guild = guild
+    interaction.channel = MagicMock(spec=discord.TextChannel)
+    interaction.channel.send = AsyncMock()
+    interaction.message = MagicMock()
+    return slots, botes, old, interaction
+
+
+async def pick_machine(old, key: str, interaction) -> None:  # noqa: ANN001
+    """Pulsa 🔀 y elige `key` en el desplegable, como haría el dueño."""
+    await old._open_picker(MagicMock(response=fake_interaction().response))
+    old.picker._values = [key]
+    await old._pick(interaction)
+
+
+@pytest.mark.parametrize(
+    ("origin", "target"), [("clasica", "volcan"), ("clasica", "olimpo"), ("mina", "clasica")]
+)
+async def test_otras_tragaperras_cambia_de_maquina_con_el_bot_real(
+    tmp_path: Path, origin: str, target: str
+) -> None:
+    """🔀 abre la otra máquina en el mismo mensaje con la misma apuesta y retira la vieja."""
+    client = await load_bot(tmp_path)
+    try:
+        slots, botes, old, interaction = await switch_setup(
+            client, to_botes=origin == "clasica", stake=50
+        )
+        assert old.machine_key == origin
+        old_cog = old.cog
+        new_cog = client.get_cog("Botes" if target != "clasica" else "Tragaperras")
+
+        await pick_machine(old, target, interaction)
+
+        # El mensaje se edita (no hay mensaje nuevo) con la vista de la máquina elegida.
+        interaction.response.defer.assert_awaited_once()
+        assert all("view" not in call.kwargs for call in interaction.channel.send.await_args_list)
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        new = kwargs["view"]
+        expected = botes.HoldWinView if target != "clasica" else slots.SlotMachineView
+        assert isinstance(new, expected)
+        assert new.machine_key == target
+        assert len(kwargs["attachments"]) == 1
+        # La vieja está parada, fuera de su cog; la nueva, en el del otro.
+        assert old.is_finished()
+        assert old not in old_cog.machines
+        assert new in new_cog.machines
+        assert not new.is_finished()
+        assert new.stake == 50
+        assert new.message is interaction.message
+        # Y cuenta como cambio de máquina.
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats["slots_switches"] == 1
+        assert profile.stats[f"slots_switch_to_{target}"] == 1
+        assert "slots_switch_1" in profile.unlocked
+    finally:
+        await client.close()
+
+
+async def test_la_clasica_con_apuesta_menor_que_la_minima_de_botes_se_abre_con_la_de_defecto(
+    tmp_path: Path,
+) -> None:
+    """Con 5 la clásica cambia a Botes (mínima 10): se abre con la apuesta por defecto."""
+    client = await load_bot(tmp_path)
+    try:
+        slots, botes, old, interaction = await switch_setup(client, to_botes=True, stake=5)
+
+        await pick_machine(old, "volcan", interaction)
+
+        new = interaction.edit_original_response.await_args.kwargs["view"]
+        assert isinstance(new, botes.HoldWinView)
+        assert new.stake == botes.DEFAULT_STAKE != 5
+        assert old.is_finished()
+        assert new in client.get_cog("Botes").machines
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert "slots_switch_1" in profile.unlocked
+    finally:
+        await client.close()
+
+
+async def test_si_la_otra_maquina_no_se_abre_la_vieja_sigue_y_no_hay_logro(
+    tmp_path: Path,
+) -> None:
+    """Sin el cog de Botes cargado: avisa en privado y la máquina vieja se queda como estaba."""
+    client = await load_bot(tmp_path)
+    try:
+        slots, botes, old, interaction = await switch_setup(client, to_botes=True, stake=5)
+        await client.remove_cog("Botes")
+
+        await pick_machine(old, "volcan", interaction)
+
+        assert not old.is_finished()
+        assert old in old.cog.machines
+        assert not old.picking
+        interaction.followup.send.assert_awaited()
+        assert interaction.followup.send.await_args.kwargs["ephemeral"] is True
+        shown = interaction.edit_original_response.await_args.kwargs
+        assert shown["view"] is old
+        profile = await client.achievements.profile(GUILD_ID, OWNER_ID)
+        assert profile.stats.get("slots_switches", 0) == 0
+    finally:
+        await client.close()
+
+
 @pytest.mark.parametrize(
     ("word", "key"), [("volcán", "volcan"), ("mina", "mina"), ("olimpo", "olimpo")]
 )

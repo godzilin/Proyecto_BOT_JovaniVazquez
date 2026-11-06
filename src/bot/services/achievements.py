@@ -4203,7 +4203,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("slots", "slots_switches", [
         (1, "slots_switch_1", "Esta no me da buen rollo",
          "Cambia de tragaperras con 🔀 Otras tragaperras.", C),
-        (25, "slots_switch_25", "Ni contigo ni sin ti", "Cambia de tragaperras 25 veces.", R),
+        (25, "slots_switch_25", "Hoy no es mi máquina", "Cambia de tragaperras 25 veces.", R),
         (100, "slots_switch_100", "El Willy Fog del casino",
          "Cambia de tragaperras 100 veces.", E),
     ])  # fmt: skip
