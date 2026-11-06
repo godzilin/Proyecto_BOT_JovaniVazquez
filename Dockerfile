@@ -8,7 +8,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # Página del Jovaniverso (la Activity de `universo`, carpeta universo/): Vite la
-# compila y a la imagen solo llega el resultado, unos 150 KB. Si esta fase falla,
+# compila y a la imagen solo llega el resultado, ~1,3 MB (three.js y el robot). Si esta fase falla,
 # falla la construcción y actualizar.sh vuelve a la imagen anterior.
 FROM node:22-slim AS universo
 WORKDIR /opt/universo

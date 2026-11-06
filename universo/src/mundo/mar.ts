@@ -70,7 +70,8 @@ void main() {
   vec3 cielo = mix(uHor, uCenit, 0.35);
   vec3 col = mix(cuerpo, cielo, clamp(fres, 0.0, 0.85));
   float brillo = pow(max(dot(reflect(-v, n), uSol), 0.0), 120.0);
-  col += uColSol * brillo * 1.6;
+  // A lo lejos la ola fina se ve a trozos (aliasing): el brillo se apaga con la distancia.
+  col += uColSol * brillo * 1.6 * (1.0 - 0.9 * smoothstep(60.0, 180.0, length(cameraPosition - vW)));
   float f = 1.0 - smoothstep(0.0, 0.4, prof + 0.18 * sin(t * 1.4 + vW.x * 0.9) + 0.12 * sin(t * 1.1 + vW.z * 1.1));
   float rizo = smoothstep(0.2, 0.6, 0.5 + 0.5 * sin(vW.x * 2.7 + vW.z * 2.1 + t * 0.8 + 3.0 * sin(vW.x * 0.9 - vW.z * 1.3 + t * 0.3)));
   float espuma = clamp(f * (0.55 + 0.45 * rizo), 0.0, 1.0);

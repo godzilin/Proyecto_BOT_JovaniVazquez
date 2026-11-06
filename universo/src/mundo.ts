@@ -101,6 +101,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   const ajustar = (): void => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     camara3.aspect = window.innerWidth / window.innerHeight;
+    // En vertical (móvil) se abre el campo vertical para que el ancho no se quede en un túnel.
+    const anchoMedio = Math.tan((25 * Math.PI) / 180) / camara3.aspect;
+    camara3.fov = Math.min(80, Math.max(55, (2 * Math.atan(anchoMedio) * 180) / Math.PI));
     camara3.updateProjectionMatrix();
   };
   ajustar();
