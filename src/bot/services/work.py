@@ -711,9 +711,12 @@ class Contract:
     position_since: float = 0.0
     battery: float = BATTERY_MAX
     battery_at: float = 0.0
-    #: Multiplica la recarga de la batería: más de 1 si vive en su casa de `pisos`
-    #: (emanciparse). Lo pone `WorkService` al leer el contrato; no hace falta guardarlo.
+    #: Los bufos de su casa (`casa`, `home.Tier`): lo que multiplica la recarga de la batería
+    #: y la de la familia y lo que rebaja el desgaste de cada turno. 1 si vive con sus padres o
+    #: le han cortado la luz. Lo pone `WorkService` al leer el contrato; no se guarda.
     home_regen: float = 1.0
+    home_family: float = 1.0
+    home_strain: float = 1.0
     #: Familia en `family_at`; desde entonces se recupera sola (`family_now`).
     family: float = FAMILY_MAX
     family_at: float = 0.0
@@ -801,7 +804,8 @@ class Contract:
 def family_now(contract: Contract, now: float) -> float:
     """Familia en `now`, con lo que se ha recuperado sola desde `family_at`."""
     hours = max(0.0, now - contract.family_at) / 3600
-    return min(float(FAMILY_MAX), contract.family + hours * FAMILY_REGEN_PER_HOUR)
+    regen = FAMILY_REGEN_PER_HOUR * contract.home_family
+    return min(float(FAMILY_MAX), contract.family + hours * regen)
 
 
 def family_tier(family: float) -> FamilyTier:
@@ -821,7 +825,8 @@ def _recharge(contract: Contract, at: float) -> tuple[float, float]:
     if not above or family >= FAMILY_MAX:
         return rate, math.inf
     # Al menos un segundo, para que el redondeo en el borde no deje el bucle quieto.
-    return rate, at + max(1.0, (min(above) - family) / FAMILY_REGEN_PER_HOUR * 3600)
+    regen = FAMILY_REGEN_PER_HOUR * contract.home_family
+    return rate, at + max(1.0, (min(above) - family) / regen * 3600)
 
 
 def battery_now(contract: Contract, now: float) -> float:
@@ -1136,6 +1141,17 @@ def family_cost(
     """Lo que cambia la familia un turno, en total (casi siempre, a peor)."""
     parts = family_breakdown(kind, now, remote=remote, tz=tz, abroad=abroad, late=late)
     return sum(v for _, v in parts)
+
+
+def home_relief(parts: list[tuple[str, int]], strain: float) -> list[tuple[str, int]]:
+    """El desglose de la familia de un turno con lo que rebaja la casa (`casa`).
+
+    Una casa buena hace que cada turno desgaste menos: devuelve la parte `1 - strain` de lo
+    que resta el turno, en su propia línea («casa +2»), para que se vea en el panel.
+    """
+    lost = -sum(v for _label, v in parts if v < 0)
+    relief = round(lost * (1 - strain))
+    return [*parts, ("casa", relief)] if relief > 0 else parts
 
 
 def residence_phase(contract: Contract, now: float) -> str:

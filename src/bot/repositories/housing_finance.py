@@ -58,6 +58,7 @@ TABLES = (
     "housing_vpo_reservations",
     "housing_vpo_draws",
     "housing_homes",
+    "housing_supply_cuts",
     "housing_offers",
     "housing_socimi",
     "housing_deposits",
@@ -140,6 +141,14 @@ CREATE TABLE IF NOT EXISTS housing_homes (
     kind TEXT NOT NULL,
     ref TEXT NOT NULL,
     since REAL NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
+
+-- `casa`: hasta qué día (incluido) está sin luz quien no pudo pagar los suministros.
+CREATE TABLE IF NOT EXISTS housing_supply_cuts (
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    until TEXT NOT NULL,
     PRIMARY KEY (guild_id, user_id)
 );
 
@@ -790,6 +799,28 @@ def clear_home_in(
         connection.execute(
             "DELETE FROM housing_homes WHERE guild_id = ? AND ref = ?", (guild_id, ref)
         )
+
+
+def cut_supplies_in(
+    connection: sqlite3.Connection, guild_id: int, user_id: int, until: date
+) -> None:
+    """Le corta la luz a alguien hasta `until` (incluido): su casa no da bufos (`casa`)."""
+    connection.execute(
+        """
+        INSERT INTO housing_supply_cuts (guild_id, user_id, until) VALUES (?, ?, ?)
+        ON CONFLICT (guild_id, user_id) DO UPDATE SET until = excluded.until
+        """,
+        (guild_id, user_id, until.isoformat()),
+    )
+
+
+def supplies_cut_in(connection: sqlite3.Connection, guild_id: int, user_id: int) -> date | None:
+    """El último día sin luz de alguien (puede ser pasado), o `None` si nunca se la cortaron."""
+    row = connection.execute(
+        "SELECT until FROM housing_supply_cuts WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    ).fetchone()
+    return date.fromisoformat(row[0]) if row is not None else None
 
 
 # -- VPO --------------------------------------------------------------------------------

@@ -132,6 +132,7 @@ from bot.services.horses import Pick as HorsePick
 from bot.services.horses import RaceCard as HorseCard
 from bot.services.horses import RaceResult as HorseResult
 from bot.services.housing import BONO_MAX as HOUSING_BONO_MAX
+from bot.services.housing import HOME_KINDS as HOUSING_HOME_KINDS
 from bot.services.housing import OVERBURDEN as HOUSING_OVERBURDEN
 from bot.services.housing import SHARES as HOUSING_SHARES
 from bot.services.housing_catalog import BARRIO_BY_KEY, LISTING_BY_KEY, ROOM_KIND
@@ -411,6 +412,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("shop", "🛍️ Tienda"),
     Category("rastro", "🧺 Rastro"),
     Category("pisos", "🏠 Pisos"),
+    Category("casa", "🏡 Casa"),
     Category("pets", "🐾 Mascotas"),
     Category("bizum", "🏦 Banco: saldo, Bizum, cuenta y préstamos"),
     Category("economy", "🏛️ Economía y Hacienda"),
@@ -543,6 +545,7 @@ PERFIL_SECTIONS = (
     "gallo",
     "enraya",
     "backgammon",
+    "casa",
 )
 #: Apuestas exactas con logro secreto propio (`casino_bet_<cifra>`), en cualquier juego.
 SECRET_STAKES = (1, 23, 33, 44, 47, 69, 87, 176, 600, 777, 1975, 1978)
@@ -837,6 +840,15 @@ PISOS_BUILDING_PREFIX = "pisos_bldg_"
 PISOS_BUILDINGS_SEEN_STAT = "pisos_buildings_seen"
 PISOS_NEWS_STAT = "pisos_news"
 PISOS_KINDS_STAT = "pisos_kinds"
+
+#: `casa`: una noche en cada tipo de vivienda (`casa_kind_<tipo>`, con `habitacion` y `vpo`);
+#: cuántos distintos, en `with_derived`.
+CASA_KIND_PREFIX = "casa_kind_"
+CASA_KINDS_STAT = "casa_kinds"
+#: Los tipos en los que se puede vivir: las viviendas de `pisos`, una habitación y la VPO.
+CASA_KINDS = (*sorted(HOUSING_HOME_KINDS), "habitacion", "vpo")
+#: El Confort con guasa: noches con justo ese Confort (`casa_comfort_<n>`).
+CASA_FUNNY_COMFORT = (42, 69)
 PISOS_THEMES_STAT = "pisos_themes"
 #: Saldo por debajo del cual comprar te deja «todo en ladrillo».
 PISOS_BROKE_BELOW = 1_000
@@ -947,6 +959,13 @@ BIZUM_LIMIT_STORY = (
 )
 
 #: Discurso del primer ITP del Rastro (`rastro_itp_1`).
+CASA_POWER_STORY = (
+    "⚡ **La luz de casa.** En Canarias la luz de una vivienda con hasta 10 kW contratados "
+    "va al tipo cero del IGIC, así que la factura no lleva IGIC. Lo que sí lleva, como en toda "
+    "España, es el Impuesto Especial sobre la Electricidad: el 5,11 % de lo que gastas (art. 99 "
+    "de la Ley 38/1992). El agua también va al tipo cero; la fibra, al IGIC general del 7 %."
+)
+
 RASTRO_ITP_STORY = (
     "📄 **Modelo 600.** Comprar de segunda mano a otro particular no lleva "
     "IGIC: lleva el Impuesto sobre Transmisiones Patrimoniales, que en Canarias es el "
@@ -8711,6 +8730,121 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a += _tiers("pisos", "pisos_level_changes", [
         (10, "pisos_levels_10", "Reajuste de precios", "Cambia la renta que pides 10 veces.", R),
+    ])  # fmt: skip
+    # 🏡 Casa (`casa`): la vivienda habitual, su Confort y sus suministros.
+    a += _tiers("casa", "casa_nights", [
+        (1, "casa_nights_1", "Emancipación exprés",
+         "Duerme una noche en tu casa: la tuya, tu VPO o de alquiler en la de otro miembro.", C),
+        (7, "casa_nights_7", "Una semana sin tupper", "Duerme 7 noches en tu casa.", R),
+        (30, "casa_nights_30", "Ya no vuelves a por ropa", "Duerme 30 noches en tu casa.", E),
+        (100, "casa_nights_100", "El nido vacío de tus padres",
+         "Duerme 100 noches en tu casa.", L),
+        (365, "casa_nights_365", "Aquí vivo y aquí me quedo",
+         "Duerme 365 noches en tu casa.", M),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_night_habitacion", [
+        (1, "casa_room_1", "Habitación con derecho a cocina",
+         "Duerme una noche de alquiler en una habitación.", C),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_night_alquiler", [
+        (1, "casa_rented_1", "Mi casero es del servidor",
+         "Duerme una noche de alquiler en la vivienda entera de otro miembro.", C),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_night_vpo", [
+        (1, "casa_vpo_1", "Me tocó el piso", "Duerme una noche en tu VPO.", R),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_night_propia", [
+        (1, "casa_own_1", "Mi casa, mis normas", "Duerme una noche en una vivienda tuya.", R),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="casa_ladder",
+        name="Subir la escalera sin ascensor",
+        description="Vive en una habitación, de alquiler en una vivienda entera, en una VPO y en "
+                    "una vivienda tuya.",
+        category="casa",
+        rarity=E,
+        conditions=(("casa_night_habitacion", 1), ("casa_night_alquiler", 1),
+                    ("casa_night_vpo", 1), ("casa_night_propia", 1)),
+    ))  # fmt: skip
+    a += _tiers("casa", "casa_tier", [
+        (2, "casa_tier_apanada", "Apañados vamos",
+         "Vive en una casa 🏚️ Apañada o mejor (Confort 30).", C),
+        (3, "casa_tier_comoda", "Comodín del hogar",
+         "Vive en una casa 🏠 Cómoda o mejor (Confort 45).", R),
+        (4, "casa_tier_hogar", "Hogareño de manual", "Vive en un 🏡 Hogar (Confort 60).", E),
+        (5, "casa_tier_casoplon", "Cribs de Canarias",
+         "Vive en un 🏰 Casoplón (Confort 80).", L),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_tier_low", [
+        (1, "casa_tier_zulo", "Zulo con encanto",
+         "Duerme en una casa con menos de 30 de Confort.", C, True),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_supplies", [
+        (10_000, "casa_supplies_10k", "Recibo domiciliado", "Paga 10.000 Y$ de suministros.", R),
+        (100_000, "casa_supplies_100k", "Accionista involuntario de la eléctrica",
+         "Paga 100.000 Y$ de suministros.", E),
+        (250_000, "casa_supplies_250k", "La luz más cara de la historia",
+         "Paga 250.000 Y$ de suministros.", L),
+    ], unit="money")  # fmt: skip
+    a.append(Achievement(
+        id="casa_power_tax_1",
+        name="Sin IGIC pero con trampa",
+        description="Paga tu primer Impuesto sobre la Electricidad.",
+        category="casa",
+        rarity=C,
+        conditions=(("casa_power_tax", 1),),
+        story=CASA_POWER_STORY,
+    ))  # fmt: skip
+    a += _tiers("casa", "casa_power_tax", [
+        (1_000, "casa_power_tax_1000", "Electrocutado por Hacienda",
+         "Paga 1.000 Y$ de Impuesto sobre la Electricidad.", E),
+    ], unit="money")  # fmt: skip
+    a += _tiers("casa", CASA_KINDS_STAT, [
+        (3, "casa_kinds_3", "Nómada del ladrillo", "Vive en 3 tipos de vivienda distintos.", R),
+        (6, "casa_kinds_6", "Mudanzas a domicilio", "Vive en 6 tipos de vivienda distintos.", E),
+        (10, "casa_kinds_10", "Empadronado en todas partes",
+         "Vive en 10 tipos de vivienda distintos.", L),
+    ])  # fmt: skip
+    a += _tiers("casa", f"{CASA_KIND_PREFIX}cueva", [
+        (1, "casa_cave_1", "Troglodita con wifi", "Duerme una noche en una casa cueva.", C, True),
+    ])  # fmt: skip
+    a += _tiers("casa", f"{CASA_KIND_PREFIX}finca", [
+        (1, "casa_finca_1", "Vuelta al campo", "Duerme una noche en una finca rústica.", R),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_energy_a", [
+        (1, "casa_energy_a_1", "Casa pasiva, factura pasiva",
+         "Duerme una noche en una casa con certificado energético A.", R),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_energy_g", [
+        (1, "casa_energy_g_1", "Nevera con paredes",
+         "Duerme una noche en una casa con certificado energético G.", C, True),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_cuts", [
+        (1, "casa_cut_1", "Cena a la luz de las velas",
+         "Quédate sin luz por no poder pagar los suministros.", C, True),
+        (10, "casa_cut_10", "Abonado a la vela", "Quédate sin luz 10 veces.", E, True),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_comfort_69", [
+        (1, "casa_comfort_69_1", "Cómodamente sesenta y nueve",
+         "Duerme en una casa con exactamente 69 de Confort.", C, True),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_comfort_42", [
+        (1, "casa_comfort_42_1", "La respuesta es la casa",
+         "Duerme en una casa con exactamente 42 de Confort.", C, True),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_open", [
+        (1, "casa_open_1", "Mi casa es tu casa", "Abre el panel de `casa`.", C),
+        (50, "casa_open_50", "Revisando que la puerta esté cerrada",
+         "Abre el panel de `casa` 50 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_look", [
+        (1, "casa_look_1", "Cotilla de portal", "Mira la casa de otro miembro con `casa`.", C),
+        (25, "casa_look_25", "Inspector de visillos",
+         "Mira la casa de otros miembros 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("casa", "casa_open_night", [
+        (1, "casa_open_night_1", "Insomnio en pijama",
+         "Abre el panel de `casa` de madrugada (de 0:00 a 6:00).", C),
     ])  # fmt: skip
     # Fase 5: obra nueva de la rama Ladrillo de `pala`.
     a += _tiers("pisos", "pisos_promotions", [
@@ -23640,6 +23774,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[PISOS_KINDS_STAT] = sum(
         1 for key in HOUSING_KINDS if stats.get(f"{PISOS_KIND_PREFIX}{key}", 0) > 0
     )
+    full[CASA_KINDS_STAT] = sum(
+        1 for key in CASA_KINDS if stats.get(f"{CASA_KIND_PREFIX}{key}", 0) > 0
+    )
     full[PISOS_TENANTS_STAT] = sum(
         1 for t in HOUSING_TENANTS if stats.get(f"{PISOS_TENANT_PREFIX}{t.key}", 0) > 0
     )
@@ -29358,6 +29495,62 @@ def housing_keys_stats(
         add["pisos_term_changes"] = 1
         add[f"{PISOS_TERM_PREFIX}{term}"] = 1
     return StatDelta(add=add, peak=peak)
+
+
+def home_night_stats(
+    *,
+    kind: str,
+    listing_kind: str,
+    energy: str,
+    tier: int,
+    comfort: int,
+    paid: int,
+    power_tax: int,
+    cut: bool,
+) -> StatDelta:
+    """Estadísticas de una noche en casa (`casa`), del cierre de `pisos`.
+
+    Args:
+        kind: Dónde vive: `propia`, `vpo` o `alquiler` (`home.OWN`, `home.VPO`, `home.RENTED`).
+        listing_kind: Tipo de vivienda (`habitacion` si es una habitación; `vpo` en la VPO).
+        energy: Certificado energético.
+        tier: El tramo de su Confort, del peor (1) al mejor (5) (`home.TIER_RANK`).
+        comfort: El Confort.
+        paid: Lo que pagó de suministros.
+        power_tax: Lo que pagó de Impuesto sobre la Electricidad.
+        cut: Si le cortaron la luz por no llegar.
+    """
+    where = "habitacion" if listing_kind == "habitacion" else kind
+    add = {
+        "casa_nights": 1,
+        f"casa_night_{where}": 1,
+        f"{CASA_KIND_PREFIX}{listing_kind}": 1,
+        "casa_supplies": paid,
+        "casa_power_tax": power_tax,
+    }
+    for stat, hit in (
+        ("casa_cuts", cut),
+        ("casa_energy_a", energy == "A"),
+        ("casa_energy_g", energy == "G"),
+        ("casa_tier_low", tier == 1),
+        *((f"casa_comfort_{n}", comfort == n) for n in CASA_FUNNY_COMFORT),
+    ):
+        if hit:
+            add[stat] = 1
+    return StatDelta(add={k: v for k, v in add.items() if v}, peak={"casa_tier": tier})
+
+
+def home_panel_stats(*, own: bool, hour: int) -> StatDelta:
+    """Estadísticas de abrir el panel de `casa`.
+
+    Args:
+        own: Si es su casa (si no, la de otro miembro).
+        hour: Hora local a la que lo abre.
+    """
+    add = {"casa_open" if own else "casa_look": 1}
+    if hour < 6:
+        add["casa_open_night"] = 1
+    return StatDelta(add=add)
 
 
 def housing_day_stats(

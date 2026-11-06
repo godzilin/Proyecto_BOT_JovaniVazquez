@@ -69,7 +69,7 @@ from bot.services.agenda import (
     Agenda,
 )
 from bot.services.economy import EconomyService, InsufficientFundsError
-from bot.services.housing import HOME_REGEN
+from bot.services.home import Tier
 from bot.services.levels import TIMEZONE, local_day
 from bot.services.taxes import (
     EXEMPT_7P_PER_DAY,
@@ -146,6 +146,7 @@ from bot.services.work import (
     family_tier,
     follower_gain,
     holiday,
+    home_relief,
     inspection_chance,
     inspection_surcharge,
     is_night,
@@ -616,7 +617,7 @@ class WorkService:
         clock: Fuente de tiempo (epoch); inyectable en pruebas.
         rng: Azar de minijuegos, accidentes y eventos; inyectable en pruebas.
         housing: `pisos`: quien vive en su casa (o de alquiler en la de otro miembro)
-            recarga la batería más rápido (`housing.HOME_REGEN`). Sin él, como siempre.
+            tiene los bufos de su tramo de `casa` (`home.Tier`). Sin él, como siempre.
 
     Attributes:
         business: El negocio propio (`BusinessLink`); lo pone `BotClient` después de
@@ -655,26 +656,36 @@ class WorkService:
         return self._clock()
 
     async def _contract(self, guild_id: int, user_id: int) -> Contract | None:
-        """El contrato, con la recarga de quien vive en su casa de `pisos`.
+        """El contrato, con los bufos de la casa en la que vive (`casa`).
 
-        Simplificación: la recarga nueva vale desde que se apuntó la batería por última
-        vez, aunque se mudara después.
+        Simplificación: los bufos nuevos valen desde que se apuntó la batería y la familia
+        por última vez, aunque se mudara después.
         """
         contract = await self.repository.contract(guild_id, user_id)
         if contract is not None:
-            contract.home_regen = await self._home_regen(guild_id, user_id)
+            await self._apply_home(guild_id, user_id, contract)
         return contract
 
-    async def _home_regen(self, guild_id: int, user_id: int) -> float:
-        """Lo que multiplica la recarga: `HOME_REGEN` si vive en su casa de `pisos`."""
+    async def home_tier(self, guild_id: int, user_id: int) -> Tier | None:
+        """El tramo de su casa que cuenta ahora, o `None` si vive con sus padres, le han
+        cortado la luz o no se puede leer (todo como siempre)."""
         if self.housing is None:
-            return 1.0
+            return None
         try:
-            home = await self.housing.home_of(guild_id, user_id)
+            status = await self.housing.home_status(guild_id, user_id)
         except (OSError, sqlite3.Error):
             logger.warning("No se pudo mirar la casa de %s en pisos", user_id, exc_info=True)
-            return 1.0
-        return HOME_REGEN if home is not None else 1.0
+            return None
+        if status is None or status.cut(local_day(self.now())):
+            return None
+        return status.comfort.tier
+
+    async def _apply_home(self, guild_id: int, user_id: int, contract: Contract) -> None:
+        tier = await self.home_tier(guild_id, user_id)
+        if tier is not None:
+            contract.home_regen = tier.regen
+            contract.home_family = tier.family
+            contract.home_strain = tier.strain
 
     async def _person(self, guild_id: int, user_id: int) -> Contract:
         """Quien no tiene contrato: uno sin oficio que solo lleva su batería (`work_people`).
@@ -683,13 +694,9 @@ class WorkService:
         """
         saved = await self.repository.person_battery(guild_id, user_id)
         battery, at = saved or (float(BATTERY_MAX), 0.0)
-        return Contract(
-            job="",
-            level=0,
-            battery=battery,
-            battery_at=at,
-            home_regen=await self._home_regen(guild_id, user_id),
-        )
+        person = Contract(job="", level=0, battery=battery, battery_at=at)
+        await self._apply_home(guild_id, user_id, person)
+        return person
 
     def _lock(self, guild_id: int, user_id: int) -> asyncio.Lock:
         key = (guild_id, user_id)
@@ -1136,6 +1143,8 @@ class WorkService:
             abroad=bool(abroad),
             late=shift.late,
         )
+        # Desde Hong Kong no se vuelve a casa al acabar: la casa no rebaja nada.
+        family_parts = home_relief(family_parts, 1.0 if abroad else contract.home_strain)
         intervention = change_family(contract, sum(v for _, v in family_parts), now)
         contract.motivated = False
         if kind is ShiftKind.GUARD:
@@ -1445,7 +1454,9 @@ class WorkService:
         family_before = family_now(contract, now)
         settle(contract, now)
         contract.battery = battery_before - shift_cost(ShiftKind.STUDY)
-        family_parts = family_breakdown(ShiftKind.STUDY, now, late=shift.late)
+        family_parts = home_relief(
+            family_breakdown(ShiftKind.STUDY, now, late=shift.late), contract.home_strain
+        )
         intervention = change_family(contract, sum(v for _, v in family_parts), now)
         contract.motivated = False
         contract.franjas[STUDY] = contract.franjas.get(STUDY, 0) + 1

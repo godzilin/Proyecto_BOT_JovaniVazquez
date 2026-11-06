@@ -23,6 +23,7 @@ desplegable cambia de sección en el mismo mensaje:
 - 🔴 **4 en raya**: la ficha, la racha y los retos de hoy (`Enraya.enraya_embed`).
 - ♟️ **Backgammon**: la ficha, los gammons, la racha y los retos de hoy
   (`Backgammon.backgammon_embed`).
+- 🏡 **Casa**: el Confort de tu vivienda, sus bufos y los suministros (`Casa.home_embed`).
 
 Cada sección la pinta el cog dueño de esos datos y este cog solo la pide con
 `find_cog` (ver Biblia, «Cogs y comandos»). Si un cog no está cargado, su
@@ -54,6 +55,7 @@ from bot.cogs import pets as mascotas
 from bot.cogs import shop as tienda
 from bot.cogs.achievements import Achievements, progress_bar
 from bot.cogs.backgammon import Backgammon
+from bot.cogs.casa import Casa
 from bot.cogs.enraya import Enraya
 from bot.cogs.gallos import Gallos
 from bot.cogs.message_stats import MessageStats
@@ -94,6 +96,7 @@ SECTIONS: tuple[tuple[str, str, str, str], ...] = (
     ("gallo", "🐓", "Gallo", "Tu gallo de pelea y su historial"),
     ("enraya", "🔴", "4 en raya", "Tu ficha, tu racha y los retos de hoy"),
     ("backgammon", "♟️", "Backgammon", "Tu ficha, tus gammons y los retos de hoy"),
+    ("casa", "🏡", "Casa", "Tu casa: Confort, bufos y suministros"),
 )
 SECTION_KEYS = tuple(key for key, *_ in SECTIONS)
 assert SECTION_KEYS == PERFIL_SECTIONS, "el logro «Expediente completo» cuenta estas secciones"
@@ -354,6 +357,11 @@ class Perfil(commands.Cog):
             if backgammon is None:
                 return missing_embed("♟️ Backgammon")
             return await backgammon.backgammon_embed(guild.id, target)
+        if key == "casa":
+            house = find_cog(self.bot, Casa)
+            if house is None:
+                return missing_embed("🏡 Casa")
+            return await house.home_embed(guild.id, target, own=target.id == view.owner.id)
         return await self.summary(view)
 
     async def _stats(self, guild_id: int, user_id: int) -> dict[str, int]:

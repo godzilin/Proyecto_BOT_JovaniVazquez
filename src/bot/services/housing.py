@@ -1643,8 +1643,8 @@ AUCTION_SHARE = 0.7
 #: Vivienda habitual exenta en el Patrimonio hasta 300.000 € (art. 4.Nueve.c de la Ley
 #: 19/1991), a 10 Y$ por euro.
 HOME_WEALTH_EXEMPT = 3_000_000
-#: Emanciparse: la batería de `pala` recarga un 20 % más rápido en tu casa.
-HOME_REGEN = 1.2
+#: Emanciparse: los bufos de vivir en tu casa (la batería, la familia) los da el Confort
+#: de la casa (`bot.services.home`).
 #: El aval de tus padres (favor `aval` de `pala`): el banco suma a tus ingresos la mitad
 #: de la pensión de tu padre, la media de jubilación (unos 1.500 € al mes), porque la otra
 #: mitad la necesitan para vivir. Va a la escala de las nóminas (`WAGE_YAPDOLLARS_PER_EURO`),
