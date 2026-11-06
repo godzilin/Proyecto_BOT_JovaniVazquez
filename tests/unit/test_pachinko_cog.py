@@ -919,7 +919,7 @@ async def test_auto_para_cuando_no_llega_el_saldo(tmp_path: Path, fast_gap: list
     await run_autoplay(view)
 
     assert view.session_volleys == 3
-    assert "no te llega para otra tanda" in last_description(view)
+    assert "no te llega para más tandas" in last_description(view)
     assert await cog.economy.balance(GUILD_ID, OWNER_ID) == STARTING_BALANCE - 900
 
 
