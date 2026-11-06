@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.47.1 · 2026-11-06
+
+- Jovaniverso: el túnel del NAS pasa a Tailscale Funnel, gratis y sin dominio propio
+
 ### 9.47.0 · 2026-11-06
 
 - Fortunas y Hacienda: el casino y el banco, dos ricos más a los que ganar
