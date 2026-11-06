@@ -1,0 +1,18 @@
+{
+  "name": "jovaniverso",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Página del Jovaniverso, la Activity de Discord del bot: entra con la cuenta de Discord y enseña el perfil del jugador.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@discord/embedded-app-sdk": "2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.3.5"
+  }
+}
