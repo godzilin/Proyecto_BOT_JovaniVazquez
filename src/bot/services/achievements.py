@@ -18136,7 +18136,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("gallos", "gallos_combo_max", [
         (3, "gallos_combo_3", "Racha de gimnasio",
          "Encadena 3 sesiones buenas (7 o más) en un día.", C),
-        (6, "gallos_combo_6", "Seis de seis, como los dedos de Ana Bolena",
+        (6, "gallos_combo_6", "El sexto sentido del gimnasio",
          "Encadena 6 sesiones buenas en un día.", R),
     ])  # fmt: skip
     a += _tiers("gallos", "gallos_event_kinds", [

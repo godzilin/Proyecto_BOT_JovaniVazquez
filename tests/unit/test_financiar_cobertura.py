@@ -45,6 +45,8 @@ _ENTRE = "entre miembros: dos podrían inventarse una venta con dinero recién c
 _SOCIEDAD = "lo paga la caja de una sociedad: tiene el préstamo de 🏪 Negocio"
 
 FUERA = {
+    # gallos
+    "bot/cogs/gallos.py::_sabotage": "sabotear el minijuego de otro: es parte del juego",
     # pisos
     "bot/services/housing_market.py::buy": "un inmueble: va con hipoteca",
     "bot/services/housing_market.py::vpo_buy": "un inmueble: va con hipoteca",

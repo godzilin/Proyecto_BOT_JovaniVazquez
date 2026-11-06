@@ -64,8 +64,9 @@ mueve dinero.
 **Morir.** Quien pierde por KO, contra la casa o en un duelo, muere con
 probabilidad `gallos.death_chance` (baja con el aguante y con la forma),
 sorteada con el azar del cog; ☠️ a muerte, seguro. Retirar al gallo (🎖️) lo
-pasa al corral de leyendas y da una cría (`GallosRepository.retire`). La ficha pasa al cementerio, el dueño empieza con un gallo
-nuevo y se cuenta con una línea de luto. Morir no mueve dinero.
+pasa al corral de leyendas y da una cría (`GallosRepository.retire`). Al morir, la
+ficha pasa al cementerio, el dueño empieza con un gallo nuevo y se cuenta con una
+línea de luto. Morir no mueve dinero.
 
 Solo se pelea en los canales del casino que elige `garito` (sin elegir, los de `CASINO_CHANNEL_IDS`)
 y en sus hilos. Permisos del bot en el canal: enviar mensajes, insertar enlaces y adjuntar archivos.

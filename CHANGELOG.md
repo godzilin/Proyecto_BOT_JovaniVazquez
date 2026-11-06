@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.54.0 · 2026-11-06
+
+- Gallos: entrenar con minijuegos da dinero, y llegan sparring, galleras y torneo
+
 ### 9.53.0 · 2026-11-06
 
 - Pisos: el botón 🏗️ Reformas sale en la ficha, también antes de comprar, y dice si puedes reformar o qué te falta
