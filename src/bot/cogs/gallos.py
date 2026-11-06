@@ -479,6 +479,9 @@ class HousePanel(ui.View):
             f"de {STAT_MAX}. Cuesta lo que marca cada botón (IGIC del "
             f"{IGIC_GENERAL_RATE * 100:g} % incluido) y sube con el nivel."
         )
+        prices = [train_price(self.record.stat(s)) for s in Stat if self.record.stat(s) < STAT_MAX]
+        if prices and (hint := financiar.teaser(min(prices) + igic(min(prices)), "gallos")):
+            lines.append(f"-# {hint}.")
         lines.append(
             f"-# Hoy {today}/{TRAIN_PER_DAY} entrenamientos · una hora de descanso entre uno y "
             f"otro · Saldo {format_amount(self.balance)}"

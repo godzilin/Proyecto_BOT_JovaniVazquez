@@ -72,6 +72,7 @@ from bot.services.shop import (
     ShopItem,
     TicketLine,
     cart_preview,
+    emblematic,
     max_quantity,
     quote,
     rate_label,
@@ -134,6 +135,21 @@ def sort_items(items: list[ShopItem], key: str, now: float) -> list[ShopItem]:
     if key == "nombre":
         return sorted(items, key=lambda i: (fold(i.name), i.id))
     return list(items)
+
+
+def _finance_note(lines: list[TicketLine]) -> list[str]:
+    """Qué parte de un carrito mezclado va a plazos y cuál al contado, si se financia."""
+    purchase = financed_purchase(lines)
+    if purchase is None:
+        return []
+    hint = financiar.teaser(purchase.amount, purchase.category)
+    if not purchase.cash:
+        return [f"-# {hint}."] if hint else []
+    return [
+        f"-# {financiar.LABEL}: {format_amount(purchase.amount)} a plazos y "
+        f"{format_amount(purchase.cash)} al contado (lo numerado y los títulos no se financian)."
+        + (f" {hint}." if hint else "")
+    ]
 
 
 def _money_line(total: int, balance: int) -> str:
@@ -323,6 +339,10 @@ class Storefront(ui.LayoutView):
                 f"¡Bienvenido, {_name(self.owner)}! Aquí se gasta lo que te dan el casino y "
                 "el IMV. Elige algo en el desplegable para ver su ficha, o varias cosas para "
                 f"echarlas al carrito. Los precios van sin IGIC: {TAX_COLLECTOR} cobra en caja."
+            )
+            lines.append(
+                "💳 Lo que lleva 💳 se paga a plazos desde la caja o el carrito. "
+                f"Esta semana, **0 % TIN** en {financiar.zero_pitch()}."
             )
         info = [f"{CURRENCY_EMOJI} Saldo de {_name(self.owner)}: {format_amount(self.balance)}"]
         if cart:
@@ -1406,6 +1426,7 @@ class CartPanel(ui.LayoutView):
             # Sin IGIC, como en el escaparate: el impuesto se suma en el ticket de abajo.
             text = (
                 f"{line.qty} × {line.item.emoji} **{line.item.name}** · {format_amount(line.base)}"
+                + (" · al contado" if emblematic(line.item) else " · 💳")
             )
             if (problem := self.problems.get(line.item.id)) is not None:
                 text += f"\n-# ⚠️ {problem}"
@@ -1420,6 +1441,7 @@ class CartPanel(ui.LayoutView):
                         cart_preview(self.ticket),
                         _tax_note(self.ticket),
                         _money_line(total, self.balance),
+                        *_finance_note(self.ticket),
                     ]
                 )
             )
@@ -1519,7 +1541,8 @@ class CartPanel(ui.LayoutView):
             await self.storefront.repaint(reload=True)
 
     async def finance(self, interaction: discord.Interaction) -> None:
-        """💳 Financiar el carrito entero: la oferta lo sustituye (↩️ Volver lo devuelve)."""
+        """💳 Financiar el carrito (lo emblemático, al contado): la oferta lo sustituye (↩️ Volver
+        lo devuelve)."""
         purchase = financed_purchase(self.ticket)
         if purchase is None or self.done or not self.lines:
             await interaction.response.edit_message(view=self)

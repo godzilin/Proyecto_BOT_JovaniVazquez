@@ -8,6 +8,14 @@ criterio.
 
 ## 9.x
 
+### 9.51.0 · 2026-11-06
+
+- Financiar: en el carrito se financia lo que se puede y lo numerado o un título va al contado, sin quitar el botón al resto
+- Financiar: las mejoras de `entrada` y las compras de un negocio de autónomo (mercancía, mejoras, campañas, cursos y el acondicionamiento al montarlo o trasladarlo)
+- Financiar: el 0 % TIN de la semana solo vale para un carrito de un solo pasillo
+- Financiar: lo que se puede financiar lo dice junto al precio (💳 en el escaparate, y en la ficha, la caja, el carrito y cada compra la cuota de Paga en 3 o del 0 % TIN de la semana), y la tienda anuncia qué tiene 0 % TIN esta semana
+- Logros: 4 nuevos en 🏦 Banco por financiar con una parte al contado, una mejora de `entrada` y compras del negocio
+
 ### 9.50.2 · 2026-11-06
 
 - Interno: las pruebas tardan mucho menos (tanda rápida sin las lentas, arranque del bot de prueba cuatro veces más barato) y avisan de las que se alargan
