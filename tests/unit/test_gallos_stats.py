@@ -123,7 +123,7 @@ def test_el_ave_fenix_es_ganar_la_primera_pelea_del_gallo_nuevo_tras_una_muerte(
 
 def test_entrenar_cuenta_gasto_maximos_y_cupo_del_dia() -> None:
     record = RoosterRecord(name="Roca", strength=60, speed=30, endurance=0)
-    delta = gallos_train_stats(record=record, paid=1_284, today=6, when=WHEN)
+    delta = gallos_train_stats(record=record, paid=1_284, today=6, when=WHEN, form=48)
     assert delta.add == {"gallos_trains": 1, "gallos_train_spent": 1_284, "gallos_train_dawn": 1}
     assert delta.peak == {
         "gallos_strength_max": 60,
@@ -131,6 +131,7 @@ def test_entrenar_cuenta_gasto_maximos_y_cupo_del_dia() -> None:
         "gallos_endurance_max": 0,
         "gallos_power_max": 30,
         "gallos_trains_day_max": 6,
+        "gallos_form_max": 48,
     }
     noon = WHEN.replace(hour=12)
     assert (
@@ -144,3 +145,31 @@ def test_apuesta_de_grada() -> None:
     assert won.peak == {"gallos_bet_odds_max": 320}
     refund = gallos_bet_stats(won=True, refunded=True, odds_cents=0, rake=0, when=WHEN)
     assert refund.add["gallos_bet_refund"] == 1 and "gallos_bets_won" not in refund.add
+
+
+def lose_fight() -> Fight:
+    return Fight(BLUE, Finish.KO, (Exchange(3, BLUE, "patada", 100, True, False, (0, 90)),))
+
+
+def test_contra_la_casa_cuenta_la_forma_y_lo_que_saca_la_ventaja() -> None:
+    delta = stats(win_fight(), rival="marte", form=85, edge_gain=320, full_cap=True)
+    for stat, value in (
+        ("gallos_form_max", 85),
+        ("gallos_edge_wins", 1),
+        ("gallos_edge_gain", 320),
+        ("gallos_fit_marte", 1),
+        ("gallos_full_cap", 1),
+    ):
+        assert delta[stat] == value, stat
+    assert "gallos_tired_fights" not in delta
+    tired = stats(win_fight(), rival="falcon", form=0)
+    assert tired["gallos_tired_fights"] == 1 and "gallos_edge_wins" not in tired
+    assert "gallos_form_max" not in stats(win_fight(), rival=None)
+
+
+def test_morir_agotado_o_en_lo_mejor_se_cuentan_aparte() -> None:
+    dead = RoosterRecord(name="Roca", fights=5)
+    tired = stats(lose_fight(), rival="marte", form=5, died=dead)
+    assert tired["gallos_tired_death"] == 1 and "gallos_fit_death" not in tired
+    fit = stats(lose_fight(), rival="marte", form=95, died=dead)
+    assert fit["gallos_fit_death"] == 1 and "gallos_tired_death" not in fit

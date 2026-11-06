@@ -8,16 +8,30 @@ pinta (`bot.services.gallos_scene`); la ficha de cada gallo se guarda en
 (`Stat`: 💪 fuerza, 🪶 velocidad y ❤️ aguante) y su *poder* es la media. Se
 entrenan pagando (`train_price`, `train_gain`, con una hora de espera y un tope
 diario) y deciden quién gana (`win_probability`). Si un gallo pierde por KO
-puede morir (`death_chance`, que baja con el aguante): su ficha pasa al
-cementerio y el dueño empieza con un gallo nuevo, a cero.
+puede morir (`death_chance`, que baja con el aguante y con la forma): su ficha
+pasa al cementerio y el dueño empieza con un gallo nuevo, a cero.
+
+**La forma, lo que hace rentable entrenar.** Cada entrenamiento da forma
+(`FORM_PER_TRAIN`, de 0 a `FORM_MAX`), cada pelea contra la casa gasta
+`FORM_PER_FIGHT` y baja sola con el tiempo (`FORM_DECAY_PER_DAY`, contada por
+horas en `form_now`, sin tareas nocturnas). Con forma, la casa paga por encima
+de su `RTP`: `house_rtp` le suma `house_edge` (hasta `EDGE_MAX` con la forma al
+máximo contra el rival más duro, en proporción a su `difficulty`) sobre la parte
+de la apuesta que cubre `edge_cap`, que crece con el poder. Lo que pasa del tope
+juega al 95 %: apostar más no multiplica lo que se saca, y lo que se puede sacar
+al día lo limita la forma que entra, es decir, los entrenamientos (su tope
+diario). Las cifras salen de `docs/gallos_sim.py`: quien entrena cada día y
+pelea en forma contra rivales duros gana entre 1,5 y 3 veces el IMV al día, el
+que pelea agotado o contra rivales fáciles pierde, y el que no entrena juega al
+95 % de siempre.
 
 **Dos maneras de pelear:**
 
 - *Contra la casa*: tu gallo contra uno de los rivales de `HOUSE`, cada uno con
   la probabilidad de que le gane un gallo sin entrenar (`Rival.chance`). La
-  cuota se recalcula con la probabilidad real de cada pelea (`house_chance`) y
-  devuelve de media el `RTP` (95 %) de lo apostado, como las cuotas de los
-  caballos: entrenar cambia el riesgo, no el margen de la casa.
+  cuota se recalcula con la probabilidad real de cada pelea (`house_odds`) y
+  devuelve de media el `RTP` (95 %) de lo apostado más la ventaja de la forma:
+  los stats cambian el riesgo y la forma, el margen.
 - *Contra otra persona*: los dos ponen lo mismo y el ganador se lleva el bote
   menos la comisión de la casa (`DUEL_CUT`). Entrenar sí da ventaja aquí
   (`win_probability` partiendo de 0,5): es dinero entre jugadores, de suma cero
@@ -105,6 +119,9 @@ TRAIN_CONCEPT = "gallos:entreno"
 
 #: Probabilidad base de morir al perder por KO; el aguante la rebaja hasta la mitad.
 DEATH_CHANCE = 0.10
+#: La forma la multiplica por esto: agotado (forma 0) y en plena forma (100).
+TIRED_DEATH = 1.5
+FIT_DEATH = 0.25
 
 #: Largo máximo del nombre de un gallo.
 NAME_MAX = 24
@@ -312,15 +329,15 @@ HOUSE: tuple[Rival, ...] = (
 RIVAL_BY_KEY: dict[str, Rival] = {r.key: r for r in HOUSE}
 
 
-def house_multiplier(chance: Fraction) -> Fraction:
-    """Cuota de ganar con probabilidad `chance`: devuelve de media el `RTP`.
+def house_multiplier(chance: Fraction, rtp: Fraction = RTP) -> Fraction:
+    """Cuota de ganar con probabilidad `chance`: devuelve de media `rtp` (el `RTP` de serie).
 
     Raises:
         ValueError: Si la probabilidad no está entre 0 y 1 (sin incluirlos).
     """
     if not 0 < chance < 1:
         raise ValueError("La probabilidad tiene que estar entre 0 y 1.")
-    return RTP / chance
+    return rtp / chance
 
 
 def win_probability(p0: Fraction | float, mine: float, theirs: float = 0.0) -> Fraction:
@@ -345,13 +362,15 @@ def win_probability(p0: Fraction | float, mine: float, theirs: float = 0.0) -> F
 MAX_HOUSE_WIN = (RTP / Fraction(101, 100)).limit_denominator(10_000)
 
 
-def house_chance(rival: Rival, power: float) -> Fraction:
+def house_chance(rival: Rival, power: float, rtp: Fraction = RTP) -> Fraction:
     """Probabilidad de que un gallo de `power` le gane a `rival`.
 
-    Con poder 0 es `rival.chance`, tal como era antes de los stats. Acotada a
-    `MAX_HOUSE_WIN`, para que la cuota no baje de ×1,01.
+    Con poder 0 es `rival.chance`, tal como era antes de los stats. Acotada para
+    que la cuota (`rtp / p`) no baje de ×1,01: con el `RTP` de serie, a
+    `MAX_HOUSE_WIN`; con la ventaja de la forma (`house_rtp`), algo más arriba.
     """
-    return min(MAX_HOUSE_WIN, win_probability(rival.chance, power, 0.0))
+    top = MAX_HOUSE_WIN if rtp == RTP else (rtp / Fraction(101, 100)).limit_denominator(10_000)
+    return min(top, win_probability(rival.chance, power, 0.0))
 
 
 def duel_chance(red_power: float, blue_power: float) -> Fraction:
@@ -359,13 +378,125 @@ def duel_chance(red_power: float, blue_power: float) -> Fraction:
     return win_probability(Fraction(1, 2), red_power, blue_power)
 
 
-def house_payout(stake: int, rival: Rival, power: float = 0.0) -> int:
+def house_payout(stake: int, rival: Rival, power: float = 0.0, form: float = 0.0) -> int:
     """Lo que cobra quien le gana a `rival` con `stake` (apuesta incluida, redondeado abajo).
 
-    `power` es el poder de su gallo: la cuota se recalcula con la probabilidad de
-    esa pelea.
+    `power` es el poder de su gallo y `form`, su forma: la cuota se recalcula con
+    la probabilidad de esa pelea y la ventaja de la forma (`house_odds`).
     """
-    return int(stake * rival.multiplier_for(power))
+    return int(stake * house_odds(rival, power, form, stake)[1])
+
+
+# -- Forma y ventaja ---------------------------------------------------------------------
+
+#: Tope de la forma.
+FORM_MAX = 100
+#: Lo que baja la forma cada día sin entrenar (se descuenta por horas, sin tareas nocturnas).
+FORM_DECAY_PER_DAY = 12
+#: Forma que da un entrenamiento de calidad 1 (minijuego a media nota, sin combo).
+FORM_PER_TRAIN = 12
+#: Parte de esa forma que se gana al pagar; el resto depende del minijuego
+#: (`gallos_gym.after_session`): quien lo abandona se queda con esta.
+FORM_ON_PAYMENT = Fraction(1, 2)
+#: Forma que da pagar un entrenamiento.
+PAID_FORM = float(FORM_PER_TRAIN * FORM_ON_PAYMENT)
+#: Forma que gasta cada pelea contra la casa.
+FORM_PER_FIGHT = 10
+#: Lo que la forma al máximo suma al RTP contra el rival más duro (en lo cubierto).
+EDGE_MAX = Fraction(20, 100)
+#: Apuesta cubierta por la ventaja: `EDGE_CAP_BASE + EDGE_CAP_PER_POWER · poder`.
+EDGE_CAP_BASE = 2_000
+EDGE_CAP_PER_POWER = 150
+#: El rival que menos se deja ganar: su dificultad es 1 (la de los demás, proporcional).
+_HARDEST = Fraction(9, 10)
+
+
+def form_now(record: RoosterRecord, now: float) -> float:
+    """La forma del gallo en `now`: la guardada menos lo que ha bajado desde entonces."""
+    lost = max(0.0, now - record.form_at) / 86_400 * FORM_DECAY_PER_DAY
+    return max(0.0, record.form - lost)
+
+
+def with_form(record: RoosterRecord, form: float, now: float) -> RoosterRecord:
+    """La ficha con la forma fijada a `form` (entre 0 y `FORM_MAX`) en el instante `now`."""
+    return replace(record, form=min(float(FORM_MAX), max(0.0, form)), form_at=now)
+
+
+def difficulty(rival: Rival) -> Fraction:
+    """Lo duro que es `rival`, de 0 a 1: la parte de la ventaja que da ganarle."""
+    return (1 - rival.chance) / _HARDEST
+
+
+def house_edge(rival: Rival, form: float) -> Fraction:
+    """Lo que la forma suma al RTP contra `rival`, en la parte de la apuesta cubierta."""
+    level = Fraction(round(min(FORM_MAX, max(0.0, form))), FORM_MAX)
+    return EDGE_MAX * level * difficulty(rival)
+
+
+def edge_cap(power: float) -> int:
+    """Apuesta máxima a la que llega la ventaja de la forma con un gallo de `power`."""
+    return EDGE_CAP_BASE + round(EDGE_CAP_PER_POWER * power)
+
+
+#: ☠️ A muerte: lo que suma al RTP contra el rival más duro (en lo cubierto), a cambio
+#: de que perder por KO mate seguro.
+DEADLY_EDGE = Fraction(10, 100)
+#: El pique: victorias seguidas contra un mismo rival para que se pique, y lo que
+#: multiplica entonces la ventaja de la forma y la probabilidad de morir.
+GRUDGE_WINS = 3
+GRUDGE_EDGE = Fraction(3, 2)
+GRUDGE_DEATH = 1.5
+
+
+def total_edge(
+    rival: Rival, form: float, *, deadly: bool = False, grudge: bool = False
+) -> Fraction:
+    """Lo que se suma al RTP en lo cubierto: la forma (más si el rival está picado) y ☠️."""
+    edge = house_edge(rival, form) * (GRUDGE_EDGE if grudge else 1)
+    if deadly:
+        edge += DEADLY_EDGE * difficulty(rival)
+    return edge
+
+
+def house_rtp(
+    rival: Rival,
+    power: float,
+    form: float,
+    stake: int,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> Fraction:
+    """Lo que devuelve de media una pelea contra `rival` con esa apuesta, poder y forma.
+
+    El `RTP` de serie más la ventaja (`total_edge`: la forma, el pique y ☠️ a
+    muerte) sobre lo cubierto (`edge_cap`): lo que pase del tope juega al 95 %,
+    así que apostar más no multiplica lo que se saca.
+    """
+    if stake <= 0:
+        return RTP
+    covered = min(stake, edge_cap(power))
+    return RTP + total_edge(rival, form, deadly=deadly, grudge=grudge) * covered / stake
+
+
+def house_odds(
+    rival: Rival,
+    power: float,
+    form: float,
+    stake: int,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> tuple[Fraction, Fraction]:
+    """La probabilidad de ganar y la cuota (apuesta incluida) de una pelea contra la casa."""
+    rtp = house_rtp(rival, power, form, stake, deadly=deadly, grudge=grudge)
+    chance = house_chance(rival, power, rtp)
+    return chance, house_multiplier(chance, rtp)
+
+
+def grudge_against(record: RoosterRecord, rival: str) -> bool:
+    """Si `rival` está picado con este gallo (le ha ganado `GRUDGE_WINS` seguidas o más)."""
+    return record.grudge_rival == rival and record.grudge_wins >= GRUDGE_WINS
 
 
 def format_odds(multiplier: Fraction | float) -> str:
@@ -620,6 +751,22 @@ class RoosterRecord:
         train_day: Día canario del último entrenamiento.
         trains_today: Entrenamientos de ese día. La espera y el tope diario son del
             dueño, no del gallo: un gallo nuevo no se salta el cupo.
+        form: Forma guardada en `form_at` (0 a `FORM_MAX`); la de ahora sale de
+            `form_now`, que descuenta lo que baja con el tiempo.
+        form_at: Instante (epoch) en que se guardó `form`.
+        combo: Sesiones buenas seguidas del día `combo_day` (`gallos_gym.after_session`).
+        combo_day: Día canario del combo.
+        injured_until: Instante (epoch) hasta el que el gallo está lesionado y no pelea
+            (0 si no lo está).
+        grudge_rival: Rival de la casa al que le lleva `grudge_wins` victorias seguidas.
+        grudge_wins: Victorias seguidas contra él; desde `GRUDGE_WINS`, está picado.
+        fed_day: Día canario en que otros le echaron de comer por última vez.
+        fed_count: Cuántos le han echado de comer ese día (`gallos_gym.after_feed`).
+        generation: Generación del linaje: 0 el primero, +1 con cada cría de un gallo
+            retirado (`heir`). Morir corta el linaje y vuelve a 0.
+        club_day: Día canario de la forma recibida de su gallera.
+        club_form: Forma recibida ese día (`gallos_torneo.after_club_form`).
+        titles: Torneos del domingo ganados por el dueño (no se pierden al morir).
     """
 
     name: str
@@ -637,6 +784,19 @@ class RoosterRecord:
     last_train: float = 0.0
     train_day: date | None = None
     trains_today: int = 0
+    form: float = 0.0
+    form_at: float = 0.0
+    combo: int = 0
+    combo_day: date | None = None
+    injured_until: float = 0.0
+    grudge_rival: str = ""
+    grudge_wins: int = 0
+    fed_day: date | None = None
+    fed_count: int = 0
+    generation: int = 0
+    club_day: date | None = None
+    club_form: int = 0
+    titles: int = 0
 
     @property
     def losses(self) -> int:
@@ -658,15 +818,20 @@ class TrainError(ValueError):
 
 
 def train_price(level: int) -> int:
-    """Base imponible de entrenar un stat que está en `level`: 200 · (1 + nivel/20)², a la decena.
+    """Base imponible de entrenar un stat que está en `level`: 150 + 4 · nivel, a la decena.
 
-    200 Y$ a 0, 1.800 a 40 y 7.200 a 100. Se escribe en enteros: 200 · (20 + n)² / 400.
+    150 Y$ a 0, 310 a 40 y 550 a 100 (con el stat al máximo se sigue entrenando
+    por la forma, a ese precio). Plano a propósito: cada sesión también da forma,
+    que es lo que hace rentable al gallo, y el mantenimiento diario no puede
+    comerse lo que deja (`docs/gallos_sim.py`).
     """
-    return ((20 + level) ** 2 + 10) // 20 * 10
+    return (150 + 4 * level + 5) // 10 * 10
 
 
 def train_gain(level: int) -> int:
-    """Lo que sube un stat en `level`: +3 por debajo de 40, +2 por debajo de 70 y +1 después."""
+    """Lo que sube un stat en `level`: +3 por debajo de 40, +2 por debajo de 70, +1 hasta 100."""
+    if level >= STAT_MAX:
+        return 0
     return 3 if level < 40 else 2 if level < 70 else 1
 
 
@@ -678,15 +843,12 @@ def trains_today(record: RoosterRecord, day: date) -> int:
 def check_training(record: RoosterRecord, stat: Stat, *, now: float, day: date) -> None:
     """Comprueba que se puede entrenar `stat` ahora.
 
+    Un stat al máximo se puede entrenar: no sube, pero da forma.
+
     Raises:
-        TrainError: Si el stat ya está al máximo, hace falta esperar a la hora
-            de descanso o se ha llegado al tope del día.
+        TrainError: Si hace falta esperar a la hora de descanso o se ha llegado
+            al tope del día.
     """
-    if record.stat(stat) >= STAT_MAX:
-        raise TrainError(
-            f"{stat.emoji} {stat.label} ya está al máximo. Más no se puede: ni el Falcon "
-            "vuela más alto."
-        )
     if trains_today(record, day) >= TRAIN_PER_DAY:
         raise TrainError(
             f"Hoy ya van {TRAIN_PER_DAY} entrenamientos. Hasta Rocky descansaba el domingo."
@@ -700,25 +862,79 @@ def check_training(record: RoosterRecord, stat: Stat, *, now: float, day: date) 
 
 
 def after_train(record: RoosterRecord, stat: Stat, *, now: float, day: date) -> RoosterRecord:
-    """La ficha tras un entrenamiento válido (sube el stat sin pasar de `STAT_MAX`)."""
+    """La ficha tras pagar un entrenamiento: sube el stat (sin pasar de `STAT_MAX`) y la forma.
+
+    Solo la forma que da el pago (`FORM_ON_PAYMENT`); la del minijuego la suma
+    `gallos_gym.after_session` al acabarlo.
+    """
     level = record.stat(stat)
-    return replace(
+    trained = replace(
         record,
         **{stat.column: min(STAT_MAX, level + train_gain(level))},
         last_train=now,
         train_day=day,
         trains_today=trains_today(record, day) + 1,
     )
+    return with_form(trained, form_now(record, now) + PAID_FORM, now)
 
 
-def death_chance(endurance: int) -> float:
-    """Probabilidad de morir al perder por KO: del 10 % (aguante 0) al 5 % (aguante 100)."""
-    return DEATH_CHANCE * (1 - endurance / 200)
+def death_chance(endurance: int, form: float) -> float:
+    """Probabilidad de morir al perder por KO.
+
+    `DEATH_CHANCE` (10 %), rebajada por el aguante hasta la mitad (aguante 100) y
+    multiplicada por la forma, de `TIRED_DEATH` (×1,5, agotado) a `FIT_DEATH`
+    (×0,25, forma al máximo): pelear cansado es lo arriesgado. Sin aguante va
+    del 15 % al 2,5 %; con aguante 100, del 7,5 % al 1,25 %.
+    """
+    tired = TIRED_DEATH - (TIRED_DEATH - FIT_DEATH) * min(FORM_MAX, max(0.0, form)) / FORM_MAX
+    return DEATH_CHANCE * (1 - endurance / 200) * tired
 
 
-def dies(record: RoosterRecord, rng: random.Random) -> bool:
-    """Sortea si el gallo `record` muere tras perder por KO."""
-    return rng.random() < death_chance(record.endurance)
+def dies(
+    record: RoosterRecord,
+    rng: random.Random,
+    form: float,
+    *,
+    deadly: bool = False,
+    grudge: bool = False,
+) -> bool:
+    """Sortea si el gallo `record`, con forma `form`, muere tras perder por KO.
+
+    ☠️ A muerte, muere seguro (sin sorteo); contra un rival picado, la
+    probabilidad se multiplica por `GRUDGE_DEATH`.
+    """
+    if deadly:
+        return True
+    return rng.random() < death_chance(record.endurance, form) * (GRUDGE_DEATH if grudge else 1)
+
+
+#: Perder por KO agotado (forma por debajo de esto) y sobrevivir puede lesionar.
+INJURY_FORM = 20
+#: Probabilidad de lesionarse así y horas que dura la lesión.
+FIGHT_INJURY_CHANCE = 0.25
+INJURY_HOURS = 6
+
+
+def injured(record: RoosterRecord, now: float) -> bool:
+    """Si el gallo está lesionado en `now` (no puede pelear, sí entrenar)."""
+    return record.injured_until > now
+
+
+def injury_text(record: RoosterRecord, now: float) -> str:
+    """El aviso de que no puede pelear, con lo que le queda (en horas o minutos)."""
+    left = max(0.0, record.injured_until - now)
+    time = f"{math.ceil(left / 3600)} h" if left >= 3600 else f"{math.ceil(left / 60)} min"
+    return f"🤕 **{record.name}** está lesionado: no puede pelear hasta dentro de {time}."
+
+
+def injure(record: RoosterRecord, now: float, hours: float = INJURY_HOURS) -> RoosterRecord:
+    """La ficha con una lesión de `hours` horas desde `now` (o la que ya tenía, si dura más)."""
+    return replace(record, injured_until=max(record.injured_until, now + hours * 3600))
+
+
+def fight_injury(form: float, rng: random.Random) -> bool:
+    """Tras perder por KO sin morir: si se lesiona por haber peleado agotado."""
+    return form < INJURY_FORM and rng.random() < FIGHT_INJURY_CHANCE
 
 
 def stat_bar(value: int, width: int = 10) -> str:
@@ -762,8 +978,21 @@ class Fallen:
         return (self.strength + self.speed + self.endurance) / 3
 
 
-def after_fight(record: RoosterRecord, *, won: bool, finish: Finish, day: date) -> RoosterRecord:
-    """La ficha tras una pelea que acaba `finish` el día `day`."""
+def after_fight(
+    record: RoosterRecord,
+    *,
+    won: bool,
+    finish: Finish,
+    day: date,
+    now: float | None = None,
+    rival: str | None = None,
+) -> RoosterRecord:
+    """La ficha tras una pelea que acaba `finish` el día `day`.
+
+    Con `now` (las peleas contra la casa) gasta `FORM_PER_FIGHT` de forma. Con
+    `rival` (la clave del de la casa) lleva el pique: ganarle suma una victoria
+    seguida contra él (o empieza la cuenta, si era otro) y perder la corta.
+    """
     streak = record.streak + 1 if won else 0
     if record.last_day == day:
         day_streak = record.day_streak
@@ -771,8 +1000,18 @@ def after_fight(record: RoosterRecord, *, won: bool, finish: Finish, day: date) 
         day_streak = record.day_streak + 1
     else:
         day_streak = 1
-    return replace(
-        record,
+    fought = (
+        record if now is None else with_form(record, form_now(record, now) - FORM_PER_FIGHT, now)
+    )
+    if rival is not None:
+        if not won:
+            fought = replace(fought, grudge_rival="", grudge_wins=0)
+        elif record.grudge_rival == rival:
+            fought = replace(fought, grudge_wins=record.grudge_wins + 1)
+        else:
+            fought = replace(fought, grudge_rival=rival, grudge_wins=1)
+    played = replace(
+        fought,
         fights=record.fights + 1,
         wins=record.wins + int(won),
         kos=record.kos + int(won and finish is Finish.KO),
@@ -781,6 +1020,7 @@ def after_fight(record: RoosterRecord, *, won: bool, finish: Finish, day: date) 
         day_streak=day_streak,
         last_day=day,
     )
+    return _age(played)
 
 
 def default_name(user_id: int) -> str:
@@ -804,6 +1044,51 @@ def fallen_from(record: RoosterRecord, *, died_at: float, killer_kind: str, kill
     )
 
 
+#: Desde aquí el gallo es veterano y cada `AGE_STEP` peleas pierde 1 de cada stat.
+AGE_FIGHTS = 150
+AGE_STEP = 10
+#: Peleas que hacen falta para retirarlo, y la parte de sus stats que hereda la cría.
+RETIRE_MIN_FIGHTS = 20
+INHERIT_SHARE = Fraction(35, 100)
+
+
+def aged(record: RoosterRecord) -> bool:
+    """Si el gallo ya es veterano (pierde stats con las peleas)."""
+    return record.fights >= AGE_FIGHTS
+
+
+def _age(record: RoosterRecord) -> RoosterRecord:
+    """La ficha tras una pelea de veterano: cada `AGE_STEP` peleas, −1 a cada stat."""
+    past = record.fights - AGE_FIGHTS
+    if past <= 0 or past % AGE_STEP:
+        return record
+    return replace(record, **{s.column: max(0, record.stat(s) - 1) for s in Stat})
+
+
+def retire_error(record: RoosterRecord) -> str | None:
+    """Por qué no se puede retirar el gallo todavía (`None` si se puede)."""
+    if record.fights < RETIRE_MIN_FIGHTS:
+        return (
+            f"Para retirarlo con honores tiene que haber peleado {RETIRE_MIN_FIGHTS} veces "
+            f"(lleva {record.fights})."
+        )
+    return None
+
+
+def heir(record: RoosterRecord, user_id: int) -> RoosterRecord:
+    """La cría de un gallo que se retira: hereda `INHERIT_SHARE` de cada stat.
+
+    Nombre de serie e historial a cero, una generación más y lo que es del dueño
+    (muertes, cupo de entrenamiento y combo del día). Sin forma: es un pollito.
+    """
+    return replace(
+        reborn(record, user_id),
+        deaths=record.deaths,
+        generation=record.generation + 1,
+        **{s.column: int(record.stat(s) * INHERIT_SHARE) for s in Stat},
+    )
+
+
 def reborn(record: RoosterRecord, user_id: int) -> RoosterRecord:
     """La ficha del gallo que sustituye al que muere: nombre de serie, stats e historial a cero.
 
@@ -813,6 +1098,11 @@ def reborn(record: RoosterRecord, user_id: int) -> RoosterRecord:
     return RoosterRecord(
         name=default_name(user_id),
         deaths=record.deaths + 1,
+        combo=record.combo,
+        combo_day=record.combo_day,
+        club_day=record.club_day,
+        club_form=record.club_form,
+        titles=record.titles,
         last_train=record.last_train,
         train_day=record.train_day,
         trains_today=record.trains_today,

@@ -24,6 +24,7 @@ Node libres (`bot.services.node_scene`).
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +43,16 @@ from bot.services.gallos_render import (
     timeline,
 )
 from bot.services.node_scene import NodeScene, patch_png
+from bot.utils.gif import QUANTIZE_THREADS
 
+#: Tamaño del GIF de la pelea: 3/4 de la escena. Pesa menos y en Discord no se nota (el
+#: embed lo enseña más pequeño de todos modos).
+OUT_SIZE = (W * 2 // 3, H * 2 // 3)
 SCENE = Path(__file__).resolve().parent.parent / "assets" / "gallos" / "escena.html"
+
+
+def _shrink(frame: Image.Image) -> Image.Image:
+    return frame.resize(OUT_SIZE, Image.Resampling.BILINEAR)
 
 
 class GallosScene:
@@ -109,6 +118,9 @@ class GallosScene:
 
         def build() -> Media:
             frames: list[Image.Image] = browser_scene.assemble(patches, (W, H))
-            return encode(frames, [ms for _state, ms in steps])
+            # Pillow suelta el GIL al reducir: en varios hilos, como la codificación del GIF.
+            with ThreadPoolExecutor(QUANTIZE_THREADS) as pool:
+                small = list(pool.map(_shrink, frames))
+            return encode(small, [ms for _state, ms in steps])
 
         return await asyncio.to_thread(build)

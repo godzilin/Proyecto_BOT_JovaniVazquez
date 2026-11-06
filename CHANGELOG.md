@@ -8,6 +8,10 @@ criterio.
 
 ## 9.x
 
+### 9.55.0 · 2026-11-06
+
+- Gallos: entrenar con minijuegos da dinero, y llegan sparring, galleras y torneo
+
 ### 9.54.0 · 2026-11-06
 
 - Casa: `casa`, el Confort de tu vivienda da bufos en `pala` y paga suministros

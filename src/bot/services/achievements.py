@@ -110,6 +110,8 @@ from bot.services.gallos import Corner as GallosCorner
 from bot.services.gallos import Fight as GallosFight
 from bot.services.gallos import Finish as GallosFinish
 from bot.services.gallos import RoosterRecord
+from bot.services.gallos_gym import EVENTS as GALLOS_GYM_EVENTS
+from bot.services.gallos_gym import KINDS as GALLOS_GYM_KINDS
 from bot.services.hold_win import EPIC_WIN as HOLD_WIN_EPIC
 from bot.services.hold_win import GRAND_COINS as HOLD_WIN_GRAND
 from bot.services.hold_win import MAJOR_COINS as HOLD_WIN_MAJOR
@@ -1138,6 +1140,11 @@ BACKGAMMON_QUICK_TURNS = 15
 GALLOS_BEAT_PREFIX = "gallos_beat_"
 #: Rivales de la casa ganados con un gallo entrenado (poder `GALLOS_TRAINED_POWER` o más).
 GALLOS_TRAINED_BEAT_PREFIX = "gallos_tbeat_"
+#: Forma con la que se pelea «en forma» (`gallos_fit_marte`), «agotado» al morir
+#: (`gallos_tired_death`) y en lo mejor (`gallos_fit_death`).
+GALLOS_FIT_FORM = 80
+GALLOS_TIRED_FORM = 10
+GALLOS_PEAK_FORM = 90
 #: Un gallo que ya ha ganado esto al morir cuenta como veterano (`gallos_death_veteran`).
 GALLOS_VETERAN_WINS = 50
 #: Se llama sorpresa a ganar con menos probabilidad que esta (`gallos_upset`).
@@ -18126,9 +18133,9 @@ def _build_catalog() -> tuple[Achievement, ...]:
         a += _tiers("gallos", stat, [(1, achievement_id, name, description, C, secret)])
 
     # Stats, entrenamiento y muertes. Entrenar es cuestión de días (una hora de espera y
-    # seis al día) y de dinero (el precio sube con el stat); morir es suerte: ~3 % por pelea
-    # (un 28 % de perderlas por KO por el 10 % de morir), así que la primera muerte llega
-    # a las ~35 peleas y los duelos que acaban en muerte, a una de cada ~70.
+    # seis al día) y de dinero (el precio sube con el stat); morir es suerte: con la forma a
+    # medias, ~3 % por pelea (un 28 % de perderlas por KO por el ~10 % de morir), así que la
+    # primera muerte llega a las ~35 peleas; agotado, antes, y en plena forma, mucho después.
     a += _tiers("gallos", "gallos_trains", [
         (1, "gallos_gym_1", "Primer día de gimnasio",
          "Entrena a tu gallo por primera vez.", C),
@@ -18225,6 +18232,281 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Entrena de madrugada (de 2 a 6).",
          C, True),
     ])  # fmt: skip
+    # La forma (11.x): sube entrenando, se gasta peleando contra la casa y da ventaja contra
+    # los rivales duros. Llegar a 50 es un día de gimnasio; a 100, dos o tres seguidos.
+    # Los minijuegos del gimnasio (11.x): seis distintos, dos por stat, con nota de 0 a 10.
+    # Una nota de 9 o más es «perfecta» (+1 al stat); el mejor jugador saca de media ~7
+    # (`tests/unit/test_gallos_gym.py`), así que una perfecta llega cada pocas sesiones.
+    a += _tiers("gallos", "gallos_drills", [
+        (1, "gallos_minijuego_1", "Calentamiento de gallinero",
+         "Acaba tu primer minijuego de entrenamiento.", C),
+        (25, "gallos_minijuego_25", "Socio del gimnasio",
+         "Acaba 25 minijuegos de entrenamiento.", R),
+        (100, "gallos_minijuego_100", "Monitor de spinning avícola",
+         "Acaba 100 minijuegos de entrenamiento.", E),
+        (500, "gallos_minijuego_500", "Ojo del tigre, cresta del gallo",
+         "Acaba 500 minijuegos de entrenamiento.", L),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_drill_kinds", [
+        (6, "gallos_minijuegos_todos", "Decatlón de corral",
+         "Juega los seis minijuegos de entrenamiento.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_drill_perfect", [
+        (1, "gallos_perfecta_1", "Matrícula de honor en plumas",
+         "Saca una nota perfecta (9 o más) en un minijuego.", C),
+        (25, "gallos_perfecta_25", "Gallo de diez",
+         "Saca 25 notas perfectas en minijuegos.", R),
+        (100, "gallos_perfecta_100", "Ni Nadia Comaneci",
+         "Saca 100 notas perfectas en minijuegos.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_drill_full", [
+        (1, "gallos_pleno", "Más diez que Maradona",
+         "Saca un 10 en un minijuego.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_drill_zero", [
+        (1, "gallos_rosco", "Rosco de Pasapalabra",
+         "Saca un 0 en un minijuego.", C, True),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_combo_max", [
+        (3, "gallos_combo_3", "Racha de gimnasio",
+         "Encadena 3 sesiones buenas (7 o más) en un día.", C),
+        (6, "gallos_combo_6", "El sexto sentido del gimnasio",
+         "Encadena 6 sesiones buenas en un día.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_event_kinds", [
+        (3, "gallos_eventos_3", "Pasan cosas en el gimnasio",
+         "Vive 3 eventos distintos al entrenar.", C),
+        (6, "gallos_eventos_todos", "Cuaderno de bitácora del corral",
+         "Vive los seis eventos distintos al entrenar.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_supplements", [
+        (1, "gallos_suplemento_1", "Batido sin etiqueta",
+         "Tómate el suplemento dudoso del gimnasio.", C),
+        (10, "gallos_suplemento_10", "Farmacia de gimnasio",
+         "Tómate 10 veces el suplemento dudoso.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_supplement_hurt", [
+        (1, "gallos_suplemento_lesion", "Prospecto sin leer",
+         "Lesiónate con el suplemento dudoso.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_supplement_safe", [
+        (5, "gallos_suplemento_suerte", "Caí en la marmita de pequeño",
+         "Tómate el suplemento dudoso 5 veces sin lesionarte.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_supplement_refused", [
+        (1, "gallos_suplemento_no", "Solo agua del grifo",
+         "Rechaza el suplemento dudoso.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_fight_hurt", [
+        (1, "gallos_lesion_pelea", "Parte de baja",
+         "Lesiónate por perder por KO peleando agotado.", C),
+    ])  # fmt: skip
+    # ☠️ A muerte y el pique de los rivales (11.x). A muerte pierde por KO ~la mitad de las
+    # derrotas: con un rival que te gana un tercio de las veces, ~1 muerte cada 6 peleas.
+    a += _tiers("gallos", "gallos_deadly_fights", [
+        (1, "gallos_muerte_1", "Morir con las botas puestas",
+         "Pelea a muerte contra la casa.", C),
+        (25, "gallos_muerte_25", "Kamikaze del corral",
+         "Pelea a muerte 25 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_deadly_wins", [
+        (1, "gallos_muerte_gana_1", "Sobreviviente de la isla",
+         "Gana una pelea a muerte.", C),
+        (10, "gallos_muerte_gana_10", "Los juegos del gallinero",
+         "Gana 10 peleas a muerte.", R),
+        (50, "gallos_muerte_gana_50", "Valar morghulis, menos hoy",
+         "Gana 50 peleas a muerte.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_deadly_deaths", [
+        (1, "gallos_muerte_muere", "Crónica de una muerte anunciada",
+         "Que muera tu gallo en una pelea a muerte.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_grudge_max", [
+        (3, "gallos_pique_3", "Pique de patio de colegio",
+         "Gana 3 seguidas al mismo rival de la casa hasta picarlo.", C),
+        (10, "gallos_pique_10", "Némesis con plumas",
+         "Gana 10 seguidas al mismo rival de la casa.", R),
+        (25, "gallos_pique_25", "El Clásico sin VAR",
+         "Gana 25 seguidas al mismo rival de la casa.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_grudge_wins", [
+        (10, "gallos_pique_gana_10", "Echarle sal a la herida",
+         "Gana 10 peleas a rivales picados contigo.", R),
+    ])  # fmt: skip
+    # Lo social del reñidero (11.x): echar de comer al gallo de otro (3 al día por gallo),
+    # animar y sabotear su minijuego y entrenarlo en su lugar.
+    a += _tiers("gallos", "gallos_fed_others", [
+        (1, "gallos_comer_1", "Vecino del quinto con gofio",
+         "Échale de comer al gallo de otro miembro.", C),
+        (25, "gallos_comer_25", "Comedor social del corral",
+         "Échales de comer a gallos de otros 25 veces.", R),
+        (100, "gallos_comer_100", "Banco de alimentos avícola",
+         "Échales de comer a gallos de otros 100 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_fed_by_others", [
+        (10, "gallos_mantenido", "Mantenido por el barrio",
+         "Que otros le echen de comer a tu gallo 10 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_cheers", [
+        (1, "gallos_animar_1", "Hooligan del gimnasio",
+         "Anima el minijuego de otro miembro.", C),
+        (50, "gallos_animar_50", "Animadora de la NBA del corral",
+         "Anima 50 minijuegos de otros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotages", [
+        (1, "gallos_sabotaje_1", "Cáscara de plátano",
+         "Sabotea el minijuego de otro miembro.", C, True),
+        (10, "gallos_sabotaje_10", "Mario Kart con plumas",
+         "Sabotea 10 minijuegos de otros.", R, True),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotaged", [
+        (1, "gallos_saboteado", "Concha azul en la última vuelta",
+         "Que te saboteen un minijuego.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sabotaged_perfect", [
+        (1, "gallos_saboteado_perfecto", "A prueba de bombas",
+         "Saca una nota perfecta en un minijuego saboteado.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_coached", [
+        (1, "gallos_entrenador_1", "Míster de barrio",
+         "Juega el minijuego del gallo de otro miembro.", C),
+        (25, "gallos_entrenador_25", "Cholismo de corral",
+         "Juega 25 minijuegos de gallos de otros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_coached_perfect", [
+        (5, "gallos_entrenador_top", "El Guardiola del gallinero",
+         "Saca 5 notas perfectas jugando el minijuego de otros.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparrings", [
+        (1, "gallos_sparring_1", "Guantes de sparring",
+         "Haz un sparring de pulso con otro miembro.", C),
+        (25, "gallos_sparring_25", "Compañero de gimnasio",
+         "Haz 25 sparrings con otros miembros.", R),
+        (100, "gallos_sparring_100", "Club de la lucha (de eso no se habla)",
+         "Haz 100 sparrings con otros miembros.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparring_wins", [
+        (1, "gallos_sparring_gana_1", "Brazo de hierro",
+         "Gana un sparring de pulso.", C),
+        (25, "gallos_sparring_gana_25", "Over the Top con espolones",
+         "Gana 25 sparrings de pulso.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_sparring_shutout", [
+        (1, "gallos_sparring_paliza", "Cinco a cero, manita",
+         "Gana un sparring sin perder ni empatar ningún asalto.", R, True),
+    ])  # fmt: skip
+    # Edad, retiro y cría (11.x): veterano a las 150 peleas de un mismo gallo; retirarlo pide
+    # 20 y su cría hereda el 35 % de sus stats.
+    a += _tiers("gallos", "gallos_rooster_fights_max", [
+        (150, "gallos_veterano", "Gallo de la vieja guardia",
+         "Llega a 150 peleas con un mismo gallo.", R),
+        (300, "gallos_matusalen", "Matusalén con espolones",
+         "Llega a 300 peleas con un mismo gallo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_retired", [
+        (1, "gallos_retiro_1", "Jubilación dorada en Benidorm",
+         "Retira un gallo con honores.", C),
+        (5, "gallos_retiro_5", "Residencia de la tercera pluma",
+         "Retira 5 gallos con honores.", R),
+        (20, "gallos_retiro_20", "Salón de la Fama del corral",
+         "Retira 20 gallos con honores.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_retired_champion", [
+        (1, "gallos_retiro_campeon", "Despedida en el Bernabéu",
+         "Retira un gallo con 100 victorias o más.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_generation_max", [
+        (1, "gallos_cria_1", "De tal palo, tal pollito",
+         "Ten la cría de un gallo retirado.", C),
+        (3, "gallos_cria_3", "La saga de los Gallo",
+         "Llega a la cuarta generación de un linaje de gallos.", R),
+        (10, "gallos_cria_10", "Casa Targaryen del corral",
+         "Llega a la undécima generación de un linaje de gallos.", L),
+    ])  # fmt: skip
+    # Galleras y el torneo del domingo (11.x): el torneo es semanal y lo juegan los 8 gallos
+    # más fuertes del servidor que han peleado esa semana.
+    a += _tiers("gallos", "gallos_clubs_founded", [
+        (1, "gallos_gallera_funda", "Primera piedra del gallinero",
+         "Funda una gallera.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_clubs_joined", [
+        (1, "gallos_gallera_entra", "Carné de socio",
+         "Entra en la gallera de otro miembro.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_club_size_max", [
+        (5, "gallos_gallera_llena", "Los cinco del corral",
+         "Entra en una gallera que se queda con los cinco miembros.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournaments", [
+        (1, "gallos_torneo_1", "Invitado al baile",
+         "Juega el torneo del domingo.", R),
+        (10, "gallos_torneo_10", "Fijo en el cartel",
+         "Juega 10 torneos del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_wins", [
+        (5, "gallos_torneo_combates_5", "Cuadro de honor",
+         "Gana 5 combates en torneos del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_finals", [
+        (1, "gallos_torneo_final", "Llegar a la final y que llueva",
+         "Llega a la final de un torneo del domingo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tournament_titles", [
+        (1, "gallos_torneo_campeon", "Campeón de la Champions del corral",
+         "Gana un torneo del domingo.", E),
+        (5, "gallos_torneo_campeon_5", "La Decimoquinta del gallinero",
+         "Gana 5 torneos del domingo.", L),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_club_of_week", [
+        (1, "gallos_gallera_semana", "Equipo de la jornada",
+         "Que tu gallera sea la gallera de la semana del torneo.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_form_max", [
+        (50, "gallos_forma_50", "Pollo al punto",
+         "Lleva la forma de tu gallo a 50.", C),
+        (100, "gallos_forma_100", "En la cresta de la ola",
+         "Lleva la forma de tu gallo a 100.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_edge_wins", [
+        (1, "gallos_ventaja_1", "Ventaja de campo",
+         "Gana a la casa con ventaja por la forma.", C),
+        (25, "gallos_ventaja_25", "Desplumar a la banca",
+         "Gana 25 peleas a la casa con ventaja por la forma.", R),
+        (100, "gallos_ventaja_100", "Contar cartas con plumas",
+         "Gana 100 peleas a la casa con ventaja por la forma.", E),
+        (500, "gallos_ventaja_500", "Vetado en Las Vegas",
+         "Gana 500 peleas a la casa con ventaja por la forma.", L),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_edge_gain", [
+        (10_000, "gallos_ventaja_10000", "Jugo de casino, de el bueno",
+         "Saca 10.000 Y$ de más a la casa gracias a la forma.", R),
+        (100_000, "gallos_ventaja_100000", "Atraco a la casa de papel",
+         "Saca 100.000 Y$ de más a la casa gracias a la forma.", E),
+        (1_000_000, "gallos_ventaja_1m", "Ocean's Pollo",
+         "Saca 1.000.000 Y$ de más a la casa gracias a la forma.", L),
+    ], unit="money")  # fmt: skip
+    a += _tiers("gallos", "gallos_fit_marte", [
+        (1, "gallos_marte_forma", "Aterrizaje en Marte",
+         "Gánale al Gallo de Marte con la forma a 80 o más.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tired_fights", [
+        (1, "gallos_reserva", "Con el depósito en reserva",
+         "Pelea contra la casa con la forma a cero.", C),
+        (50, "gallos_zombi", "Zombi del reñidero",
+         "Pelea 50 veces contra la casa con la forma a cero.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_full_cap", [
+        (1, "gallos_manta", "Hasta donde llega la manta",
+         "Apuesta justo lo que cubre la ventaja de la forma.", C),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_tired_death", [
+        (1, "gallos_muerto_cansancio", "Muerto de cansancio",
+         "Que tu gallo muera peleando con la forma a 10 o menos.", R),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_fit_death", [
+        (1, "gallos_mejor_momento", "Se fue en su mejor momento",
+         "Que tu gallo muera peleando con la forma a 90 o más.", E, True),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_train_spent", [
         (10_000, "gallos_cuota_gym", "Cuota del gimnasio",
          "Gasta 10.000 Y$ en entrenar gallos, IGIC incluido.", R),
@@ -18235,7 +18517,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (100_000, "gallos_gym_ayuso", "Gimnasio con sobrecostes",
          "Gasta 100.000 Y$ en entrenar gallos.", E),
         (200_000, "gallos_train_spent_200000", "Preparador olímpico de gallos",
-         "Gasta 200.000 Y$ en entrenar gallos.", E),
+         "Gasta 200.000 Y$ en entrenar gallos.", L),
         (500_000, "gallos_train_spent_500000", "Centro de alto rendimiento avícola",
          "Gasta 500.000 Y$ en entrenar gallos.", M),
         (1_000_000, "gallos_gym_estado", "Gimnasio de Estado",
@@ -23372,7 +23654,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     que ha apostado y los boletos al que más; `pisos_barrios` y `pisos_kinds`, los
     barrios y los tipos de inmueble distintos en los que ha comprado, y `pisos_terms`,
     las duraciones de contrato distintas (12, 24, 36, 48 y 60 días) que ha elegido, y
-    `staff_horarios`, los horarios distintos de la plantilla que ha usado.
+    `staff_horarios`, los horarios distintos de la plantilla que ha usado;
+    `gallos_drill_kinds` y `gallos_event_kinds`, los minijuegos y los eventos del
+    gimnasio de los gallos distintos.
     """
     full = dict(stats)
     full[MESSAGES_TOTAL_STAT] = full.get("messages", 0) + full.get("messages_imported", 0)
@@ -23391,6 +23675,15 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     ]
     full[ROULETTE_NUMBERS_STAT] = len(hits)
     full[ROULETTE_FAVOURITE_STAT] = max(hits, default=0)
+    full["gallos_drill_kinds"] = sum(
+        1
+        for kinds in GALLOS_GYM_KINDS.values()
+        for kind in kinds
+        if stats.get(f"{GALLOS_DRILL_PREFIX}{kind}", 0) > 0
+    )
+    full["gallos_event_kinds"] = sum(
+        1 for event in GALLOS_GYM_EVENTS if stats.get(f"{GALLOS_EVENT_PREFIX}{event.key}", 0) > 0
+    )
     full[SLOTS_CARD_SUITS_STAT] = sum(
         1 for suit in SLOTS_CARD_SUITS if stats.get(f"{SLOTS_CARD_PREFIX}{suit}", 0) > 0
     )
@@ -27138,6 +27431,13 @@ def gallos_stats(
     power: float = 0.0,
     died: RoosterRecord | None = None,
     killed: bool = False,
+    form: int | None = None,
+    edge_gain: int = 0,
+    full_cap: bool = False,
+    hurt: bool = False,
+    deadly: bool = False,
+    grudge: bool = False,
+    grudge_wins: int = 0,
 ) -> StatDelta:
     """Contadores de una pelea de gallos para uno de los dos dueños (sin lo común del casino).
 
@@ -27157,6 +27457,13 @@ def gallos_stats(
         power: Poder de su gallo en la pelea (0 a 100).
         died: La ficha de su gallo si ha muerto en esta pelea.
         killed: Si en este duelo ha matado al gallo del otro.
+        form: Forma con la que salió a pelear contra la casa (`None` en un duelo).
+        edge_gain: Lo que la forma le ha sumado al premio sobre la cuota de serie.
+        full_cap: Si apostó justo lo que cubre la ventaja (`gallos.edge_cap`), con ventaja.
+        hurt: Si salió lesionado por perder por KO agotado.
+        deadly: Si fue ☠️ a muerte.
+        grudge: Si el rival estaba picado al empezar.
+        grudge_wins: Victorias seguidas contra el rival si ya está picado (0 si no).
     """
     won = fight.winner is corner
     mine = corner
@@ -27224,11 +27531,30 @@ def gallos_stats(
         bump("gallos_death_veteran", died.wins >= GALLOS_VETERAN_WINS)
         bump("gallos_death_debut", died.fights == 1)
     bump("gallos_kills", killed)
+    delta.peak["gallos_rooster_fights_max"] = record.fights
+    if form is not None:
+        delta.peak["gallos_form_max"] = form
+        bump("gallos_edge_wins", won and edge_gain > 0)
+        bump("gallos_edge_gain", amount=edge_gain if won else 0)
+        bump("gallos_fit_marte", won and rival == "marte" and form >= GALLOS_FIT_FORM)
+        bump("gallos_tired_fights", form == 0)
+        bump("gallos_full_cap", full_cap)
+        bump("gallos_fight_hurt", hurt)
+        bump("gallos_deadly_fights", deadly)
+        bump("gallos_deadly_wins", deadly and won)
+        bump("gallos_grudge_wins", grudge and won)
+        if grudge_wins:
+            delta.peak["gallos_grudge_max"] = grudge_wins
+        if died is not None:
+            bump("gallos_deadly_deaths", deadly)
+        if died is not None:
+            bump("gallos_tired_death", form <= GALLOS_TIRED_FORM)
+            bump("gallos_fit_death", form >= GALLOS_PEAK_FORM)
     return delta
 
 
 def gallos_train_stats(
-    *, record: RoosterRecord, paid: int, today: int, when: datetime
+    *, record: RoosterRecord, paid: int, today: int, when: datetime, form: int = 0
 ) -> StatDelta:
     """Contadores de un entrenamiento de gallos (se apuntan después de enseñar el resultado).
 
@@ -27237,6 +27563,7 @@ def gallos_train_stats(
         paid: Lo que ha costado, IGIC incluido.
         today: Entrenamientos que lleva el dueño hoy, este incluido.
         when: Hora local.
+        form: Forma del gallo tras entrenar.
     """
     delta = StatDelta(
         add={"gallos_trains": 1, "gallos_train_spent": paid},
@@ -27246,10 +27573,45 @@ def gallos_train_stats(
             "gallos_endurance_max": record.endurance,
             "gallos_power_max": int(record.power),
             "gallos_trains_day_max": today,
+            "gallos_form_max": form,
         },
     )
     if 2 <= when.hour < 6:
         delta.add["gallos_train_dawn"] = 1
+    return delta
+
+
+#: Minijuegos jugados: un contador por minijuego (`gallos_drill_pesas`).
+GALLOS_DRILL_PREFIX = "gallos_drill_"
+#: Eventos del gimnasio vistos: uno por evento (`gallos_evt_gofio`).
+GALLOS_EVENT_PREFIX = "gallos_evt_"
+
+
+def gallos_drill_stats(
+    *, kind: str, score: float, bonus: int, combo: int, event: str | None, form: int
+) -> StatDelta:
+    """Contadores de un minijuego de entrenamiento acabado (`gallos_gym`).
+
+    Args:
+        kind: Clave del minijuego (`gallos_gym.KINDS`).
+        score: Nota, de 0 a 1.
+        bonus: Lo que subió el stat de más por una nota perfecta.
+        combo: Sesiones buenas seguidas del día, esta incluida (0 si esta fue mala).
+        event: Clave del evento que pasó después (`gallos_gym.EVENTS`), o `None`.
+        form: Forma del gallo al acabar.
+    """
+    delta = StatDelta(
+        add={"gallos_drills": 1, f"{GALLOS_DRILL_PREFIX}{kind}": 1},
+        peak={"gallos_combo_max": combo, "gallos_form_max": form},
+    )
+    if bonus:
+        delta.add["gallos_drill_perfect"] = 1
+    if score >= 1:
+        delta.add["gallos_drill_full"] = 1
+    if score <= 0:
+        delta.add["gallos_drill_zero"] = 1
+    if event is not None:
+        delta.add[f"{GALLOS_EVENT_PREFIX}{event}"] = 1
     return delta
 
 

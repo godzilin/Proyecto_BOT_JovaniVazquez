@@ -10,7 +10,14 @@ import pytest
 
 from bot.repositories import sqlite
 from bot.repositories.gallos import GallosRepository
-from bot.services.gallos import Finish, Stat, TrainError, default_name
+from bot.services.gallos import (
+    FORM_PER_FIGHT,
+    PAID_FORM,
+    Finish,
+    Stat,
+    TrainError,
+    default_name,
+)
 
 
 async def make_repository(tmp_path: Path) -> GallosRepository:
@@ -74,6 +81,18 @@ async def test_los_stats_y_el_cupo_de_entrenamiento_se_guardan(tmp_path: Path) -
     assert stored == after
     assert (stored.last_train, stored.train_day, stored.trains_today) == (5_000.0, day, 1)
     assert (stored.speed, stored.endurance) == (0, 0)
+    assert (stored.form, stored.form_at) == (PAID_FORM, 5_000.0)
+
+
+async def test_una_pelea_contra_la_casa_guarda_la_forma_gastada(tmp_path: Path) -> None:
+    repository = await make_repository(tmp_path)
+    day = date(2026, 10, 15)
+    train(repository, Stat.STRENGTH, level=0, now=5_000.0, day=day)
+    _, after = await repository.record_fight(
+        1, 10, won=False, finish=Finish.POINTS, day=day, now=5_000.0
+    )
+    assert after.form == max(0, PAID_FORM - FORM_PER_FIGHT)
+    assert await repository.get(1, 10) == after
 
 
 def test_entrenar_con_un_nivel_viejo_o_sin_cupo_no_toca_nada(tmp_path: Path) -> None:
@@ -123,6 +142,7 @@ async def test_la_migracion_deja_a_los_gallos_que_ya_existian_con_stats_a_cero(
     assert (old.name, old.fights, old.wins) == ("Viejo", 7, 4)
     assert (old.strength, old.speed, old.endurance, old.deaths) == (0, 0, 0, 0)
     assert old.last_train == 0 and old.train_day is None and old.trains_today == 0
+    assert (old.form, old.form_at) == (0, 0)
     train(repository, Stat.ENDURANCE, level=0, now=1_000_000.0, day=date(2026, 10, 15))
     assert (await repository.get(1, 10)).endurance == 3
 
