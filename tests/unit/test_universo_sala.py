@@ -112,6 +112,7 @@ async def test_la_misma_persona_en_otra_pestana_echa_a_la_vieja(salas: Salas) ->
     first = await salas.join(1, 10, "Ana", old)
     await salas.join(1, 10, "Ana", new)
     assert old.closed
+    assert old.texts[-1] == {"t": "error", "error": sala.ELSEWHERE}
     assert [p.client for p in salas.present(1)] == [new]
     salas.pose(1, first, pose())  # la conexión vieja ya no mueve a nadie
     assert salas.rooms[1].dirty == set()

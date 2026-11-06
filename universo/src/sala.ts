@@ -22,8 +22,16 @@ interface Jugadores {
   nombre: string;
 }
 
-/** Abre la sala y devuelve la función que la cierra. Sin `sesion` (fuera de Discord) usa el saludo de desarrollo. */
-export function iniciarSala(yo: PoseLocal, remotos: Remotos, sesion: Sesion | null): () => void {
+/**
+ * Abre la sala y devuelve la función que la cierra. Sin `sesion` (fuera de Discord) usa el saludo de desarrollo.
+ * `avisar` recibe el texto de un `error` del servidor (por ejemplo, que has entrado desde otro sitio).
+ */
+export function iniciarSala(
+  yo: PoseLocal,
+  remotos: Remotos,
+  sesion: Sesion | null,
+  avisar: (texto: string) => void = () => {},
+): () => void {
   const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/sala`;
   const buffer = new ArrayBuffer(9); // se reutiliza en cada envío
   const vista = new DataView(buffer);
@@ -64,6 +72,7 @@ export function iniciarSala(yo: PoseLocal, remotos: Remotos, sesion: Sesion | nu
         else if (m.t === "error") {
           error = true;
           console.info("Sala del Jovaniverso:", m.error);
+          if (m.error) avisar(m.error);
         }
         return;
       }

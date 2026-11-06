@@ -76,6 +76,15 @@ function pildora(nombre: string, saldo: string | null, texto?: string): void {
 }
 
 /** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
+/** Aviso que se queda en pantalla (la sala se ha cerrado y no va a volver sola). */
+function aviso(texto: string): void {
+  const el = document.createElement("div");
+  el.className = "ayuda";
+  el.setAttribute("role", "status");
+  el.textContent = texto;
+  $("capa").append(el);
+}
+
 function ayuda(): void {
   const el = $("ayuda");
   el.textContent = window.matchMedia("(pointer: coarse)").matches ? AYUDA_MOVIL : AYUDA_ESCRITORIO;
@@ -127,7 +136,7 @@ async function start(): Promise<void> {
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       iniciarPaseo(mundo, sesion);
-      iniciarSala(mundo.yo, mundo.remotos, sesion);
+      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso);
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
       pildora("", null, SIN_DISCORD);

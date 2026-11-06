@@ -52,6 +52,8 @@ MIN_Y_DM, MAX_Y_DM = -500, 2_000
 #: Si un cliente tiene más que esto sin mandar, se salta ticks hasta que se ponga al día.
 MAX_BACKLOG_BYTES = 32 * 1024
 
+#: Lo que se dice a la conexión vieja cuando la misma persona entra desde otro sitio.
+ELSEWHERE = "Has abierto el Jovaniverso en otro sitio: sigues allí."
 #: Tipo del mensaje binario de pose.
 POSE = 1
 _POSE = struct.Struct("<BhhhBB")
@@ -146,7 +148,10 @@ class Salas:
         old = next((p for p in room.players.values() if p.user_id == user_id), None)
         if old is not None:
             await self.leave(guild_id, old)
+            # Con `error`, la página vieja no reintenta: si no, las dos pestañas se
+            # echarían la una a la otra sin parar.
             with contextlib.suppress(Exception):
+                await old.client.send_str(json.dumps({"t": "error", "error": ELSEWHERE}))
                 await old.client.close()
             room = self.rooms.setdefault(guild_id, room)
         free = next((slot for slot in range(MAX_PLAYERS) if slot not in room.players), None)
