@@ -20,6 +20,9 @@ import { fundir } from "./mundo/geom";
 import { crearCanteras, crearFaro, crearMogan, crearMuelle, crearRoques } from "./mundo/hitos";
 import { Jugador } from "./mundo/jugador";
 import { Lugares } from "./mundo/lugares";
+import { fundirRobot } from "./mundo/robot";
+import { Remotos } from "./mundo/remotos";
+import type { PoseLocal } from "./sala";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
 import { crearPueblo } from "./mundo/pueblo";
@@ -36,6 +39,10 @@ export interface Mundo {
   /** Cuenta lo andado y los lugares nuevos desde el último informe; vacío si no hay nada que contar. */
   tomarInforme(): Informe | null;
   devolverInforme(i: Informe): void;
+  /** Tu pose, para mandarla a la sala. */
+  readonly yo: PoseLocal;
+  /** Los demás jugadores, a los que alimenta la sala. */
+  readonly remotos: Remotos;
   detener(): void;
 }
 
@@ -92,6 +99,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   construcciones.receiveShadow = true;
   escena.add(construcciones);
   escena.add(jugador.objeto);
+  const remotos = new Remotos(escena, fundirRobot(jugador.modelo, jugador.clips));
 
   const calidad = new Calidad(renderer, sol, tactil ? 1.5 : 2);
   if (debug === "fijo") calidad.activa = false;
@@ -149,6 +157,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     metrosPend += jugador.metros - metros0;
     lugares.comprobar(jugador.x, jugador.y, jugador.z);
 
+    remotos.actualizar(dt, ahora, jugador.x, jugador.z, calidad.sombras);
+
     camara.actualizar(dt, jugador.x, jugador.y, jugador.z);
 
     // El recuadro de sombras sigue al jugador, ajustado a la rejilla del mapa para que no parpadee.
@@ -177,6 +187,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   if (debug) {
     (window as unknown as Record<string, unknown>).__jv = {
       renderer,
+      remotos,
       jugador,
       camara,
       calidad,
@@ -219,6 +230,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   }
 
   return {
+    yo: jugador,
+    remotos,
     tomarInforme() {
       metrosFrac += metrosPend;
       metrosPend = 0;

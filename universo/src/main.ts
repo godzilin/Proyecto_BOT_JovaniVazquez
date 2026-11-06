@@ -3,6 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { crearMundo } from "./mundo";
 import { iniciarPaseo } from "./paseo";
+import { iniciarSala } from "./sala";
 
 interface ConfigResponse {
   client_id: string;
@@ -124,8 +125,11 @@ async function start(): Promise<void> {
     const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa")), enDiscord ? entrar() : Promise.resolve(null)]);
     if (entrada) {
       pildora(entrada.profile.name, entrada.profile.balance_text);
-      iniciarPaseo(mundo, { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId });
+      const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
+      iniciarPaseo(mundo, sesion);
+      iniciarSala(mundo.yo, mundo.remotos, sesion);
     } else {
+      iniciarSala(mundo.yo, mundo.remotos, null);
       pildora("", null, SIN_DISCORD);
     }
     $("carga").classList.add("fuera");
