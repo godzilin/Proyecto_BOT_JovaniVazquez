@@ -180,6 +180,10 @@ async def test_construir_cobra_con_sus_impuestos_y_deja_las_unidades_en_obras(
     price = rules.price(market.listing(done.units[-1]))
     await service.member_sale(GUILD, ANA, BEA, done.units[-1], 100, price)
     assert (await service.market(GUILD)).holdings[done.units[-1]][BEA].shares == 100
+    # El bloqueo viaja con ellas: Bea tampoco puede venderlas al mercado hasta que acabe.
+    assert (await service.market(GUILD)).holdings[done.units[-1]][BEA].locked_until == done.until
+    with pytest.raises(HousingError):
+        await service.sell(GUILD, BEA, done.units[-1], 100)
 
 
 async def test_sin_dinero_no_se_construye_nada(tmp_path: Path) -> None:

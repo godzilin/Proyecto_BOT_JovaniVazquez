@@ -1831,12 +1831,16 @@ def _move_shares_in(
         paid: Lo que paga el comprador (para su Patrimonio).
         cost: Lo que le cuesta, con ITP y notaría (para su ganancia al vender).
         lease: El contrato de partida (ya con lo que haya cambiado antes en la transacción).
-        lock: Hasta qué día no puede venderlas al mercado (subasta judicial).
+        lock: Hasta qué día no puede venderlas al mercado (subasta judicial). El bloqueo que ya
+            tenían viaja con ellas: si no, vender lo bloqueado a un amigo (una obra sobre
+            plano, lo adjudicado) dejaría venderlo al mercado al momento.
 
     Returns:
         Si el comprador se ha mudado a lo suyo.
     """
     held = market.holdings[key][seller]
+    if held.locked_until is not None and held.locked_until > day:
+        lock = held.locked_until if lock is None else max(lock, held.locked_until)
     left = held.shares - shares
     if left:
         connection.execute(

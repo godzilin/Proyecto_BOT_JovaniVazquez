@@ -125,6 +125,7 @@ class Project:
         layout: Cómo es el bloque (`Theme` de `housing_streets`, sin metros: los pone el barrio);
             `None` en la casa.
         days: Días de obra.
+        feminine: Si se dice «una» (la casa, la torre), para los avisos.
     """
 
     key: str
@@ -134,14 +135,32 @@ class Project:
     floors: int
     layout: Theme | None
     days: int
+    feminine: bool = False
+
+    def called(self, *, definite: bool = False) -> str:
+        """«una casa», «un bloque de 5 plantas» o, con `definite`, «la casa», «el bloque…»."""
+        if definite:
+            article = "la" if self.feminine else "el"
+        else:
+            article = "una" if self.feminine else "un"
+        return f"{article} {self.name.lower()}"
 
 
 PROJECTS: tuple[Project, ...] = (
-    Project("casa", "Casa", "🏡", 6, 1, None, 10),
+    Project("casa", "Casa", "🏡", 6, 1, None, 10, feminine=True),
     Project("bloque3", "Bloque de 3 plantas", "🏘️", 7, 3, Theme(3, 2, 1, 0, 2, False, 0), 14),
     Project("bloque5", "Bloque de 5 plantas", "🏢", 8, 5, Theme(5, 2, 1, 2, 2, True, 0), 20),
     Project("bloque7", "Residencial de 7 plantas", "🏬", 9, 7, Theme(7, 2, 2, 4, 4, True, 0), 24),
-    Project("torre", "Torre de 8 plantas", "🗼", 10, 8, Theme(8, 2, 1, 4, 4, True, 0, True), 28),
+    Project(
+        "torre",
+        "Torre de 8 plantas",
+        "🗼",
+        10,
+        8,
+        Theme(8, 2, 1, 4, 4, True, 0, True),
+        28,
+        feminine=True,
+    ),
 )
 PROJECT_BY_KEY: dict[str, Project] = {p.key: p for p in PROJECTS}
 #: Lo que pone en el cartel del solar mientras está libre, por tipo de barrio.

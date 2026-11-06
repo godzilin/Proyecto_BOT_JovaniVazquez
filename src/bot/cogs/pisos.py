@@ -4556,14 +4556,18 @@ class Pisos(commands.Cog):
         who = _name(guild, builder)
         if finished:
             text = (
-                f"🏢 Terminado: el {project.name.lower()} de **{who}** en {where}. "
+                f"🏢 Terminado: {project.called(definite=True)} de **{who}** en {where}. "
                 f"{units} {'unidad nueva' if units == 1 else 'unidades nuevas'} en `pisos`."
             )
         else:
             text = (
-                f"🏗️ **{who}** empieza a levantar un {project.name.lower()} en {where}: "
-                f"{units} {'unidad' if units == 1 else 'unidades'}, listas el {work.until:%d/%m}. "
-                "Hasta entonces se venden sobre plano."
+                f"🏗️ **{who}** empieza a levantar {project.called()} en {where}: "
+                + (
+                    f"1 unidad, lista el {work.until:%d/%m}. "
+                    if units == 1
+                    else f"{units} unidades, listas el {work.until:%d/%m}. "
+                )
+                + "Hasta entonces se venden sobre plano."
             )
         await self._announce_text(guild_id, text)
 

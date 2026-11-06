@@ -2743,6 +2743,38 @@ async def press_pisos_split(client: BotClient, owner: MagicMock) -> Click:
     return click
 
 
+async def press_pisos_build(client: BotClient, owner: MagicMock) -> Click:
+    """🏗️ Construir una casa en un solar (segundo clic): lee el puesto en `pala` y paga."""
+    from bot.repositories.economy import LedgerEntry
+
+    await client.economy.repository.apply(GUILD_ID, OWNER_ID, [LedgerEntry(20_000_000, "test")])
+    await client.work.hire(GUILD_ID, OWNER_ID, "obra")
+    contract = (await client.work.status(GUILD_ID, OWNER_ID)).contract
+    contract.level, contract.branch = 6, "ladrillo"
+    await client.work.repository.save_contract(GUILD_ID, OWNER_ID, contract)
+    panel = pisos_panel(client, owner)
+    panel.barrio, panel.solar, panel.screen = "arucas", "arucas_c1_s", "solar"
+    panel.confirm, panel.level = "construir:casa", 6
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.data = {"custom_id": "pisos:construir:casa:si"}
+        await panel._build(interaction)
+
+    return click
+
+
+async def press_pisos_solar_tab(client: BotClient, owner: MagicMock) -> Click:
+    """Una pestaña de 🏗️ Solares: lee el puesto en `pala` y el termómetro de la burbuja."""
+    panel = pisos_panel(client, owner)
+    panel.barrio, panel.screen = "triana", "solar"
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.data = {"custom_id": "pisos:solar:2"}
+        await panel._pick_solar(interaction)
+
+    return click
+
+
 async def press_pisos_join_rooms(client: BotClient, owner: MagicMock) -> Click:
     await pisos_owned(client, "isleta_piso3")
     cog = client.get_cog("Pisos")
@@ -3450,6 +3482,8 @@ CASES: dict[str, Press] = {
     "pisos: pujar en una subasta": press_pisos_bid,
     "pisos: empezar una reforma": press_pisos_reform,
     "pisos: alquilar por habitaciones": press_pisos_split,
+    "pisos: construir en un solar": press_pisos_build,
+    "pisos: pestaña de un solar": press_pisos_solar_tab,
     "pisos: juntar las habitaciones": press_pisos_join_rooms,
     "pisos: decidir un imprevisto": press_pisos_decide,
     "pisos: votar en la junta": press_pisos_vote,
