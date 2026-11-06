@@ -28,8 +28,9 @@ export interface Entrada {
 
 export class Jugador {
   readonly objeto = new Group();
-  x = PLAZA.x + 4;
-  z = PLAZA.z + 6;
+  // Cada uno aparece en un punto algo distinto de la plaza para no salir unos encima de otros.
+  x = PLAZA.x + 4 + (Math.random() - 0.5) * 6;
+  z = PLAZA.z + 6 + (Math.random() - 0.5) * 6;
   y = 0;
   vy = 0;
   velH = 0;

@@ -184,7 +184,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   };
   renderer.setAnimationLoop(fotograma);
 
-  if (debug) {
+  if (debug !== null) {
     (window as unknown as Record<string, unknown>).__jv = {
       renderer,
       remotos,
