@@ -234,6 +234,36 @@ PLACES = frozenset({
     "nieves", "nublo", "bandama", "dunas", "faro", "plaza", "drago", "muelle", "canteras",
     "agua",
 })  # fmt: skip
+#: Gestos del robot: la animación del protocolo de la sala (de 4 en adelante; 0-3 son
+#: quieto, andar, correr y saltar) y el artículo de la tienda que lo da. Solo se ven
+#: los que se han comprado: la sala apaga los demás (`bot.services.universo_sala`).
+#: Las claves de artículo no se cambian nunca; la del logro es la de después de
+#: `gesto_` (`universo_gesture_saludo`).
+GESTURES: dict[int, str] = {
+    4: "gesto_saludo",
+    5: "gesto_baile",
+    6: "gesto_pulgar",
+    7: "gesto_si",
+    8: "gesto_no",
+    9: "gesto_sentarse",
+    10: "gesto_punetazo",
+}
+#: Cima del Pico de las Nieves, en decímetros (`PICO` de `universo/src/mundo/terreno.ts`):
+#: centro x, z y radio (el de su lugar en `lugares.ts`).
+SUMMIT_DM = (-50, 80, 100)
+
+
+def gestures_owned(owned: frozenset[str]) -> frozenset[int]:
+    """Las animaciones de gesto que puede hacer quien tiene los artículos `owned`."""
+    return frozenset(anim for anim, key in GESTURES.items() if key in owned)
+
+
+def on_summit(x_dm: int, z_dm: int) -> bool:
+    """Si una posición (en decímetros) está en la cima del Pico de las Nieves."""
+    cx, cz, radius = SUMMIT_DM
+    return (x_dm - cx) ** 2 + (z_dm - cz) ** 2 < radius**2
+
+
 #: Lo más rápido que se puede ir, en m/s. Correr va a 9; el margen cubre los saltos
 #: y el redondeo. La distancia la dice la página: más de esto por segundo no cuenta.
 MAX_SPEED = 12

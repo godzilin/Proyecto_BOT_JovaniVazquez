@@ -32,6 +32,7 @@ import time
 import aiohttp
 from aiohttp import WSMsgType, web
 
+from bot.services.universo import GESTURES
 from bot.services.universo_sala import POSE, Salas
 
 GUILD = 1
@@ -46,8 +47,14 @@ async def sala(request: web.Request) -> web.WebSocketResponse:
     user_id = next(_ids)
     name = str(hello.get("dev") or f"Prueba {user_id}")[:32]
     transport = request.transport
+    # En local todos tienen todos los gestos, como si los hubieran comprado.
     player = await salas.join(
-        GUILD, user_id, name, ws, lambda: transport.get_write_buffer_size() if transport else 0
+        GUILD,
+        user_id,
+        name,
+        ws,
+        lambda: transport.get_write_buffer_size() if transport else 0,
+        frozenset(GESTURES),
     )
     try:
         async for message in ws:

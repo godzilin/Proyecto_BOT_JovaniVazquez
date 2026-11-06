@@ -381,3 +381,31 @@ async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
     garbage = await world.web.ws_connect("/api/sala")
     await garbage.send_bytes(b"\x01")
     assert (await garbage.receive()).type.name in {"CLOSE", "CLOSED", "CLOSING"}
+
+
+async def test_solo_se_ven_los_gestos_comprados_y_cuentan_para_los_logros(world: World) -> None:
+    tienda = world.client.get_cog("Tienda")
+    assert await tienda.give_key(GUILD_ID, USER_ID, "gesto_baile") is not None
+    session = await login(world)
+    entry = await world.web.post(
+        "/api/entrar",
+        json={"guild_id": str(GUILD_ID)},
+        headers={"Authorization": f"Bearer {session}"},
+    )
+    assert (await entry.json())["gestures"] == [5]
+    hello = {"t": "hola", "guild_id": str(GUILD_ID), "session": session}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json(hello)
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    player = world.cog.salas.present(GUILD_ID)[0]
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 0, 0, 4))  # saludo sin comprar
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 1, 0, 5))  # baile comprado
+    tick = await ana.receive_bytes(timeout=2)
+    assert tick[-1] == 5
+    assert player.gestures == frozenset({5})
+    await ana.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_gesture_baile"] == 1
+    assert "universo_gesture_saludo" not in profile.stats
+    assert "universo_gestures_1" in profile.unlocked

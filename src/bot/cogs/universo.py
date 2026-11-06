@@ -25,7 +25,8 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
 - `POST /api/token` `{code}`: login. Cambia el código de `authorize` por un token
   (`bot.services.universo.DiscordOAuth`) y da una sesión firmada.
 - `POST /api/entrar` `{guild_id, channel_id, platform}` con la sesión en
-  `Authorization: Bearer`: el perfil (nombre y saldo) y los logros de entrar.
+  `Authorization: Bearer`: el perfil (nombre y saldo), los gestos comprados
+  (`gestures`, sus animaciones) y los logros de entrar.
 - `POST /api/paseo` `{guild_id, channel_id, meters, jumps, places}`, con la sesión:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
@@ -33,15 +34,19 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
 - `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
   `{t: "hola", session, guild_id}`; después, poses en binario. El reparto lo hace
   `bot.services.universo_sala.Salas` (una sala por servidor, ticks fijos y binarios).
+  Los gestos del robot se compran en la tienda (`gesto_*`, `bot.services.universo.GESTURES`)
+  y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
+  a abrirlo.
 
 La página no decide nada: todo lo que enseña sale de aquí, y lo que algún día mueva
 dinero se decidirá aquí con `EconomyService`, nunca en el navegador.
 
 Logros: entrar (`universo_stats`, días distintos, móvil, ordenador, madrugada y
-Día de Canarias), pasear (`universo_walk_stats`, metros, saltos y lugares) y
-coincidir con otros (`universo_meet_stats`, al entrar en la sala), categoría
-🎤 Jovani. La mascota no sale: la página no es un mensaje de Discord y, de momento,
-no enseña ningún resultado en el que pueda hablar.
+Día de Canarias), pasear (`universo_walk_stats`, metros, saltos y lugares),
+coincidir con otros (`universo_meet_stats`, al entrar en la sala), y gestos
+(`universo_gesture_stats`, al empezar cada uno), categoría 🎤 Jovani. La mascota no
+sale: la página no es un mensaje de Discord y, de momento, no enseña ningún resultado
+en el que pueda hablar.
 """
 
 from __future__ import annotations
@@ -63,7 +68,10 @@ from discord.ext import commands
 
 from bot import __version__
 from bot.cogs import achievements as logros
+from bot.cogs import shop as tienda
 from bot.services.achievements import (
+    StatDelta,
+    universo_gesture_stats,
     universo_meet_stats,
     universo_stats,
     universo_walk_stats,
@@ -72,15 +80,18 @@ from bot.services.economy import format_amount
 from bot.services.levels import TIMEZONE
 from bot.services.universo import (
     DISCORD_API,
+    GESTURES,
     DiscordOAuth,
     SessionSigner,
     UniversoError,
     bearer,
+    gestures_owned,
+    on_summit,
     platform_of,
     snowflake,
     walk_report,
 )
-from bot.services.universo_sala import Player, SalaError, Salas
+from bot.services.universo_sala import Player, SalaError, Salas, place
 
 if TYPE_CHECKING:
     from bot.app import BotClient
@@ -184,7 +195,7 @@ class Universo(commands.Cog, name="Universo"):
         # Último informe de paseo (o entrada) de cada miembro, en segundos de
         # `time.monotonic`: dice cuánto ha podido andar desde entonces.
         self._last_walk: dict[tuple[int, int], float] = {}
-        self.salas = Salas()
+        self.salas = Salas(on_gesture=self._gesture)
 
     @property
     def is_open(self) -> bool:
@@ -275,6 +286,7 @@ class Universo(commands.Cog, name="Universo"):
         guild, member = self._member(session, body)
         self._last_walk[guild.id, member.id] = time.monotonic()
         balance = await self.bot.economy.balance(guild.id, member.id)
+        gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
         channel_id = snowflake(body.get("channel_id"))
         channel = guild.get_channel_or_thread(channel_id) if channel_id is not None else None
         delta = universo_stats(platform_of(body.get("platform")), when=datetime.now(TIMEZONE))
@@ -288,6 +300,7 @@ class Universo(commands.Cog, name="Universo"):
             "guild": guild.name,
             "balance": balance,
             "balance_text": format_amount(balance),
+            "gestures": sorted(gestures),
             "version": __version__,
         }
 
@@ -326,7 +339,10 @@ class Universo(commands.Cog, name="Universo"):
             return
         try:
             guild, member = self._member(hello.get("session"), hello)
-            player = await self.salas.join(guild.id, member.id, member.display_name, ws, backlog)
+            gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
+            player = await self.salas.join(
+                guild.id, member.id, member.display_name, ws, backlog, gestures
+            )
         except (UniversoError, SalaError) as error:
             text = error.message if isinstance(error, UniversoError) else str(error)
             await ws.send_json({"t": "error", "error": text})
@@ -350,6 +366,23 @@ class Universo(commands.Cog, name="Universo"):
         for other in others:
             seen = universo_meet_stats([player.user_id], len(present))
             logros.note(self.bot, guild_id, other.user_id, seen)
+
+    def _gesture(self, guild_id: int, player: Player, anim: int, near: list[Player]) -> None:
+        """Logros de empezar un gesto. Quien baila cerca sube también su récord de bailar juntos."""
+        x, _y, z = place(player.pose or bytes(8))
+        same = [p for p in near if p.pose is not None and p.pose[-1] == anim]
+        delta = universo_gesture_stats(
+            GESTURES[anim].removeprefix("gesto_"),
+            near=len(near),
+            together=len(same) + 1,
+            summit=on_summit(x, z),
+            when=datetime.now(TIMEZONE),
+        )
+        logros.note(self.bot, guild_id, player.user_id, delta)
+        if delta.peak and same:
+            peak = StatDelta(peak=delta.peak)
+            for other in same:
+                logros.note(self.bot, guild_id, other.user_id, peak)
 
     def _member(
         self, session: str | None, body: dict[str, Any]

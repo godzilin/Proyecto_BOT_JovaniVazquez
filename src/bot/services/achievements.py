@@ -589,6 +589,19 @@ UNIVERSO_DAYS_STAT = "universo_days"
 UNIVERSO_MET_PREFIX = "universo_met_"
 #: Personas distintas con las que has coincidido; se calcula en `with_derived`.
 UNIVERSO_PEOPLE_STAT = "universo_people"
+#: Prefijo de cada gesto del robot hecho en el universo (`universo_gesture_baile`).
+UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
+#: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
+#: `gesto_`), nombre y descripción.
+UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
+    ("saludo", "Miss Simpatía", "Saluda con la mano en el Jovaniverso."),
+    ("baile", "Tusa de hojalata", "Baila en el Jovaniverso."),
+    ("pulgar", "Pulgarcito", "Levanta el pulgar en el Jovaniverso."),
+    ("si", "Perrito del salpicadero", "Asiente con la cabeza en el Jovaniverso."),
+    ("no", "Doctor No", "Niega con la cabeza en el Jovaniverso."),
+    ("sentarse", "Escaño en el Senado", "Siéntate en el Jovaniverso."),
+    ("punetazo", "Puño americano", "Lanza un puñetazo en el Jovaniverso."),
+)
 #: Prefijo de cada lugar de Gran Canaria pisado en el universo (`universo_place_faro`).
 UNIVERSO_PLACE_PREFIX = "universo_place_"
 #: Lugares del mundo con su logro: clave (la de `bot.services.universo.PLACES`),
@@ -2805,6 +2818,53 @@ def _build_catalog() -> tuple[Achievement, ...]:
             for place, *_ in UNIVERSO_PLACES if place != "agua"
         ),
     ))  # fmt: skip
+    # Gestos del robot (`universo_gesture_stats`): se compran en la tienda y los cuenta
+    # el servidor al empezar cada uno (uno por segundo como mucho), así que hacerlos
+    # es una decisión y comprarlos, dinero: Comunes y Raros.
+    a += _tiers("jovani", "universo_gestures", [
+        (1, "universo_gestures_1", "Marcel Marceau de chapa",
+         "Haz un gesto en el Jovaniverso.", C),
+        (100, "universo_gestures_100", "Más gestos que un italiano",
+         "Haz 100 gestos en el Jovaniverso.", C),
+        (1_000, "universo_gestures_1k", "Guardia urbano de Triana",
+         "Haz 1.000 gestos en el Jovaniverso.", R),
+    ])  # fmt: skip
+    for gesture, name, text in UNIVERSO_GESTURES:
+        a += _tiers("jovani", f"{UNIVERSO_GESTURE_PREFIX}{gesture}", [
+            (1, f"{UNIVERSO_GESTURE_PREFIX}{gesture}", name, text, C),
+        ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_gestures_all", name="Chaplin de bolsillo",
+        description="Haz los 7 gestos del Jovaniverso.",
+        category="jovani", rarity=R,
+        conditions=tuple((f"{UNIVERSO_GESTURE_PREFIX}{g}", 1) for g, *_ in UNIVERSO_GESTURES),
+    ))  # fmt: skip
+    a += _tiers("jovani", "universo_wave_near", [
+        (1, "universo_wave_near", "Holi, holita, vecinito",
+         "Saluda con la mano en el Jovaniverso con alguien cerca.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_punch_near", [
+        (1, "universo_punch_near", "La bofetada de los Óscar",
+         "Lanza un puñetazo en el Jovaniverso con alguien cerca.", C, True),
+        (50, "universo_punch_near_50", "Bud Spencer de La Isleta",
+         "Lanza 50 puñetazos en el Jovaniverso con alguien cerca.", R, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_dance_max", [
+        (2, "universo_dance_2", "Baile agarrao",
+         "Baila en el Jovaniverso a la vez que otra persona cerca.", C),
+        (4, "universo_dance_4", "Coreografía de la Macarena",
+         "Bailad 4 personas juntas en el Jovaniverso.", R),
+        (8, "universo_dance_8", "Flashmob en la plaza",
+         "Bailad 8 personas juntas en el Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_sit_summit", [
+        (1, "universo_sit_summit", "El trono de las Nieves",
+         "Siéntate en la cima del Pico de las Nieves en el Jovaniverso.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_dance_canarias", [
+        (1, "universo_dance_canarias", "Baile de magos",
+         "Baila en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
     a.append(Achievement(
@@ -25108,6 +25168,33 @@ def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatD
     if jumps > 0:
         add["universo_jumps"] = jumps
     return StatDelta(add=add)
+
+
+def universo_gesture_stats(
+    gesture: str, *, near: int, together: int, summit: bool, when: datetime
+) -> StatDelta:
+    """Lo que suma empezar un gesto del robot en el Jovaniverso. Lo ve el servidor.
+
+    Args:
+        gesture: Clave del gesto (`UNIVERSO_GESTURES`).
+        near: Cuántos hay cerca (`bot.services.universo_sala.NEAR_DM`).
+        together: Cuántos hacen el mismo gesto cerca, contando a quien lo empieza.
+        summit: Si está en la cima del Pico de las Nieves.
+        when: Hora local.
+    """
+    add = {"universo_gestures": 1, f"{UNIVERSO_GESTURE_PREFIX}{gesture}": 1}
+    peak: dict[str, int] = {}
+    if near and gesture == "saludo":
+        add["universo_wave_near"] = 1
+    if near and gesture == "punetazo":
+        add["universo_punch_near"] = 1
+    if gesture == "sentarse" and summit:
+        add["universo_sit_summit"] = 1
+    if gesture == "baile":
+        peak["universo_dance_max"] = together
+        if (when.month, when.day) == (5, 30):
+            add["universo_dance_canarias"] = 1
+    return StatDelta(add=add, peak=peak)
 
 
 def image_stats(effect: str, extension: str, *, subject_is_author: bool | None) -> StatDelta:
