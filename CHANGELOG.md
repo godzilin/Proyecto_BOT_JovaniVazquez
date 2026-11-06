@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.48.0 · 2026-11-06
+
+- Tapetes: el Hielo Negro, solo en la Rueda y, rarísimo, en las cajas
+- Logros: 4 nuevos por sacar el Tapete Hielo Negro (2 en 🎪 Rueda y 2 en 🛍️ Tienda)
+
 ### 9.47.1 · 2026-11-06
 
 - Jovaniverso: el túnel del NAS pasa a Tailscale Funnel, gratis y sin dominio propio
