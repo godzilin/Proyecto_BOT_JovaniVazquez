@@ -594,7 +594,7 @@ UNIVERSO_PLACES: tuple[tuple[str, str, str, bool], ...] = (
     ("nublo", "Nublado con claros", "Llega al pie del Roque Nublo.", False),
     ("bandama", "Caldo de caldera", "Asómate al borde de la Caldera de Bandama.", False),
     ("dunas", "Dunas: segunda parte", "Pisa las Dunas de Maspalomas.", False),
-    ("faro", "Farolero", "Llega al Faro de Maspalomas.", False),
+    ("faro", "Faro de guardia", "Llega al Faro de Maspalomas.", False),
     ("plaza", "Plaza fija", "Pasa por la plaza del pueblo.", False),
     ("drago", "Drago Ball", "Acércate al drago de la plaza.", False),
     ("muelle", "Mogán Freeman", "Sube al muelle de Mogán.", False),
@@ -2752,7 +2752,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", "universo_meters", [
         (100, "universo_meters_100", "Un pequeño paso para el robot",
          "Recorre 100 metros en el Jovaniverso.", C),
-        (1_000, "universo_meters_1k", "Kilómetro cero", "Recorre 1 km en el Jovaniverso.", C),
+        (1_000, "universo_meters_1k", "Un kilo de metros", "Recorre 1 km en el Jovaniverso.", C),
         (10_000, "universo_meters_10k", "Peregrino de Tunte",
          "Recorre 10 km en el Jovaniverso.", R),
         (42_195, "universo_meters_42k", "Corre, que se va la guagua",
