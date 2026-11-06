@@ -30,6 +30,7 @@ from bot.services.slots import (
     EPIC_WIN,
     FREE_SPINS,
     GRAPE,
+    HEAT_CELLS,
     HEAT_DECAY_SECONDS,
     HEAT_MAX,
     LEMON,
@@ -50,6 +51,7 @@ from bot.services.slots import (
     SlotMachine,
     WinTier,
     add_bonus,
+    bar_fill,
     bonus_bar,
     daily_stake,
     decayed_heat,
@@ -400,8 +402,18 @@ def test_el_calor_sube_con_cada_premio_y_la_tirada_caliente_lo_gasta() -> None:
 
 
 def test_la_barra_de_calor_usa_formas() -> None:
-    assert heat_bar(2) == "🔥🔥▫️▫️▫️"
-    assert heat_bar(99) == "🔥" * HEAT_MAX
+    assert heat_bar(0) == "▫️" * HEAT_CELLS
+    assert heat_bar(2) == "🔥" * 6 + "▫️" * 4
+    assert heat_bar(99) == "🔥" * HEAT_CELLS
+
+
+def test_la_barra_de_calor_corre_al_principio_y_se_frena_al_final() -> None:
+    lit = [heat_bar(h).count("🔥") for h in range(HEAT_MAX + 1)]
+    steps = [b - a for a, b in itertools.pairwise(lit)]
+    assert lit[0] == 0 and lit[-1] == HEAT_CELLS
+    assert all(step > 0 for step in steps), "cada tirada con premio se tiene que ver"
+    assert steps == sorted(steps, reverse=True), "los primeros pasos llenan más"
+    assert lit[HEAT_MAX - 1] < HEAT_CELLS, "solo se ve llena cuando está caliente"
 
 
 def test_la_tabla_de_premios_menciona_el_bote_y_los_giros() -> None:
@@ -438,5 +450,16 @@ def test_la_barra_llena_da_giros_a_la_apuesta_media_y_vuelve_a_cero() -> None:
 
 
 def test_la_barra_de_bonus_dice_el_porcentaje() -> None:
-    assert bonus_bar(78) == "▰▰▰▰▰▰▰▱▱▱ 78 %"
+    assert bonus_bar(0) == "▱▱▱▱▱▱▱▱▱▱ 0 %"
+    assert bonus_bar(50) == "▰▰▰▰▰▰▰▱▱▱ 74 %"
     assert bonus_bar(500).endswith("100 %")
+
+
+def test_la_barra_de_bonus_se_ve_mas_llena_de_lo_que_esta_pero_no_llena() -> None:
+    shown = [bar_fill(points, BONUS_MAX) for points in range(BONUS_MAX + 1)]
+    assert all(b > a for a, b in itertools.pairwise(shown)), "cada punto se nota"
+    assert all(f >= p / BONUS_MAX for p, f in enumerate(shown)), "nunca menos que lo real"
+    gains = [b - a for a, b in itertools.pairwise(shown)]
+    assert gains == sorted(gains, reverse=True), "los primeros puntos llenan más"
+    assert bonus_bar(BONUS_MAX - 1) == "▰" * 9 + "▱ 99 %"
+    assert bonus_bar(BONUS_MAX) == "▰" * 10 + " 100 %"

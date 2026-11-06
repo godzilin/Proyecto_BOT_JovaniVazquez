@@ -116,6 +116,7 @@ from bot.services.hold_win import MAJOR_COINS as HOLD_WIN_MAJOR
 from bot.services.hold_win import MINI_COINS as HOLD_WIN_MINI
 from bot.services.hold_win import POINTS_PER_STAKE as HOLD_WIN_POINTS
 from bot.services.hold_win import RESET_VALUE as HOLD_WIN_RESET
+from bot.services.hold_win import THEMES as HOLD_WIN_THEMES
 from bot.services.hold_win import BaseSpin as HoldWinSpin
 from bot.services.hold_win import BonusResult as HoldWinBonusResult
 from bot.services.hold_win import BonusStep as HoldWinStep
@@ -612,6 +613,12 @@ ROULETTE_HIT_PREFIX = "roulette_hit_"
 SLOTS_CARD_PREFIX = "slots_card_"
 SLOTS_CARD_SUITS_STAT = "slots_card_suits"
 SLOTS_CARD_SUITS = ("H", "D", "S", "C")
+#: Veces que se ha cambiado a cada tragaperras con 🔀 Otras tragaperras
+#: (`slots_switch_to_volcan`…) y a cuántas distintas (`with_derived`). La clave de
+#: la clásica es la de `bot.cogs.tragas_cambio.CLASSIC`.
+SLOTS_SWITCH_PREFIX = "slots_switch_to_"
+SLOTS_SWITCH_KINDS_STAT = "slots_switch_kinds"
+SLOTS_MACHINES = ("clasica", *HOLD_WIN_THEMES)
 #: Estadísticas virtuales: números distintos acertados a pleno y el más repetido.
 ROULETTE_NUMBERS_STAT = "roulette_numbers_hit"
 ROULETTE_FAVOURITE_STAT = "roulette_hit_max"
@@ -4190,6 +4197,20 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (150, "slots_tickets_150", "Coleccionista de tickets",
          "Llévate 150 tickets de la tragaperras.", E),
         (250, "ticket_250", "Archivo de Simancas", "Llévate 250 tickets de la tragaperras.", E),
+    ])  # fmt: skip
+    # 🔀 Otras tragaperras. Sin datos de uso todavía: las metas suponen que quien
+    # juega a varias cambia unas cuantas veces por semana.
+    a += _tiers("slots", "slots_switches", [
+        (1, "slots_switch_1", "Esta no me da buen rollo",
+         "Cambia de tragaperras con 🔀 Otras tragaperras.", C),
+        (25, "slots_switch_25", "Hoy no es mi máquina", "Cambia de tragaperras 25 veces.", R),
+        (100, "slots_switch_100", "El Willy Fog del casino",
+         "Cambia de tragaperras 100 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("slots", SLOTS_SWITCH_KINDS_STAT, [
+        (len(SLOTS_MACHINES), "slots_switch_all", "Ruta de la tapa",
+         f"Cambia a cada una de las {len(SLOTS_MACHINES)} tragaperras con 🔀 Otras tragaperras.",
+         C),
     ])  # fmt: skip
     a += _tiers("slots", "slots_ticket_gross_max", [
         (10_000, "ticket_gross_10k", "Brutos pero honrados",
@@ -23034,6 +23055,7 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     `entrance_fx_kinds`, los efectos distintos guardados en sonidos de entrada;
     `roulette_numbers_hit` y `roulette_hit_max`, los plenos por número;
     `slots_card_suits`, los palos distintos de la carta del doble o nada;
+    `slots_switch_kinds`, las tragaperras distintas a las que ha cambiado con 🔀;
     `shop_use_kinds`, los objetos distintos usados de la tienda;
     `shop_aisles`, los pasillos del colmado en los que ha comprado;
     `perfil_sections`, las secciones distintas de `perfil` que ha mirado, y
@@ -23062,6 +23084,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[ROULETTE_FAVOURITE_STAT] = max(hits, default=0)
     full[SLOTS_CARD_SUITS_STAT] = sum(
         1 for suit in SLOTS_CARD_SUITS if stats.get(f"{SLOTS_CARD_PREFIX}{suit}", 0) > 0
+    )
+    full[SLOTS_SWITCH_KINDS_STAT] = sum(
+        1 for key in SLOTS_MACHINES if stats.get(f"{SLOTS_SWITCH_PREFIX}{key}", 0) > 0
     )
     full[SHOP_USE_KINDS_STAT] = sum(
         1
@@ -24779,6 +24804,11 @@ def slots_bonus_stats(*, fill_spins: int) -> StatDelta:
     if fill_spins <= SLOTS_BONUS_QUICK:
         delta.add["slots_bonus_quick"] = 1
     return delta
+
+
+def slots_switch_stats(machine: str) -> StatDelta:
+    """Un cambio de tragaperras con 🔀 a la máquina `machine` (`clasica`, `volcan`…)."""
+    return StatDelta(add={"slots_switches": 1, f"{SLOTS_SWITCH_PREFIX}{machine}": 1})
 
 
 def slots_ticket_stats(*, spins: int, gross: int, staked: int, net: int) -> StatDelta:

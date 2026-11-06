@@ -560,7 +560,8 @@ python -m bot
   resumen), ▶️ Auto (tiradas encadenadas, cada una con su animación; el botón
   pasa a ser ⏹️ Parar y para solo al llegar a 25 tiradas, con un premio gordo,
   sin saldo o al perder 10 veces la apuesta), ⚡ Turbo (sin animación),
-  ½ / ×2 / 💰 All-in y 📋 Premios. Cuando tocan salen 🔁 Re-girar el 3º (tras
+  ½ / ×2 / 💰 All-in, 📋 Premios y 🔀 Otras tragaperras (cambia a otra máquina,
+  también de Botes, en el mismo mensaje). Cuando tocan salen 🔁 Re-girar el 3º (tras
   un casi-premio, por lo que vale de media el re-giro), 🔴 Rojo / ⚫ Negro (doble
   o nada con lo cobrado, hasta 5 veces, con una carta que se gira) y 🎁 Giro
   del día (gratis, a 100 Y$ por

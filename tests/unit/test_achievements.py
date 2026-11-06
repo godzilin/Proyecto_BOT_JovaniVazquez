@@ -566,6 +566,8 @@ PRODUCED_STATS = {
     "slots_tickets", "slots_ticket_gross_max", "slots_ticket_best", "slots_ticket_loss_max",
     "slots_ticket_creative", "slots_ticket_taxed", "slots_ticket_zero", "slots_ticket_dry",
     "slots_ticket_quick",
+    # 🔀 Otras tragaperras (cogs/tragas_cambio.py; las distintas, en `with_derived`).
+    "slots_switches", "slots_switch_kinds",
     # Botes (cogs/hold_win.py: hold_win_stats, hold_win_bonus_stats y el botón de Auto)
     "botes_spins", *(f"botes_spins_{theme}" for theme in ("volcan", "mina", "olimpo")),
     "botes_collects", "botes_double_collect", "botes_near_miss", "botes_ways_5",
