@@ -2650,7 +2650,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", UNIVERSO_DAYS_STAT, [
         (1, "universo_day_1", "Houston, tenemos Jovani",
          "Entra en el Jovaniverso con `universo`.", C),
-        (7, "universo_day_7", "Turista espacial", "Entra en el Jovaniverso 7 días distintos.", R),
+        (7, "universo_day_7", "Bonobús galáctico", "Entra en el Jovaniverso 7 días distintos.", R),
         (30, "universo_day_30", "Empadronado en Andrómeda",
          "Entra en el Jovaniverso 30 días distintos.", E),
         (100, "universo_day_100", "Cuota de la comunidad galáctica",

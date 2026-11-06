@@ -69,7 +69,7 @@ function renderProfile(profile: ProfileResponse): void {
 
 async function start(): Promise<void> {
   if (!new URLSearchParams(location.search).has("frame_id")) {
-    showMessage("Esta página se abre desde Discord, con `/universo` o `.universo`.");
+    showMessage("Esta página se abre desde Discord, con /universo o .universo.");
     return;
   }
   showMessage("Entrando en el Jovaniverso…");

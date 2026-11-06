@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.46.0 · 2026-11-06
+
+- Jovaniverso: `universo`, primera prueba del bot dentro de una Activity de Discord
+- Logros: 9 nuevos en 🎤 Jovani por entrar en el Jovaniverso
+
 ### 9.45.0 · 2026-11-06
 
 - Tragaperras: 🔀 Otras tragaperras, para cambiar de máquina sin salir del mensaje

@@ -16,3 +16,6 @@ tests
 Biblia.txt
 .despliegue
 node_modules
+universo/node_modules
+# La página compilada en local: la imagen la vuelve a compilar desde universo/.
+src/bot/assets/universo

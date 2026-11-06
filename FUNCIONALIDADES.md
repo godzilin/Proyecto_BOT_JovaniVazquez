@@ -1216,6 +1216,21 @@ Comando de administración (cog `Admin`): `/aspecto` con `accion`, `look`, `imag
 
 Lo guardado se borra si el bot sale del servidor.
 
+## 6 nonies. Jovaniverso: `universo`
+
+El bot dentro de una Activity de Discord: una página web que se abre en un iframe, por encima del chat o de la llamada. Es el comienzo de la 10.0, que llevará a la Activity un mundo con personaje propio, el casino como edificio y los trabajos. De momento es una prueba de concepto: entras, te reconoce y te enseña tu saldo.
+
+- `/universo` es el comando de entrada de la Activity: Discord lo crea al activar las Activities en el portal (con el nombre «launch») y el bot lo renombra al sincronizar los comandos (`bot.app.BotTree`). Lo abre Discord, sin pasar por el bot. Mientras las Activities no estén activadas, no existe.
+- `.universo` contesta con un botón 🌌 que abre la Activity. El botón es persistente: vale aunque el bot se reinicie. Sin `DISCORD_CLIENT_SECRET`, avisa de que el universo aún no está abierto.
+- La página hace login con Discord (OAuth2 de las Activities: el código del SDK se cambia por un token en el servidor, que es el único que tiene el secreto) y recibe una sesión firmada que dura 12 horas o hasta que el bot se reinicia. Con ella pide el perfil: nombre en el servidor, nombre del servidor y saldo. Solo lo ve quien es miembro del servidor donde se abre.
+- La página no decide nada: todo sale del servidor web del bot, dentro del mismo proceso, con la base de datos y los servicios de siempre. Lo que algún día mueva dinero se decidirá en el servidor con `EconomyService`.
+
+No mueve dinero. La mascota no sale: la página no es un mensaje de Discord ni enseña un resultado en el que pueda hablar.
+
+Logros (🎤 Jovani), 9: días distintos entrando (de 1 a 365), desde el móvil, desde el ordenador, desde los dos y un secreto de madrugada (de 3:00 a 5:59). Entrar varias veces el mismo día no suma. La plataforma la dice la página, así que esos logros son Comunes.
+
+Despliegue (servidor web, túnel y portal de Discord): README, «Jovaniverso (Activity)».
+
 ## 7. Persistencia y aislamiento por servidor
 
 El canal y el GIF de bienvenida se guardan por servidor en SQLite, igual que los datos del sistema de niveles.

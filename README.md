@@ -54,6 +54,10 @@ pip install -e ".[dev]"
    basta para LaLiga y la Champions: el bot gasta unos 390 (unos 330 en el 1X2 y
    los resultados y unos 60 en el más/menos de los mercados de goles). Sin ella,
    `deportes` avisa de que no está configurado.
+6. `DISCORD_CLIENT_SECRET` (opcional, secreta) y `UNIVERSO_PORT` (opcional, 8080
+   por defecto) abren el servidor web del Jovaniverso (`universo`, la Activity).
+   Sin el secreto no se abre y `universo` avisa de que aún no está abierto. Pasos
+   en «Jovaniverso (Activity)».
 
 Las predicciones (`predice`) no necesitan clave: leen los datos públicos de
 Polymarket (`gamma-api.polymarket.com` para las preguntas y
@@ -85,7 +89,7 @@ python -m bot
   | 🏦 Dinero | `banco [mostrador]` · `bizum <miembro> <cantidad> [concepto]` · `donar [ong] [cantidad]` · `fortunas` · `hacienda [miembro]` · `imv` · `patrimonio [miembro]` · `renta` · `saldo [miembro]` |
   | 🛍️ Tienda | `mascota [miembro]` · `pieles [miembro] [imagen]` · `rastro` · `tienda` · `trueque <objeto> <miembro> <a cambio> [dinero]` · `vender <objeto> <precio> [comprador]` |
   | 🎵 Música | `cola` · `parar` · `pausar` · `poner <consulta>` · `quitar <posicion>` · `saltar` · `seguir` · `vaciar` · `volumen <1-200>` |
-  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [inicio] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` |
+  | 🍻 Comunidad | `babel <texto \| @miembros #canales>` · `beernight [sonido] [archivo]` · `cumple [dd/mm] [miembro]` · `cumples` · `entrada [archivo] [inicio] [volumen] [borrar]` · `hongkong` · `jovani` · `lista [tarea] [prioridad alta\|media\|baja]` · `universo` |
   | 🎨 Imagen (solo `.`) | `magik [miembro]` · `memes [efecto]` · 108 efectos (`.memes`) |
   | ⚙️ General | `ayuda` · `latencia` |
   | 🛡️ Admin | `abrir` · `admin` · `apodo` · `aspecto` · `banear` · `bienv` · `borrar` · `callar` · `cambios` · `catalogo` · `cerrar` · `decir` · `echar` · `garito` · `hablar` · `indultar` · `lento` · `informe` · `niveles` · `robuso` · `rol` · `tajo` |
@@ -1286,6 +1290,42 @@ hasta que pase la espera. Si rechaza una pieza, las demás se aplican. Lo uno y 
 sale en «Último aviso» del panel de `aspecto`. Para dejarlo como estaba: `aspecto
 accion:Apagar`, que quita el perfil del servidor y vuelve al global.
 
+### Jovaniverso (Activity): `universo`
+
+El Jovaniverso es una página web que Discord abre dentro de la aplicación (una
+Activity). Discord no la carga del NAS directamente: la pide a una URL pública por
+HTTPS y hace de proxy. El bot sirve la página y su API en `UNIVERSO_PORT` (8080)
+dentro del contenedor, y un túnel de Cloudflare (servicio `tunel` de
+`docker-compose.yml`) la saca a Internet sin abrir puertos en el router. La imagen
+compila la página sola (fase `universo` del `Dockerfile`).
+
+Puesta en marcha, una sola vez:
+
+1. **Cloudflare**: en Zero Trust > Networks > Tunnels, crear un túnel (tipo
+   Cloudflared), copiar su token y añadirle un «Public hostname» con un dominio
+   gestionado en Cloudflare (por ejemplo `universo.tudominio.es`) que apunte al
+   servicio `http://bot:8080`.
+2. **`.env` del NAS**: `DISCORD_CLIENT_SECRET` (el del paso 3), `TUNNEL_TOKEN` (el
+   del paso 1) y `COMPOSE_PROFILES=universo`, que hace que compose arranque el túnel.
+   Los tres son secretos o de despliegue: nunca al repositorio.
+3. **Portal de desarrolladores de Discord**, en la aplicación del bot:
+   - Activities > Settings: activarlas. Discord crea entonces el comando de entrada
+     («launch») y el bot lo renombra a `/universo` en el siguiente arranque.
+   - Activities > URL Mappings: `/` → el dominio del paso 1, sin `https://`.
+   - OAuth2: copiar el Client Secret (o generarlo) para el paso 2. Si se regenera,
+     hay que cambiarlo en el `.env`.
+4. `docker compose up -d` (o esperar a `actualizar.sh`). En el log del bot sale
+   «Servidor del Jovaniverso escuchando en el puerto 8080».
+
+Comprobar: `/universo` en un canal del servidor abre la Activity, que enseña tu
+nombre y tu saldo. Si la Activity se queda en blanco, el túnel no llega: `docker
+logs bot-jovani-vazquez-tunel`. Si dice que Discord no ha aceptado el login, el
+secreto del `.env` no es el de la aplicación.
+
+El servidor web pesa unos pocos MB dentro del mismo proceso del bot y el túnel
+tiene un límite de 128 MB: la cuenta de memoria de `docker-compose.yml` no cambia.
+Sin `COMPOSE_PROFILES=universo`, el túnel no arranca y el bot funciona igual.
+
 ### Telemetría interna: `informe`
 
 El bot cuenta cuánto se usa cada cosa para poder decidir mejoras con datos: comandos
@@ -1418,6 +1458,7 @@ src/bot/
 │   ├── lottery.py       # loteria: panel con pestañas, compras, rascas y sorteos
 │   ├── achievements.py  # Logros: seguimiento, premios, avisos y su vista
 │   ├── perfil.py        # `perfil`: nivel, patrimonio, trabajo, logros, rachas, objetos, gallo, 4 en raya y backgammon
+│   ├── universo.py      # universo: el botón de la Activity y su servidor web (login y perfil)
 │   └── music.py         # Comandos de música y control por servidor
 ├── utils/
 │   └── responder.py     # Adaptador común: misma lógica para / y .
@@ -1425,6 +1466,7 @@ src/bot/
 │   ├── levels.py        # Cálculo de niveles y progreso
 │   ├── achievements.py  # Catálogo de logros y qué cuenta cada jugada o mensaje
 │   ├── economy.py       # Yapdollars: única puerta al dinero del bot
+│   ├── universo.py      # Login con Discord y sesiones firmadas de la Activity
 │   ├── taxes.py         # IRPF, nómina, Patrimonio, IGIC, loterías, donativos y ahorro
 │   ├── interest.py      # Cuenta remunerada: saldo medio, tramos, rachas y liquidación
 │   ├── work.py          # Reglas de pala: batería, jornada, familia, ascensos
@@ -1534,11 +1576,14 @@ src/bot/
     ├── backgammon/     # escena.html: canvas del tablero del backgammon (con tapete)
     ├── enraya/         # escena.html: canvas del tablero del 4 en raya
     ├── memes/          # Plantillas y fuentes de los efectos (de imgen, MIT)
-    └── slots/          # escena.html de la tragaperras y sus símbolos (Noto Emoji, ver LICENSE.txt)
+    ├── slots/          # escena.html de la tragaperras y sus símbolos (Noto Emoji, ver LICENSE.txt)
+    └── universo/       # La página del Jovaniverso compilada (no está en git: la compila la imagen)
 ```
 
 En la raíz: `Dockerfile`, `docker-compose.yml`, `.env.example` y
-`actualizar.sh` (autoactualización en el NAS) para el despliegue.
+`actualizar.sh` (autoactualización en el NAS) para el despliegue. `universo/` es
+la página de la Activity (Vite y TypeScript, con su `package.json`): `npm ci && npm
+run build` la deja en `src/bot/assets/universo/`.
 
 Consulta [Biblia.txt](./Biblia.txt) para el detalle completo de la
 estructura de referencia, los límites entre capas y las normas de

@@ -47,6 +47,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Túnel de Cloudflare para el Jovaniverso (`universo`, la Activity de Discord).
+  # Discord llega a la página por aquí sin abrir puertos en el router: el túnel sale
+  # hacia Cloudflare y reenvía al servidor web del bot (http://bot:8080) por la red
+  # interna de compose. El puerto 8080 no se publica fuera.
+  # Solo arranca con `COMPOSE_PROFILES=universo` en el .env, y necesita
+  # `TUNNEL_TOKEN` (secreto: lo da Cloudflare al crear el túnel). Pasos en el README,
+  # «Jovaniverso (Activity)».
+  tunel:
+    image: cloudflare/cloudflared:2026.10.7
+    container_name: bot-jovani-vazquez-tunel
+    profiles: ["universo"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - bot
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   bot-data:
     name: bot-jovani-vazquez-data
