@@ -857,6 +857,279 @@ function scoop(x, y, r, c, dk) { // una bola de helado con el borde ondulado
   ell(x - r * 0.35, y - r * 0.4, r * 0.32, r * 0.18, "rgba(255,255,255,0.5)", -0.5);
 }
 function spoon(x, y) { g.save(); g.translate(x, y); g.rotate(0.5); fillRR(-1.2, -10, 2.4, 12, 1.2, "#f6d13a"); ell(0, -11, 2.6, 3.4, "#f6d13a"); g.restore(); }
+// Los cinco sectores de 9.48.0: guachinche, panadería, pescadería, reparación de móviles y peluquería.
+// Un pez de perfil mirando a la izquierda, centrado en (0, 0): `L` es medio largo y `H` medio alto.
+// o: tail (largo de la cola), fork (false: cola recta), dorsal (alto de la aleta) y lateral (línea lateral).
+function fishShape(L, H, back, belly, fin, o = {}) {
+  const tl = L * (o.tail ?? 0.5), notch = o.fork === false ? 0.85 : 0.6;
+  poly([[L * 0.55, 0], [L * 0.55 + tl, -H * 0.95], [L * 0.55 + tl * notch, 0], [L * 0.55 + tl, H * 0.95]], fin);
+  poly([[-L * 0.35, -H * 0.8], [-L * 0.05, -H * (0.8 + (o.dorsal ?? 0.7))], [L * 0.35, -H * 0.55]], fin);
+  poly([[-L * 0.1, H * 0.75], [L * 0.1, H * 1.25], [L * 0.3, H * 0.6]], fin);
+  g.beginPath(); g.moveTo(-L, 0.5);
+  g.bezierCurveTo(-L * 0.7, -H * 1.2, L * 0.25, -H * 1.1, L * 0.62, -H * 0.2); g.lineTo(L * 0.62, H * 0.2);
+  g.bezierCurveTo(L * 0.25, H * 1.1, -L * 0.7, H * 1.2, -L, 0.5); g.closePath();
+  g.fillStyle = lgrad(0, -H, 0, H, [[0, back], [0.5, back], [0.62, belly], [1, belly]]); g.fill();
+  stroke(shade(back, -0.35), 1.2);
+  ell(-L * 0.1, -H * 0.5, L * 0.4, H * 0.16, "rgba(255,255,255,0.32)");
+  if (o.lateral) line(-L * 0.3, -H * 0.05, L * 0.58, -H * 0.05, shade(back, -0.3), 0.8);
+  g.beginPath(); g.arc(-L * 0.35, 0, H * 0.85, -0.9, 0.9); stroke(shade(back, -0.3), 1);
+  const er = Math.max(1.5, H * 0.2);
+  dot(-L * 0.66, -H * 0.2, er, "#fff"); dot(-L * 0.67, -H * 0.2, er * 0.55, "#1b1b1b");
+}
+function barrel(cx, cy, k, wood = "#a8683a") { // una barrica de frente, de 28 · k de alto
+  g.save(); g.translate(cx, cy); g.scale(k, k);
+  const sh = () => { g.beginPath(); g.moveTo(-10, -14); g.bezierCurveTo(-15, -6, -15, 6, -10, 14); g.lineTo(10, 14); g.bezierCurveTo(15, 6, 15, -6, 10, -14); g.closePath(); };
+  sh(); g.fillStyle = lgrad(-13, 0, 13, 0, [[0, shade(wood, -0.2)], [0.45, wood], [1, shade(wood, -0.32)]]); g.fill();
+  g.save(); sh(); g.clip();
+  for (const x of [-7, -3.5, 0, 3.5, 7]) line(x, -14, x, 14, "rgba(60,30,10,0.3)", 0.7);
+  rect(-16, -10, 32, 3, "#4a525c"); rect(-16, 7, 32, 3, "#4a525c");
+  g.restore();
+  sh(); stroke("rgba(60,30,10,0.7)", 1.3);
+  ell(0, -14, 10, 2.4, shade(wood, 0.25)); dot(0, 0, 1.8, "#3a2410");
+  g.restore();
+}
+function flame(x, y, k, c) {
+  g.beginPath(); g.moveTo(x, y - 14 * k); g.quadraticCurveTo(x + 8 * k, y - 4 * k, x + 5 * k, y + 3 * k);
+  g.quadraticCurveTo(x, y + 7 * k, x - 5 * k, y + 3 * k); g.quadraticCurveTo(x - 8 * k, y - 4 * k, x, y - 14 * k);
+  g.closePath(); g.fillStyle = c; g.fill();
+}
+Object.assign(PRODUCT, {
+  // el guachinche
+  vino() { // la botella y la copa
+    fillRR(-13, -4, 13, 22, 3, "#2f5a37"); fillRR(-10, -19, 7, 17, 2, "#2f5a37"); rect(-10.5, -20, 8, 4, "#b3261e");
+    rect(-13, 3, 13, 8, "#f4ead0"); dot(-6.5, 7, 2, "#b3261e"); rect(-11.5, -1, 2, 17, "rgba(255,255,255,0.28)");
+    path([[3, -9], [16, -9], [15, -1], [9.5, 4], [4, -1]]); g.fillStyle = "rgba(225,238,246,0.8)"; g.fill(); stroke("#8fa8b8", 1.2);
+    path([[4, -4], [15, -4], [14.4, -1], [9.5, 3], [4.6, -1]]); g.fillStyle = "#8a1830"; g.fill();
+    line(9.5, 4, 9.5, 15, "#8fa8b8", 1.6); ell(9.5, 16, 5.5, 1.6, "#8fa8b8");
+  },
+  papas() { // papas arrugadas con mojo rojo y verde
+    ell(0, 9, 19, 7, "#f4f0e6"); g.beginPath(); g.ellipse(0, 9, 19, 7, 0, 0, TAU); stroke("#c9bfa6", 1.2);
+    for (const [x, y, a] of [[-9, 6, 0.3], [1, 4, -0.2], [10, 7, 0.5], [-2, 10, -0.4]]) {
+      ell(x, y, 7, 5.2, "#dcb46a", a); g.beginPath(); g.ellipse(x, y, 7, 5.2, a, 0, TAU); stroke("#a47e38", 1.1);
+      for (const [dx, dy] of [[-2, -1], [1, 1.4], [2.4, -2]]) dot(x + dx, y + dy, 0.8, "#fff");
+    }
+    ell(-8, -11, 7, 3.2, "#f4f0e6"); ell(-8, -11.4, 5.4, 2.1, "#d63a2a");
+    ell(8, -11, 7, 3.2, "#f4f0e6"); ell(8, -11.4, 5.4, 2.1, "#4aa040");
+  },
+  carne() { // la pierna de cabra con su hueso
+    line(8, -4, 15, -12, "#f4ead0", 5); dot(14.5, -14.5, 3, "#f4ead0"); dot(18, -10.5, 3, "#f4ead0");
+    g.beginPath(); g.moveTo(-17, 2); g.bezierCurveTo(-17, -12, -2, -14, 8, -6); g.bezierCurveTo(14, 2, 10, 14, -3, 15); g.bezierCurveTo(-14, 16, -17, 10, -17, 2); g.closePath();
+    g.fillStyle = lgrad(0, -12, 0, 15, [[0, "#b8603a"], [1, "#8a3e1e"]]); g.fill(); stroke("#5a2410", 1.4);
+    ell(-6, 2, 6, 2.2, "#e0b8a0", -0.5);
+    for (let k = 0; k < 3; k++) line(-10 + k * 6, -5 + k * 1.5, -6 + k * 6, 9 + k * 1.5, "#4a2008", 1.7);
+    ell(-8, -6, 4.4, 1.8, "rgba(255,220,190,0.45)", -0.4);
+  },
+  costillas() { // el costillar y el aro de piña
+    g.save(); g.translate(-3, 1); g.rotate(-0.35);
+    for (let k = 0; k < 4; k++) fillRR(-13 + k * 6.6, 4, 3.2, 11, 1.6, "#f4ead0");
+    fillRR(-17, -9, 28, 16, 4, "#a8522e");
+    for (let k = 1; k < 4; k++) line(-17 + k * 7, -8, -17 + k * 7, 6, "#6b2e14", 1.3);
+    rect(-15, -7, 24, 2, "rgba(255,200,150,0.35)");
+    g.restore();
+    dot(11, 7, 9, "#f6d13a"); circle(11, 7, 9); stroke("#c9a018", 1.3); dot(11, 7, 3.4, "#fff3c0");
+    for (let k = 0; k < 8; k++) { const a = k * TAU / 8; line(11 + Math.cos(a) * 4.6, 7 + Math.sin(a) * 4.6, 11 + Math.cos(a) * 8, 7 + Math.sin(a) * 8, "#d9b020", 1); }
+  },
+  queso() { // el queso asado con sus marcas de brasa y el mojo
+    ell(0, 15, 19, 4, "#e8e0d0");
+    poly([[-16, 12], [16, 12], [16, 0], [-16, -8]], "#f6d46a");
+    poly([[-16, -8], [16, 0], [16, 4], [-16, -4]], "#c8873a");
+    for (let k = 0; k < 4; k++) line(-11 + k * 8, -6 + k * 2 - 0.5, -9 + k * 8, -2 + k * 2 + 0.5, "#4a2410", 1.7);
+    for (const [x, y] of [[-9, 6], [-1, 8], [8, 6], [3, 3]]) dot(x, y, 1.5, "#e0b030");
+    g.beginPath(); g.moveTo(-4, 0); g.quadraticCurveTo(-3, 7, -1, 7); stroke("#c0392b", 2.4);
+    g.beginPath(); g.moveTo(7, 3); g.quadraticCurveTo(8, 9, 10, 9); stroke("#4aa040", 2.4);
+    rr(-16, -8, 32, 20, 1); g.strokeStyle = "rgba(160,110,20,0.55)"; g.lineWidth = 1.2; g.stroke();
+  },
+  escaldon() { // el cuenco de gofio escaldado
+    g.beginPath(); g.moveTo(-17, -3); g.quadraticCurveTo(-15, 17, 0, 17); g.quadraticCurveTo(15, 17, 17, -3); g.closePath();
+    g.fillStyle = "#3f6fa8"; g.fill(); stroke("#2a4a78", 1.4);
+    for (let k = 0; k < 4; k++) dot(-9 + k * 6, 9, 1.6, "#fff");
+    ell(0, -3, 17, 4.6, "#e8e0d0"); ell(0, -3.4, 14.4, 3.4, "#b78a4e"); ell(0, -5.5, 9, 3, "#d7ae70");
+    for (const [x, y] of [[-6, -4], [2, -6], [7, -3], [-1, -2.5], [5, -7]]) dot(x, y, 0.9, "#7a5424");
+    steam(0, -9, 10);
+  },
+  // la panadería
+  barra() { // dos barras de pan con sus cortes
+    for (const [dy, c] of [[7, "#cf9444"], [-5, "#dba550"]]) {
+      g.save(); g.translate(0, dy); g.rotate(-0.42);
+      fillRR(-20, -5, 40, 10, 5, c); rr(-20, -5, 40, 10, 5); stroke("#a8702a", 1.2);
+      for (let k = -3; k <= 3; k++) ell(k * 5.2, -0.5, 1.5, 3.4, "#f2d29a", 0.55);
+      ell(-4, -3, 12, 1.1, "rgba(255,240,200,0.5)");
+      g.restore();
+    }
+  },
+  millo() { // la hogaza de millo y una mazorca
+    dot(-2, 4, 15, "#d9a43a"); dot(-2, 3, 13.4, "#eab948"); circle(-2, 3, 13.4); stroke("#b57a1c", 1);
+    line(-10, -4, 6, 12, "#b57a1c", 1.6); line(6, -4, -10, 12, "#b57a1c", 1.6);
+    g.save(); g.translate(11, -9); g.rotate(0.5);
+    poly([[-4.4, 2], [0, -1], [4.4, 2], [1, 12], [-1, 12]], "#4aa040");
+    ell(0, -4, 4.6, 9, "#f6d13a"); g.beginPath(); g.ellipse(0, -4, 4.6, 9, 0, 0, TAU); stroke("#c9a018", 1);
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) dot(-2.6 + c * 2.6, -10 + r * 3.4, 0.9, "#d9a818");
+    g.restore();
+  },
+  quesadilla() { // la tarta de queso herreña con una porción cortada
+    dot(0, 3, 16, "#b8742a"); dot(0, 2, 14.6, "#e6b865"); circle(0, 2, 11); stroke("rgba(160,100,30,0.4)", 1);
+    g.beginPath(); g.moveTo(0, 2); g.arc(0, 2, 14.6, -0.55, 0.45); g.closePath(); g.fillStyle = "#fff1b8"; g.fill(); stroke("#c9962f", 1);
+    speckle(-11, -10, 16, 14, 3, 10, 1.1, "rgba(120,70,20,0.55)");
+  },
+  truchas() { // dos truchas de batata, empanadillas con el borde marcado
+    const half = (cx, cy, r, rot) => {
+      g.save(); g.translate(cx, cy); g.rotate(rot);
+      g.beginPath(); g.arc(0, 0, r, Math.PI, TAU); g.closePath(); g.fillStyle = "#e0a050"; g.fill(); stroke("#a8702a", 1.3);
+      g.beginPath(); for (let k = 0; k < 9; k++) { const a = Math.PI + (k + 0.5) * Math.PI / 9; g.moveTo(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78); g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } stroke("#a8702a", 1.1);
+      for (const [x, y] of [[-0.35, -0.3], [0, -0.5], [0.3, -0.3], [-0.1, -0.2], [0.15, -0.15]]) dot(x * r, y * r, 0.9, "#fff");
+      g.restore();
+    };
+    half(-3, 5, 15, 0.1); half(7, -6, 11, -0.35);
+  },
+  bizcochon() { // el bizcocho con su glaseado
+    const dome = () => { g.beginPath(); g.moveTo(-17, 12); g.bezierCurveTo(-17, -16, 17, -16, 17, 12); g.closePath(); };
+    rect(-19, 12, 38, 3, "#c88a4a");
+    dome(); g.fillStyle = "#e8c36a"; g.fill();
+    g.save(); dome(); g.clip();
+    g.beginPath(); g.moveTo(-20, -20); g.lineTo(20, -20); g.lineTo(20, -3); g.quadraticCurveTo(14, -1, 11, -3); g.quadraticCurveTo(9, 4, 6, -2);
+    g.quadraticCurveTo(0, -5, -6, -1); g.quadraticCurveTo(-9, 5, -12, -2); g.quadraticCurveTo(-16, -4, -20, -2); g.closePath(); g.fillStyle = "#fffdf6"; g.fill();
+    for (const [x, y] of [[-5, 7], [3, 9], [9, 6], [-10, 8]]) dot(x, y, 0.9, "#c9a040");
+    g.restore();
+    dome(); stroke("#b8903a", 1.3);
+    for (const [x, y, c] of [[-6, -8, "#d6337a"], [0, -10, "#2f7fd0"], [6, -8, "#f2c230"], [-2, -5, "#2f9a5a"]]) rect(x - 1.4, y - 0.6, 2.8, 1.2, c);
+  },
+  tarta() { // la tarta de dos pisos con su vela
+    ell(0, 17, 18, 2.6, "rgba(0,0,0,0.12)");
+    fillRR(-16, 3, 32, 14, 3, "#f2a0bc"); fillRR(-11, -8, 22, 12, 3, "#fff4e2");
+    rr(-16, 3, 32, 14, 3); stroke("#c8708c", 1.2); rr(-11, -8, 22, 12, 3); stroke("#d8c4a0", 1.2);
+    for (const x of [-8, 0, 8]) ell(x, 4, 3, 2.4, "#fff");
+    for (let k = 0; k < 5; k++) dot(-12 + k * 6, 11, 1.4, "#fff");
+    rect(-1.2, -15, 2.4, 8, "#4a9ae0"); ell(0, -17, 1.8, 2.8, "#ffb52a");
+    dot(-7, -9, 2.6, "#d2283a"); dot(7, -9, 2.6, "#d2283a");
+  },
+  // la pescadería
+  chicharros() { // dos chicharros plateados
+    g.save(); g.translate(-2, -7); g.rotate(-0.12); fishShape(12, 5, "#6f8aa0", "#eef3f7", "#8aa0b4", { tail: 0.6, dorsal: 0.5, lateral: true }); g.restore();
+    g.save(); g.translate(2, 8); g.rotate(0.1); fishShape(12, 5, "#6f8aa0", "#eef3f7", "#8aa0b4", { tail: 0.6, dorsal: 0.5, lateral: true }); g.restore();
+  },
+  vieja() { // la vieja: roja y naranja de loro
+    fishShape(17, 9.5, "#e8552a", "#f6a060", "#f6c42d", { dorsal: 0.9, fork: false, tail: 0.45 });
+    dot(-17, 1.8, 1.8, "#f08aa0");
+    for (const [x, y] of [[0, -3], [5, -1], [-3, 2], [8, -4]]) dot(x, y, 1, "#f6c42d");
+  },
+  cherne() { // el cherne: grande y gris oscuro
+    fishShape(18.5, 12, "#464e58", "#8a929c", "#2e343c", { dorsal: 0.55, fork: false, tail: 0.4 });
+    line(-18, 2.5, -13, 3.6, "#1b1d22", 1.6);
+    for (const [x, y] of [[-2, -7], [3, -8], [8, -6], [0, -3]]) dot(x, y, 0.9, "rgba(255,255,255,0.35)");
+  },
+  sama() { // la sama: rosada, alta, con su mancha
+    fishShape(15, 12.5, "#e98d97", "#f8dadd", "#d9534a", { dorsal: 0.5, tail: 0.55 });
+    dot(-3, -2, 2.3, "#3a2a30"); circle(-9.9, -2.5, 3); stroke("#d9a03a", 1);
+  },
+  pulpo() { // el pulpo, morado y con tentáculos
+    const col = "#b8507a", ends = [[-17, 14], [-11, 19], [-4, 18], [4, 18], [11, 19], [17, 14]];
+    ends.forEach(([ex, ey], k) => {
+      const x0 = -9 + k * 3.6; g.beginPath(); g.moveTo(x0, 2);
+      g.bezierCurveTo(x0 + (ex - x0) * 0.3, 10, ex + (k < 3 ? 4 : -4), ey - 6, ex, ey); stroke(col, 3.6);
+      dot(ex, ey, 1.7, "#e8a0bc");
+    });
+    ell(0, -6, 11, 12, col); ell(-4, -12, 3, 5, "rgba(255,255,255,0.3)", -0.4);
+    for (const [x, y] of [[3, -13], [7, -8], [-8, -9]]) dot(x, y, 1.2, "#8a3558");
+    dot(-4.5, -3, 3.2, "#fff"); dot(4.5, -3, 3.2, "#fff"); dot(-4.3, -2.6, 1.5, "#1b1b1b"); dot(4.7, -2.6, 1.5, "#1b1b1b");
+  },
+  lapas() { // tres lapas, conchas cónicas con costillas
+    for (const [x, y, k] of [[0, -4, 1.05], [-9, 8, 1], [8, 9, 0.9]]) {
+      ell(x, y + 5 * k, 11 * k, 4 * k, "#8a7a62");
+      g.beginPath(); g.moveTo(x - 11 * k, y + 5 * k); g.quadraticCurveTo(x - 6 * k, y - 10 * k, x, y - 11 * k);
+      g.quadraticCurveTo(x + 6 * k, y - 10 * k, x + 11 * k, y + 5 * k); g.closePath();
+      g.fillStyle = lgrad(x - 11 * k, 0, x + 11 * k, 0, [[0, "#d2bd98"], [1, "#8a7a62"]]); g.fill(); stroke("#5a4a36", 1.2);
+      g.beginPath(); for (let j = -2; j <= 2; j++) { g.moveTo(x, y - 11 * k); g.lineTo(x + j * 4.4 * k, y + 5 * k); } stroke("rgba(70,55,35,0.5)", 1);
+      dot(x, y - 10.5 * k, 1.1, "#5a4a36");
+    }
+  },
+  // la reparación de móviles
+  pantalla() { // el móvil con la pantalla rota
+    fillRR(-11, -18, 22, 36, 4, "#2a2f36"); fillRR(-9, -15, 18, 30, 2, lgrad(-9, -15, 9, 15, [[0, "#4a8fd0"], [1, "#1f3f78"]]));
+    dot(0, -16.6, 0.9, "#6b7682");
+    g.beginPath(); for (const [x, y] of [[-9, -4], [-3, 0], [8, -9], [4, 5], [9, 13], [-4, 10], [-9, 8]]) { g.moveTo(1, -1); g.lineTo(x, y); } stroke("rgba(255,255,255,0.92)", 1.2);
+    g.beginPath(); g.moveTo(-3, 0); g.lineTo(-6, 4); g.moveTo(4, 5); g.lineTo(1, 9); g.moveTo(8, -9); g.lineTo(5, -13); stroke("rgba(255,255,255,0.8)", 0.8);
+    dot(1, -1, 1.5, "#fff");
+  },
+  bateria_movil() { // la batería plana con su conector
+    rect(-6, -19, 12, 6, "#f2a21a"); for (const x of [-4, 0, 4]) rect(x - 0.8, -18, 1.6, 4, "#f6d13a");
+    fillRR(-12, -14, 24, 31, 3, "#dfe4ea"); rr(-12, -14, 24, 31, 3); stroke("#8a95a3", 1.3);
+    rect(-12, -9, 24, 20, "#2f9a5a"); poly([[2, -6], [-5, 3], [-1, 3], [-3, 10], [5, -1], [1, -1]], "#fff");
+    line(-8, 14, 8, 14, "#8a95a3", 1.4);
+  },
+  conector() { // el conector de carga y su cable
+    g.beginPath(); g.moveTo(7, 2); g.bezierCurveTo(14, 2, 10, 15, 19, 15); stroke("#2a2f36", 4.4);
+    fillRR(-17, -5.5, 24, 15, 7.5, "#c4cbd3"); rr(-17, -5.5, 24, 15, 7.5); stroke("#6b7682", 1.4);
+    fillRR(-13, -1.4, 16, 6.8, 3.4, "#2a2f36"); rect(-10, 1.4, 10, 1.2, "#f2b81c");
+    rect(6, -3, 5, 10, "#2a2f36");
+    poly([[-4, -19], [-10, -12], [-6, -12], [-8, -6], [-2, -14], [-6, -14]], "#f6c42d");
+  },
+  camara_movil() { // el módulo de la cámara trasera
+    fillRR(-14, -14, 28, 28, 7, "#2a2f36"); rr(-14, -14, 28, 28, 7); stroke("#6b7682", 1.3);
+    dot(0, 0, 9.5, "#9aa4ae"); dot(0, 0, 8, "#4a525c"); dot(0, 0, 5.8, "#1b2a44"); dot(0, 0, 2.8, "#3a6aa8");
+    dot(-2, -2.4, 1.3, "rgba(255,255,255,0.8)"); dot(10, -10, 2.2, "#f6e27a"); dot(10, -10, 1, "#fff");
+  },
+  altavoz() { // la rejilla del altavoz y su sonido
+    fillRR(-18, -10, 26, 20, 5, "#4a525c"); rr(-18, -10, 26, 20, 5); stroke("#2a2f36", 1.2);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 4; k++) dot(-13 + k * 5.6, -5 + r * 5, 1.5, "#1b1d22");
+    for (const rad of [4, 8, 12]) { g.beginPath(); g.arc(8, 0, rad, -0.8, 0.8); stroke("#f2b81c", 2); }
+  },
+  tapa() { // la tapa trasera con su cámara
+    fillRR(-11, -18, 22, 36, 5, lgrad(-11, -18, 11, 18, [[0, "#3fc2b0"], [1, "#1f6f8a"]])); rr(-11, -18, 22, 36, 5); stroke("#124a5c", 1.4);
+    fillRR(-8.5, -15.5, 12, 12, 3.4, "#1f2a30"); dot(-4.5, -11.5, 3.2, "#3a4a56"); dot(-4.5, -11.5, 1.6, "#10202e"); dot(1, -6.5, 1.1, "#3a4a56");
+    dot(8, -14, 1.2, "#f6e27a"); dot(0, 7, 4, "rgba(255,255,255,0.55)");
+    poly([[-11, -6], [-6, -18], [-2, -18], [-11, 2]], "rgba(255,255,255,0.18)");
+  },
+  // la peluquería: servicios
+  corte() { // las tijeras
+    for (const d of [-1, 1]) {
+      line(0, 1, d * 9, -18, "#c4cbd3", 4); line(0, 1, d * 9, -18, "rgba(255,255,255,0.5)", 1);
+      line(0, 1, -d * 7, 9, "#9aa4ae", 3); circle(-d * 8.5, 13, 5.6); stroke("#d2403a", 3.2);
+    }
+    dot(0, 1, 2.4, "#6b7682"); dot(0, 1, 0.9, "#e4e8ee");
+  },
+  degradado() { // la maquinilla y el pelo que se aclara
+    g.save(); g.translate(-5, 0); g.rotate(-0.12);
+    fillRR(-8, -19, 16, 30, 5, "#2a2f36"); dot(0, -12, 2.2, "#2f9a5a"); rect(-3, -6, 6, 1.6, "#4a525c");
+    rect(-9, 10, 18, 5, "#c4cbd3"); rect(-9, 10, 18, 1.6, "#e4e8ee");
+    for (let k = 0; k < 7; k++) line(-8 + k * 2.6, 15, -8 + k * 2.6, 18, "#6b7682", 1.2);
+    g.restore();
+    for (let k = 0; k < 6; k++) rect(8, -16 + k * 5.4, 10, 4.6, `rgba(58,36,20,${(1 - k * 0.17).toFixed(2)})`);
+    rr(8, -16, 10, 32.4, 2); stroke("#b9a88a", 1);
+  },
+  barba() { // la barba con su bigote
+    dot(0, -4, 14, "#e8b88a");
+    g.beginPath(); g.moveTo(-14, -6); g.bezierCurveTo(-15, 12, -7, 19, 0, 19); g.bezierCurveTo(7, 19, 15, 12, 14, -6);
+    g.bezierCurveTo(10, -2, 5, -3, 0, -3.5); g.bezierCurveTo(-5, -3, -10, -2, -14, -6); g.closePath(); g.fillStyle = "#5a3a22"; g.fill();
+    g.beginPath(); g.moveTo(-8, -1); g.bezierCurveTo(-4, -5, -1, -3, 0, -2); g.bezierCurveTo(1, -3, 4, -5, 8, -1); g.bezierCurveTo(4, 1, 1, 1, 0, 0); g.bezierCurveTo(-1, 1, -4, 1, -8, -1);
+    g.closePath(); g.fillStyle = "#3a2412"; g.fill();
+    ell(0, 5, 4, 1.8, "#a8483e");
+    g.beginPath(); g.arc(0, -6, 14, Math.PI * 1.03, Math.PI * 1.97); stroke("#3a2412", 5);
+    dot(-5, -9, 1.3, "#2a1a10"); dot(5, -9, 1.3, "#2a1a10");
+  },
+  tinte() { // el bote de tinte con su brocha
+    fillRR(-10, -6, 18, 25, 5, "#d6337a"); rect(-10, 3, 18, 8, "#fff"); dot(-1, 7, 2.4, "#d6337a");
+    path([[-6, -6], [4, -6], [1.4, -15], [-3.4, -15]]); g.fillStyle = "#f4f4f0"; g.fill(); stroke("#b8b8b0", 1.1);
+    rect(-2.2, -19, 2.4, 5, "#f4f4f0");
+    fillRR(11, -4, 3.4, 14, 1.7, "#c88a4a"); fillRR(9.6, 9, 6.2, 8, 1.2, "#d6337a");
+    g.beginPath(); g.moveTo(17, -12); g.quadraticCurveTo(20, -7, 17, -5); g.quadraticCurveTo(14, -7, 17, -12); g.fillStyle = "#d6337a"; g.fill();
+  },
+  mechas() { // el mechón con reflejos
+    const strands = [[-7, "#4a2e1a"], [-3.5, "#f2c44a"], [0, "#5a3a22"], [3.5, "#f6d878"], [7, "#4a2e1a"]];
+    const curve = (x, i, dx = 0) => { g.beginPath(); g.moveTo(x + dx, -14); g.bezierCurveTo(x + 6 + dx, -6, x - 6 + dx, 4, x + (i % 2 ? 4 : -4) + dx, 19); };
+    strands.forEach(([x, c], i) => { curve(x, i); stroke(c, 3.8); });
+    strands.forEach(([x], i) => { curve(x, i, -0.9); stroke("rgba(255,255,255,0.32)", 0.9); });
+    rect(-10, -20, 20, 6, "#c4cbd3"); rect(-10, -20, 20, 1.6, "#e4e8ee"); line(-10, -17, 10, -17, "#9aa4ae", 0.8);
+  },
+  peinado() { // la ducha y el peine
+    g.beginPath(); g.arc(8, -9, 8, Math.PI, TAU); g.closePath(); g.fillStyle = "#9aa4ae"; g.fill(); stroke("#6b7682", 1.2);
+    rect(0, -9, 16, 2.6, "#6b7682"); line(8, -17, 8, -20, "#6b7682", 2.4);
+    for (const [x, y] of [[2, -3], [8, -1], [14, -3], [5, 3], [11, 2]]) ell(x, y, 0.9, 2, "#3a9ae0");
+    g.save(); g.translate(-2, 11); g.rotate(-0.12);
+    fillRR(-17, -4, 30, 7, 2, "#f2b81c"); for (let k = 0; k < 11; k++) line(-15.5 + k * 2.7, 3, -15.5 + k * 2.7, 8, "#d9a010", 1.3);
+    rect(-17, -4, 30, 1.6, "rgba(255,255,255,0.4)");
+    g.restore();
+  },
+});
 
 // Las mejoras del local, en el mismo recuadro de 40 × 40 y con sus colores.
 const EQUIP = {
@@ -938,6 +1211,91 @@ const EQUIP = {
     circle(-13, 1, 3.4); stroke("#f2b81c", 2.2); rect(-10, 0, 20, 2.4, "#f2b81c"); for (let k = 0; k < 4; k++) rect(-4 + k * 3.4, 2.4, 2, 1.6 + (k % 2), "#f2b81c");
   },
 };
+// Las mejoras de los cinco sectores de 9.48.0.
+Object.assign(EQUIP, {
+  parrilla() { // la parrilla de leña con la carne encima
+    ell(0, 14, 17, 4, "#c8401a"); line(-14, 12, 14, 9, "#6b4a2a", 5); line(-14, 9, 14, 13, "#8a5a2a", 4);
+    flame(-8, 10, 0.9, "#f58220"); flame(0, 10, 1.1, "#f6a21a"); flame(8, 10, 0.9, "#f58220"); flame(0, 10, 0.55, "#ffe27a");
+    line(-17, 1, -19, 19, "#4a525c", 2); line(17, 1, 19, 19, "#4a525c", 2);
+    fillRR(-19, -3, 38, 4, 1.5, "#4a525c"); for (let k = 0; k < 7; k++) line(-16 + k * 5.4, -3, -16 + k * 5.4, 1, "#9aa4ae", 1);
+    ell(-8, -7, 7, 3.6, "#a8522e"); ell(8, -7, 7, 3.6, "#c0603a");
+    for (const x of [-10, -6, 6, 10]) line(x - 1, -9, x + 1, -5, "#4a2008", 1.2);
+  },
+  barricas() { // dos barricas de vino con su espita
+    barrel(10, -2, 0.95, "#8a5a2a"); barrel(-6, 3, 1.2);
+    rect(-7.5, 7, 3, 5, "#c88a14"); g.beginPath(); g.moveTo(-6, 13); g.quadraticCurveTo(-4.5, 17, -6, 18); g.quadraticCurveTo(-7.5, 17, -6, 13); g.fillStyle = "#8a1830"; g.fill();
+  },
+  horno() { // el horno de piso con sus panes dentro
+    fillRR(-18, -14, 36, 33, 3, "#b4532a");
+    g.beginPath(); for (let y = -14; y < 19; y += 6) { g.moveTo(-18, y); g.lineTo(18, y); for (let x = -18 + ((y / 6) % 2 ? 4 : 10); x < 18; x += 12) { g.moveTo(x, y); g.lineTo(x, y + 6); } } stroke("rgba(255,230,200,0.35)", 0.9);
+    rect(-14, -20, 8, 7, "#8a3a1e"); rect(-15, -21, 10, 2, "#6b2a14");
+    g.beginPath(); g.moveTo(-11, 19); g.lineTo(-11, 2); g.arc(0, 2, 11, Math.PI, TAU); g.lineTo(11, 19); g.closePath(); g.fillStyle = "#2a1a10"; g.fill();
+    g.save(); g.clip(); rect(-11, -9, 22, 28, rgrad(0, 8, 1, 14, [[0, "#ffb02a"], [1, "#a8401a"]]));
+    ell(-4, 14, 5, 2.8, "#d9a04e"); ell(5, 14, 5, 2.8, "#c98a3a"); ell(0, 8, 5, 2.6, "#e0b060"); g.restore();
+    g.beginPath(); g.moveTo(-11, 19); g.lineTo(-11, 2); g.arc(0, 2, 11, Math.PI, TAU); g.lineTo(11, 19); stroke("#5a2410", 1.6);
+  },
+  turnos() { // el dispensador de números de «¿quién da la vez?»
+    g.beginPath(); g.moveTo(-6, -1); g.lineTo(6, -1); g.lineTo(6, 17);
+    for (let k = 0; k < 4; k++) { g.lineTo(6 - k * 3 - 1.5, 19); g.lineTo(6 - (k + 1) * 3, 17); }
+    g.lineTo(-6, 17); g.closePath(); g.fillStyle = "#fffdf6"; g.fill(); stroke("#b9a88a", 1);
+    T("28", 0, 7, { font: F.d(9), color: "#d2403a", align: "center" }); line(-4, 12, 4, 12, "#c4cbd3", 1);
+    fillRR(-11, -19, 22, 21, 4, "#d2403a"); rr(-11, -19, 22, 21, 4); stroke("#8a1818", 1.2);
+    fillRR(-8, -16, 16, 9, 2, "#1b1b1b"); T("27", 0, -11.5, { font: F.d(9), color: "#ff6a5a", align: "center" });
+    fillRR(-8, -4, 16, 3, 1.5, "#2a2f36"); dot(-6, -5.6, 0.9, "#f6c42d");
+  },
+  balanza() { // la balanza de platillos con su pescado
+    rect(-8, 16, 16, 3, "#6b7682"); line(0, -14, 0, 16, "#9aa4ae", 3); dot(0, -15, 2.6, "#f2b81c");
+    line(-16, -11, 16, -15, "#6b7682", 2.4);
+    for (const [x, y] of [[-16, -11], [16, -15]]) { line(x, y, x - 6, y + 14, "#9aa4ae", 1); line(x, y, x + 6, y + 14, "#9aa4ae", 1); }
+    g.beginPath(); g.ellipse(-16, 3, 8, 2.6, 0, 0, Math.PI); g.fillStyle = "#c4cbd3"; g.fill(); stroke("#6b7682", 1.2);
+    g.beginPath(); g.ellipse(16, -1, 8, 2.6, 0, 0, Math.PI); g.fillStyle = "#c4cbd3"; g.fill(); stroke("#6b7682", 1.2);
+    g.save(); g.translate(-16, 0); g.scale(0.4, 0.4); fishShape(14, 6, "#6f8aa0", "#eef3f7", "#8aa0b4"); g.restore();
+    rect(11, -8, 10, 7, "#8a95a3");
+  },
+  vivero() { // el vivero de marisco: agua, burbujas y un cangrejo
+    fillRR(-18, -14, 36, 31, 3, "rgba(120,200,230,0.55)"); rect(-18, 8, 36, 9, "#d8c89a");
+    for (const x of [-12, 12]) { g.beginPath(); g.moveTo(x, 9); g.quadraticCurveTo(x + 4, 2, x, -4); g.quadraticCurveTo(x - 3, 0, x, 9); g.fillStyle = "#3f9a4a"; g.fill(); }
+    for (const [x, y, r] of [[-5, -4, 2.4], [-2, -9, 1.6], [6, -6, 2], [4, -11, 1.2]]) { circle(x, y, r); stroke("rgba(255,255,255,0.9)", 1); }
+    for (const d of [-1, 1]) { for (let k = 0; k < 3; k++) line(d * 3, 9 + k * 1.4, d * (8 + k * 1.6), 12 + k * 2.6, "#a82a22", 1.2); line(d * 6, 5, d * 10, 1, "#d2403a", 1.6); dot(d * 10.4, 0.4, 2.2, "#d2403a"); }
+    ell(0, 8, 7, 4.4, "#d2403a"); dot(-2, 4.6, 0.9, "#fff"); dot(2, 4.6, 0.9, "#fff");
+    rr(-18, -14, 36, 31, 3); stroke("#6b7682", 1.8); rect(-18, -17, 36, 3, "#8a95a3");
+    poly([[-15, -12], [-10, -12], [-16, 2], [-17, 2]], "rgba(255,255,255,0.35)");
+  },
+  microscopio() { // el microscopio de la mesa de reparación
+    fillRR(-13, 15, 26, 4, 1.5, "#3a3f46");
+    g.beginPath(); g.arc(6, 0, 13, -1.5, 1.5); stroke("#6b7682", 4.4);
+    g.save(); g.translate(-3, -1); g.rotate(0.35);
+    fillRR(-3.5, -14, 7, 20, 2, "#2f7fd0"); rect(-3.5, -9, 7, 2, "#9ccaf0"); fillRR(-2.5, -19, 5, 6, 1.5, "#2a2f36");
+    rect(-2, 6, 4, 4, "#c4cbd3"); fillRR(-1.2, 10, 2.4, 3, 1, "#9aa4ae");
+    g.restore();
+    rect(-14, 12, 18, 2.4, "#6b7682"); rect(-10, 10.6, 8, 1.4, "#cfe8f4"); dot(-4, 9.6, 1.2, "#f6c42d");
+  },
+  fundas() { // el escaparate de fundas de colores
+    [[-9, 2, -0.3, "#d6337a"], [9, 2, 0.3, "#f2b81c"], [0, 0, 0, "#2fae9e"]].forEach(([x, y, a, c]) => {
+      g.save(); g.translate(x, y); g.rotate(a);
+      fillRR(-8, -16, 16, 31, 4, c); rr(-8, -16, 16, 31, 4); stroke(shade(c, -0.3), 1.2);
+      fillRR(-6, -14, 8, 8, 2.4, "rgba(0,0,0,0.55)"); dot(-3, -11, 1.8, "#4a525c"); rect(-6, 4, 12, 1.4, "rgba(255,255,255,0.35)");
+      g.restore();
+    });
+  },
+  sillon() { // el sillón de barbero, de cuero rojo
+    ell(0, 18, 11, 2.4, "#6b7682"); fillRR(-8, 16, 16, 2.2, 1, "#4a525c"); rect(-2.2, 10, 4.4, 7, "#c4cbd3");
+    fillRR(-9, -14, 18, 19, 5, "#b3261e"); fillRR(-8, -19, 16, 6, 3, "#8a1818");
+    fillRR(-15, -3, 5, 12, 2.5, "#6b4a2a"); fillRR(10, -3, 5, 12, 2.5, "#6b4a2a");
+    fillRR(-12, 3, 24, 8, 3, "#b3261e"); rect(-12, 3, 24, 1.6, "rgba(255,255,255,0.22)");
+    fillRR(-6, -11, 4, 12, 2, "rgba(255,255,255,0.18)");
+    for (const y of [-9, -4, 1]) dot(0, y, 1.1, "#f2b81c");
+  },
+  lavacabezas() { // el lavacabezas con su ducha
+    g.beginPath(); g.moveTo(-6, 0); g.bezierCurveTo(-14, 0, -16, -8, -12, -13); stroke("#6b7682", 2);
+    g.save(); g.translate(-12, -14); g.rotate(-0.5); fillRR(-5, -3, 10, 6, 3, "#9aa4ae"); rect(-4, 3, 8, 1.2, "#6b7682"); g.restore();
+    for (const [x, y] of [[-14, -8], [-11, -6], [-16, -5], [-13, -3]]) ell(x, y, 0.9, 1.8, "#3a9ae0");
+    rect(-3, 10, 6, 6, "#e4e8ee"); ell(0, 18, 9, 2.2, "#9aa4ae");
+    g.beginPath(); g.moveTo(-17, 1); g.lineTo(17, 1); g.quadraticCurveTo(16, 11, 0, 11); g.quadraticCurveTo(-16, 11, -17, 1); g.closePath(); g.fillStyle = "#f4f6f8"; g.fill(); stroke("#8a95a3", 1.4);
+    ell(0, 1.5, 16, 2.4, "#bfe3f6"); g.beginPath(); g.arc(11, 1, 4.6, 0, Math.PI); g.fillStyle = "#c4cbd3"; g.fill(); stroke("#8a95a3", 1);
+    for (const [x, y, r] of [[-4, -2, 2], [1, -4, 1.4], [5, -1, 1.6]]) { circle(x, y, r); stroke("#7fb0d8", 1); }
+  },
+});
 function equipIcon(key, cx, cy, s) {
   const draw = EQUIP[key];
   if (!draw) throw new Error(`Mejora desconocida: ${key}`);
@@ -1333,9 +1691,12 @@ const WALLS = {
   playa: ["#f7f3ea", "#ace0ee", "#f3e6c0", "#fff8e8"], lujo: ["#fbfbf6", "#f4efe6", "#eef2f4"], rural: ["#e8d9c0", "#d6e6c8", "#f2e4c6", "#bcc3cc"],
 };
 const SHUTTER = { marinero: "#2a8fbd", historico: "#2f6b45", centro: "#6b3a1e", obrero: "#8a7a68", playa: "#1f8aa0", lujo: "#8a95a3", rural: "#3f6b3a" };
-const SECTOR_NAME = { cafeteria: "Cafetería", tienda: "Tienda de barrio", taller: "Taller", heladeria: "Heladería", ferreteria: "Ferretería" };
+const SECTOR_NAME = { cafeteria: "Cafetería", tienda: "Tienda de barrio", taller: "Taller", heladeria: "Heladería", ferreteria: "Ferretería",
+  guachinche: "Guachinche", panaderia: "Panadería", pescaderia: "Pescadería", moviles: "Reparación de móviles", peluqueria: "Peluquería" };
 // El minijuego de cada sector: decide la sala y el panel de `cliente`.
-const GAME = { cafeteria: "comandas", heladeria: "comandas", tienda: "caja", ferreteria: "caja", taller: "diagnostico" };
+const GAME = { cafeteria: "comandas", heladeria: "comandas", tienda: "caja", ferreteria: "caja", taller: "diagnostico",
+  // Los cinco de 9.48.0 aún no tienen pantalla propia en `cliente`: pintan la sala y el bocadillo.
+  guachinche: "brasa", panaderia: "encargos", pescaderia: "balanza", moviles: "revision", peluqueria: "foto" };
 
 function hangingSign(cx, cy, s, text, bg, fg) {
   g.save(); g.translate(cx, cy); g.scale(s, s);
@@ -1463,7 +1824,8 @@ function shopBuilding(th, r, o) {
   sign(o, bx + 8, 91, bw - 16, 26);
   if (lit) for (const lx of [bx + 40, bx + bw - 40]) { line(lx, 84, lx, 80, "#3a3f46", 1.4); line(lx, 80, lx + 6, 80, "#3a3f46", 1.4); dot(lx + 6, 82, 2.2, "#fff6c8"); poly([[lx + 3, 84], [lx + 9, 84], [lx + 18, 104], [lx - 6, 104]], "rgba(255,240,180,0.25)"); }
   // la planta baja
-  ({ cafeteria: cafeFront, tienda: shopFront, taller: garageFront, heladeria: iceFront, ferreteria: hardwareFront }[o.sector] || cafeFront)(bx, bw, o, lit);
+  ({ cafeteria: cafeFront, tienda: shopFront, taller: garageFront, heladeria: iceFront, ferreteria: hardwareFront,
+    guachinche: guachincheFront, panaderia: bakeryFront, pescaderia: fishFront, moviles: phoneFront, peluqueria: barberFront }[o.sector] || cafeFront)(bx, bw, o, lit);
   if (o.preview) openingBanner(bx, bw, o);
 }
 function sign(o, x, y, w, h) {
@@ -1585,6 +1947,136 @@ function garageFront(bx, bw, o, lit) {
   const sx = bx + 186; rect(sx - 2, 128, 40, 44, "#3a3f46"); rect(sx, 130, 36, 42, lit ? "#2f7fd0" : "#3d5a7a"); rect(sx + 6, 134, 24, 14, lit ? "#ffe9b0" : "#4a5a6c"); dot(sx + 30, 154, 1.6, "#f2c230");
   if (lit) ell(dx + dw / 2, 178, 80, 5, "rgba(255,220,140,0.25)");
   if (!o.preview) { tireStack(bx + bw - 6, 196, 4); tireStack(bx + bw + 16, 198, 2); dot(bx + bw + 16, 178, 9, "#2a2d33"); dot(bx + bw + 16, 178, 4, "#9aa4ae"); }
+}
+function guachincheFront(bx, bw, o, lit) {
+  // la parra sobre el soportal: vigas, hojas y racimos
+  rect(bx + 4, 117, bw - 8, 5, "#6b4a2a"); for (let k = 0; k < 6; k++) rect(bx + 14 + k * 40, 120, 3, 12, "#6b4a2a");
+  const lr = rng(hash(`parra:${o.seed ?? 0}`));
+  for (let k = 0; k < 17; k++) ell(bx + 8 + k * 14.4, 123 + (k % 2) * 3, 8, 4.4, k % 3 ? "#3f8a47" : "#5aa855", (lr() - 0.5) * 0.6);
+  for (const k of [1, 4, 7, 10, 13, 15]) for (const [dx, dy] of [[0, 6], [-3, 10], [3, 10], [0, 13]]) dot(bx + 8 + k * 14.4 + dx, 127 + dy, 2.7, "#6b2a7a");
+  rect(bx, 164, bw, 8, "#8a7a68"); g.beginPath(); for (let k = bx; k < bx + bw; k += 12) { g.moveTo(k, 164); g.lineTo(k, 172); } g.moveTo(bx, 168); g.lineTo(bx + bw, 168); stroke("rgba(60,50,40,0.35)", 1);
+  const wx = bx + 56, ww = 96, dx = bx + 160;
+  if (o.preview) kraft(wx, 146, ww, 18);
+  else if (!o.open) rollShutter(wx - 2, 144, ww + 4, 22);
+  else shopWindow(wx, 146, ww, 18, true, () => { // las botellas del soportal
+    rect(wx, 146, ww, 18, "#7a4a2a");
+    for (let k = 0; k < 9; k++) { const x = wx + 6 + k * 10; rect(x, 154, 5, 10, "#2f5a37"); rect(x + 1.4, 150, 2.2, 5, "#2f5a37"); }
+  });
+  rect(dx - 2, 140, 46, 32, "#3a3f46"); rect(dx, 142, 42, 30, lit ? "#8a5a2a" : "#6b4a2a");
+  g.beginPath(); for (let k = dx + 10; k < dx + 42; k += 10) { g.moveTo(k, 142); g.lineTo(k, 172); } stroke("rgba(40,20,5,0.4)", 1.2);
+  dot(dx + 34, 158, 1.6, "#f2b81c"); if (lit) dot(dx + 21, 150, 4, "#ffd88a");
+  if (!o.open && !o.preview) hangingSign(dx + 21, 156, 0.75, "CERRADO", "#fff", "#d2403a");
+  if (lit) {
+    ell(150, 178, 90, 5, "rgba(255,220,140,0.3)");
+    if (!hasTerrace(o)) {
+      barrel(bx + 16, 181, 0.95); barrel(bx + 40, 183, 0.9, "#8a5a2a");
+      path([[bx + bw - 26, 198], [bx + bw - 18, 172], [bx + bw - 10, 198]], false); stroke("#6b4a2a", 1.6);
+      fillRR(bx + bw - 32, 170, 28, 20, 1, "#2a3a2a"); rr(bx + bw - 32, 170, 28, 20, 1); stroke("#8a6a44", 1.4);
+      T("HAY", bx + bw - 18, 177, { font: F.d(6.5), color: "#fff", align: "center" }); T("VINO", bx + bw - 18, 185, { font: F.d(6.5), color: "#e05a6a", align: "center" });
+    }
+  }
+  if (hasTerrace(o)) terrace(bx, bw, o);
+}
+function bakeryFront(bx, bw, o, lit) {
+  stripedAwning(bx + 6, 119, bw - 12, 13, o.accent, o.main);
+  const wx = bx + 12, ww = 150, dx = bx + 172;
+  if (o.preview) kraft(wx, 140, ww, 30);
+  else if (!o.open) rollShutter(wx - 2, 138, ww + 4, 34);
+  else shopWindow(wx, 140, ww, 30, true, () => { // el escaparate: panes y dulces sobre el mostrador
+    rect(wx, 158, ww, 12, "#a07a4a"); rect(wx, 157, ww, 2.4, "#c88a4a");
+    ["barra", "millo", "quesadilla", "truchas", "bizcochon", "tarta"].forEach((k, i) => unit(wx + 14 + i * 24, 148, 9, PRODUCT[k]));
+  });
+  rect(dx - 2, 136, 48, 36, "#3a3f46");
+  rect(dx, 138, 44, 34, lit ? vgrad(138, 172, "#ffe9b0", "#f6c26a") : "#4a5a6c"); line(dx + 22, 138, dx + 22, 172, "#3a3f46", 1.6);
+  if (lit) unit(dx + 11, 152, 6, PRODUCT.barra);
+  if (!o.open && !o.preview) hangingSign(dx + 22, 154, 0.75, "CERRADO", "#fff", "#d2403a");
+  line(bx + bw - 3, 134, bx + bw - 3, 140, "#5a4a3a", 1.4); line(bx + bw - 3, 140, bx + bw - 21, 140, "#5a4a3a", 1.4);
+  fillRR(bx + bw - 26, 142, 22, 18, 3, "#fffdf6"); rr(bx + bw - 26, 142, 22, 18, 3); stroke(o.main, 1.2);
+  unit(bx + bw - 15, 151, 8, PRODUCT.barra);
+  if (lit) {
+    ell(150, 178, 90, 5, "rgba(255,220,140,0.3)");
+    fillRR(bx + 14, 182, 26, 14, 3, "#a07a4a"); for (let k = 0; k < 4; k++) line(bx + 19 + k * 5, 183, bx + 17 + k * 6.5, 162, "#d9a04e", 3.4);
+    rect(bx + 14, 182, 26, 2, "#c88a4a");
+    fillRR(bx + 50, 178, 20, 18, 4, "#f1e6c8"); rr(bx + 50, 178, 20, 18, 4); stroke("#b9a88a", 1);
+    T("HARINA", bx + 60, 187, { font: F.d(5), color: "#8a6a44", align: "center" });
+  }
+}
+function fishFront(bx, bw, o, lit) {
+  rect(bx, 118, bw, 54, "#f4f8fa");
+  g.beginPath(); for (let x = bx; x <= bx + bw; x += 9) { g.moveTo(x, 118); g.lineTo(x, 172); } for (let y = 118; y <= 172; y += 9) { g.moveTo(bx, y); g.lineTo(bx + bw, y); } stroke("rgba(60,130,190,0.35)", 0.8);
+  for (let x = bx; x < bx + bw; x += 18) rect(x, 118, 9, 4, "#2f7fd0");
+  stripedAwning(bx + 6, 122, bw - 12, 12, "#1f6fb2", "#fff");
+  const wx = bx + 12, ww = 150, dx = bx + 172;
+  if (o.preview) kraft(wx, 142, ww, 28);
+  else if (!o.open) rollShutter(wx - 2, 140, ww + 4, 32);
+  else shopWindow(wx, 142, ww, 28, true, () => { // el mostrador con hielo y el pescado del día
+    rect(wx, 142, ww, 28, "#cfe8f4"); rect(wx, 156, ww, 14, "#eaf6fc"); rect(wx, 155, ww, 1.6, "#8ac0e0");
+    ["vieja", "cherne", "sama", "chicharros", "pulpo", "lapas"].forEach((k, i) => unit(wx + 14 + i * 24, 154, 9, PRODUCT[k]));
+    for (let k = 0; k < 10; k++) rect(wx + 4 + k * 15, 162 + (k % 2) * 3, 5, 4, "rgba(255,255,255,0.9)");
+  });
+  rect(dx - 2, 136, 48, 36, "#1f6fb2");
+  rect(dx, 138, 44, 34, lit ? vgrad(138, 172, "#f0fbff", "#bfe3f4") : "#4a5a6c"); line(dx + 22, 138, dx + 22, 172, "#1f6fb2", 1.6);
+  if (!o.open && !o.preview) hangingSign(dx + 22, 154, 0.75, "CERRADO", "#fff", "#d2403a");
+  fillRR(bx + bw - 28, 138, 22, 22, 11, "#fff"); circle(bx + bw - 17, 149, 11); stroke("#2f7fd0", 1.6);
+  unit(bx + bw - 17, 149, 9, PRODUCT.sama);
+  if (lit) {
+    ell(150, 178, 90, 5, "rgba(220,240,255,0.35)");
+    fillRR(bx + 12, 180, 44, 16, 2, "#f4f6f8"); rr(bx + 12, 180, 44, 16, 2); stroke("#9ab8c8", 1.2); rect(bx + 12, 184, 44, 2, "#2f7fd0");
+    unit(bx + 34, 179, 8, PRODUCT.chicharros);
+    fillRR(bx + 64, 182, 14, 14, 2, "#1f6fb2"); ell(bx + 71, 182, 7, 2, "#7fb0d8");
+  }
+}
+function phoneFront(bx, bw, o, lit) {
+  rect(bx, 118, bw, 54, vgrad(118, 172, "#2f343c", "#1f2329"));
+  g.beginPath(); for (let x = bx + 6; x < bx + bw; x += 8) { g.moveTo(x, 122); g.lineTo(x, 172); } stroke("rgba(255,255,255,0.05)", 1);
+  rect(bx, 118, bw, 3, lit ? "#9fe8ff" : "#4a6a78");
+  if (lit) rect(bx, 121, bw, 12, "rgba(150,230,255,0.12)");
+  const wx = bx + 14, ww = 132, dx = bx + 158;
+  if (o.preview) kraft(wx, 136, ww, 34);
+  else if (!o.open) rollShutter(wx - 2, 134, ww + 4, 38);
+  else { // el escaparate con luz fría: el móvil roto en vinilo y los móviles en su balda
+    rect(wx - 2, 134, ww + 4, 38, "#14181c"); rect(wx, 136, ww, 34, vgrad(136, 170, "#eaf9ff", "#9fd8f0"));
+    unit(wx + 24, 153, 13, PRODUCT.pantalla);
+    rect(wx + 50, 160, 76, 2, "#4a525c");
+    for (let k = 0; k < 5; k++) { const x = wx + 56 + k * 14; fillRR(x, 144, 8, 15, 2, "#2a2f36"); rect(x + 1, 146, 6, 10, ["#4a8fd0", "#3fc2b0", "#d6337a", "#f2b81c", "#7a5aa8"][k]); }
+    poly([[wx + 70, 136], [wx + 84, 136], [wx + 62, 170], [wx + 48, 170]], "rgba(255,255,255,0.3)");
+  }
+  rect(dx - 2, 134, 44, 38, "#14181c");
+  rect(dx, 136, 40, 36, lit ? vgrad(136, 172, "#eaf9ff", "#9fd8f0") : "#2a3440"); rect(dx + 4, 148, 2, 14, "#c4cbd3");
+  line(dx + 20, 136, dx + 20, 172, "#14181c", 1.6);
+  if (!o.open && !o.preview) hangingSign(dx + 20, 154, 0.75, "CERRADO", "#fff", "#d2403a");
+  fillRR(bx + bw - 28, 126, 18, 40, 4, "#14181c"); rr(bx + bw - 28, 126, 18, 40, 4); stroke(lit ? "#9fe8ff" : "#4a6a78", 1.4);
+  unit(bx + bw - 19, 146, 8, PRODUCT.camara_movil);
+  if (lit) ell(150, 178, 90, 5, "rgba(150,230,255,0.3)");
+}
+function barberFront(bx, bw, o, lit) {
+  rect(bx, 118, bw, 54, "#efe6d2");
+  rect(bx, 118, bw, 6, "#2a2f36");
+  for (let k = 0; k < bw / 8; k++) { rect(bx + k * 8, 164, 8, 4, k % 2 ? "#2a2f36" : "#fffdf6"); rect(bx + k * 8, 168, 8, 4, k % 2 ? "#fffdf6" : "#2a2f36"); }
+  stripedAwning(bx + 6, 124, bw - 12, 9, "#b3261e", "#fffdf6");
+  // el poste de barbero: tubo de cristal con espiral roja, blanca y azul
+  const px = bx + 12;
+  g.save(); g.beginPath(); g.rect(px, 136, 12, 28); g.clip(); rect(px, 136, 12, 28, "#fffdf6");
+  for (let k = -1; k < 4; k++) { const y = 136 + k * 12; poly([[px, y], [px + 12, y - 6], [px + 12, y - 2], [px, y + 4]], "#b3261e"); poly([[px, y + 4], [px + 12, y - 2], [px + 12, y + 2], [px, y + 8]], "#1f6fb2"); }
+  rect(px + 2, 136, 2.4, 28, "rgba(255,255,255,0.45)");
+  g.restore();
+  rr(px, 136, 12, 28, 2); stroke("#8a95a3", 1.2); fillRR(px - 2, 132, 16, 5, 2, "#c4cbd3"); fillRR(px - 2, 163, 16, 5, 2, "#c4cbd3"); dot(px + 6, 130, 3, "#c4cbd3");
+  const wx = bx + 36, ww = 120, dx = bx + 170;
+  if (o.preview) kraft(wx, 138, ww, 32);
+  else if (!o.open) rollShutter(wx - 2, 136, ww + 4, 36);
+  else shopWindow(wx, 138, ww, 32, true, () => { // los sillones, vistos desde la calle
+    rect(wx, 138, ww, 32, "#f3e6e0"); rect(wx, 164, ww, 6, "#2a2f36");
+    for (const x of [wx + 30, wx + 90]) { ell(x, 148, 10, 7, "rgba(190,220,235,0.8)"); equipIcon("sillon", x, 156, 11); }
+  });
+  rect(dx - 2, 134, 48, 38, "#3a3f46");
+  rect(dx, 136, 44, 36, lit ? vgrad(136, 172, "#ffe9b0", "#f6c26a") : "#4a5a6c"); line(dx + 22, 136, dx + 22, 172, "#3a3f46", 1.6);
+  if (lit) unit(dx + 11, 154, 8, PRODUCT.corte);
+  if (!o.open && !o.preview) hangingSign(dx + 22, 154, 0.75, "CERRADO", "#fff", "#d2403a");
+  if (lit) {
+    ell(150, 178, 90, 5, "rgba(255,220,140,0.3)");
+    fillRR(bx + 12, 174, 38, 16, 3, "#2a2f36"); T("BARBER", bx + 31, 182, { font: F.d(7), color: "#f6bd2d", align: "center" });
+    line(bx + 19, 190, bx + 17, 198, "#2a2f36", 1.6); line(bx + 43, 190, bx + 45, 198, "#2a2f36", 1.6);
+  }
 }
 function openingBanner(bx, bw, o) {
   const y = 150;
@@ -1819,25 +2311,32 @@ const DEMO = {
   taller: { main: "#2a242d", accent: "#f58220", emblem: "rayo", name: "Taller", theme: "rural", seed: 6 },
   heladeria: { main: "#13867f", accent: "#fbf3e0", emblem: "sol", name: "Heladería", theme: "playa", seed: 8 },
   ferreteria: { main: "#b3261e", accent: "#f6bd2d", emblem: "estrella", name: "Ferretería", theme: "marinero", seed: 9 },
+  guachinche: { main: "#6b2a3a", accent: "#f0dfb2", emblem: "drago", name: "Guachinche", theme: "rural", seed: 4 },
+  panaderia: { main: "#b4532a", accent: "#fbf3e0", emblem: "sol", name: "Panadería", theme: "historico", seed: 2 },
+  pescaderia: { main: "#1f6fb2", accent: "#ffffff", emblem: "pez", name: "Pescadería", theme: "marinero", seed: 7 },
+  moviles: { main: "#14181c", accent: "#7ae0ff", emblem: "rayo", name: "Móviles", theme: "lujo", seed: 11 },
+  peluqueria: { main: "#b3261e", accent: "#fffdf6", emblem: "corona", name: "Peluquería", theme: "centro", seed: 12 },
 };
 function paintMontar(st) {
-  appHeader(st.title || "", "Cinco locales, tres minijuegos", null);
-  const sectors = (st.sectors || []).slice(0, 5), n = Math.max(3, sectors.length), gap = 12;
-  const cw = (W - 32 - gap * (n - 1)) / n, x0 = (W - cw * sectors.length - gap * (sectors.length - 1)) / 2, y = 110, chh = 486;
+  appHeader(st.title || "", "Diez locales, ocho minijuegos", null);
+  // Diez tarjetas en dos filas de cinco; si hay menos, cada fila se centra.
+  const sectors = (st.sectors || []).slice(0, 10), perRow = 5, gap = 10, rowGap = 10;
+  const cw = (W - 32 - gap * (perRow - 1)) / perRow, chh = 242, y0 = 108, tw = cw - 24;
   sectors.forEach((s, i) => {
-    const x = x0 + i * (cw + gap), demo = DEMO[s.key] || DEMO.cafeteria, tw = cw - 28;
-    if (s.selected) fillRR(x - 5, y - 5, cw + 10, chh + 10, 19, C.sun);
+    const row = Math.floor(i / perRow), inRow = Math.min(perRow, sectors.length - row * perRow);
+    const x = (W - cw * inRow - gap * (inRow - 1)) / 2 + (i % perRow) * (cw + gap), y = y0 + row * (chh + rowGap);
+    const demo = DEMO[s.key] || DEMO.cafeteria;
+    if (s.selected) fillRR(x - 4, y - 4, cw + 8, chh + 8, 18, C.sun);
     card(x, y, cw, chh);
-    storefront(x + 8, y + 8, cw - 16, 150, { sector: s.key, ...demo, open: true, r: 10 });
-    if (s.selected) chip("ELEGIDO", x + cw - 14, y + 14, "orange", { align: "right", size: 14 });
-    fitText(s.name || "", x + 14, y + 184, tw, F.t, 26, 16, { color: C.ink, fancy: true });
-    paragraph(s.blurb || "", x + 14, y + 216, tw, F.r(16), 21, 5, { color: C.mute });
+    storefront(x + 8, y + 8, cw - 16, 92, { sector: s.key, ...demo, open: true, r: 10, span: 300 });
+    if (s.selected) chip("ELEGIDO", x + cw - 12, y + 12, "orange", { align: "right", size: 12 });
+    fitText(s.name || "", x + 12, y + 118, tw, F.t, 21, 13, { color: C.ink, fancy: true });
+    paragraph(s.blurb || "", x + 12, y + 140, tw, F.r(13), 16, 2, { color: C.mute });
     (s.lines || []).slice(0, 3).forEach((t, k) => {
-      const ry = y + 340 + k * 50;
-      line(x + 14, ry - 18, x + cw - 14, ry - 18, C.line, 1.2);
-      glyph(["box", "key", "coin"][k], x + 24, ry, 8, C.atl);
-      if (width(t, F.m(13)) <= tw - 24) fitText(t, x + 38, ry, tw - 24, F.m, 15, 13, { color: C.ink });
-      else paragraph(t, x + 38, ry, tw - 24, F.m(15), 19, 2, { color: C.ink });
+      const ry = y + 181 + k * 20;
+      line(x + 12, ry - 10, x + cw - 12, ry - 10, C.line, 1.2);
+      glyph(["box", "key", "coin"][k], x + 20, ry, 6.5, C.atl);
+      fitText(t, x + 32, ry, tw - 20, F.m, 13, 10, { color: C.ink });
     });
   });
   footer(st.foot, H - 22);
@@ -2140,6 +2639,11 @@ const ROOM = {
   taller: { wall: "#c8ccd0", tile: "#b8bec4", floor: ["#9aa0a6", "#8a9096"], counter: "#5a626c", top: "#c4cbd3" },
   heladeria: { wall: "#e3f4f0", tile: "#f6d6e2", floor: ["#f2ead8", "#e0d4bc"], counter: "#13867f", top: "#f4f1ea" },
   ferreteria: { wall: "#ece2cf", tile: "#d8b47a", floor: ["#c9c2b4", "#b4ab9a"], counter: "#6b4a2a", top: "#e8e0d0" },
+  guachinche: { wall: "#ecdcbc", tile: "#a8683a", floor: ["#b88a5a", "#9a6e44"], counter: "#6b2a3a", top: "#e8d8b8" },
+  panaderia: { wall: "#f6e9cf", tile: "#f2d8a8", floor: ["#e6d2ac", "#d2bb8e"], counter: "#a8602a", top: "#f4ead6" },
+  pescaderia: { wall: "#e8f2f8", tile: "#bfdcf0", floor: ["#dfe6ea", "#c8d2d8"], counter: "#1f6fb2", top: "#f4f6f8" },
+  moviles: { wall: "#e4e8ee", tile: "#2f343c", floor: ["#cfd4da", "#b8bec4"], counter: "#2a2f36", top: "#c4cbd3" },
+  peluqueria: { wall: "#f3e6e0", tile: "#d9e0e6", floor: ["#3a3f46", "#2a2f36"], counter: "#b3261e", top: "#f4f1ea" },
 };
 // Lo de las baldas de la pared (`shelf`), cómo se cubre la parte baja (`dado`) y, en las comandas,
 // lo que ya está servido en el mostrador (`served`).
@@ -2147,6 +2651,11 @@ Object.assign(ROOM.cafeteria, { shelf: ["cafe", "cortado", "zumo", "barraquito"]
 Object.assign(ROOM.heladeria, { shelf: ["vainilla", "chocolate", "mango", "batido", "gofio", "granizado"], dado: "tiles", served: ["vainilla", "granizado", "batido"] });
 Object.assign(ROOM.tienda, { shelf: ["pan", "leche", "conservas", "bebidas", "limpieza", "fruta"], dado: "band" });
 Object.assign(ROOM.ferreteria, { shelf: ["tornillos", "bombillas", "pintura", "herramientas", "fontaneria", "cerraduras"], dado: "pegboard" });
+Object.assign(ROOM.guachinche, { shelf: ["vino", "papas", "queso", "escaldon", "carne", "costillas"], dado: "band", served: ["vino", "papas", "queso"] });
+Object.assign(ROOM.panaderia, { shelf: ["barra", "millo", "quesadilla", "truchas", "bizcochon", "tarta"], dado: "tiles", served: ["barra", "millo", "bizcochon"] });
+Object.assign(ROOM.pescaderia, { shelf: ["chicharros", "vieja", "cherne", "sama", "pulpo", "lapas"], dado: "tiles", served: ["vieja", "chicharros", "pulpo"] });
+Object.assign(ROOM.moviles, { shelf: ["pantalla", "bateria_movil", "conector", "camara_movil", "altavoz", "tapa"], dado: "band", served: ["pantalla", "tapa", "altavoz"] });
+Object.assign(ROOM.peluqueria, { shelf: ["corte", "degradado", "barba", "tinte", "mechas", "peinado"], dado: "tiles", served: ["tinte", "barba", "mechas"] });
 // La calle vista por una ventana o un portón: el barrio de fondo (`backdrop` de `pisos`).
 function streetView(x, y, w, h, theme, seed) {
   const th = SKY[theme] ? theme : "centro", s = Math.max(w / 300, h / 190);
@@ -2239,6 +2748,11 @@ const PRODUCT_NAME = {
   pastillas: "Pastillas de freno", bateria: "Batería", aceite: "Aceite y filtro", correa: "Correa", bujias: "Bujías", neumatico: "Neumático",
   vainilla: "Helado de vainilla", chocolate: "Helado de chocolate", gofio: "Helado de gofio", mango: "Sorbete de mango", granizado: "Granizado de limón", batido: "Batido",
   tornillos: "Tornillería", bombillas: "Bombillas", pintura: "Pintura", herramientas: "Herramientas", fontaneria: "Fontanería", cerraduras: "Cerraduras",
+  vino: "Vino del país", papas: "Papas con mojo", carne: "Carne de cabra", costillas: "Costillas con piña", queso: "Queso asado", escaldon: "Escaldón de gofio",
+  barra: "Barra de pan", millo: "Pan de millo", quesadilla: "Quesadilla herreña", truchas: "Truchas de batata", bizcochon: "Bizcochón", tarta: "Tarta de encargo",
+  chicharros: "Chicharros", vieja: "Vieja", cherne: "Cherne", sama: "Sama", pulpo: "Pulpo", lapas: "Lapas",
+  pantalla: "Pantalla", bateria_movil: "Batería de móvil", conector: "Conector de carga", camara_movil: "Cámara", altavoz: "Altavoz", tapa: "Tapa trasera",
+  corte: "Corte", degradado: "Degradado", barba: "Arreglo de barba", tinte: "Tinte", mechas: "Mechas", peinado: "Lavar y peinar",
 };
 function magnifier(cx, cy, s, color) { circle(cx - s * 0.15, cy - s * 0.15, s * 0.55); stroke(color, s * 0.16); line(cx + s * 0.25, cy + s * 0.25, cx + s * 0.75, cy + s * 0.75, color, s * 0.22); }
 function clipboard(cx, cy, s) { // la libreta del presupuesto
@@ -2272,7 +2786,7 @@ function paintCliente(st) {
       basketOnCounter(st.basket || [], sx + 150, cy + 16);
       register(sx + sw - 140, cy + 14, st.total);
       banknote(sx + 424, cy + 8, st.paid, -0.06); // el billete con que paga, sobre el mostrador
-    } else for (let k = 0; k < 3; k++) productIcon(R.served[k], sx + 60 + k * 50, cy - 12, 20);
+    } else for (let k = 0; k < 3; k++) productIcon((R.served || ROOM.cafeteria.served)[k], sx + 60 + k * 50, cy - 12, 20); // los cinco juegos sin panel propio caen aquí: solo el cliente y su bocadillo
   }
   if (c.name) nameTag(c.name, who.headX, who.headY - who.R - 50, !!c.regular);
   g.restore();
