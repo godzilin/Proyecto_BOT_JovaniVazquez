@@ -25,6 +25,10 @@ DEFAULT_LOG_LEVEL = "INFO"
 # aplicación ("/poner") funcionan siempre, con independencia de este valor.
 DEFAULT_COMMAND_PREFIX = "."
 
+# Puerto del servidor web del Jovaniverso (`universo`) dentro del contenedor. Solo
+# se abre si hay `DISCORD_CLIENT_SECRET`.
+DEFAULT_UNIVERSO_PORT = 8080
+
 
 @dataclass(frozen=True, slots=True)
 class BotConfig:
@@ -42,6 +46,10 @@ class BotConfig:
         odds_api_key: Clave de The Odds API para las apuestas deportivas
             (`deportes`). Es secreta. Vacía, `deportes` dice que no está configurado
             y el bot no pide cuotas.
+        client_secret: Secreto de OAuth2 de la aplicación de Discord, para el login
+            del Jovaniverso (`universo`). Es secreto. Vacío, el servidor web no se
+            abre y `universo` avisa de que aún no está abierto.
+        universo_port: Puerto del servidor web del Jovaniverso.
     """
 
     token: str
@@ -49,6 +57,8 @@ class BotConfig:
     command_prefix: str = DEFAULT_COMMAND_PREFIX
     casino_channel_ids: frozenset[int] = frozenset()
     odds_api_key: str = ""
+    client_secret: str = ""
+    universo_port: int = DEFAULT_UNIVERSO_PORT
 
 
 def load_config(env: os._Environ[str] | dict[str, str] | None = None) -> BotConfig:
@@ -63,7 +73,8 @@ def load_config(env: os._Environ[str] | dict[str, str] | None = None) -> BotConf
 
     Raises:
         ConfigError: Si falta ``DISCORD_TOKEN``, si ``LOG_LEVEL`` no es un
-            nivel de log válido o si ``CASINO_CHANNEL_IDS`` no son IDs.
+            nivel de log válido, si ``CASINO_CHANNEL_IDS`` no son IDs o si
+            ``UNIVERSO_PORT`` no es un puerto.
     """
     source = env if env is not None else os.environ
 
@@ -89,12 +100,22 @@ def load_config(env: os._Environ[str] | dict[str, str] | None = None) -> BotConf
         "CASINO_CHANNEL_IDS", source.get("CASINO_CHANNEL_IDS", "")
     )
 
+    raw_port = source.get("UNIVERSO_PORT", "").strip()
+    if not raw_port:
+        universo_port = DEFAULT_UNIVERSO_PORT
+    elif raw_port.isdigit() and 1 <= int(raw_port) <= 65535:
+        universo_port = int(raw_port)
+    else:
+        raise ConfigError(f"UNIVERSO_PORT inválido: '{raw_port}'. Usa un puerto de 1 a 65535.")
+
     return BotConfig(
         token=token,
         log_level=log_level,
         command_prefix=command_prefix,
         casino_channel_ids=casino_channel_ids,
         odds_api_key=source.get("ODDS_API_KEY", "").strip(),
+        client_secret=source.get("DISCORD_CLIENT_SECRET", "").strip(),
+        universo_port=universo_port,
     )
 
 

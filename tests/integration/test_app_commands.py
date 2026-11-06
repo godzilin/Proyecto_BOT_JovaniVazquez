@@ -119,6 +119,10 @@ HIDDEN_COMMANDS = {"reinicio", "bloquear", "crear", "dinero"}
 # Secretos: solo con `.`, sin `/`, fuera de la ayuda y de la telemetría.
 SECRET_COMMANDS = {"enchufe", "amanece"}
 
+# Su `/` es el comando de entrada de la Activity, que no está en el árbol de
+# discord.py: lo crea Discord y lo renombra `bot.app.BotTree` al sincronizar.
+ENTRY_POINT_COMMANDS = {"universo"}
+
 
 def test_comandos_slash_y_texto_comparten_nombres_cortos_y_sin_alias(tmp_path: Path) -> None:
     """`/x` y `.x` son el mismo comando: mismos nombres, cortos, planos y sin alias."""
@@ -147,6 +151,7 @@ def test_comandos_slash_y_texto_comparten_nombres_cortos_y_sin_alias(tmp_path: P
                 | ADMIN_TEXT_ONLY_COMMANDS
                 | set(EFFECTS)
                 | SECRET_COMMANDS
+                | ENTRY_POINT_COMMANDS
             )
             # Los efectos conservan el nombre de Dank Memer (algunos de más de
             # 8 letras), no ocupan slash commands y la ayuda los lista en bloque.
@@ -208,7 +213,7 @@ def test_la_ayuda_real_va_por_menus_y_respeta_los_limites_de_discord(tmp_path: P
                 "⚙️ General",
             ]
             # Cada comando aparece una vez, con su descripción (salvo los efectos).
-            everyone = EXPECTED_COMMANDS | TEXT_ONLY_COMMANDS | set(EFFECTS)
+            everyone = EXPECTED_COMMANDS | TEXT_ONLY_COMMANDS | ENTRY_POINT_COMMANDS | set(EFFECTS)
             names = [name for page in pages[1:] for name in listed(page)]
             assert sorted(names) == sorted(everyone)
             for page in pages[1:]:

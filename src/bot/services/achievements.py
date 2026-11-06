@@ -573,6 +573,11 @@ JOVANI_DAYS_STAT = "jovani_days"
 JOVANI_LOOK_PREFIX = "jovani_look_"
 #: Looks de serie distintos vistos; se calcula en `with_derived`.
 JOVANI_LOOKS_STAT = "jovani_looks"
+#: Prefijo de cada día en que un miembro ha entrado en el Jovaniverso
+#: (`universo_day_20261106`).
+UNIVERSO_DAY_PREFIX = "universo_day_"
+#: Días distintos entrando en el universo; se calcula en `with_derived`.
+UNIVERSO_DAYS_STAT = "universo_days"
 VOICE_STREAK_STAT = "voice_streak_max"
 VOICE_WITH_PREFIX = "voice_with_"
 VOICE_PEOPLE_STAT = "voice_people"
@@ -2637,6 +2642,38 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", "jovani_friday13", [
         (1, "jovani_friday13", "Quisiera ser una mosca negra",
          "Mira `jovani` un viernes 13.", C, True),
+    ])  # fmt: skip
+
+    # 🎤 Jovani: el Jovaniverso (cogs/universo.py: universo_stats). Entrar se puede
+    # repetir a propósito, así que cuentan los días distintos. La plataforma la dice la
+    # página, así que sus logros son Comunes.
+    a += _tiers("jovani", UNIVERSO_DAYS_STAT, [
+        (1, "universo_day_1", "Houston, tenemos Jovani",
+         "Entra en el Jovaniverso con `universo`.", C),
+        (7, "universo_day_7", "Turista espacial", "Entra en el Jovaniverso 7 días distintos.", R),
+        (30, "universo_day_30", "Empadronado en Andrómeda",
+         "Entra en el Jovaniverso 30 días distintos.", E),
+        (100, "universo_day_100", "Cuota de la comunidad galáctica",
+         "Entra en el Jovaniverso 100 días distintos.", L),
+        (365, "universo_day_365", "Año luz", "Entra en el Jovaniverso 365 días distintos.", M),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_mobile", [
+        (1, "universo_mobile", "Universo de bolsillo",
+         "Entra en el Jovaniverso desde el móvil.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_desktop", [
+        (1, "universo_desktop", "Telescopio de sobremesa",
+         "Entra en el Jovaniverso desde el ordenador.", C),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_both", name="Agujero de gusano",
+        description="Entra en el Jovaniverso desde el móvil y desde el ordenador.",
+        category="jovani", rarity=C,
+        conditions=(("universo_mobile", 1), ("universo_desktop", 1)),
+    ))  # fmt: skip
+    a += _tiers("jovani", "universo_night", [
+        (1, "universo_night", "Materia oscura",
+         "Entra en el Jovaniverso entre las 3:00 y las 5:59.", C, True),
     ])  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
@@ -23197,6 +23234,7 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     )
     full[JOVANI_DAYS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_DAY_PREFIX))
     full[JOVANI_LOOKS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_LOOK_PREFIX))
+    full[UNIVERSO_DAYS_STAT] = sum(1 for stat in stats if stat.startswith(UNIVERSO_DAY_PREFIX))
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -24267,6 +24305,22 @@ def jovani_stats(look_key: str | None, *, when: datetime) -> StatDelta:
         add["jovani_midnight"] = 1
     if when.day == 13 and when.weekday() == 4:
         add["jovani_friday13"] = 1
+    return StatDelta(add=add)
+
+
+def universo_stats(platform: str | None, *, when: datetime) -> StatDelta:
+    """Lo que suma entrar en el Jovaniverso (`universo`).
+
+    Args:
+        platform: `"desktop"` o `"mobile"`, según el SDK de la página; `None` si no
+            lo dice o dice otra cosa.
+        when: Momento en hora canaria.
+    """
+    add = {f"{UNIVERSO_DAY_PREFIX}{when:%Y%m%d}": 1}
+    if platform in ("desktop", "mobile"):
+        add[f"universo_{platform}"] = 1
+    if 3 <= when.hour < 6:
+        add["universo_night"] = 1
     return StatDelta(add=add)
 
 

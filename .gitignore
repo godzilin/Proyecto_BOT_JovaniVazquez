@@ -37,3 +37,6 @@ node_modules/
 
 # Copias de trabajo de los subagentes
 .claude/worktrees/
+
+# Página compilada del Jovaniverso (`npm run build` en universo/; la compila la imagen)
+src/bot/assets/universo/

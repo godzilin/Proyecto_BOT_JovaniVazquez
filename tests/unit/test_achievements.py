@@ -160,6 +160,7 @@ from bot.services.achievements import (
     sports_slip_stats,
     sports_void_stats,
     total_reward,
+    universo_stats,
     with_derived,
 )
 from bot.services.allatu import TABLES
@@ -326,6 +327,8 @@ PRODUCED_STATS = {
     "todo_added", "todo_done", "todo_edited", "todo_demoted",
     # 🎤 Jovani (`jovani_stats` y `with_derived`)
     "jovani_days", "jovani_looks", "jovani_1337", "jovani_midnight", "jovani_friday13",
+    # 🎤 Jovani: el Jovaniverso (`universo_stats` y `with_derived`)
+    "universo_days", "universo_mobile", "universo_desktop", "universo_night",
     *(f"jovani_look_{key}" for key in (
         "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",
         "canarias", "halloween", "navidad", "aniversario",
@@ -2540,6 +2543,28 @@ def test_la_coleccion_de_jovani_pide_todos_los_looks_de_serie() -> None:
     assert BY_ID["jovani_looks_12"].conditions == (("jovani_looks", len(BUILTIN_LOOKS)),)
     looks = {key for a in AVAILABLE for key, _ in a.conditions if key.startswith("jovani_look_")}
     assert looks == {f"jovani_look_{look.key}" for look in BUILTIN_LOOKS if look.key != "normal"}
+
+
+def test_entrar_en_el_universo_cuenta_el_dia_y_la_plataforma() -> None:
+    delta = universo_stats("mobile", when=datetime(2026, 11, 6, 12, tzinfo=UTC))
+    assert delta.add == {"universo_day_20261106": 1, "universo_mobile": 1}
+    stats = {"universo_day_20261106": 4, "universo_day_20261107": 1, "universo_mobile": 1}
+    assert with_derived(stats)["universo_days"] == 2
+
+
+def test_una_plataforma_desconocida_no_cuenta() -> None:
+    delta = universo_stats("smart-fridge", when=datetime(2026, 11, 6, 12, tzinfo=UTC))
+    assert list(delta.add) == ["universo_day_20261106"]
+
+
+@pytest.mark.parametrize(("hour", "counts"), [(2, False), (3, True), (5, True), (6, False)])
+def test_la_madrugada_del_universo_va_de_las_tres_a_las_seis(hour: int, counts: bool) -> None:
+    delta = universo_stats(None, when=datetime(2026, 11, 6, hour, 30, tzinfo=UTC))
+    assert ("universo_night" in delta.add) is counts
+
+
+def test_el_agujero_de_gusano_pide_movil_y_ordenador() -> None:
+    assert BY_ID["universo_both"].conditions == (("universo_mobile", 1), ("universo_desktop", 1))
 
 
 # -- Predicciones (`predice`) -----------------------------------------------------------

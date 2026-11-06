@@ -17,6 +17,7 @@ from pathlib import Path
 
 import aiohttp
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from bot.cogs.deploy import Deploy
@@ -134,6 +135,7 @@ INITIAL_EXTENSIONS: tuple[str, ...] = (
     "bot.cogs.perfil",
     "bot.cogs.fun",
     "bot.cogs.aspecto",
+    "bot.cogs.universo",
     "bot.cogs.admin",
     "bot.cogs.moderation",
     "bot.cogs.deploy",
@@ -159,6 +161,78 @@ def build_intents(*, presences: bool = True) -> discord.Intents:
     return intents
 
 
+#: Tipo de comando de Discord que abre la Activity del bot (`PRIMARY_ENTRY_POINT`).
+ENTRY_POINT_TYPE = 4
+#: El comando de entrada del Jovaniverso (`/universo`). Discord lo crea solo, con el
+#: nombre «launch», al activar las Activities en el portal; aquí se renombra.
+#: `handler` 2 (`DISCORD_LAUNCH_ACTIVITY`) hace que Discord abra la Activity sin
+#: pasar por el bot. discord.py no sabe registrar este tipo, así que va a mano.
+ENTRY_POINT: dict[str, object] = {
+    "type": ENTRY_POINT_TYPE,
+    "name": "universo",
+    "description": "Abre el Jovaniverso: el bot en una Activity dentro de Discord.",
+    "handler": 2,
+    "integration_types": [0],
+    "contexts": [0],
+}
+
+#: Campos del comando de entrada que Discord devuelve y que se reenvían tal cual.
+_ENTRY_POINT_KEYS = (
+    "id",
+    "type",
+    "name",
+    "description",
+    "handler",
+    "integration_types",
+    "contexts",
+)
+
+
+class BotTree(app_commands.CommandTree):
+    """Árbol de comandos que no rompe el arranque cuando hay Activities.
+
+    `CommandTree.sync` reescribe de golpe todos los comandos globales, y Discord
+    rechaza esa reescritura si deja fuera el comando de entrada de la Activity
+    (error 50240). Con las Activities activadas en el portal, el bot no llegaría a
+    arrancar. Este árbol mira antes si el comando de entrada existe y, si existe,
+    lo manda junto a los demás, ya como `/universo` (`ENTRY_POINT`).
+    """
+
+    async def sync(
+        self, *, guild: discord.abc.Snowflake | None = None
+    ) -> list[app_commands.AppCommand]:
+        """Sincroniza como `CommandTree.sync`, con el comando de entrada si lo hay."""
+        if guild is not None or self.client.application_id is None:
+            return await super().sync(guild=guild)
+        application_id = self.client.application_id
+        try:
+            current = await self._http.get_global_commands(application_id)
+        except discord.HTTPException:
+            logger.warning("No se pudieron leer los comandos globales; se sincroniza sin mirar")
+            return await super().sync()
+        entry = next((c for c in current if c.get("type") == ENTRY_POINT_TYPE), None)
+        if entry is None:
+            return await super().sync()
+        commands_ = self._get_all_commands(guild=None)
+        if self.translator:
+            payload = [await c.get_translated_payload(self, self.translator) for c in commands_]
+        else:
+            payload = [c.to_dict(self) for c in commands_]
+        # Con su `id`, Discord lo renombra en vez de verlo como uno nuevo y borrar el viejo.
+        try:
+            data = await self._http.bulk_upsert_global_commands(
+                application_id, payload=[*payload, {**ENTRY_POINT, "id": entry["id"]}]
+            )
+        except discord.HTTPException:
+            # Si Discord no acepta el renombrado, mejor un `/launch` que un bot sin arrancar.
+            logger.exception("Discord no acepta `/universo`; se deja su comando de entrada")
+            kept = {key: entry[key] for key in _ENTRY_POINT_KEYS if key in entry}
+            data = await self._http.bulk_upsert_global_commands(
+                application_id, payload=[*payload, kept]
+            )
+        return [app_commands.AppCommand(data=d, state=self._state) for d in data]
+
+
 class BotClient(commands.Bot):
     """Cliente principal del bot.
 
@@ -174,6 +248,8 @@ class BotClient(commands.Bot):
         casino_channel_ids: frozenset[int] = frozenset(),
         presences: bool = True,
         odds_api_key: str = "",
+        client_secret: str = "",
+        universo_port: int = 8080,
     ) -> None:
         self.database_path = database_path
         self.message_stats = MessageStatsRepository(database_path)
@@ -268,6 +344,10 @@ class BotClient(commands.Bot):
         # Looks de Jovani (`aspecto`, `jovani`) y sus imágenes, en el mismo volumen.
         self.aspecto = AspectoRepository(database_path)
         self.aspecto_images = LookImageStore(database_path.parent / "aspecto")
+        # Servidor web del Jovaniverso (`universo`, la Activity). Sin el secreto de
+        # OAuth2 no se abre. El secreto no se registra nunca.
+        self.client_secret = client_secret
+        self.universo_port = universo_port
         self._keep_warm_task: asyncio.Task[None] | None = None
         self._checkpoint_task: asyncio.Task[None] | None = None
         super().__init__(
@@ -276,6 +356,7 @@ class BotClient(commands.Bot):
             # El texto de ayuda por defecto de discord.py no está en
             # español ni pensado para slash commands; se desactiva.
             help_command=None,
+            tree_cls=BotTree,
         )
 
     async def login(self, token: str) -> None:
@@ -399,6 +480,8 @@ async def start_bot(
     database_path: Path,
     casino_channel_ids: frozenset[int] = frozenset(),
     odds_api_key: str = "",
+    client_secret: str = "",
+    universo_port: int = 8080,
 ) -> None:
     """Crea el cliente y lo ejecuta hasta que se detenga o falle.
 
@@ -410,6 +493,9 @@ async def start_bot(
             (vacío = cualquiera).
         odds_api_key: Clave de The Odds API para `deportes` (vacía = sin apuestas
             deportivas). Nunca se registra en logs.
+        client_secret: Secreto de OAuth2 de la aplicación, para el login del
+            Jovaniverso (vacío = sin `universo`). Nunca se registra en logs.
+        universo_port: Puerto del servidor web del Jovaniverso.
 
     Si el «Presence Intent» no está activado en el portal, vuelve a arrancar
     sin él en vez de caerse: solo se pierde la «última vez conectado» de `admin`.
@@ -424,6 +510,8 @@ async def start_bot(
             casino_channel_ids=casino_channel_ids,
             presences=presences,
             odds_api_key=odds_api_key,
+            client_secret=client_secret,
+            universo_port=universo_port,
         )
         try:
             async with client:

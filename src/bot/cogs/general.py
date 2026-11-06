@@ -79,6 +79,7 @@ HELP_CATEGORIES: dict[str, str] = {
     "Entrance": "🍻 Comunidad",
     "Fun": "🍻 Comunidad",
     "Aspecto": "🍻 Comunidad",
+    "Universo": "🍻 Comunidad",
     "Images": "🎨 Imagen",
     "General": "⚙️ General",
 }
