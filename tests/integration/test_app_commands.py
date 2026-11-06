@@ -59,6 +59,7 @@ EXPECTED_COMMANDS = {
     "renta",
     "fortunas",
     "patrimonio",
+    "casa",
     "apuestas",
     "porra",
     "bizum",

@@ -8,6 +8,14 @@ criterio.
 
 ## 9.x
 
+### 9.54.0 · 2026-11-06
+
+- Casa: `casa`, el Confort de tu vivienda da bufos en `pala` y paga suministros
+
+### 9.53.1 · 2026-11-06
+
+- Jovaniverso: el túnel entra en una red de Tailscale que ya exista, aislado con su etiqueta y sin caducidad
+
 ### 9.53.0 · 2026-11-06
 
 - Pisos: el botón 🏗️ Reformas sale en la ficha, también antes de comprar, y dice si puedes reformar o qué te falta

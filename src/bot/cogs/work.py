@@ -377,9 +377,12 @@ def family_lines(status: Status) -> list[str]:
         if better
         else f"Bajo {tier.low} pierdes el bonus"
     )
+    # La casa (`casa`) la hace recuperarse antes: se dice la de verdad.
+    home = " (con tu casa)" if contract.home_family > 1 else ""
     lines.append(
-        f"-# Sube {decimal(FAMILY_REGEN_PER_HOUR)} por hora sola y con los regalos de la "
-        f"tienda; cada turno cuesta (las extras, el B y la madrugada, más). {hint}."
+        f"-# Sube {decimal(FAMILY_REGEN_PER_HOUR * contract.home_family)} por hora sola{home} y "
+        f"con los regalos de la tienda; cada turno cuesta (las extras, el B y la madrugada, "
+        f"más). {hint}."
     )
     if contract.no_extras_day == local_day(status.now).isoformat():
         lines.append("👪 **Intervención familiar:** hoy, ni extras, ni B, ni guardias.")

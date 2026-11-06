@@ -90,6 +90,7 @@ from bot.repositories.housing_finance import Loan, Mortgage, Promotion, VpoOwner
 from bot.repositories.housing_junta import Vote
 from bot.repositories.housing_trade import Auction
 from bot.services import credit
+from bot.services import home as casa
 from bot.services import housing as rules
 from bot.services import loans as lending
 from bot.services.economy import format_amount
@@ -98,6 +99,7 @@ from bot.services.housing_catalog import (
     BARRIO_NEWS_BY_KEY,
     BARRIOS,
     DEFAULT_RENT_LEVEL,
+    KINDS,
     LISTING_BY_KEY,
     REFORM_BY_KEY,
     RENT_LEVELS,
@@ -936,6 +938,8 @@ class DayRun:
         guarantee_claims: `(avalista, avalado, importe)` que el banco reclama hoy a un
             avalista (un préstamo vencido o una ejecución que no cubre su rehipoteca).
         reimbursements: `(avalista, avalado, importe)` de lo que hoy le ha devuelto.
+        homes: Lo que pasó hoy en la casa de cada miembro que vive en una (`casa`): su
+            Confort y lo que pagó de suministros.
     """
 
     day: date
@@ -974,6 +978,86 @@ class DayRun:
     loan_defaults: list[tuple[int, int]] = field(default_factory=list)
     guarantee_claims: list[tuple[int, int, int]] = field(default_factory=list)
     reimbursements: list[tuple[int, int, int]] = field(default_factory=list)
+    homes: dict[int, HomeNight] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class HomeNight:
+    """La noche de la casa de un miembro (`casa`), para sus logros.
+
+    Attributes:
+        place: Dónde vive.
+        comfort: El Confort de su casa.
+        bill: Los suministros que tocaban.
+        unpaid: Lo que no le llegó; si es más de 0, le han cortado la luz.
+    """
+
+    place: casa.Place
+    comfort: casa.Comfort
+    bill: casa.Supplies
+    unpaid: int = 0
+
+    @property
+    def paid(self) -> int:
+        """Lo que pagó de suministros."""
+        return self.bill.total - self.unpaid
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatus:
+    """La casa de un miembro ahora mismo (`casa` y los bufos de `pala`).
+
+    Attributes:
+        place: Dónde vive.
+        comfort: El Confort de su casa.
+        cut_until: Último día sin luz, si le cortaron los suministros.
+    """
+
+    place: casa.Place
+    comfort: casa.Comfort
+    cut_until: date | None = None
+
+    def cut(self, day: date) -> bool:
+        """Si `day` está sin luz (la casa no da bufos)."""
+        return self.cut_until is not None and day <= self.cut_until
+
+    @property
+    def bill(self) -> casa.Supplies:
+        """Los suministros que le tocan esta noche."""
+        return casa.supplies(self.place)
+
+
+def place_of(market: Market, kind: str, ref: str) -> casa.Place | None:
+    """La vivienda habitual de `(tipo, referencia)` con lo que mira el Confort, o `None` si ya
+    no existe (una VPO o un inmueble que se ha ido del mercado)."""
+    if kind == finance.HOME_VPO:
+        unit = VPO_BY_KEY.get(ref)
+        if unit is None:
+            return None
+        return casa.Place(casa.VPO, ref, unit.name, "vpo", unit.m2, casa.VPO_ENERGY, 0,
+                          casa.VPO_THEME)  # fmt: skip
+    listing = market.listing(ref)
+    if listing is None:
+        return None
+    # Las reformas de una habitación son las del piso (`Market.units_of`).
+    done = market.reforms.get(ref) or market.reforms.get(rules.parent_key(ref) or "", {})
+    reforms = sum(
+        1 for r, (_c, _u, finished, _rh) in done.items()
+        if finished and r in REFORM_BY_KEY and listing.kind in REFORM_BY_KEY[r].kinds
+    )  # fmt: skip
+    barrio = BARRIO_BY_KEY.get(listing.barrio)
+    kind_name = KINDS[listing.kind].name if listing.kind in KINDS else listing.kind
+    return casa.Place(
+        casa.OWN if kind == finance.HOME_OWN else casa.RENTED,
+        ref,
+        f"{kind_name} en {barrio.name}" if barrio else kind_name,
+        listing.kind,
+        listing.m2,
+        listing.energy,
+        reforms,
+        barrio.theme if barrio else "",
+        listing.floor,
+    )
 
 
 def _date(text: str | None) -> date | None:
@@ -1272,6 +1356,36 @@ def _own_loan_in(connection: sqlite3.Connection, guild_id: int, user_id: int, lo
     return loan
 
 
+def _reforms_in(
+    connection: sqlite3.Connection, guild_id: int
+) -> dict[str, dict[str, tuple[int, date, bool, bool]]]:
+    """`{inmueble: {reforma: (coste, día que acaba, terminada, rehabilitación)}}`."""
+    reforms: dict[str, dict[str, tuple[int, date, bool, bool]]] = {}
+    for r in connection.execute(
+        "SELECT listing, reform, cost, until, finished, rehab FROM housing_reforms "
+        "WHERE guild_id = ?",
+        (guild_id,),
+    ):
+        reforms.setdefault(str(r["listing"]), {})[str(r["reform"])] = (
+            int(r["cost"]),
+            date.fromisoformat(r["until"]),
+            bool(r["finished"]),
+            bool(r["rehab"]),
+        )
+    return reforms
+
+
+def _splits_in(connection: sqlite3.Connection, guild_id: int) -> dict[str, Split]:
+    """Los inmuebles divididos por plantas o por habitaciones."""
+    return {
+        str(r["listing"]): Split(str(r["mode"]), int(r["units"]), int(r["cost"]))
+        for r in connection.execute(
+            "SELECT listing, mode, units, cost FROM housing_splits WHERE guild_id = ?",
+            (guild_id,),
+        )
+    }
+
+
 def _market_in(connection: sqlite3.Connection, guild_id: int) -> Market:
     indexes = {
         str(r["barrio"]): float(r["value"])
@@ -1315,18 +1429,7 @@ def _market_in(connection: sqlite3.Connection, guild_id: int) -> Market:
         "SELECT user_id, listing FROM housing_rent_bonus WHERE guild_id = ?", (guild_id,)
     ):
         bonuses.setdefault(int(r["user_id"]), set()).add(str(r["listing"]))
-    reforms: dict[str, dict[str, tuple[int, date, bool, bool]]] = {}
-    for r in connection.execute(
-        "SELECT listing, reform, cost, until, finished, rehab FROM housing_reforms "
-        "WHERE guild_id = ?",
-        (guild_id,),
-    ):
-        reforms.setdefault(str(r["listing"]), {})[str(r["reform"])] = (
-            int(r["cost"]),
-            date.fromisoformat(r["until"]),
-            bool(r["finished"]),
-            bool(r["rehab"]),
-        )
+    reforms = _reforms_in(connection, guild_id)
     reviews: dict[str, list[Review]] = {}
     for r in connection.execute(
         "SELECT * FROM housing_reviews WHERE guild_id = ? ORDER BY id DESC", (guild_id,)
@@ -1370,13 +1473,7 @@ def _market_in(connection: sqlite3.Connection, guild_id: int) -> Market:
         votes=junta.votes_in(connection, guild_id),
         admins=junta.admins_in(connection, guild_id),
         reserves=junta.reserves_in(connection, guild_id),
-        splits={
-            str(r["listing"]): Split(str(r["mode"]), int(r["units"]), int(r["cost"]))
-            for r in connection.execute(
-                "SELECT listing, mode, units, cost FROM housing_splits WHERE guild_id = ?",
-                (guild_id,),
-            )
-        },
+        splits=_splits_in(connection, guild_id),
         ipc=credit.ipc(guild_id),
         keys_bought=_keys_in(connection, guild_id),
         reclaims={
@@ -2574,6 +2671,33 @@ class HousingRepository:
             return finance.homes_in(connection, guild_id).get(user_id)
         finally:
             connection.close()
+
+    async def home_status(self, guild_id: int, user_id: int) -> HomeStatus | None:
+        """La casa de alguien con su Confort (`casa` y `pala`), o `None` si vive con sus padres.
+
+        Lee solo lo que hace falta (su vivienda, las reformas, las divisiones y la obra nueva),
+        no el mercado entero: `pala` lo pide en cada turno.
+        """
+        return await self._run(self._home_status_sync, guild_id, user_id)
+
+    def _home_status_sync(self, guild_id: int, user_id: int) -> HomeStatus | None:
+        connection = self._connect()
+        try:
+            found = finance.homes_in(connection, guild_id).get(user_id)
+            if found is None:
+                return None
+            market = Market(
+                reforms=_reforms_in(connection, guild_id),
+                splits=_splits_in(connection, guild_id),
+                promotions=finance.promotions_in(connection, guild_id),
+            )
+            place = place_of(market, *found)
+            if place is None:
+                return None
+            cut = finance.supplies_cut_in(connection, guild_id, user_id)
+        finally:
+            connection.close()
+        return HomeStatus(place, casa.comfort(place), cut)
 
     async def deposits_of(self, guild_id: int, user_id: int) -> list[finance.Deposit]:
         """Las fianzas de alguien que siguen en el depósito (para `saldo`)."""
@@ -4191,6 +4315,20 @@ class HousingRepository:
                     costs.community + owner.arrears - owner.arrears_ibi,
                 )
             )  # fmt: skip
+        # Los suministros de quien vive en cada casa (`casa`): la luz con su impuesto, el agua
+        # y la fibra con su IGIC. Lo que no llegue no se debe: le cortan la luz (`settle`).
+        for member, (kind, ref) in market.homes.items():
+            place = place_of(market, kind, ref)
+            if place is None:
+                continue
+            bill = casa.supplies(place)
+            result.homes[member] = HomeNight(place, casa.comfort(place), bill)
+            debits.append(
+                HousingDebit(
+                    member, f"suministros:{member}", 0, bill.gone, "casa:suministros",
+                    taxes=(("electricidad", bill.power_tax), ("igic_suministros", bill.igic)),
+                )
+            )  # fmt: skip
         self._deposits_in(connection, guild_id, day, now, market, rents, entries, result)
         self._reclaims_in(connection, guild_id, day, market)
         for key in [*market.keys(), *market.room_keys()]:
@@ -4248,6 +4386,11 @@ class HousingRepository:
                         "WHERE guild_id = ? AND unit = ?",
                         (ibi + other, ibi, guild_id, tag.removeprefix("vpo:")),
                     )
+                elif tag.startswith("suministros:"):
+                    member = int(tag.removeprefix("suministros:"))
+                    if (ibi or other) and member in result.homes:
+                        result.homes[member].unpaid = ibi + other
+                        finance.cut_supplies_in(conn, guild_id, member, day + timedelta(days=1))
                 elif tag.startswith("bono:"):
                     member = market.leases[tag.removeprefix("bono:")].member
                     if member is not None and other:

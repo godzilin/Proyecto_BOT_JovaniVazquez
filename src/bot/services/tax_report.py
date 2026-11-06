@@ -86,8 +86,8 @@ TAX_KINDS: tuple[TaxKind, ...] = (
             "Grandes F.", Group.DIRECT, "art. 3 Ley 38/2022"),
     TaxKind("loteria", "🎟️", "Gravamen especial de loterías", "Lotería", Group.DIRECT,
             "DA 33ª LIRPF"),
-    TaxKind("igic", "🛒", "IGIC de las compras (y primas de seguros)", "IGIC", Group.INDIRECT,
-            "Ley 4/2012 y art. 12 Ley 13/1996"),
+    TaxKind("igic", "🛒", "IGIC de las compras (y primas de seguros y luz)", "IGIC",
+            Group.INDIRECT, "Ley 4/2012, art. 12 Ley 13/1996 y art. 99 Ley 38/1992"),
     TaxKind("aiem", "🚢", "AIEM de lo que importa tu negocio", "AIEM", Group.INDIRECT,
             "art. 92 DLeg 1/2025 de Canarias"),
     TaxKind("ss_empresa", "🏢", "Seguridad Social que paga la empresa", "SS empresa",
@@ -285,6 +285,8 @@ HOUSING_TAXES: tuple[TaxLine, ...] = (
      "art. 36 DLeg 1/2009 de Canarias"),
     TaxLine("licencia", "📜", "Tasas de licencias vacacionales", "Tasa vac.",
      "Ley 6/2025 de Canarias"),
+    TaxLine("suministros", "⚡", "Impuestos de la luz y la fibra de casa", "Luz y fibra",
+     "art. 99 Ley 38/1992 y art. 51 Ley 4/2012"),
 )  # fmt: skip
 
 #: Lo que pagan los negocios de `pala`, en el orden de 🏪 (claves de
