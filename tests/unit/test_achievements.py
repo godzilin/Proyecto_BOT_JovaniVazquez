@@ -962,6 +962,9 @@ PRODUCED_STATS = {
     "fortunas_fourth", "fortunas_pages", "fortunas_last_page", "fortunas_me", "fortunas_far",
     "fortunas_borrowed",
     "hacienda_self", "hacienda_snoop", "hacienda_pillar", "hacienda_hidden",
+    # El Casino y el Banco como fortunas (`house_rivals_stats`, `hacienda_house_stats`).
+    "richer_than_casino", "richer_than_bank", "richer_than_both", "casino_close",
+    "casino_in_red", "bank_hostage", "hacienda_over_casino", "hacienda_over_bank",
     # Las pestañas de `hacienda` (`hacienda_page_stats`).
     "hacienda_business", "hacienda_business_top", "hacienda_landlord_top", "hacienda_all_tabs",
     # Estadísticas del casino (cogs/apuestas.py: apuestas_stats)

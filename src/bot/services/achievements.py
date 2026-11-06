@@ -16873,6 +16873,43 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "patrimonio_illiquid", "Rico en ladrillo, pobre en liquidez",
          "Mira tu patrimonio con más de la mitad en cosas y no en efectivo.", R, True),
     ])  # fmt: skip
+    # 🎰 El Casino y 🏦 El Banco en `fortunas` y `hacienda` (`house_rivals_stats`,
+    # `hacienda_house_stats`): ganarles en patrimonio cuesta meses de ahorro; mirar en qué
+    # punto están, no.
+    a += _tiers("economy", "richer_than_casino", [
+        (1, "richer_than_casino", "Hacer saltar la banca",
+         "Mira `fortunas` o tu patrimonio teniendo más que 🎰 El Casino.", E),
+    ])  # fmt: skip
+    a += _tiers("economy", "richer_than_bank", [
+        (1, "richer_than_bank", "Tú rescatas a Bankia",
+         "Mira `fortunas` o tu patrimonio teniendo más que 🏦 El Banco.", E),
+    ])  # fmt: skip
+    a += _tiers("economy", "richer_than_both", [
+        (1, "richer_than_both", "Ahora la banca eres tú",
+         "Mira `fortunas` o tu patrimonio teniendo más que 🎰 El Casino y 🏦 El Banco a la vez.",
+         L),
+    ])  # fmt: skip
+    a += _tiers("economy", "casino_close", [
+        (1, "casino_close", "A una ficha de la casa",
+         "Mira `fortunas` o tu patrimonio a menos de un 5 % por debajo de 🎰 El Casino.", R, True),
+    ])  # fmt: skip
+    a += _tiers("economy", "casino_in_red", [
+        (1, "casino_in_red", "Las Vegas en concurso de acreedores",
+         "Mira `fortunas` o tu patrimonio mientras 🎰 El Casino pierde dinero.", C, True),
+    ])  # fmt: skip
+    a += _tiers("economy", "bank_hostage", [
+        (1, "bank_hostage", "El problema es del banco",
+         "Mira `fortunas` o tu patrimonio debiendo al banco más de lo que vale 🏦 El Banco.",
+         R, True),
+    ])  # fmt: skip
+    a += _tiers("economy", "hacienda_over_casino", [
+        (1, "hacienda_over_casino", "Tributas más que Montecarlo",
+         "Mira `hacienda` habiendo pagado más impuestos que 🎰 El Casino.", R),
+    ])  # fmt: skip
+    a += _tiers("economy", "hacienda_over_bank", [
+        (1, "hacienda_over_bank", "Más solidario que el IBEX",
+         "Mira `hacienda` habiendo pagado más impuestos que 🏦 El Banco.", R),
+    ])  # fmt: skip
     a += _tiers("economy", "hacienda_views", [
         (1, "hacienda_open_1", "¿Y esto adónde va?", "Abre `hacienda`.", C),
         (25, "hacienda_open_25", "Votante informado, especie protegida",
@@ -25654,6 +25691,49 @@ def patrimonio_stats(
     if net_worth > 0:
         peak["net_worth_max"] = net_worth
     return StatDelta(add=add, peak=peak)
+
+
+def house_rivals_stats(*, mine: int, casino: int, bank: int, debts: int) -> StatDelta:
+    """Contadores de compararse con 🎰 El Casino y 🏦 El Banco en `fortunas` y `perfil`.
+
+    Args:
+        mine: El patrimonio neto de quien mira.
+        casino: El del Casino (lo que gana la casa menos sus impuestos).
+        bank: El del Banco.
+        debts: Lo que debe quien mira (hipotecas, préstamos y deudas; negativo si le deben).
+    """
+    add: dict[str, int] = {}
+    beat_casino = casino > 0 and mine > casino
+    beat_bank = bank > 0 and mine > bank
+    if beat_casino:
+        add["richer_than_casino"] = 1
+    if beat_bank:
+        add["richer_than_bank"] = 1
+    if beat_casino and beat_bank:
+        add["richer_than_both"] = 1
+    if casino > 0 and casino * 0.95 <= mine < casino:
+        add["casino_close"] = 1
+    if casino < 0:
+        add["casino_in_red"] = 1
+    if bank > 0 and debts > bank:
+        add["bank_hostage"] = 1
+    return StatDelta(add=add)
+
+
+def hacienda_house_stats(*, paid: int, casino: int, bank: int) -> StatDelta:
+    """Contadores de `hacienda` frente a lo que han pagado el Casino y el Banco.
+
+    Args:
+        paid: Lo que ha pagado quien mira, neto.
+        casino: Lo que ha pagado 🎰 El Casino.
+        bank: Lo que ha pagado 🏦 El Banco.
+    """
+    add: dict[str, int] = {}
+    if casino > 0 and paid > casino:
+        add["hacienda_over_casino"] = 1
+    if bank > 0 and paid > bank:
+        add["hacienda_over_bank"] = 1
+    return StatDelta(add=add)
 
 
 def fortunas_click_stats(

@@ -342,7 +342,7 @@ async def test_el_patrimonio_se_anuncia_y_suma_logros(
     await cog.run_guild(guild)  # type: ignore[arg-type]
 
     channel.send.assert_awaited_once()
-    embed = channel.send.await_args.kwargs["embed"]
+    (embed,) = channel.send.await_args.kwargs["embeds"]
     assert "Ricachón" in (embed.description or "")
     delta = note.call_args.args[3]
     assert delta.add == {"wealth_tax_paid": DUE, "wealth_tax_weeks": 1, "wealth_joint_limit": 1}

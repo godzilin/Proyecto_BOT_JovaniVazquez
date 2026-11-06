@@ -72,6 +72,16 @@ from bot.repositories.economy import (
     WealthRun,
 )
 from bot.services.bizum import MIN_AMOUNT as BIZUM_MIN_AMOUNT
+from bot.services.house_books import (
+    BANK,
+    BANK_REASONS,
+    CASINO,
+    BankBook,
+    CasinoBook,
+    HouseCharge,
+    casino_book,
+    house_charge,
+)
 from bot.services.interest import (
     INTEREST_DAILY_MAX,
     INTEREST_TOP,
@@ -2186,6 +2196,80 @@ class EconomyService:
         lo convierte en cifras por juego). Ver `EconomyRepository.casino_ledger`.
         """
         return await self.repository.casino_ledger(guild_id, user_id)
+
+    async def house_books(
+        self, guild_id: int, *, purchase_lent: int, owed: int
+    ) -> tuple[CasinoBook, BankBook]:
+        """Las cuentas del 🎰 Casino y del 🏦 Banco, desde el primer día. Solo lee.
+
+        Ver `bot.services.house_books`.
+
+        Args:
+            purchase_lent: Lo prestado en hipotecas de compra
+                (`HousingRepository.bank_exposure`).
+            owed: Lo que le deben al banco ahora (de la misma función).
+        """
+        rows, *_rest = await self.repository.casino_ledger(guild_id, None)
+        flow = await self.repository.ledger_flow(guild_id, BANK_REASONS)
+        taxes = await self.repository.house_taxes(guild_id)
+        return (
+            casino_book(rows, taxes.get(CASINO, (0, 0, False))[0]),
+            BankBook(
+                flow=flow,
+                purchase_lent=purchase_lent,
+                owed=owed,
+                taxes=taxes.get(BANK, (0, 0, False))[0],
+            ),
+        )
+
+    async def charge_house_taxes(
+        self, guild_id: int, *, week: date, purchase_lent: int, owed: int
+    ) -> list[HouseCharge]:
+        """Cobra los impuestos de la semana `week` al 🎰 Casino y al 🏦 Banco.
+
+        Tratamiento fiscal: el casino paga la tasa fiscal sobre los juegos de suerte,
+        envite o azar sobre lo que gana la casa (apuestas menos premios), la de casinos del
+        art. 3.4 del RDL 16/1977 con su primer tramo (20 %) fijo; el banco, el Impuesto
+        sobre Sociedades de las entidades de crédito (30 %, art. 29.6 LIS) sobre su
+        beneficio. La base es lo que su beneficio acumulado pase del máximo que ya tributó,
+        así que las pérdidas se compensan con lo que ganen después (art. 26 LIS) y el primer
+        lunes tributa todo lo ganado desde el primer día (`house_books.house_charge`).
+
+        Ninguno de los dos tiene monedero: lo que pagan entra en la cuenta del Estado sin
+        salir de ningún sitio, igual que su beneficio salió de lo que desapareció de los
+        jugadores y de los deudores. No es una interacción, así que no hay aviso de la Renta.
+
+        La primera vez en un servidor solo se apunta la semana a cero: el lunes siguiente se
+        cobra todo lo de antes, y no al desplegar.
+
+        Returns:
+            Lo que ha pagado cada uno esta vez (vacío si la semana ya estaba cobrada).
+        """
+        now = self._clock()
+        state = await self.repository.house_taxes(guild_id)
+        if not state:
+            await self.repository.charge_house_taxes(
+                guild_id, week.isoformat(), [(CASINO, 0, 0, 0, 0), (BANK, 0, 0, 0, 0)], now
+            )
+            return []
+        casino, bank = await self.house_books(guild_id, purchase_lent=purchase_lent, owed=owed)
+        charges = [
+            house_charge(entity, profit, state.get(entity, (0, 0, False))[1])
+            for entity, profit in ((CASINO, casino.profit), (BANK, bank.profit))
+        ]
+        done = await self.repository.charge_house_taxes(
+            guild_id,
+            week.isoformat(),
+            [(c.entity, c.profit, c.peak, c.base, c.tax) for c in charges],
+            now,
+        )
+        return [charge for charge in charges if charge.entity in done]
+
+    async def house_tax_breakdown(
+        self, guild_id: int, *, since: float | None = None
+    ) -> dict[int, dict[str, int]]:
+        """Lo que han pagado el Casino y el Banco, como `tax_breakdown` (solo lee)."""
+        return await self.repository.house_tax_breakdown(guild_id, since=since)
 
     async def ledger_summary(
         self,
