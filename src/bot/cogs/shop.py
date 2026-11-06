@@ -193,6 +193,7 @@ from bot.services.shop_wishlist import (
 from bot.services.skin_images import SkinImage
 from bot.services.skins import (
     GAMES,
+    HIELO,
     SKIN_BY_KEY,
     Skin,
     fits,
@@ -2094,6 +2095,7 @@ class Tienda(commands.Cog):
                 box=box.key,
                 rarity=drop.rarity.stat,
                 tapete=drop.skin is not None,
+                hielo=drop.skin is not None and drop.skin.key == HIELO,
                 dupe=dupe,
                 seasonal=box.season is not None,
                 collection=collection.key if collection is not None else None,

@@ -297,8 +297,9 @@ python -m bot
     Bobbleheads de líderes mundiales o las Pegatinas de Hacienda, y tres de temporada
     de 6) con rareza Común, Rara, Épica, Legendaria y Mítica, que solo salen de cajas y
     se pueden vender y cambiar en el Rastro. El maletín y el cofre pueden dar, rarísimo,
-    un tapete del casino. Cada caja devuelve de media un 95 % de lo que cuesta a valor de
-    catálogo. 🎄 Navidad (dic. y ene.), 🎃 Halloween y 🎂 aniversario (oct.) cuestan 5.000
+    un tapete del casino, y cualquier caja, una vez de cada 50.000, el 🧊 Tapete Hielo
+    Negro, que no se vende y, fuera de las cajas, solo sale en la Rueda. Cada caja
+    devuelve de media un 95 % de lo que cuesta a valor de catálogo. 🎄 Navidad (dic. y ene.), 🎃 Halloween y 🎂 aniversario (oct.) cuestan 5.000
     Y$, solo se venden en su temporada y sacan antes su colección. Una 📦 gratis cada 100
     jugadas del casino y una 🎁 cada 5 niveles. Comprar paga IGIC; abrir no mueve dinero.
     La caja botín de siempre ya no se vende, pero se sigue abriendo.

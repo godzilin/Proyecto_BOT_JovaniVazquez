@@ -20,6 +20,7 @@ from bot.app import BotClient
 from bot.services.economy import STATE_ACCOUNT_ID
 from bot.services.rueda import SHOWCASE_FALLBACK, Draw, day_of, layout
 from bot.services.rueda_catalog import PIECES, TITLE_KEYS, TITLE_STOCK
+from bot.services.skins import HIELO, SKIN_BY_KEY
 
 
 def _wheel(client: BotClient):  # noqa: ANN202
@@ -202,6 +203,42 @@ async def test_el_expositor_da_un_titulo_numerado_y_si_ya_lo_tienes_paga_dinero(
     assert "ya no estaba" in view2.text
     rows = await client.rueda.day(GUILD_ID, OWNER_ID, tomorrow)
     assert rows[0].draw.prize == "y15000", "la vuelta queda apuntada con lo que se dio"
+    await client.close()
+
+
+async def test_el_hielo_negro_va_a_la_mochila_y_si_ya_lo_tienes_paga_dinero(
+    tmp_path: Path,
+) -> None:
+    client = await load_bot(tmp_path)
+    await client.rueda.initialize()
+    cog = _wheel(client)
+    owner = make_owner()
+    hielo = SKIN_BY_KEY[HIELO]
+    await _force(client, "hielo")
+    view, _ = await _spin(client, owner)
+    assert hielo.catalog_key in await client.get_cog("Tienda").owned_keys(GUILD_ID, OWNER_ID)
+    assert _ledger(client) == {}, "en especie no se cobra"
+    rows = _rows(
+        client,
+        "SELECT gross FROM economy_tax_records WHERE concept = 'rueda:especie'",
+    )
+    assert [r["gross"] for r in rows] == [hielo.price]
+    assert "HIELO NEGRO" in view.text
+    stats = (await client.achievements.profile(GUILD_ID, OWNER_ID)).stats
+    assert stats.get("rueda_prize_hielo") == 1
+
+    # Mañana vuelve a salir: ya lo tiene (uno por persona), así que cobra en dinero.
+    cog.clock = lambda: time.time() + 86_400
+    tomorrow = day_of(cog.clock())
+    wedge = next(w for w in layout(levels=False) if w.prize.key == "hielo")
+    await client.rueda.create(
+        GUILD_ID, OWNER_ID, tomorrow, 0, Draw(wedge.index, "hielo", 0.5, 9), cog.clock()
+    )
+    view2, _ = await _spin(client, owner)
+    assert _ledger(client)["rueda:premio"] == SHOWCASE_FALLBACK
+    assert "Ya tenías" in view2.text
+    rows = await client.rueda.day(GUILD_ID, OWNER_ID, tomorrow)
+    assert rows[0].draw.prize == "y15000"
     await client.close()
 
 

@@ -10986,6 +10986,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "box_tapete", "Alfombra de la suerte",
          "Que una caja te dé un tapete.", L, True),
     ])  # fmt: skip
+    a += _tiers("shop", "lootbox_hielo", [
+        (1, "box_hielo", "Mejor que un Alpha Pack", "Saca el Tapete Hielo Negro de una caja.", M),
+    ])  # fmt: skip
+    a += _tiers("shop", "lootbox_hielo_carton", [
+        (1, "box_hielo_carton", "Hielo a precio de cubito",
+         "Saca el Tapete Hielo Negro de una Caja de cartón.", M, True),
+    ])  # fmt: skip
     a += _tiers("shop", "lootbox_season", [
         (1, "box_season_1", "Caja con fecha de caducidad", "Abre una caja de temporada.", R),
         (10, "box_season_10", "Fijo discontinuo de las cajas",
@@ -16531,6 +16538,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
     )
     a += _tiers("rueda", "rueda_prize_expositor", [
         (1, "rueda_expositor_1", "Pieza de museo", "Gana el expositor de la semana.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_prize_hielo", [
+        (1, "rueda_hielo_1", "Vuelta al hielo", "Gana el Tapete Hielo Negro en la Rueda.", M),
+    ])  # fmt: skip
+    a += _tiers("rueda", "rueda_again_hielo", [
+        (1, "rueda_again_hielo_1", "Segunda ronda, con hielo",
+         "Gana el Tapete Hielo Negro en una Otra vuelta de la Rueda.", M, True),
     ])  # fmt: skip
     a.append(
         Achievement(
@@ -26534,6 +26548,8 @@ def rueda_stats(
         peak["rueda_col"] = pieces_owned
     if after_again and prize == "nada":
         add["rueda_again_nothing"] = 1
+    if after_again and prize == "hielo":
+        add["rueda_again_hielo"] = 1
     minutes = when.hour * 60 + when.minute
     for stat, condition in (
         ("rueda_midnight", minutes < 5),
@@ -27640,6 +27656,7 @@ def lootbox_stats(
     collection: str | None,
     owned: int,
     when: float,
+    hielo: bool = False,
 ) -> StatDelta:
     """Estadísticas de quien abre una caja de `bot.services.lootboxes`.
 
@@ -27652,6 +27669,7 @@ def lootbox_stats(
         collection: Colección de la pieza, o `None` si fue un tapete.
         owned: Piezas distintas que tiene ya de esa colección.
         when: Momento de abrirla (epoch).
+        hielo: Si el tapete es el Hielo Negro (`skins.HIELO`).
     """
     delta = StatDelta(add={"lootbox_opened": 1, f"{LOOTBOX_BOX_PREFIX}{box}": 1})
 
@@ -27660,6 +27678,8 @@ def lootbox_stats(
             delta.add[stat] = delta.add.get(stat, 0) + 1
 
     bump("lootbox_tapete", tapete)
+    bump("lootbox_hielo", hielo)
+    bump("lootbox_hielo_carton", hielo and box == "caja_carton")
     bump(f"{LOOTBOX_RARITY_PREFIX}{rarity}", not tapete)
     bump("lootbox_dupes", dupe)
     bump("lootbox_season", seasonal)

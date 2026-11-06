@@ -94,7 +94,18 @@ BURST_FRAMES, BURST_MS = 8, 70
 
 #: Premios que celebran con confeti.
 CELEBRATE = frozenset(
-    {"y1000", "y2500", "y5000", "y15000", "xp1000", "regalo", "maletin", "expositor", "otra"}
+    {
+        "y1000",
+        "y2500",
+        "y5000",
+        "y15000",
+        "xp1000",
+        "regalo",
+        "maletin",
+        "expositor",
+        "hielo",
+        "otra",
+    }
 )
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
@@ -303,6 +314,8 @@ def banner_for(prize_key: str, kind: PrizeKind, detail: str | None = None) -> di
         return {"kind": "again", "title": "¡OTRA VUELTA!", "sub": detail or "Gira otra vez"}
     if kind is PrizeKind.SHOWCASE:
         return {"kind": "showcase", "title": "¡EL EXPOSITOR!", "sub": detail or "Premio gordo"}
+    if kind is PrizeKind.SKIN:
+        return {"kind": "showcase", "title": "¡HIELO NEGRO!", "sub": detail or "Tapete de premio"}
     return {"kind": "nothing", "title": "INSPECCIÓN", "sub": detail or "Hoy no toca"}
 
 
@@ -439,6 +452,7 @@ COLORS: dict[str, tuple[int, int, int]] = {
     "otra": (6, 182, 212),
     "nada": (82, 82, 91),
     "expositor": (255, 255, 255),
+    "hielo": (120, 200, 240),
 }
 
 

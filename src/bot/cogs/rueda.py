@@ -25,7 +25,8 @@ se puede dar, la vuelta vuelve a quedar por girar.
   apunta como renta en especie de la semana (`EconomyService.record_prize_in_kind`).
 - XP: `bot.cogs.message_stats.give_xp`, que paga la subida de nivel si la hay.
 - Si el expositor se agota entre el sorteo y el clic, o el miembro ya tiene ese
-  título, se pagan `SHOWCASE_FALLBACK` Y$ en dinero.
+  título, se pagan `SHOWCASE_FALLBACK` Y$ en dinero. Lo mismo si sale el 🧊 Tapete
+  Hielo Negro y ya lo tiene: es uno por persona.
 
 Después de enseñar el resultado: el aviso de la Renta (`renta.remind`), la mascota
 (`renta.hint` con `Event.WHEEL`, que puede traer a la urraca), los logros de la
@@ -121,7 +122,7 @@ PNG_NAME = "rueda.png"
 REVEAL_MARGIN_SECONDS = 0.5
 REVEAL_PER_MB = 0.4
 #: Premios que se anuncian en el canal.
-SHOUT = frozenset({"expositor", "y15000", "y5000", "maletin"})
+SHOUT = frozenset({"expositor", "hielo", "y15000", "y5000", "maletin"})
 
 COLOR_IDLE = discord.Color.from_rgb(155, 89, 182)
 COLOR_WIN = discord.Color.from_rgb(241, 196, 15)
@@ -448,6 +449,8 @@ def rules_embed(wedges: tuple[Wedge, ...]) -> discord.Embed:
         f"uno). Si se agota o ya lo tienes, se pagan {format_amount(SHOWCASE_FALLBACK)}.",
         "🧩 Las piezas de la colección de la Feria solo salen aquí. Completarla regala el "
         "Tapete de la Feria.",
+        "🧊 El Tapete Hielo Negro no se vende: sale aquí y, una vez de cada 50.000, en una "
+        f"caja. Si ya lo tienes, se pagan {format_amount(SHOWCASE_FALLBACK)}.",
         f"{TAX_COLLECTOR}: el dinero tributa en el IRPF con retención. Lo que no es dinero "
         "cuenta en la Renta de la semana por su precio de catálogo.",
     ]
@@ -584,6 +587,22 @@ class Rueda(commands.Cog, name="Rueda"):
             if piece is None or not await self._item(g, u, piece.key, award):
                 raise RuntimeError(f"La tienda no tiene la pieza {spin.item}")
             award.lines.append(f"🧩 {piece.emoji} **{piece.name}** ({piece.rarity}).")
+        elif prize.kind is PrizeKind.SKIN:
+            assert prize.item is not None
+            if prize.item in await tienda.owned_keys(self.bot, g, u):
+                award.prize = "y15000"
+                award.lines.append(
+                    "🧊 Ya tenías el Tapete Hielo Negro (es uno por persona): "
+                    f"te llevas {format_amount(SHOWCASE_FALLBACK)}."
+                )
+                await self._pay(g, u, SHOWCASE_FALLBACK, award)
+                await self.repository.set_item(g, u, row.day, row.spin, "y15000", None)
+            elif not await self._item(g, u, prize.item, award):
+                raise RuntimeError(f"La tienda no tiene {prize.item}")
+            else:
+                award.lines.append(
+                    "🧊 Póntelo en cualquier mesa con fieltro desde la mochila o con el botón 🎨."
+                )
         elif prize.kind is PrizeKind.SHOWCASE:
             given = await tienda.give_numbered(self.bot, g, u, spin.item) if spin.item else None
             if given is None:
@@ -620,6 +639,8 @@ class Rueda(commands.Cog, name="Rueda"):
             head = f"🔁 **Otra vuelta.** {_shuffle_pick(AGAIN_LINES, spin.seed)}"
         elif prize.kind is PrizeKind.SHOWCASE:
             head = f"🏆 **¡El expositor!** {_shuffle_pick(WIN_LINES, spin.seed)}"
+        elif prize.kind is PrizeKind.SKIN:
+            head = "🧊 **¡HIELO NEGRO!** Te ha tocado el tapete más raro del casino."
         else:
             line = _shuffle_pick(WIN_LINES, spin.seed)
             head = f"{prize.emoji} Te ha tocado **{prize.name}**. {line}"

@@ -235,6 +235,7 @@ HOUSING_EVENT_KEYS = (
 PRODUCED_STATS = {
     # 🎪 Rueda (`rueda_stats`)
     "rueda_spins", "rueda_streak_max", "rueda_again_day", "rueda_again_nothing",
+    "rueda_again_hielo",
     "rueda_money_max", "rueda_money_total", "rueda_xp_total", "rueda_col", "rueda_in_kind",
     "rueda_midnight", "rueda_lastminute", "rueda_night", "rueda_nochevieja", "rueda_canarias",
     "rueda_viernes13", "rueda_inocentes", "rueda_hamster",
@@ -392,7 +393,8 @@ PRODUCED_STATS = {
     "shop_clover_broken", "shop_no_parsley", "shop_flash", "shop_fake_champagne",
     "shop_ball_dogs",
     # Cajas (cogs/shop.py: lootbox_stats al abrir, lootbox_free_stats al ganarlas jugando)
-    "lootbox_opened", "lootbox_tapete", "lootbox_dupes", "lootbox_season", "lootbox_night",
+    "lootbox_opened", "lootbox_tapete", "lootbox_hielo", "lootbox_hielo_carton",
+    "lootbox_dupes", "lootbox_season", "lootbox_night",
     "lootbox_free", *(f"lootbox_box_{box.key}" for box in LOOTBOXES),
     *(f"lootbox_got_{rarity.stat}" for rarity in LootRarity),
     *(collection.stat for collection in LOOTBOX_COLLECTIONS),
