@@ -574,6 +574,7 @@ async def test_el_gimnasio_tiene_un_boton_por_stat_con_custom_id_fijo(tmp_path: 
         # 🌽 Echarle de comer: para los demás
         "gallos:feed",
         "gallos:spar_open",
+        "gallos:retire",
     }
     assert "Gimnasio" in panel.embed().description
     await panel._leave_gym(fake_interaction(make_user(OWNER_ID)))
@@ -892,7 +893,7 @@ async def test_acabar_bien_el_minijuego_suma_forma_combo_y_el_punto_extra(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cog, panel = await paid_drill(tmp_path, monkeypatch, 1.0)
-    trait = gym.trait_of(OWNER_ID, 0)
+    trait = gym.trait_for(OWNER_ID, RoosterRecord(name=""))
     interaction = fake_interaction(make_user(OWNER_ID))
     await panel._press(interaction, "ok")
     record = await cog.repository.get(GUILD_ID, OWNER_ID)
@@ -1063,7 +1064,9 @@ async def test_animar_suma_forma_al_minijuego_una_vez_por_persona(
     assert panel.drill is not None and panel.drill.cheers == {FAN_IDS[0]}
     await panel._press(fake_interaction(make_user(OWNER_ID)), "ok")
     record = await cog.repository.get(GUILD_ID, OWNER_ID)
-    factor = gym.trait_factor(gym.trait_of(OWNER_ID, 0), Stat.STRENGTH) * gym.cheer_factor(1)
+    factor = gym.trait_factor(
+        gym.trait_for(OWNER_ID, RoosterRecord(name="")), Stat.STRENGTH
+    ) * gym.cheer_factor(1)
     assert record.form == pytest.approx(PAID_FORM + gym.session_form(1.0, 0, factor))
 
 
@@ -1162,7 +1165,9 @@ async def test_el_sparring_cobra_la_sesion_a_los_dos_y_reparte_forma_por_el_puls
     assert winner.form > loser.form
     assert winner.form == pytest.approx(
         PAID_FORM
-        + gym.session_form(1.0, 0, gym.trait_factor(gym.trait_of(OWNER_ID, 0), Stat.STRENGTH))
+        + gym.session_form(
+            1.0, 0, gym.trait_factor(gym.trait_for(OWNER_ID, RoosterRecord(name="")), Stat.STRENGTH)
+        )
         + gym.SPARRING_WIN_FORM
     )
     assert loser.form == pytest.approx(PAID_FORM)  # nota 0: el minijuego no suma
@@ -1204,3 +1209,33 @@ def test_puntos_del_pulso() -> None:
     assert gym.pulso_points("amagar", "amagar") == 0.5
     assert gym.pulso_points("", "amagar") == 0 and gym.pulso_points("amagar", "") == 1
     assert gym.pulso_points("", "") == 0.5
+
+
+async def test_retirar_pide_confirmar_y_da_una_cria_con_parte_de_los_stats(
+    tmp_path: Path,
+) -> None:
+    from bot.services.gallos import INHERIT_SHARE, RETIRE_MIN_FIGHTS
+
+    cog = await make_cog(tmp_path, WIN)
+    panel = await open_panel(cog)
+    panel.record = await set_stats(cog, fights=RETIRE_MIN_FIGHTS, strength=90)
+    await panel._gym(fake_interaction(make_user(OWNER_ID)))
+    await panel._retire(fake_interaction(make_user(OWNER_ID)))
+    assert panel.confirm_retire and panel.record.fights == RETIRE_MIN_FIGHTS
+    await panel._retire(fake_interaction(make_user(OWNER_ID)))
+    chick = await cog.repository.get(GUILD_ID, OWNER_ID)
+    assert chick.fights == 0 and chick.generation == 1
+    assert chick.strength == int(90 * INHERIT_SHARE)
+    (grave,) = await cog.repository.graveyard(GUILD_ID, OWNER_ID)
+    assert grave.killer_kind == "retiro" and grave.name == "Roca"
+    assert "retirado" in gallos_cog.killer_text(grave)
+    assert ledger(tmp_path, OWNER_ID) == []
+
+
+async def test_no_se_retira_un_gallo_con_pocas_peleas(tmp_path: Path) -> None:
+    cog = await make_cog(tmp_path, WIN)
+    panel = await open_panel(cog)
+    interaction = fake_interaction(make_user(OWNER_ID))
+    await panel._retire(interaction)
+    assert not panel.confirm_retire
+    assert await cog.repository.graveyard(GUILD_ID, OWNER_ID) == []

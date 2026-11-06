@@ -762,6 +762,8 @@ class RoosterRecord:
         grudge_wins: Victorias seguidas contra él; desde `GRUDGE_WINS`, está picado.
         fed_day: Día canario en que otros le echaron de comer por última vez.
         fed_count: Cuántos le han echado de comer ese día (`gallos_gym.after_feed`).
+        generation: Generación del linaje: 0 el primero, +1 con cada cría de un gallo
+            retirado (`heir`). Morir corta el linaje y vuelve a 0.
     """
 
     name: str
@@ -788,6 +790,7 @@ class RoosterRecord:
     grudge_wins: int = 0
     fed_day: date | None = None
     fed_count: int = 0
+    generation: int = 0
 
     @property
     def losses(self) -> int:
@@ -1001,7 +1004,7 @@ def after_fight(
             fought = replace(fought, grudge_wins=record.grudge_wins + 1)
         else:
             fought = replace(fought, grudge_rival=rival, grudge_wins=1)
-    return replace(
+    played = replace(
         fought,
         fights=record.fights + 1,
         wins=record.wins + int(won),
@@ -1011,6 +1014,7 @@ def after_fight(
         day_streak=day_streak,
         last_day=day,
     )
+    return _age(played)
 
 
 def default_name(user_id: int) -> str:
@@ -1031,6 +1035,51 @@ def fallen_from(record: RoosterRecord, *, died_at: float, killer_kind: str, kill
         died_at=died_at,
         killer_kind=killer_kind,
         killer=killer,
+    )
+
+
+#: Desde aquí el gallo es veterano y cada `AGE_STEP` peleas pierde 1 de cada stat.
+AGE_FIGHTS = 150
+AGE_STEP = 10
+#: Peleas que hacen falta para retirarlo, y la parte de sus stats que hereda la cría.
+RETIRE_MIN_FIGHTS = 20
+INHERIT_SHARE = Fraction(35, 100)
+
+
+def aged(record: RoosterRecord) -> bool:
+    """Si el gallo ya es veterano (pierde stats con las peleas)."""
+    return record.fights >= AGE_FIGHTS
+
+
+def _age(record: RoosterRecord) -> RoosterRecord:
+    """La ficha tras una pelea de veterano: cada `AGE_STEP` peleas, −1 a cada stat."""
+    past = record.fights - AGE_FIGHTS
+    if past <= 0 or past % AGE_STEP:
+        return record
+    return replace(record, **{s.column: max(0, record.stat(s) - 1) for s in Stat})
+
+
+def retire_error(record: RoosterRecord) -> str | None:
+    """Por qué no se puede retirar el gallo todavía (`None` si se puede)."""
+    if record.fights < RETIRE_MIN_FIGHTS:
+        return (
+            f"Para retirarlo con honores tiene que haber peleado {RETIRE_MIN_FIGHTS} veces "
+            f"(lleva {record.fights})."
+        )
+    return None
+
+
+def heir(record: RoosterRecord, user_id: int) -> RoosterRecord:
+    """La cría de un gallo que se retira: hereda `INHERIT_SHARE` de cada stat.
+
+    Nombre de serie e historial a cero, una generación más y lo que es del dueño
+    (muertes, cupo de entrenamiento y combo del día). Sin forma: es un pollito.
+    """
+    return replace(
+        reborn(record, user_id),
+        deaths=record.deaths,
+        generation=record.generation + 1,
+        **{s.column: int(record.stat(s) * INHERIT_SHARE) for s in Stat},
     )
 
 

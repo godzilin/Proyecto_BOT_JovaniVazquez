@@ -7,14 +7,14 @@ velocidad y aguante, que sí tocan las probabilidades) y lo que necesita el
 entrenamiento (la hora del último y cuántos lleva hoy) la forma (`form`, guardada
 con su instante `form_at`: la de ahora la calcula `gallos.form_now`), el combo del
 gimnasio (`combo`, `combo_day`), hasta cuándo está lesionado (`injured_until`) , el
-pique con un rival de la casa (`grudge_rival`, `grudge_wins`) y cuántos le han echado de
-comer hoy (`fed_day`, `fed_count`). Las columnas de los
+pique con un rival de la casa (`grudge_rival`, `grudge_wins`), cuántos le han echado de
+comer hoy (`fed_day`, `fed_count`) y la generación de su linaje (`generation`). Las columnas de los
 stats y del entrenamiento se añaden a las bases antiguas con `ALTER TABLE ...
 DEFAULT 0`: los gallos que ya existían empiezan a cero.
 
 Tabla `gallos_cementerio`: un gallo por fila, con su ficha al morir y quién lo
-mató (un rival de la casa o un miembro). Al morir, la fila de `gallos` vuelve a
-un gallo nuevo (`bury`) en la misma transacción.
+mató (un rival de la casa o un miembro), o `retiro` si se retiró con honores. Al
+morir, la fila de `gallos` vuelve a un gallo nuevo (`bury`) en la misma transacción.
 
 El aspecto del gallo no se guarda aquí, es una skin de la tienda
 (`bot.services.skins`). El dinero tampoco: pasa por la economía. Solo se
@@ -43,6 +43,7 @@ from bot.services.gallos import (
     check_training,
     default_name,
     fallen_from,
+    heir,
     reborn,
 )
 
@@ -79,6 +80,7 @@ def _record(row: sqlite3.Row) -> RoosterRecord:
         grudge_wins=int(row["grudge_wins"]),
         fed_day=date.fromisoformat(fed_day) if fed_day else None,
         fed_count=int(row["fed_count"]),
+        generation=int(row["generation"]),
     )
 
 
@@ -100,6 +102,7 @@ _NEW_COLUMNS = (
     ("grudge_wins", "INTEGER NOT NULL DEFAULT 0"),
     ("fed_day", "TEXT"),
     ("fed_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("generation", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -270,9 +273,9 @@ class GallosRepository:
                 (guild_id, user_id, name, fights, wins, kos, streak, best_streak,
                  day_streak, last_day, strength, speed, endurance, deaths, last_train,
                  train_day, trains_today, form, form_at, combo, combo_day, injured_until,
-                 grudge_rival, grudge_wins, fed_day, fed_count)
+                 grudge_rival, grudge_wins, fed_day, fed_count, generation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?)
+                    ?, ?, ?)
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
                 name = excluded.name, fights = excluded.fights, wins = excluded.wins,
                 kos = excluded.kos, streak = excluded.streak,
@@ -285,7 +288,8 @@ class GallosRepository:
                 combo = excluded.combo, combo_day = excluded.combo_day,
                 injured_until = excluded.injured_until,
                 grudge_rival = excluded.grudge_rival, grudge_wins = excluded.grudge_wins,
-                fed_day = excluded.fed_day, fed_count = excluded.fed_count
+                fed_day = excluded.fed_day, fed_count = excluded.fed_count,
+                generation = excluded.generation
             """,
             (
                 guild_id,
@@ -314,6 +318,7 @@ class GallosRepository:
                 record.grudge_wins,
                 record.fed_day.isoformat() if record.fed_day else None,
                 record.fed_count,
+                record.generation,
             ),
         )
 
@@ -385,8 +390,24 @@ class GallosRepository:
         """
         return await self._run(self._bury_sync, guild_id, user_id, killer_kind, killer, now)
 
+    async def retire(self, guild_id: int, user_id: int, *, now: float) -> RoosterRecord:
+        """Retira al gallo con honores: pasa al corral de leyendas y da una cría (`gallos.heir`).
+
+        Usa la tabla del cementerio con `killer_kind = 'retiro'` (no lo mató nadie).
+
+        Returns:
+            La ficha de la cría.
+        """
+        return await self._run(self._bury_sync, guild_id, user_id, "retiro", "", now, True)
+
     def _bury_sync(
-        self, guild_id: int, user_id: int, killer_kind: str, killer: str, now: float
+        self,
+        guild_id: int,
+        user_id: int,
+        killer_kind: str,
+        killer: str,
+        now: float,
+        inherit: bool = False,
     ) -> RoosterRecord:
         with self._connect() as connection:
             dead = self._get_in(connection, guild_id, user_id)
@@ -413,7 +434,7 @@ class GallosRepository:
                     grave.killer,
                 ),
             )
-            fresh = reborn(dead, user_id)
+            fresh = heir(dead, user_id) if inherit else reborn(dead, user_id)
             self._save_in(connection, guild_id, user_id, fresh)
         return fresh
 

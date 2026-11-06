@@ -356,3 +356,39 @@ def test_ganar_tres_seguidas_al_mismo_rival_lo_pica_y_perder_lo_calma() -> None:
     tough = RoosterRecord(name="Roca")
     assert dies(tough, Roll(death_chance(0, 40) * 1.2), 40, grudge=True)
     assert not dies(tough, Roll(death_chance(0, 40) * 1.2), 40)
+
+
+# -- Edad, retiro y cría ------------------------------------------------------------------
+
+
+def test_desde_las_150_peleas_pierde_un_punto_de_cada_stat_cada_10() -> None:
+    from bot.services.gallos import AGE_FIGHTS, AGE_STEP, aged
+
+    day = date(2026, 11, 6)
+    record = RoosterRecord(
+        name="Viejo", fights=AGE_FIGHTS + AGE_STEP - 1, strength=50, speed=0, endurance=30
+    )
+    assert aged(record)
+    older = after_fight(record, won=True, finish=Finish.KO, day=day)
+    assert (older.strength, older.speed, older.endurance) == (49, 0, 29)
+    same = after_fight(older, won=True, finish=Finish.KO, day=day)
+    assert same.strength == 49
+    young = RoosterRecord(name="Joven", fights=AGE_STEP - 1, strength=50)
+    assert after_fight(young, won=True, finish=Finish.KO, day=day).strength == 50
+
+
+def test_la_cria_de_un_retirado_hereda_parte_de_sus_stats_y_una_generacion() -> None:
+    from bot.services.gallos import INHERIT_SHARE, RETIRE_MIN_FIGHTS, heir, retire_error
+
+    assert retire_error(RoosterRecord(name="Pollo", fights=RETIRE_MIN_FIGHTS - 1))
+    old = RoosterRecord(
+        name="Campeón", fights=RETIRE_MIN_FIGHTS, wins=15, strength=100, speed=60,
+        endurance=33, deaths=2, generation=1, form=80,
+    )  # fmt: skip
+    assert retire_error(old) is None
+    chick = heir(old, 42)
+    assert chick.name == default_name(42) and chick.fights == 0 and chick.form == 0
+    assert chick.strength == int(100 * INHERIT_SHARE) and chick.speed == int(60 * INHERIT_SHARE)
+    assert (chick.deaths, chick.generation) == (2, 2)
+    # Morir corta el linaje.
+    assert reborn(old, 42).generation == 0

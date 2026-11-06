@@ -101,6 +101,8 @@ from bot.services.economy import (
     parse_amount,
 )
 from bot.services.gallos import (
+    AGE_FIGHTS,
+    AGE_STEP,
     DEADLY_EDGE,
     DUEL_CUT,
     FORM_DECAY_PER_DAY,
@@ -111,6 +113,7 @@ from bot.services.gallos import (
     GRUDGE_EDGE,
     GRUDGE_WINS,
     HOUSE,
+    INHERIT_SHARE,
     INJURY_HOURS,
     NAME_MAX,
     POOL_CUT,
@@ -128,6 +131,7 @@ from bot.services.gallos import (
     RoosterRecord,
     Stat,
     TrainError,
+    aged,
     check_training,
     clean_name,
     dies,
@@ -149,6 +153,7 @@ from bot.services.gallos import (
     pool_odds,
     pool_payouts,
     pool_totals,
+    retire_error,
     simulate,
     stat_bar,
     train_gain,
@@ -185,6 +190,8 @@ SPARRING_PICK_SECONDS = 45
 SHOUT_NET = 10_000
 #: Margen tras el GIF antes de poner el PNG: lo que tarda en llegar y empezar.
 REVEAL_MARGIN_SECONDS = 0.5
+#: Victorias con las que retirar a un gallo cuenta como retirar a un campeón (logro).
+GALLOS_CHAMPION_WINS = 100
 #: Botones del panel que puede pulsar cualquiera, no solo el dueño.
 PUBLIC_IDS = frozenset({f"{GAME}:feed", f"{GAME}:cheer", f"{GAME}:sabotage"})
 GIF_NAME = "gallos.gif"
@@ -344,7 +351,9 @@ def edge_line(rival: Rival, form: int, power: float) -> str:
 
 
 def killer_text(fallen: Fallen) -> str:
-    """Quién mató a un gallo: el rival de la casa o el gallo de un miembro."""
+    """Quién mató a un gallo: el rival de la casa o el gallo de un miembro (o si se retiró)."""
+    if fallen.killer_kind == "retiro":
+        return "🎖️ retirado con honores"
     if fallen.killer_kind == "casa":
         rival = RIVAL_BY_KEY.get(fallen.killer)
         return f"a manos de {rival.label if rival else 'la casa'}"
@@ -355,7 +364,7 @@ def fallen_lines(fallen: list[Fallen]) -> list[str]:
     """«🪦 En memoria de…»: los últimos gallos caídos, el más reciente primero."""
     if not fallen:
         return []
-    lines = ["### 🪦 En memoria de…"]
+    lines = ["### 🪦 En memoria de… (y 🎖️ leyendas retiradas)"]
     for dead in fallen:
         lines.append(
             f"**{dead.name}** · {dead.fights} pelea{'s' if dead.fights != 1 else ''}, "
@@ -478,6 +487,8 @@ class HousePanel(ui.View):
         self.drill: Drill | None = None
         #: ☠️ A muerte: paga más, pero perder por KO mata seguro.
         self.deadly = False
+        #: Si ya se ha pulsado 🎖️ Retirarlo una vez (hay que confirmarlo con otra).
+        self.confirm_retire = False
         #: Qué presentación se ve ahora (rival, nombre, apuesta, poder); `None` si otra imagen.
         self._poster: tuple[object, ...] | None = None
         self.channel: object = None
@@ -525,6 +536,11 @@ class HousePanel(ui.View):
         lines.append(f"-# {record_line(self.record)}")
         lines.append(f"-# {stat_line(self.record)}")
         lines.append(form_line(self.form))
+        if aged(self.record):
+            lines.append(
+                f"🎂 Veterano: con {AGE_FIGHTS} peleas o más pierde 1 de cada stat cada "
+                f"{AGE_STEP} peleas. Retirarlo (🏋️) da una cría que hereda parte de sus stats."
+            )
         if injured(self.record, self.cog.wall_clock()):
             lines.append(injury_text(self.record, self.cog.wall_clock()))
         lines.append(f"### 🆚 {rival.label}")
@@ -565,7 +581,7 @@ class HousePanel(ui.View):
         lines.append(f"### 🏋️ Gimnasio de {self.record.name}")
         lines += stat_lines(self.record)
         lines.append(form_line(round(form_now(self.record, now))))
-        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        trait = gym.trait_for(self.owner.id, self.record)
         lines.append(f"-# Personalidad: {trait.label}. {trait.blurb}")
         if combo := gym.combo_now(self.record, today_day := local_day(now)):
             lines.append(
@@ -626,7 +642,7 @@ class HousePanel(ui.View):
                 f"🍌 **{drill.saboteur.display_name}** ha tirado una cáscara de plátano: la nota "
                 f"bajará {round(gym.SABOTAGE_PENALTY * 10)} puntos."
             )
-        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        trait = gym.trait_for(self.owner.id, self.record)
         factor = gym.trait_factor(trait, stat)
         combo = gym.combo_now(self.record, local_day(self.cog.wall_clock()))
         extras = []
@@ -683,6 +699,16 @@ class HousePanel(ui.View):
             )
         self._button("↩️ Volver al reñidero", "train_back", self._leave_gym, row=1, disabled=busy)
         self._button("🌽 Echarle de comer", "feed", self._feed, row=2, disabled=busy)
+        self._button(
+            "🎖️ ¿Seguro? Pulsa otra vez" if self.confirm_retire else "🎖️ Retirarlo",
+            "retire",
+            self._retire,
+            style=discord.ButtonStyle.danger
+            if self.confirm_retire
+            else discord.ButtonStyle.secondary,
+            row=2,
+            disabled=busy,
+        )
         self._button(
             "🤝 Buscar sparring",
             "spar_open",
@@ -1106,7 +1132,7 @@ class HousePanel(ui.View):
         self._last_interaction = interaction
         now = self.cog.wall_clock()
         day = local_day(now)
-        trait = gym.trait_of(self.owner.id, self.record.deaths)
+        trait = gym.trait_for(self.owner.id, self.record)
         event = gym.roll_event(self.cog.rng)
         sessions: list[gym.Session] = []
 
@@ -1293,6 +1319,62 @@ class HousePanel(ui.View):
             self.owner,
             self.channel,
             StatDelta(add={"gallos_supplement_refused": 1}),
+        )
+
+    async def _retire(self, interaction: discord.Interaction) -> None:
+        """🎖️ Retirarlo: el primer clic pide confirmar (memoria); el segundo, guarda."""
+        if self._busy or (self.guild_id, self.owner.id) in self.cog.busy:
+            await interaction.response.send_message(
+                "Ahora no: tu gallo está ocupado.", ephemeral=True
+            )
+            return
+        if error := retire_error(self.record):
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+        if not self.confirm_retire:
+            self.confirm_retire = True
+            self.result = (
+                f"🎖️ Si lo retiras, **{self.record.name}** pasa al corral de leyendas y su cría "
+                f"empieza con el {round(INHERIT_SHARE * 100)} % de sus stats, sin forma y con "
+                "el historial a cero. Pulsa otra vez para confirmarlo."
+            )
+            self.rebuild()
+            self._last_interaction = interaction
+            await interaction.response.edit_message(embed=self.embed(), view=self)
+            return
+        await ack(interaction)
+        self.confirm_retire = False
+        self._busy = True
+        self._last_interaction = interaction
+        old = self.record
+        try:
+            self.record = await self.cog.repository.retire(
+                self.guild_id, self.owner.id, now=self.cog.wall_clock()
+            )
+            self.result = (
+                f"## 🎖️ {old.name} se retira con honores\n"
+                f"{old.fights} peleas y {old.wins} victorias. Su cría, **{self.record.name}**, "
+                f"hereda 💪 {self.record.strength} · 🪶 {self.record.speed} · "
+                f"❤️ {self.record.endurance} (generación {self.record.generation + 1})."
+            )
+            self.rebuild()
+            await edit(interaction, embed=self.embed(), view=self)
+        except discord.HTTPException:
+            logger.warning("No se pudo enseñar un retiro de gallos", exc_info=True)
+        finally:
+            self._busy = False
+        await logros.track(
+            self.cog.bot,
+            self.guild_id,
+            self.owner,
+            self.channel,
+            StatDelta(
+                add={
+                    "gallos_retired": 1,
+                    "gallos_retired_champion": int(old.wins >= GALLOS_CHAMPION_WINS),
+                },
+                peak={"gallos_generation_max": self.record.generation},
+            ),
         )
 
     async def _open_sparring(self, interaction: discord.Interaction) -> None:
@@ -2917,7 +2999,7 @@ class Sparring:
         """El cambio de la ficha de uno: su nota como minijuego y, si gana, la forma de más."""
 
         def change(record: RoosterRecord) -> RoosterRecord:
-            trait = gym.trait_of(user_id, record.deaths)
+            trait = gym.trait_for(user_id, record)
             after, session = gym.after_session(
                 record, Stat.STRENGTH, score, trait=trait, now=now, day=day
             )
@@ -3172,7 +3254,8 @@ class Gallos(commands.Cog, name="Gallos"):
             f"Aspecto: {skin.label if skin else '🐓 Gallo colorado (de serie)'}",
             *stat_lines(record),
             form_line(round(form_now(record, self.wall_clock()))),
-            f"Personalidad: {gym.trait_of(member.id, record.deaths).label}",
+            f"Personalidad: {gym.trait_for(member.id, record).label}"
+            + (f" · generación {record.generation + 1}" if record.generation else ""),
             record_line(record),
         ]
         if injured(record, self.wall_clock()):

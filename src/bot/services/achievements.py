@@ -18261,6 +18261,34 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "gallos_sparring_paliza", "Cinco a cero, manita",
          "Gana un sparring sin perder ni empatar ningún asalto.", R, True),
     ])  # fmt: skip
+    # Edad, retiro y cría (11.x): veterano a las 150 peleas de un mismo gallo; retirarlo pide
+    # 20 y su cría hereda el 35 % de sus stats.
+    a += _tiers("gallos", "gallos_rooster_fights_max", [
+        (150, "gallos_veterano", "Gallo de la vieja guardia",
+         "Llega a 150 peleas con un mismo gallo.", R),
+        (300, "gallos_matusalen", "Matusalén con espolones",
+         "Llega a 300 peleas con un mismo gallo.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_retired", [
+        (1, "gallos_retiro_1", "Jubilación dorada en Benidorm",
+         "Retira un gallo con honores.", C),
+        (5, "gallos_retiro_5", "Residencia de la tercera pluma",
+         "Retira 5 gallos con honores.", R),
+        (20, "gallos_retiro_20", "Salón de la Fama del corral",
+         "Retira 20 gallos con honores.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_retired_champion", [
+        (1, "gallos_retiro_campeon", "Despedida en el Bernabéu",
+         "Retira un gallo con 100 victorias o más.", E),
+    ])  # fmt: skip
+    a += _tiers("gallos", "gallos_generation_max", [
+        (1, "gallos_cria_1", "De tal palo, tal pollito",
+         "Ten la cría de un gallo retirado.", C),
+        (3, "gallos_cria_3", "La saga de los Gallo",
+         "Llega a la cuarta generación de un linaje de gallos.", R),
+        (10, "gallos_cria_10", "Casa Targaryen del corral",
+         "Llega a la undécima generación de un linaje de gallos.", L),
+    ])  # fmt: skip
     a += _tiers("gallos", "gallos_form_max", [
         (50, "gallos_forma_50", "Pollo al punto",
          "Lleva la forma de tu gallo a 50.", C),
@@ -27328,6 +27356,7 @@ def gallos_stats(
         bump("gallos_death_veteran", died.wins >= GALLOS_VETERAN_WINS)
         bump("gallos_death_debut", died.fights == 1)
     bump("gallos_kills", killed)
+    delta.peak["gallos_rooster_fights_max"] = record.fights
     if form is not None:
         delta.peak["gallos_form_max"] = form
         bump("gallos_edge_wins", won and edge_gain > 0)

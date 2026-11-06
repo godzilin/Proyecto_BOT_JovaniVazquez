@@ -635,9 +635,17 @@ TRAIT_GOOD = 1.2
 TRAIT_BAD = 0.9
 
 
-def trait_of(user_id: int, deaths: int) -> Trait:
-    """La personalidad del gallo de `user_id`: fija mientras viva, otra con cada gallo nuevo."""
-    return list(Trait)[(user_id + deaths) % len(Trait)]
+def trait_of(user_id: int, lineage: int) -> Trait:
+    """La personalidad del gallo de `user_id`: fija mientras viva, otra con cada gallo nuevo.
+
+    `lineage` cambia con cada gallo (`trait_for` le pasa muertes más generación).
+    """
+    return list(Trait)[(user_id + lineage) % len(Trait)]
+
+
+def trait_for(user_id: int, record: RoosterRecord) -> Trait:
+    """La personalidad del gallo de esa ficha."""
+    return trait_of(user_id, record.deaths + record.generation)
 
 
 def trait_factor(trait: Trait, stat: Stat) -> float:
