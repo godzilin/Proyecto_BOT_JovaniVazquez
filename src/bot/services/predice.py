@@ -71,6 +71,10 @@ class Section:
     varias secciones (el alto el fuego con Irán es política y es guerra). La `key` se
     guarda con cada predicción y cuenta para los logros: no se cambia nunca (`mundo` es la
     de ⚔️ Guerras, que heredó las predicciones y los logros de 🌍 Mundo).
+
+    `kickoff` dice si el `startTime` de un evento es cuando empieza lo que se apuesta (unas
+    elecciones, como el saque de un partido): entonces se cierra ahí. En las del tiempo es
+    cuando se abrió el mercado, días antes, y no cuenta: se cierran al acabar el mercado.
     """
 
     key: str
@@ -81,6 +85,7 @@ class Section:
     gate: frozenset[str] = frozenset()
     exclude: frozenset[str] = frozenset({TWEETS_TAG})
     limit: int = EVENTS_PER_TAG
+    kickoff: bool = True
 
     @property
     def fetch_tags(self) -> tuple[str, ...]:
@@ -147,11 +152,12 @@ SECTIONS: tuple[Section, ...] = (
             Topic(
                 "oriente", "🕌 Oriente Medio", ("middle-east", "iran", "israel", "lebanon", "yemen")
             ),
-            Topic("china", "🇨🇳 China y Taiwán", ("china", "taiwan")),
+            Topic("china", "🇨🇳 China", ("china",)),
             Topic("corea", "🇰🇵 Corea del Norte", ("north-korea",)),
             Topic("venezuela", "🇻🇪 Venezuela", ("venezuela",)),
         ),
         gate=frozenset({"geopolitics", "military"}),
+        exclude=frozenset({TWEETS_TAG, "elections"}),  # unas elecciones son de 🏛️ Política
     ),
     Section(
         "economia",
@@ -202,6 +208,7 @@ SECTIONS: tuple[Section, ...] = (
             Topic("fenomenos", "🌋 Terremotos y tormentas", title=_WEATHER_EVENTS),
         ),
         limit=100,  # son muchas y pequeñas: con 25 no llegan preguntas de todas las zonas
+        kickoff=False,
     ),
 )
 SECTION_BY_KEY: dict[str, Section] = {section.key: section for section in SECTIONS}
@@ -378,9 +385,9 @@ class Offer:
     @property
     def closes(self) -> float:
         """Cuándo se cierran las apuestas: lo primero entre el fin de cada mercado y el
-        comienzo del evento, si lo tiene."""
+        comienzo del evento, si lo tiene y su sección cierra al empezar (`Section.kickoff`)."""
         times = [m.end for m in self.markets if m.end is not None]
-        if self.event.start is not None:
+        if self.event.start is not None and _kickoff(self.section):
             times.append(self.event.start)
         return min(times)
 
@@ -399,23 +406,29 @@ def offerable_market(market: Market, *, now: float) -> bool:
     )
 
 
-def offerable_event(event: Event, *, now: float) -> bool:
+def _kickoff(section: str) -> bool:
+    """¿Cierra la sección en el `startTime` de sus eventos? (`Section.kickoff`)."""
+    known = SECTION_BY_KEY.get(section)
+    return known is None or known.kickoff
+
+
+def offerable_event(event: Event, *, now: float, kickoff: bool = True) -> bool:
     """¿Se puede ofrecer este evento? Activo y abierto, sin etiquetas de deporte, sin texto
-    bloqueado y sin haber empezado (las elecciones cierran en su `startTime`, como un
-    partido al saque inicial)."""
+    bloqueado y, si `kickoff`, sin haber empezado (las elecciones cierran en su
+    `startTime`, como un partido al saque inicial)."""
     return (
         event.active
         and not event.closed
         and EXCLUDED_TAGS.isdisjoint(event.tags)
         and not blocked(event.title)
-        and (event.start is None or event.start > now)
+        and (not kickoff or event.start is None or event.start > now)
     )
 
 
 def build_offer(event: Event, section: str, *, now: float) -> Offer | None:
     """Oferta de un evento en una sección, o `None` si no se puede ofrecer o ninguno de sus
     mercados es apostable."""
-    if not offerable_event(event, now=now):
+    if not offerable_event(event, now=now, kickoff=_kickoff(section)):
         return None
     markets = [m for m in event.markets if offerable_market(m, now=now)]
     if not markets:
