@@ -14,6 +14,11 @@ nada más:
   y el resultado se escribe cuando acaba. El siguiente rasca de cada botón se
   sortea y se pinta mientras se ve el anterior (`ScratchPlan`), así que sale al
   instante; lo sorteado solo vive en memoria y no se ve hasta pagarlo.
+  ▶️ **Auto** rasca uno detrás de otro, cada uno con su GIF y su resultado, con
+  las paradas de la tragaperras (`bot.services.autoplay`): tope de rascas,
+  techo de pérdidas, premio gordo, saldo y ⏹️ Parar. Mientras dura, solo vale
+  Parar. ⚡ **Turbo** enseña el rasca ya rascado (el último fotograma) y el
+  resultado al momento; se recuerda mientras el bot no se reinicie.
 - 🎟️ **Mis boletos**: lo que tienes en juego, lo último que ha salido y el
   último boleto sorteado con los aciertos marcados.
 
@@ -78,7 +83,16 @@ from bot.services.achievements import (
     lottery_buy_stats,
     lottery_check_stats,
     lottery_prize_stats,
+    scratch_autoplay_stats,
     scratch_stats,
+)
+from bot.services.autoplay import (
+    AUTOPLAY_MIN_GAP,
+    AutoplayOutcome,
+    AutoplaySession,
+    AutoplayStop,
+    SpinResult,
+    StopReason,
 )
 from bot.services.casino_channels import CasinoChannelIds
 from bot.services.economy import (
@@ -167,12 +181,15 @@ POSTER_PNG = "cartel.png"
 TICKET_PNG = "boleto.png"
 CHECK_PNG = "comprobar.png"
 SCRATCH_GIF = "rasca.gif"
+SCRATCH_PNG = "rasca.png"
 DRAW_GIF = "sorteo.gif"
 DRAW_PNG = "sorteo.png"
 #: Lo que se espera tras la animación antes de escribir el resultado: cubre lo que
 #: tarda el cliente en bajar el GIF y empezar a verlo.
 REVEAL_MARGIN_SECONDS = 0.8
 DRAW_REVEAL_MARGIN_SECONDS = 2.0
+#: Un premio de ▶️ Auto que para la sesión para que se vea: estas veces el precio o más.
+AUTO_BIG_PRIZE = 50
 #: Apuestas de un sorteo que caben en el resguardo de «Mis boletos».
 CHECK_ROWS = 10
 
@@ -496,6 +513,11 @@ class LotteryPanel(ui.LayoutView):
         self._painting: asyncio.Task[None] | None = None
         #: Sube con cada rasca: el resultado de uno que ya no se ve no se escribe.
         self.scratch_serial = 0
+        #: ⚡ Turbo: el rasca sale ya rascado, sin GIF.
+        self.turbo = (guild.id, owner.id) in cog.turbo
+        #: La sesión de ▶️ Auto en marcha y su rasca, si la hay.
+        self.autoplay: AutoplaySession | None = None
+        self.auto_game: str | None = None
 
     async def load(self, *, keep_image: bool = False) -> None:
         """Lee lo que hace falta para la pestaña actual y repinta.
@@ -595,10 +617,60 @@ class LotteryPanel(ui.LayoutView):
         actions = self._actions()
         if actions is not None:
             container.add_item(actions)
-        if self.notice:
+        if self.tab == "rasca":
+            container.add_item(self._auto_row())
+        notice = self.notice or ""
+        if self.autoplay is not None:
+            session = self.autoplay
+            sign = "+" if session.net > 0 else "-" if session.net < 0 else "±"
+            notice += (
+                f"\n-# ▶️ Auto · rasca {session.spins + 1}/{session.max_spins} · "
+                f"neto {sign}{format_amount(abs(session.net))}"
+            )
+        if notice:
             container.add_item(ui.Separator())
-            container.add_item(ui.TextDisplay(self.notice[:1900]))
+            container.add_item(ui.TextDisplay(notice.strip()[:1900]))
         self.add_item(container)
+        if self.autoplay is not None:
+            # Con ▶️ Auto en marcha solo queda el botón de Parar.
+            for child in self.walk_children():
+                if isinstance(child, ui.Button) and child.custom_id != self._stop_id:
+                    child.disabled = True
+
+    @property
+    def _stop_id(self) -> str:
+        return f"loteria:auto:{self.auto_game}"
+
+    def _auto_row(self) -> ui.ActionRow:
+        """▶️ Auto de cada rasca (⏹️ Parar el que está en marcha) y ⚡ Turbo."""
+        row: ui.ActionRow = ui.ActionRow()
+        session = self.autoplay
+        for key in SCRATCH_GAMES:
+            if session is not None and key == self.auto_game:
+                stopping = session.stop_requested
+                label = "⏹️ Parando…" if stopping else "⏹️ Parar"
+                style, disabled = discord.ButtonStyle.danger, stopping
+            else:
+                label = f"▶️ Auto {GAME_BY_KEY[key].name.replace('Rasca ', '')}"
+                style, disabled = discord.ButtonStyle.primary, False
+            row.add_item(
+                _button(
+                    label,
+                    self._auto(key),
+                    custom_id=f"loteria:auto:{key}",
+                    style=style,
+                    disabled=disabled,
+                )
+            )
+        row.add_item(
+            _button(
+                "⚡ Turbo: sí" if self.turbo else "⚡ Turbo",
+                self._toggle_turbo,
+                custom_id="loteria:turbo",
+                style=discord.ButtonStyle.success if self.turbo else discord.ButtonStyle.secondary,
+            )
+        )
+        return row
 
     def _actions(self) -> ui.ActionRow | None:
         game = self.game
@@ -759,6 +831,42 @@ class LotteryPanel(ui.LayoutView):
 
         return callback
 
+    def _auto(self, key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def callback(interaction: discord.Interaction) -> None:
+            if await self._redirect(interaction):
+                return
+            session = self.autoplay
+            if session is None:
+                await ack(interaction)
+                self.cog.start_autoplay(interaction, self, GAME_BY_KEY[key])
+            elif not session.armed:
+                # El mensaje aún no enseña Parar: es el doble clic de ▶️ Auto.
+                await ack(interaction)
+            else:
+                # Parar solo marca un flag: el rasca en curso acaba entero.
+                session.request_stop()
+                self.rebuild()
+                await interaction.response.edit_message(**self.edit_kwargs())
+
+        return callback
+
+    async def _toggle_turbo(self, interaction: discord.Interaction) -> None:
+        if await self._redirect(interaction):
+            return
+        self.turbo = not self.turbo
+        self.cog.turbo.symmetric_difference_update({(self.guild.id, self.owner.id)})
+        self.rebuild()
+        await interaction.response.edit_message(**self.edit_kwargs())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Con ▶️ Auto en marcha, el dueño solo puede Parar: un clic que llegue tarde se ignora."""
+        if self.autoplay is None or interaction.user.id != self.owner.id:
+            return True
+        if (interaction.data or {}).get("custom_id") == self._stop_id:
+            return True
+        await ack(interaction)
+        return False
+
     async def on_timeout(self) -> None:
         """Apaga los botones al caducar y suelta los rascas sorteados."""
         self.scratches.clear()
@@ -809,6 +917,10 @@ class Loteria(commands.Cog):
         #: Lo que espera a que acabe una animación (el resultado de un rasca o de un
         #: sorteo): se guarda para que no lo recoja el recolector a mitad.
         self._later: set[asyncio.Task[None]] = set()
+        #: Quién tiene ⚡ Turbo en los rascas: `(servidor, miembro)`, solo en memoria.
+        self.turbo: set[tuple[int, int]] = set()
+        #: Sesiones de ▶️ Auto en marcha, para cerrarlas al descargar el cog.
+        self._autoplays: set[AutoplaySession] = set()
 
     async def cog_load(self) -> None:
         """Crea las tablas (idempotente) y arranca los sorteos."""
@@ -818,6 +930,7 @@ class Loteria(commands.Cog):
     async def cog_unload(self) -> None:
         """Para la tarea de sorteos, espera lo que quedaba por escribir y cierra el pintor."""
         self._draws.cancel()
+        await asyncio.gather(*(session.close() for session in list(self._autoplays)))
         if self._later:
             await asyncio.wait(list(self._later), timeout=10)
         await self.scene.close()
@@ -1235,13 +1348,25 @@ class Loteria(commands.Cog):
         return await self._still(state)
 
     async def scratch(
-        self, interaction: discord.Interaction, panel: LotteryPanel, game: Game
-    ) -> None:
+        self,
+        interaction: discord.Interaction,
+        panel: LotteryPanel,
+        game: Game,
+        *,
+        auto: bool = False,
+    ) -> int | None:
         """Vende un rasca y lo enseña rascándose; el resultado se escribe al acabar.
 
         El rasca ya estaba sorteado y casi siempre pintado (`LotteryPanel.prepare_scratches`):
-        solo queda cobrarlo y subir el GIF. Sin pintor, sale como antes, con las casillas
-        tapadas con spoilers.
+        solo queda cobrarlo y subir el GIF. En ⚡ Turbo sale su último fotograma con el
+        resultado. Sin pintor, sale como antes, con las casillas tapadas con spoilers.
+
+        Args:
+            auto: Es un rasca de ▶️ Auto: espera a escribir el resultado antes de volver,
+                para que el siguiente no tape la animación.
+
+        Returns:
+            El premio bruto (0 sin premio), o `None` si no llegaba el saldo.
         """
         guild, user = panel.guild, interaction.user
         await ack(interaction)
@@ -1274,7 +1399,7 @@ class Loteria(commands.Cog):
             )
             panel.rebuild()
             await edit(interaction, **panel.edit_kwargs())
-            return
+            return None
         balance = balances[user.id]
         panel.scratch_serial += 1
         serial = panel.scratch_serial
@@ -1288,6 +1413,8 @@ class Loteria(commands.Cog):
             balance_after=balance,
             near=plan.near,
             when=datetime.fromtimestamp(self.clock(), DRAW_TIMEZONE),
+            turbo=panel.turbo and media is not None,
+            auto=auto,
         )
         if media is None:
             lines = [scratch_text(game, prize, plan.cells, tax)]
@@ -1300,7 +1427,16 @@ class Loteria(commands.Cog):
             await edit(interaction, **panel.edit_kwargs())
             await self._after_scratch(interaction, stats)
             panel.prepare_scratches()
-            return
+            return gross
+        if panel.turbo:
+            # Ya rascado: el último fotograma y el resultado en la misma edición.
+            panel.set_image((SCRATCH_PNG, media.png))
+            await self._reveal_scratch(
+                interaction, panel, plan, serial, balance=balance, tax=tax, moment=moment,
+                stats=stats, wait=0,
+            )  # fmt: skip
+            panel.prepare_scratches()
+            return gross
         # El saldo de arriba aún no lleva el premio: lo diría antes que el GIF.
         panel.balance = balance - gross + tax
         panel.notice = f"🪙 Rascando un **{game.name}**…"
@@ -1308,12 +1444,15 @@ class Loteria(commands.Cog):
         panel.rebuild()
         await edit(interaction, **panel.edit_kwargs())
         panel.prepare_scratches()
-        self.later(
-            self._reveal_scratch(
-                interaction, panel, plan, serial, balance=balance, tax=tax, moment=moment,
-                stats=stats, wait=media.seconds + REVEAL_MARGIN_SECONDS,
-            )
+        reveal = self._reveal_scratch(
+            interaction, panel, plan, serial, balance=balance, tax=tax, moment=moment,
+            stats=stats, wait=media.seconds + REVEAL_MARGIN_SECONDS,
         )  # fmt: skip
+        if auto:
+            await reveal
+        else:
+            self.later(reveal)
+        return gross
 
     async def _reveal_scratch(
         self,
@@ -1353,6 +1492,51 @@ class Loteria(commands.Cog):
                     await edit(interaction, **panel.edit_kwargs())
         finally:
             await self._after_scratch(interaction, stats)
+
+    def start_autoplay(
+        self, interaction: discord.Interaction, panel: LotteryPanel, game: Game
+    ) -> None:
+        """▶️ Auto: rasca `game` una y otra vez hasta una parada (`bot.services.autoplay`).
+
+        Edita con el token de `interaction`, que dura 15 minutos.
+        shortcut: una sesión (25 rascas de ~3 s) acaba mucho antes; si un día dura más,
+        editar por el canal como `SlotMachineView._message_edit`.
+        """
+        session = AutoplaySession(stake=game.price, min_gap=AUTOPLAY_MIN_GAP)
+        panel.autoplay, panel.auto_game = session, game.key
+        self._autoplays.add(session)
+
+        async def step(number: int) -> SpinResult:
+            gross = await self.scratch(interaction, panel, game, auto=True)
+            if gross is None:
+                raise AutoplayStop(StopReason.NO_FUNDS)
+            session.armed = True
+            net = gross - (gravamen(gross) if gross else 0) - game.price
+            return SpinResult(net=net, big_prize=gross >= AUTO_BIG_PRIZE * game.price)
+
+        async def finish(outcome: AutoplayOutcome) -> None:
+            self._autoplays.discard(session)
+            panel.autoplay = None
+            if outcome.spins:
+                # El resumen va encima del último resultado para que se siga viendo.
+                panel.notice = f"{outcome.summary(unit='rascas')}\n\n{panel.notice or ''}"
+            elif outcome.reason not in (StopReason.NO_FUNDS, StopReason.CLOSED):
+                panel.notice = outcome.reason_text(unit="rascas")
+            panel.rebuild()
+            with contextlib.suppress(discord.HTTPException):
+                await edit(interaction, **panel.edit_kwargs())
+            assert interaction.guild is not None
+            await logros.track(
+                self.bot,
+                interaction.guild.id,
+                interaction.user,
+                interaction.channel,
+                scratch_autoplay_stats(spins=outcome.spins, net=outcome.net, reason=outcome.reason),
+            )
+
+        session.start(
+            step, on_finish=finish, name=f"lottery-autoplay-{panel.guild.id}-{panel.owner.id}"
+        )
 
     async def _after_scratch(self, interaction: discord.Interaction, stats: StatDelta) -> None:
         """Lo que va después de enseñar el rasca: el aviso de la renta y los logros."""

@@ -521,6 +521,10 @@ PRODUCED_STATS = {
     "lottery_scratch_near", "lottery_jackpot_seen", "lottery_pool_bets_max", "lottery_capicua",
     "lottery_zeros", "lottery_666", "lottery_123456", "lottery_scratch_night",
     "lottery_scratch_friday13", "lottery_xmas_last", "lottery_streak_max", "lottery_check_days",
+    # Loterías 9.48.0: ⚡ Turbo y ▶️ Auto en los rascas.
+    "lottery_scratch_turbo", "lottery_scratch_auto", "lottery_scratch_auto_sessions",
+    "lottery_scratch_auto_full", "lottery_scratch_auto_loss", "lottery_scratch_auto_quick_quit",
+    "lottery_scratch_auto_bigwin",
     # Casino
     "roulette_spins", "roulette_wins", "roulette_straight_wins", "roulette_green_wins",
     "roulette_double_zero_wins", "roulette_color_wins", "roulette_wagers_max",

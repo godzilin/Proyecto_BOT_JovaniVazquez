@@ -147,12 +147,12 @@ def stop_text(
 
     Args:
         unit: Cómo llama el juego a sus rondas, en plural y acabado en «s»
-            (`"tiradas"` en la tragaperras, `"tandas"` en el pachinko). El
-            singular de «no te llega para otra…» sale de quitarle la «s».
+            (`"tiradas"` en la tragaperras, `"tandas"` en el pachinko,
+            `"rascas"` en la lotería).
     """
     texts = {
         StopReason.MAX_SPINS: f"Parado: tope de {max_spins} {unit} por sesión.",
-        StopReason.NO_FUNDS: f"Parado: no te llega para otra {unit.removesuffix('s')}.",
+        StopReason.NO_FUNDS: f"Parado: no te llega para más {unit}.",
         StopReason.BANK_LIMIT: "Parado: la banca no puede pagar tanto.",
         StopReason.BIG_PRIZE: "Parado: ¡premio gordo! Disfrútalo antes de seguir.",
         StopReason.LOSS_LIMIT: (

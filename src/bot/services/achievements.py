@@ -10422,6 +10422,39 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Comprueba tu último boleto sorteado en 100 días distintos.", E),
     ])  # fmt: skip
 
+    # 🎟️ Loterías: ⚡ Turbo y ▶️ Auto en los rascas (9.48.0).
+    a += _tiers("lottery", "lottery_scratch_turbo", [
+        (1, "rasca_turbo", "Rasca y no mira", "Rasca un boleto en ⚡ Turbo.", C),
+        (100, "rasca_turbo_100", "Fast & Rascarious", "Rasca 100 boletos en ⚡ Turbo.", R),
+        (500, "rasca_turbo_500", "El Correcaminos del quiosco",
+         "Rasca 500 boletos en ⚡ Turbo.", E),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto", [
+        (25, "rasca_auto_25", "Rasca, que yo miro", "Rasca 25 boletos con ▶️ Auto.", C),
+        (250, "rasca_auto_250", "Piloto rascautomático", "Rasca 250 boletos con ▶️ Auto.", R),
+        (1_000, "rasca_auto_1k", "Rascatrón 3000", "Rasca 1.000 boletos con ▶️ Auto.", E),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_sessions", [
+        (1, "rasca_auto_sesion", "Rasca en bucle", "Empieza un ▶️ Auto de rascas.", C),
+        (20, "rasca_auto_sesion_20", "El quiosquero ya te pone el tuyo",
+         "Empieza 20 sesiones de ▶️ Auto de rascas.", R),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_full", [
+        (1, "rasca_auto_full", "La tira entera",
+         "Acaba un ▶️ Auto de rascas por el tope de rascas de la sesión.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_loss", [
+        (1, "rasca_auto_techo", "Techo de cartón",
+         "Acaba un ▶️ Auto de rascas por el techo de pérdidas.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_quick_quit", [
+        (1, "rasca_auto_raja", "Rasca y se raja", "Para un ▶️ Auto de rascas tras el primero.", C),
+    ])  # fmt: skip
+    a += _tiers("lottery", "lottery_scratch_auto_bigwin", [
+        (1, "rasca_auto_gordo", "Me lo rascó la máquina",
+         "Acaba un ▶️ Auto de rascas con un premio de 50 veces su precio o más.", L),
+    ])  # fmt: skip
+
     # 🛍️ Tienda ---------------------------------------------------------------------------
     a += _tiers("shop", "shop_purchases", [
         (1, "shop_1", "Estrenando cartera", "Compra algo en la tienda.", C),
@@ -29239,6 +29272,8 @@ def scratch_stats(
     balance_after: int,
     near: bool = False,
     when: datetime | None = None,
+    turbo: bool = False,
+    auto: bool = False,
 ) -> StatDelta:
     """Estadísticas de un rasca.
 
@@ -29250,8 +29285,14 @@ def scratch_stats(
         balance_after: Saldo tras cobrar el premio.
         near: Si, sin premio, enseñaba dos casillas del premio más alto.
         when: Hora local (la racha de días y las fechas).
+        turbo: Si salió en ⚡ Turbo (ya rascado, sin animación).
+        auto: Si lo rascó ▶️ Auto.
     """
     delta = StatDelta(add={"lottery_scratches": 1, "lottery_spent": cost})
+    if turbo:
+        delta.add["lottery_scratch_turbo"] = 1
+    if auto:
+        delta.add["lottery_scratch_auto"] = 1
     if balance_after == 0:
         delta.add["lottery_broke_buy"] = 1
     if prize:
@@ -29266,6 +29307,33 @@ def scratch_stats(
             delta.add["lottery_scratch_night"] = 1
         if when.weekday() == 4 and when.day == 13:
             delta.add["lottery_scratch_friday13"] = 1
+    return delta
+
+
+def scratch_autoplay_stats(*, spins: int, net: int, reason: StopReason) -> StatDelta:
+    """Contadores de una sesión de ▶️ Auto de los rascas, al terminar.
+
+    Los rascas ya se contaron uno a uno en `scratch_stats`; aquí solo cuenta la
+    sesión y cómo acabó. Una sesión sin ningún rasca (no llegaba el saldo) no cuenta.
+
+    Args:
+        spins: Rascas de la sesión.
+        net: Neto de la sesión (ganado menos pagado).
+        reason: Por qué paró.
+    """
+    delta = StatDelta()
+    if spins <= 0:
+        return delta
+    add = delta.add
+    add["lottery_scratch_auto_sessions"] = 1
+    if reason is StopReason.MAX_SPINS:
+        add["lottery_scratch_auto_full"] = 1
+    elif reason is StopReason.LOSS_LIMIT:
+        add["lottery_scratch_auto_loss"] = 1
+    elif reason is StopReason.BIG_PRIZE:
+        add["lottery_scratch_auto_bigwin"] = 1
+    elif reason is StopReason.MANUAL and spins == 1:
+        add["lottery_scratch_auto_quick_quit"] = 1
     return delta
 
 

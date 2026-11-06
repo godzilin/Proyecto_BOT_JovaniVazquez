@@ -892,7 +892,7 @@ python -m bot
   cartel de la administración con los botes al abrir, el décimo o el resguardo
   con las bolas al comprar, el último boleto sorteado con los aciertos marcados
   en 🎟️ Mis boletos, el rasca rascándose en un GIF (pintado antes del clic, así
-  que sale al instante) y el sorteo en el canal con las bolas saliendo del
+  que sale al instante; con ⚡ Turbo, ya rascado, y con ▶️ Auto, uno tras otro) y el sorteo en el canal con las bolas saliendo del
   bombo. Precios, bolas y categorías son los reales (normas de SELAE y tablas
   de la ONCE) a 10 Y$ por euro, y las probabilidades de la Nacional y los rascas
   también. En los juegos de bote se ajustan al servidor (si cada persona, sin
