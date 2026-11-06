@@ -740,6 +740,24 @@ def cierre_state(business: Business, result: Any) -> State:
     }
 
 
+#: Lo que se clava en cada minijuego de la 9.48.0, para el tique.
+PERFECT_LINES: dict[str, tuple[str, str]] = {
+    "brasa": ("plato en su punto exacto", "platos en su punto exacto"),
+    "balanza": ("peso casi clavado", "pesos casi clavados"),
+    "revision": ("móvil con tres averías, todas vistas", "móviles con tres averías, todas vistas"),
+    "foto": ("foto con su cambio, acertada", "fotos con su cambio, acertadas"),
+}
+#: Lo que sale mal en los minijuegos de la 9.48.0, para el tique.
+TURN_MISHAPS: tuple[tuple[str, str, str], ...] = (
+    ("burnt", "plato quemado", "platos quemados"),
+    ("raw", "plato devuelto crudo", "platos devueltos crudos"),
+    ("wrong_bag", "bolsa equivocada", "bolsas equivocadas"),
+    ("refused", "pescado rechazado por el peso", "pescados rechazados por el peso"),
+    ("upsell", "pieza cambiada sin hacer falta", "piezas cambiadas sin hacer falta"),
+    ("too_short", "corte más corto de lo pedido", "cortes más cortos de lo pedido"),
+)
+
+
 def turn_lines(result: Any) -> list[str]:
     """Lo que destacar de un turno (`negocio.TurnResult`), en frases cortas."""
     summary = result.summary
@@ -755,6 +773,12 @@ def turn_lines(result: Any) -> list[str]:
             lines.append(f"{name} baja a fidelidad {loyalty}")
     if caught := sum(1 for o in summary.outcomes if "caught" in o.events):
         lines.append(plural(caught, "listillo pillado", "listillos pillados"))
+    game = result.business.sector_info.game
+    if perfect := sum(1 for o in summary.outcomes if o.perfect):
+        lines.append(plural(perfect, *PERFECT_LINES.get(game, ("clavado", "clavados"))))
+    for kind, one, many in TURN_MISHAPS:
+        if n := summary.count(kind):
+            lines.append(plural(n, one, many))
     if missed := summary.count("left"):
         lines.append(
             plural(missed, "cliente se cansó de esperar", "clientes se cansaron de esperar")

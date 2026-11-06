@@ -8,6 +8,12 @@ criterio.
 
 ## 9.x
 
+### 9.48.0 · 2026-11-06
+
+- Negocios: cinco sectores nuevos en `pala`, cada uno con su propio minijuego
+- Negocios: 🍷 Guachinche (la brasa), 🥖 Panadería (los encargos), 🐟 Pescadería (la balanza), 📱 Reparación de móviles (la revisión) y 💈 Peluquería (la foto)
+- Logros: 65 nuevos en 🏪 Negocio por los sectores nuevos y sus minijuegos
+
 ### 9.47.0 · 2026-11-06
 
 - Fortunas y Hacienda: el casino y el banco, dos ricos más a los que ganar

@@ -44,8 +44,8 @@ from bot.repositories.economy import EconomyRepository, LedgerEntry
 from bot.repositories.work import WorkRepository
 from bot.services import business_staff as staff
 from bot.services import pala
-from bot.services.business_catalog import SECTOR_BY_KEY
-from bot.services.business_games import COINS
+from bot.services.business_catalog import POINT_BY_KEY, SECTOR_BY_KEY
+from bot.services.business_games import COINS, best_weight
 from bot.services.economy import STARTING_BALANCE, EconomyService
 from bot.services.negocio import BusinessService
 from bot.services.pala import WorkService
@@ -394,6 +394,69 @@ async def test_un_turno_entero_cobra_y_acaba_en_el_tique(tmp_path: Path) -> None
     assert business is not None and business.turns_today == 1
     assert business.sales_today == panel.result.summary.sales
     check_limits(panel)
+
+
+def next_action(game: Any) -> str:
+    """Lo que pulsaría ahora quien juega bien un minijuego de la 9.48.0."""
+    client = game.current
+    kind = game.sector.game
+    if kind == "brasa":
+        low = POINT_BY_KEY[client.point][2] if client.dish else 0
+        return "fire:1" if client.dish and game.heat < low else "serve"
+    if kind == "encargos":
+        return "none" if client.bag < 0 else f"b:{client.bag}"
+    if kind == "balanza":
+        missing = [i for i in best_weight(client.pieces, client.grams) if i not in game.scale]
+        return f"w:{missing[0]}" if missing else "weigh"
+    if kind == "revision":
+        missing = [k for k in client.faults if k not in game.marked]
+        return f"m:{missing[0]}" if missing else "fix"
+    target, style = client.target, game.style
+    if style.length != target.length:
+        return f"l:{target.length}"
+    for flag in ("fade", "beard", "wash"):
+        if getattr(style, flag) != getattr(target, flag):
+            return flag
+    return f"col:{target.color}" if style.color != target.color else "done"
+
+
+@pytest.mark.parametrize(
+    "sector", ["guachinche", "panaderia", "pescaderia", "moviles", "peluqueria"]
+)
+async def test_un_turno_de_cada_minijuego_nuevo_se_juega_con_sus_botones(
+    tmp_path: Path, sector: str
+) -> None:
+    work_cog, business_cog, _scene = await make(tmp_path)
+    await business_cog.service.economy.repository.apply(
+        GUILD, OWNER, [LedgerEntry(2_000_000, "prueba")]
+    )
+    await business_cog.service.open(
+        GUILD, OWNER, sector=sector, barrio="triana", name="Prueba", palette=0, emblem=0
+    )
+    for product in SECTOR_BY_KEY[sector].products:
+        await business_cog.service.buy(GUILD, OWNER, product.key, 3)
+    home, _send = await open_home(work_cog)
+    await button(home, "🏪 Negocio").callback(click())
+    panel = next(iter(business_cog.panels))
+    await button(panel, "🔑 Abrir").callback(click())
+    assert panel.screen == TURNO
+    clicks = 0
+    while panel.turn is not None:
+        turn = panel.turn
+        check_limits(panel)
+        action = next_action(turn.game)
+        ids = [
+            parse_game_id(b.custom_id or "")
+            for b in panel.walk_children()
+            if isinstance(b, ui.Button) and not b.disabled
+        ]
+        assert (panel.token, turn.game.round, action) in ids, action
+        await panel.game_click(click(), turn.game.round, action)
+        clicks += 1
+        assert clicks < 200
+    assert panel.screen == CIERRE and panel.result is not None
+    results = {o.result for o in panel.result.summary.outcomes}
+    assert results <= {"ok", "honest", "overdone"} and panel.result.summary.sales > 0
 
 
 async def test_el_primer_cliente_se_pinta_antes_de_abrir(tmp_path: Path) -> None:

@@ -302,6 +302,7 @@ class Outcome:
         perfect: Si lo clavaste (9.48.0): el punto exacto de la brasa, el peso justo en la
             balanza, las tres averías de un móvil o la foto con su cambio.
         trap: Si esquivó la trampa del juego: el protector rayado sin cambiar la pantalla.
+        heat: Lo hecho que salió el plato de la brasa (0-100; 0 si no había brasa).
     """
 
     client: Client
@@ -318,6 +319,7 @@ class Outcome:
     usual_hit: bool = False
     perfect: bool = False
     trap: bool = False
+    heat: int = 0
 
     @property
     def served(self) -> bool:
@@ -1175,7 +1177,7 @@ class TurnGame:
                     Outcome(
                         client, "burnt", events=("burnt",), revenue=self._sum(rest),
                         sold_cost=self._cost(rest), waste_cost=self._cost(lost),
-                        units={**rest, **lost},
+                        units={**rest, **lost}, heat=self.heat,
                     ),
                     now,
                 )  # fmt: skip
@@ -1198,6 +1200,7 @@ class TurnGame:
                 Outcome(
                     client, "raw", events=("raw",), revenue=self._sum(rest),
                     sold_cost=self._cost(rest), waste_cost=self._cost(lost), units=units,
+                    heat=self.heat,
                 ),
                 now,
             )  # fmt: skip
@@ -1208,7 +1211,7 @@ class TurnGame:
             self._close(
                 Outcome(
                     client, "overdone", self._speed(now), ("overdone",), revenue,
-                    sold_cost=self._cost(units), units=units,
+                    sold_cost=self._cost(units), units=units, heat=self.heat,
                 ),
                 now,
             )  # fmt: skip
@@ -1219,7 +1222,7 @@ class TurnGame:
             self.last = f"✅ {name.capitalize()} en su punto: +{revenue} Y$."
             if perfect:
                 self.last = f"🎯 ¡Clavado! {name.capitalize()} justo como la pedían: +{revenue} Y$."
-            self._ok(client, now, units, revenue, perfect=perfect)
+            self._ok(client, now, units, revenue, perfect=perfect, heat=self.heat)
 
     def _encargos(self, verb: str, arg: str, now: float) -> None:
         client = self.current

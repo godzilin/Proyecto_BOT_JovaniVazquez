@@ -233,6 +233,28 @@ def test_el_empleado_juega_el_mismo_minijuego_y_siempre_igual() -> None:
     assert len(first.outcomes) == 6 and first.served > 0
 
 
+@pytest.mark.parametrize(
+    "sector", ["guachinche", "panaderia", "pescaderia", "moviles", "peluqueria"]
+)
+def test_la_plantilla_juega_los_minijuegos_nuevos_y_el_novato_vende_menos(sector: str) -> None:
+    info = SECTOR_BY_KEY[sector]
+    totals = {}
+    for level in (10.0, 95.0):
+        sales = 0
+        for seed in range(20):
+            business = Business(
+                user_id=1, sector=sector, barrio="schamann", name="Prueba", seed=seed,
+                stock={p.key: 200 for p in info.products},
+            )  # fmt: skip
+            clients = make_clients(business, info.clients, seed)
+            game = staff.play_turn(business, employee_of(level), clients, start=1_000.0, franja=1)
+            summary = game.summary()
+            assert len(summary.outcomes) == len(clients) and game.current is None
+            sales += summary.sales
+        totals[level] = sales
+    assert totals[10.0] < totals[95.0]
+
+
 def test_quien_sabe_mas_falla_menos_y_el_quemado_falla_mas() -> None:
     sector = SECTOR_BY_KEY["cafeteria"]
     novice, expert = employee_of(10.0), employee_of(90.0)

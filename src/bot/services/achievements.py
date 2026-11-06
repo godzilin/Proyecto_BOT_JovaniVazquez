@@ -833,7 +833,10 @@ PISOS_BROKE_BELOW = 1_000
 
 
 #: Sectores y temas de local del negocio propio (`biz_opened_<sector>`, `biz_theme_<tema>`).
-BIZ_SECTORS = ("cafeteria", "tienda", "taller", "heladeria", "ferreteria")
+BIZ_SECTORS = (
+    "cafeteria", "tienda", "taller", "heladeria", "ferreteria", "guachinche", "panaderia",
+    "pescaderia", "moviles", "peluqueria",
+)  # fmt: skip
 BIZ_THEMES = ("marinero", "historico", "centro", "obrero", "playa", "lujo", "rural")
 
 #: Tipos de vehículo del Pollo (`chicken_render.VEHICLES`), uno por logro de atropello.
@@ -21587,6 +21590,167 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (500, "biz_ferre_500", "Mjölnir en el pasillo tres",
          "Haz 500 turnos en una ferretería.", L),
     ])  # fmt: skip
+    # 9.48.0: los cinco sectores nuevos, cada uno con lo de su minijuego.
+    a += _tiers("negocio", "biz_turns_guachinche", [
+        (10, "biz_guachi_10", "Vino de la casa, casa del vino", "Haz 10 turnos en un guachinche.",
+         C),
+        (100, "biz_guachi_100", "Juego de Brasas", "Haz 100 turnos en un guachinche.", E),
+        (500, "biz_guachi_500", "El Padrino de la parra", "Haz 500 turnos en un guachinche.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_turns_panaderia", [
+        (10, "biz_pan_10", "Con las manos en la masa", "Haz 10 turnos en una panadería.", C),
+        (100, "biz_pan_100", "Pan y circo", "Haz 100 turnos en una panadería.", E),
+        (500, "biz_pan_500", "El Mesías del millo", "Haz 500 turnos en una panadería.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_turns_pescaderia", [
+        (10, "biz_pesca_10", "Buscando a Nemo en la cámara", "Haz 10 turnos en una pescadería.",
+         C),
+        (100, "biz_pesca_100", "El viejo y el mar (y la vieja)",
+         "Haz 100 turnos en una pescadería.", E),
+        (500, "biz_pesca_500", "Poseidón de la lonja", "Haz 500 turnos en una pescadería.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_turns_moviles", [
+        (10, "biz_movil_10", "¿Has probado a apagarlo y encenderlo?",
+         "Haz 10 turnos en una tienda de reparación de móviles.", C),
+        (100, "biz_movil_100", "El destornillador sónico",
+         "Haz 100 turnos en una tienda de reparación de móviles.", E),
+        (500, "biz_movil_500", "Steve Jobs de barrio",
+         "Haz 500 turnos en una tienda de reparación de móviles.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_turns_peluqueria", [
+        (10, "biz_pelu_10", "Cortar por lo sano", "Haz 10 turnos en una peluquería.", C),
+        (100, "biz_pelu_100", "Eduardo Manostijeras", "Haz 100 turnos en una peluquería.", E),
+        (500, "biz_pelu_500", "Sansón no se fía de ti", "Haz 500 turnos en una peluquería.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_grill_ok", [
+        (1, "biz_grill_1", "Como una cabra (asada)", "Saca un plato de la brasa en su punto.", C),
+        (10, "biz_grill_10", "El punto G de la parrilla",
+         "Saca 10 platos de la brasa en su punto.", C),
+        (100, "biz_grill_100", "MasterChef de carretera",
+         "Saca 100 platos de la brasa en su punto.", R),
+        (1000, "biz_grill_1000", "Prometeo con delantal",
+         "Saca 1.000 platos de la brasa en su punto.", E),
+        (5000, "biz_grill_5000", "El Señor de las Brasas",
+         "Saca 5.000 platos de la brasa en su punto.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_grill_perfect", [
+        (1, "biz_grill_perfect_1", "Panenka a la brasa",
+         "Saca un plato de la brasa justo en el centro de su punto.", C),
+        (10, "biz_grill_perfect_10", "Termostato con patas",
+         "Saca 10 platos de la brasa justo en el centro de su punto.", R),
+        (100, "biz_grill_perfect_100", "Ni Arguiñano lo clava tanto",
+         "Saca 100 platos de la brasa justo en el centro de su punto.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_burnt", [
+        (1, "biz_burnt_1", "Barbacoa en Mordor", "Quema un plato en la brasa.", C, True),
+        (25, "biz_burnt_25", "Hoguera de San Juan todo el año",
+         "Quema 25 platos en la brasa.", R, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_raw", [
+        (1, "biz_raw_1", "Todavía hace beee", "Saca un plato de la brasa crudo.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_grill_99", [
+        (1, "biz_grill_99_1", "Al borde del carbón",
+         "Saca un plato de la brasa al 99 % de hecho.", R, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_bags_ok", [
+        (1, "biz_bags_1", "Paquete de Amazon de barrio", "Entrega un encargo en la panadería.",
+         C),
+        (10, "biz_bags_10", "Cartero de la quesadilla",
+         "Entrega 10 encargos en la panadería.", C),
+        (100, "biz_bags_100", "Sherlock de las bolsas", "Entrega 100 encargos en la panadería.",
+         R),
+        (1000, "biz_bags_1000", "Bolsa de valores (de bizcochón)",
+         "Entrega 1.000 encargos en la panadería.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_wrong_bag", [
+        (1, "biz_wrong_bag_1", "Tarta de cumpleaños para un divorcio",
+         "Da o niega mal una bolsa de encargo.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_honest", [
+        (1, "biz_honest_1", "Aquí no hay quien encargue",
+         "Di a un cliente que su encargo no está, cuando de verdad no está.", C),
+        (25, "biz_honest_25", "La verdad está ahí fuera (y su bolsa, también)",
+         "Di a 25 clientes que su encargo no está, cuando de verdad no está.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_bread_dawn", [
+        (1, "biz_bread_dawn_1", "Al que madruga, el pan le ayuda",
+         "Haz un turno en la panadería entre las 4 y las 7 de la mañana.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_weigh_ok", [
+        (1, "biz_weigh_1", "Balanza de pagos", "Despacha un pedido en la balanza.", C),
+        (10, "biz_weigh_10", "Peso pluma", "Despacha 10 pedidos en la balanza.", C),
+        (100, "biz_weigh_100", "Libra por libra", "Despacha 100 pedidos en la balanza.", R),
+        (1000, "biz_weigh_1000", "Isaac Newton de la lonja",
+         "Despacha 1.000 pedidos en la balanza.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_weigh_perfect", [
+        (1, "biz_weigh_perfect_1", "Gramo a gramo se llena el plato",
+         "Deja la balanza a menos de un 2 % de lo pedido.", C),
+        (10, "biz_weigh_perfect_10", "Báscula con ojos",
+         "Deja la balanza a menos de un 2 % de lo pedido 10 veces.", C),
+        (100, "biz_weigh_perfect_100", "La balanza de la Justicia, sin venda",
+         "Deja la balanza a menos de un 2 % de lo pedido 100 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_heavy", [
+        (1, "biz_heavy_1", "¿Se lo dejo así, que es un poco más?",
+         "Vende más pescado del pedido y que se lo lleve.", C),
+        (50, "biz_heavy_50", "Medio kilo largo, muy largo",
+         "Vende más pescado del pedido 50 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_refused", [
+        (1, "biz_refused_1", "Pidió una sama y le pusiste Moby Dick",
+         "Que un cliente rechace el pescado por pasarte con el peso.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_repair_ok", [
+        (1, "biz_repair_1", "Pantallazo azul superado", "Repara un móvil entero.", C),
+        (10, "biz_repair_10", "Reinicio de fábrica", "Repara 10 móviles enteros.", C),
+        (100, "biz_repair_100", "Técnico de Black Mirror", "Repara 100 móviles enteros.", R),
+        (1000, "biz_repair_1000", "Cyborg del estaño", "Repara 1.000 móviles enteros.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_repair_triple", [
+        (1, "biz_triple_1", "Tres en raya de cristal",
+         "Repara un móvil con tres averías sin dejarte ninguna.", R),
+        (10, "biz_triple_10", "Triple de Curry en el taller",
+         "Repara 10 móviles con tres averías sin dejarte ninguna.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_protector", [
+        (1, "biz_protector_1", "Era el protector, campeón",
+         "Repara un móvil con el protector rayado sin cambiarle la pantalla.", C),
+        (25, "biz_protector_25", "Ojo de halcón digital",
+         "Repara 25 móviles con el protector rayado sin cambiarles la pantalla.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_upsell", [
+        (1, "biz_upsell_1", "Por si acaso, pantalla nueva",
+         "Cambia una pieza que estaba bien.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_missed_fault", [
+        (1, "biz_missed_fault_1", "Bug conocido, arreglo pendiente",
+         "Devuelve un móvil sin arreglar todas sus averías.", C),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_cut_ok", [
+        (1, "biz_cut_1", "Corte de manga (corta)", "Deja a un cliente igual que lo pidió.", C),
+        (10, "biz_cut_10", "Tijera de oro", "Deja a 10 clientes igual que lo pidieron.", C),
+        (100, "biz_cut_100", "El peluquero de Rapunzel",
+         "Deja a 100 clientes igual que lo pidieron.", R),
+        (1000, "biz_cut_1000", "Fígaro, Fígaro, Fígaro",
+         "Deja a 1.000 clientes igual que lo pidieron.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_twist_ok", [
+        (1, "biz_twist_1", "Pero un poquito más corto",
+         "Acierta un corte con el cambio que el cliente le pide a la foto.", C),
+        (100, "biz_twist_100", "Lector de mentes con tijera",
+         "Acierta 100 cortes con el cambio que el cliente le pide a la foto.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_too_short", [
+        (1, "biz_too_short_1", "Recluta sin querer", "Corta el pelo más de lo pedido.", C, True),
+        (10, "biz_too_short_10", "Calvo por accidente",
+         "Corta el pelo más de lo pedido 10 veces.", R, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_unhappy", [
+        (1, "biz_unhappy_1", "No es lo que te pedí",
+         "Que un cliente salga de la peluquería sin lo que pidió.", C),
+    ])  # fmt: skip
     a += _tiers("negocio", "biz_clients", [
         (1, "biz_clients_1", "Bienvenido, Mr. Marshall", "Atiende a tu primer cliente.", C),
         (100, "biz_clients_100", "Un, dos, tres, atienda otra vez",
@@ -21740,7 +21904,9 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (3, "biz_sectors_3", "Tres tristes trastiendas",
          "Abre negocios de 3 sectores distintos.", E),
         (5, "biz_sectors_5", "Cinco lobitos tiene el polígono",
-         "Abre un negocio de cada uno de los 5 sectores.", L),
+         "Abre negocios de 5 sectores distintos.", L),
+        (10, "biz_sectors_10", "Navaja suiza de diez hojas",
+         "Abre un negocio de cada uno de los 10 sectores.", M),
     ])  # fmt: skip
     a += _tiers("negocio", "biz_themes_tried", [
         (7, "biz_themes_7", "Pasaporte de interiorista", "Prueba los 7 temas de local.", L),
@@ -29632,6 +29798,7 @@ def business_stats(result: TurnResult, *, tired: bool = False) -> StatDelta:
     summary = result.summary
     business = result.business
     sector = business.sector
+    game = business.sector_info.game
     outcomes = summary.outcomes
     count = summary.count
     add = {
@@ -29666,6 +29833,7 @@ def business_stats(result: TurnResult, *, tired: bool = False) -> StatDelta:
         "biz_reviews": len(result.reviews),
         "biz_reviews_5": sum(1 for _, stars, _ in result.reviews if stars == 5),
         "biz_reviews_1": sum(1 for _, stars, _ in result.reviews if stars == 1),
+        **_new_games_stats(game, outcomes, result.hour),
     }
     return StatDelta(
         add={stat: value for stat, value in add.items() if value},
@@ -29680,6 +29848,53 @@ def business_stats(result: TurnResult, *, tired: bool = False) -> StatDelta:
             "balance_max": result.balance,
         },
     )
+
+
+def _new_games_stats(game: str, outcomes: Sequence[Any], hour: int) -> dict[str, int]:
+    """Lo propio de los minijuegos de la 9.48.0 (`business_games`), del turno de un sector."""
+
+    def n(result: str) -> int:
+        return sum(1 for o in outcomes if o.result == result)
+
+    ok = [o for o in outcomes if o.result == "ok"]
+    if game == "brasa":
+        return {
+            "biz_grill_ok": sum(1 for o in ok if o.client.dish),
+            "biz_grill_perfect": sum(1 for o in ok if o.perfect),
+            "biz_burnt": n("burnt"),
+            "biz_raw": n("raw"),
+            "biz_grill_99": sum(1 for o in outcomes if o.result == "overdone" and o.heat == 99),
+        }
+    if game == "encargos":
+        return {
+            "biz_bags_ok": len(ok),
+            "biz_wrong_bag": n("wrong_bag") + n("missed_bag"),
+            "biz_honest": n("honest"),
+            "biz_bread_dawn": int(4 <= hour < 7),
+        }
+    if game == "balanza":
+        return {
+            "biz_weigh_ok": len(ok),
+            "biz_weigh_perfect": sum(1 for o in ok if o.perfect),
+            "biz_heavy": n("heavy"),
+            "biz_refused": n("refused"),
+        }
+    if game == "revision":
+        return {
+            "biz_repair_ok": len(ok),
+            "biz_repair_triple": sum(1 for o in ok if o.perfect),
+            "biz_upsell": n("upsell"),
+            "biz_missed_fault": n("missed"),
+            "biz_protector": sum(1 for o in outcomes if o.trap and o.result == "ok"),
+        }
+    if game == "foto":
+        return {
+            "biz_cut_ok": len(ok),
+            "biz_twist_ok": sum(1 for o in ok if o.perfect),
+            "biz_too_short": n("too_short"),
+            "biz_unhappy": n("unhappy") + n("mess"),
+        }
+    return {}
 
 
 def _nonzero(add: Mapping[str, int]) -> dict[str, int]:
