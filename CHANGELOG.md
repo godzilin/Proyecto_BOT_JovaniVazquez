@@ -13,6 +13,7 @@ criterio.
 - Negocios: cinco sectores nuevos en `pala`, cada uno con su propio minijuego
 - Negocios: 🍷 Guachinche (la brasa), 🥖 Panadería (los encargos), 🐟 Pescadería (la balanza), 📱 Reparación de móviles (la revisión) y 💈 Peluquería (la foto)
 - Logros: 65 nuevos en 🏪 Negocio por los sectores nuevos y sus minijuegos
+
 ### 9.47.1 · 2026-11-06
 
 - Jovaniverso: el túnel del NAS pasa a Tailscale Funnel, gratis y sin dominio propio
