@@ -2093,7 +2093,11 @@ class HousePanel(ui.View):
             net=game.net,
             balance_after=self.balance,
             tax=tax,
-            details=(("ko", int(game.fight.finish is Finish.KO)), ("won", int(game.won))),
+            details=(
+                ("ko", int(game.fight.finish is Finish.KO)),
+                ("won", int(game.won)),
+                ("died", int(game.fallen is not None)),
+            ),
         )
         if game.grudge_wins == GRUDGE_WINS:
             await self.cog.shout(
@@ -2841,6 +2845,7 @@ class Duel:
                 details=(
                     ("ko", int(fight.finish is Finish.KO)),
                     ("won", int(won)),
+                    ("died", int(corner in self.fallen)),
                     ("started", int(self.started_at)),
                 ),
             )

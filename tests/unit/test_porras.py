@@ -21,6 +21,7 @@ from bot.cogs import bus as bus_cog
 from bot.cogs import chicken as chicken_cog
 from bot.cogs import coin as coin_cog
 from bot.cogs import craps as craps_cog
+from bot.cogs import gallos as gallos_cog
 from bot.cogs import mines as mines_cog
 from bot.cogs import poker as poker_cog
 from bot.cogs import tower as tower_cog
@@ -206,6 +207,7 @@ def test_cada_propuesta_especifica_tiene_un_juego_que_manda_sus_datos() -> None:
             blackjack_cog,
             bacara_cog,
             poker_cog,
+            gallos_cog,
         )
     }
     for prop in PROPOSITIONS:

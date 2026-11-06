@@ -328,6 +328,24 @@ PROPOSITIONS: tuple[Proposition, ...] = (
         details=frozenset({"banca"}),
         min_plays=2,
     ),
+    Proposition(
+        "gallo_ko", "🥊", "¿Gana alguna por KO?",
+        "¿El gallo de {who} gana alguna de sus {n} peleas por KO?",
+        ("🥊 Gana alguna por KO", "🐓 Ninguna por KO"),
+        lambda plays, _stake: (
+            0 if any(p.detail("ko") and p.detail("won") for p in plays) else 1
+        ),
+        games=frozenset({"gallos"}),
+        details=frozenset({"ko", "won"}),
+    ),
+    Proposition(
+        "gallo_vivo", "🪦", "¿Sobrevive el gallo?",
+        "¿El gallo de {who} sale vivo de sus {n} peleas?",
+        ("🐓 Sale vivo", "🪦 Se muere"),
+        lambda plays, _stake: 1 if any(p.detail("died") for p in plays) else 0,
+        games=frozenset({"gallos"}),
+        details=frozenset({"died"}),
+    ),
 )  # fmt: skip
 PROPOSITION_BY_KEY: dict[str, Proposition] = {p.key: p for p in PROPOSITIONS}
 

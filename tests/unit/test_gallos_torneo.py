@@ -210,3 +210,22 @@ def gym_finish() -> object:
 
 def test_el_minijuego_de_prueba_sigue_siendo_un_minijuego() -> None:
     assert isinstance(Graded(1.0), gym.GymGame)
+
+
+def test_las_porras_del_reñidero_miran_el_ko_y_la_muerte() -> None:
+    from bot.services.casino_stats import Play
+    from bot.services.porras import PROPOSITION_BY_KEY, propositions_for
+
+    keys = {p.key for p in propositions_for("gallos", 3)}
+    assert {"gallo_ko", "gallo_vivo"} <= keys
+    assert "gallo_ko" not in {p.key for p in propositions_for("minas", 3)}
+
+    def play(**details: int) -> Play:
+        return Play("gallos", 100, 0, 0, 0, tuple(details.items()))
+
+    ko = PROPOSITION_BY_KEY["gallo_ko"]
+    assert ko.decide([play(ko=1, won=1), play()], 1) == 0
+    assert ko.decide([play(ko=1, won=0)], 1) == 1
+    alive = PROPOSITION_BY_KEY["gallo_vivo"]
+    assert alive.decide([play(), play(died=1)], 1) == 1
+    assert alive.decide([play()], 1) == 0
