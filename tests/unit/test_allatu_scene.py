@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import needs_node, node_ready
+from test_node_scene import needs_node, node_ready, open_helpers
 
 from bot.services import browser_scene
 from bot.services.allatu import BOXES, ROUNDS, AllatuGame, Phase, Table
@@ -179,6 +179,7 @@ async def test_repartida_pinta_lo_mismo_que_de_un_tiron(scene: AllatuScene) -> N
         calls.append(call)
         return original(call, args, **extra)
 
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)

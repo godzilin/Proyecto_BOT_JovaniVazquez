@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image, ImageChops, ImageStat
-from test_node_scene import needs_node
+from test_node_scene import needs_node, open_helpers
 
 from bot.services import browser_scene
 from bot.services.browser_scene import BrowserScene
@@ -163,6 +163,7 @@ async def test_repartida_pinta_lo_mismo_que_de_un_tiron(cal: Calibration, deep: 
         calls.append(call)
         return original(call, args, **extra)
 
+    await open_helpers(painter, meta, states)
     painter._request = spy  # type: ignore[method-assign]
     try:
         split = await painter.render(meta, states)
