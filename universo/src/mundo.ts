@@ -42,6 +42,8 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
+  /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
+  pausar(si: boolean): void;
   detener(): void;
 }
 
@@ -122,9 +124,10 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let metrosFrac = 0;
   let saltosPend = 0;
   let metrosPend = 0;
+  let pausado = false;
 
   const fotograma = (ahora: number): void => {
-    if (document.hidden) {
+    if (document.hidden || pausado) {
       ultimo = ahora;
       return;
     }
@@ -246,6 +249,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       metrosFrac += i.meters;
       saltosPend += i.jumps;
       lugares.devolver(i.places);
+    },
+    pausar(si) {
+      pausado = si;
     },
     detener() {
       renderer.setAnimationLoop(null);

@@ -1,7 +1,7 @@
 // Lógica de la Activity del Jovaniverso: login con Discord, entrada al servidor del bot, HUD y arranque del mundo 3D.
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
-import { crearMundo } from "./mundo";
+import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
@@ -20,6 +20,8 @@ interface ProfileResponse {
   balance_text: string;
   version: string;
   gestures: number[];
+  admin?: boolean;
+  mundo?: number;
 }
 interface ErrorResponse {
   error: string;
@@ -102,6 +104,21 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
+/** Botón del HUD que abre el editor de assets (carga perezosa: no entra en el paquete inicial). */
+function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string }): void {
+  const b = document.createElement("button");
+  b.className = "ed-abrir";
+  b.textContent = "🛠 Editor";
+  b.addEventListener("click", () => {
+    b.disabled = true;
+    import("./editor/assets")
+      .then((m) => m.abrirEditor(sesion, mundo))
+      .catch((e: unknown) => aviso(e instanceof Error ? e.message : "No se ha podido abrir el editor."))
+      .finally(() => (b.disabled = false));
+  });
+  $("capa").append(b);
+}
+
 interface Entrada {
   profile: ProfileResponse;
   session: string;
@@ -140,10 +157,18 @@ async function start(): Promise<void> {
       iniciarPaseo(mundo, sesion);
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
+      if (entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
+        botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
+      }
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
+      // Solo en desarrollo: `docs/editor_local.py` da una sesión de administrador sin Discord.
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("editor")) {
+        const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion");
+        botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
+      }
     }
     $("carga").classList.add("fuera");
     ayuda();
