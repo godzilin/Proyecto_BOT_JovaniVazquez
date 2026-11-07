@@ -13,6 +13,9 @@ el marcador, los carteles y el doble o nada. Aquí solo se pinta. Funciones que 
                              symbolsKey y prepara una vez los sprites y el fondo.
 - renderFrames(states, first) dibuja los fotogramas y devuelve, de cada uno, el recuadro que
                              ha cambiado (PNG en Chromium, píxeles crudos en Node) y dónde va.
+- paintState(st)             pinta un estado y devuelve el lienzo grande (W·S × H·S). Lo usan las
+                             tragaperras de la plaza del Jovaniverso, que cargan esta escena con
+                             window.TRAGAS_S = 1 y la pintan en directo (universo/src/casino/).
 
 Un estado es (ver `_base`, `_celebration` y `double_states` en slots_scene.py):
   reels[3]   posición de la tira (float): la celda de la línea es strip[floor(p)] y la fila r
@@ -679,6 +682,8 @@ window.setup = async (meta) => {
   return true;
 };
 window.renderFrames = (states, first = 0) => states.map((st) => { paint(st); return OUTPUT.snapshot(!!st.full); });
+// La página del Jovaniverso pinta un estado y copia el lienzo grande en la pantalla de cada máquina.
+window.paintState = (st) => { paint(st); return big; };
 </script>
 </body>
 </html>

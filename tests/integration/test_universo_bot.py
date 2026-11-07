@@ -155,6 +155,9 @@ async def test_entrar_da_el_perfil_con_el_saldo_real_y_apunta_los_logros(world: 
     assert body["name"] == "Yeyo"
     assert body["balance"] == STARTING_BALANCE
     assert body["balance"] == await world.client.economy.balance(GUILD_ID, USER_ID)
+    # La fila de tragaperras de la plaza: una máquina parada por cada una.
+    assert len(body["tragas"]["stills"]) == body["tragas"]["machines"]
+    assert body["tragas"]["symbols"]
     # Los logros se apuntan después de contestar: se esperan aquí.
     await asyncio.gather(*world.cog._background)
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)

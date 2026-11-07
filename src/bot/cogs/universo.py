@@ -26,7 +26,8 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   (`bot.services.universo.DiscordOAuth`) y da una sesión firmada.
 - `POST /api/entrar` `{guild_id, channel_id, platform}` con la sesión en
   `Authorization: Bearer`: el perfil (nombre y saldo), los gestos comprados
-  (`gestures`, sus animaciones) y los logros de entrar.
+  (`gestures`, sus animaciones), la fila de tragaperras de la plaza (`tragas`: tiras,
+  símbolos, cómo está parada cada máquina y el bote) y los logros de entrar.
 - `POST /api/paseo` `{guild_id, channel_id, meters, jumps, places}`, con la sesión:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
@@ -311,6 +312,8 @@ class Universo(commands.Cog, name="Universo"):
             "balance_text": format_amount(balance),
             "gestures": sorted(gestures),
             "version": __version__,
+            # La fila de tragaperras de la plaza (`None` si la tragaperras no está cargada).
+            "tragas": await tragas.plaza_meta(self.bot, guild.id),
         }
 
     def walk(self, session: str | None, body: dict[str, Any]) -> None:

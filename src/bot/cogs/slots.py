@@ -120,6 +120,7 @@ from bot.services.slots import (
     HOT_MULTIPLIER,
     POT_CAP,
     POT_SEED,
+    REEL_STRIPS,
     SCATTER,
     SYMBOLS,
     BonusMeter,
@@ -142,16 +143,20 @@ from bot.services.slots import (
     respin_price,
     win_tier,
 )
-from bot.services.slots_render import SlotsMedia
+from bot.services.slots_render import SYMBOL_FILES, SlotsMedia
 from bot.services.slots_scene import (
     DOUBLE_HISTORY,
     SlotsScene,
     double_suit,
     media_key,
     spin_states,
+    still_state,
 )
 from bot.services.taxes import TAX_COLLECTOR
 from bot.services.telemetry import TimedLock
+from bot.services.universo_tragas import MACHINES as PLAZA_MACHINES
+from bot.services.universo_tragas import MAX_AT_ONCE as PLAZA_MAX_AT_ONCE
+from bot.services.universo_tragas import MIN_GAP_SECONDS as PLAZA_MIN_GAP
 from bot.services.universo_tragas import Auto as PlazaAuto
 from bot.services.universo_tragas import SeatError, Seats, auto_stop_text
 from bot.utils.cogs import find_cog
@@ -2389,6 +2394,9 @@ class Slots(commands.Cog, name="Tragaperras"):
             "net": play.net,
             "jackpot": play.jackpot,
             "big_prize": play.big_prize,
+            "tier": play.tier,
+            "near_miss": play.spin.near_miss,
+            "free_won": play.spin.triggers_free_spins or bool(play.bonus_stake),
             "balance": play.balance,
             "balance_text": format_amount(play.balance),
             "pot": play.settlement.pot,
@@ -2401,6 +2409,24 @@ class Slots(commands.Cog, name="Tragaperras"):
             "text": text,
             "auto": seat.auto is not None,
             "auto_stop": auto_stop_text(ended[0], ended[1].stake) if ended else None,
+        }
+
+    async def plaza_meta(self, guild_id: int) -> dict[str, Any]:
+        """Lo que necesita la página para montar la fila de máquinas al entrar.
+
+        Las tiras y los nombres de los símbolos de la escena (sin los PNG: la página
+        los descarga de sus `assets`), cómo está parada cada máquina y el bote.
+        """
+        return {
+            "machines": PLAZA_MACHINES,
+            "max_at_once": PLAZA_MAX_AT_ONCE,
+            "min_gap": PLAZA_MIN_GAP,
+            "strips": list(REEL_STRIPS),
+            "symbols": dict(SYMBOL_FILES),
+            "stills": [
+                still_state(self.machine.spin(), highlight=False) for _ in range(PLAZA_MACHINES)
+            ],
+            "pot_text": format_amount(await self.pot(guild_id)),
         }
 
     def plaza_stop(
@@ -2646,6 +2672,12 @@ async def plaza(
     return await cog.plaza(
         guild_id, member, channel, machine=machine, stake=stake, auto=auto, audience=audience
     )
+
+
+async def plaza_meta(bot: commands.Bot, guild_id: int) -> dict[str, Any] | None:
+    """La fila de máquinas de la plaza para la página (`Slots.plaza_meta`), o `None`."""
+    cog = find_cog(bot, Slots)
+    return None if cog is None else await cog.plaza_meta(guild_id)
 
 
 def plaza_stop(
