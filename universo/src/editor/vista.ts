@@ -2,15 +2,18 @@
 import {
   AmbientLight,
   Box3,
+  BoxGeometry,
   BufferGeometry,
   Color,
   DirectionalLight,
+  EdgesGeometry,
   GridHelper,
   Group,
   HemisphereLight,
   Line,
   LineBasicMaterial,
   LineLoop,
+  LineSegments,
   Mesh,
   MeshLambertMaterial,
   NeutralToneMapping,
@@ -26,7 +29,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "../mundo/luz";
 import { ArrastreGrupo, Recuadro, type Transformacion } from "./grupo";
-import { type Circulo, geometriaForma, geometriaMalla, type Malla, type Pieza } from "./formato";
+import { CUBIERTA, PANTALLA } from "../casino/sitio";
+import { type Circulo, type Funcion, geometriaForma, geometriaMalla, type Malla, type Pieza } from "./formato";
 
 export type Modo = "translate" | "rotate" | "scale";
 
@@ -49,6 +53,8 @@ export class Vista {
   private readonly anillos = new Group();
   private readonly circulo: BufferGeometry;
   private readonly lineaCirculo = new LineBasicMaterial({ color: 0xffd86b });
+  private readonly guias = new Group();
+  private readonly lineaGuia = new LineBasicMaterial({ color: 0x6bff8a, depthTest: false });
   private readonly geometrias = new Map<string, BufferGeometry>();
   private malla: { datos: Malla; mesh: Mesh } | null = null;
   private meshes: Mesh[] = [];
@@ -79,7 +85,7 @@ export class Vista {
 
     const puntos = Array.from({ length: 64 }, (_, i) => new Vector3(Math.cos((i / 64) * 2 * Math.PI), 0.01, Math.sin((i / 64) * 2 * Math.PI)));
     this.circulo = new BufferGeometry().setFromPoints(puntos);
-    this.escena.add(this.anillos);
+    this.escena.add(this.anillos, this.guias);
 
     this.camara.position.set(3, 2.5, 4);
     this.orbita = new OrbitControls(this.camara, r.domElement);
@@ -300,6 +306,29 @@ export class Vista {
       a.position.set(x, 0, z);
       a.scale.set(r, 1, r);
       this.anillos.add(a);
+    }
+    this.pedir();
+  }
+
+  /**
+   * Dónde pone su parte la función del asset: en una tragaperras, la pantalla y la botonera (las del casino, fijas en el marco de
+   * la máquina); en un letrero, su panel. Sin función, nada.
+   */
+  guia(f: Funcion | undefined): void {
+    for (const c of this.guias.children) (c as LineSegments).geometry.dispose();
+    this.guias.clear();
+    const caja = (w: number, hh: number, d: number, x: number, y: number, z: number, rotX = 0): void => {
+      const l = new LineSegments(new EdgesGeometry(new BoxGeometry(w, hh, d)), this.lineaGuia);
+      l.position.set(x, y, z);
+      l.rotation.x = rotX;
+      l.renderOrder = 2;
+      this.guias.add(l);
+    };
+    if (f?.tipo === "traga") {
+      caja(PANTALLA.w, PANTALLA.h, 0.01, 0, PANTALLA.y, PANTALLA.z);
+      caja(CUBIERTA.w, CUBIERTA.grosor, CUBIERTA.d, 0, CUBIERTA.y, CUBIERTA.z, CUBIERTA.inclinacion);
+    } else if (f?.tipo === "letrero") {
+      caja(f.ancho, f.alto, 0.01, ...f.pos);
     }
     this.pedir();
   }

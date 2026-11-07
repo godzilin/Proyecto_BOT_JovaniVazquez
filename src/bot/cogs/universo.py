@@ -26,8 +26,10 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   (`bot.services.universo.DiscordOAuth`) y da una sesión firmada.
 - `POST /api/entrar` `{guild_id, channel_id, platform}` con la sesión en
   `Authorization: Bearer`: el perfil (nombre y saldo), los gestos comprados
-  (`gestures`, sus animaciones), la fila de tragaperras de la plaza (`tragas`: tiras,
-  símbolos, cómo está parada cada máquina y el bote) y los logros de entrar.
+  (`gestures`, sus animaciones), lo que necesitan las tragaperras del mundo (`tragas`:
+  tiras, símbolos, cómo está parada cada máquina y el bote), los botes de los letreros
+  (`botes`) y los logros de entrar. Las tragaperras y los letreros son objetos del mundo
+  (`bot.services.universo_editor`, `funcion`), así que dónde están no lo dice el servidor.
 - `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, places}`, con la sesión:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
@@ -56,6 +58,11 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   `{jugadores: [{nombre, saldo, nivel, dentro, yo}], miembros, dentro}`: quien está en la
   sala y, después, el resto del servidor por saldo (`player_list`). `nivel` es `null` si
   el servidor no tiene niveles. Solo lee.
+- `GET /api/botes?guild_id=`, con la sesión: `{botes: [{clave, nombre, emoji, texto}], catalogo}`,
+  los botes del servidor que pueden enseñar los letreros (`bot.services.universo_botes`) y, en
+  `catalogo`, todos los que se pueden elegir en el editor aunque su juego no esté cargado. La
+  página lo pide cada 30 s mientras ve algún letrero; el servidor lo guarda `POTS_SECONDS`.
+  `/api/entrar` trae los mismos en `botes`.
 - `GET /api/mochila?guild_id=`, con la sesión: `{objetos: [{nombre, emoji, tipo, cantidad,
   puesto, caduca}]}`, lo que tienes de la tienda (`backpack_list`). Solo lee: los objetos se usan
   desde la mochila de `tienda`, en Discord.
@@ -125,6 +132,9 @@ from discord.ext import commands
 
 from bot import __version__
 from bot.cogs import achievements as logros
+from bot.cogs import horses as caballos
+from bot.cogs import lottery as loteria
+from bot.cogs import poker
 from bot.cogs import shop as tienda
 from bot.cogs import slots as tragas
 from bot.repositories.universo_mundo import Change, Conflict, MissingAssets
@@ -156,6 +166,7 @@ from bot.services.universo import (
     teleport_report,
     walk_report,
 )
+from bot.services.universo_botes import pot_catalog, pot_list
 from bot.services.universo_editor import (
     FORMAT,
     MAX_ASSETS,
@@ -220,6 +231,8 @@ SEEN_SPIN = (
 #: Segundos que vale la foto de saldos y niveles de la pestaña «Jugadores»: abrir el menú
 #: muchas veces seguidas no vuelve a leer la base de datos.
 LIST_SECONDS = 10
+#: Segundos que se guardan los botes de los letreros: la página los pide cada tanto.
+POTS_SECONDS = 20
 #: Clave de la aplicación de aiohttp donde vive el cog.
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 
@@ -428,6 +441,8 @@ class Universo(commands.Cog, name="Universo"):
         # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
         # por publicación y fuera del bucle, no en cada entrada.
         self._mundo_gz: dict[int, tuple[int, bytes]] = {}
+        # Botes de cada servidor para los letreros (`pots`), con su hora.
+        self._botes: dict[int, tuple[float, list[dict[str, str]]]] = {}
         # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
         self._lista: dict[int, tuple[float, dict[int, int], dict[int, int] | None]] = {}
 
@@ -488,6 +503,7 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_get("/api/permisos", _permisos)
         app.router.add_get("/api/jugadores", _jugadores)
         app.router.add_get("/api/mochila", _mochila)
+        app.router.add_get("/api/botes", _botes)
         app.router.add_post("/api/permisos", _permisos)
         app.add_subapp("/api/editor/", self.build_editor())
         assets = self.static_dir / "assets"
@@ -566,7 +582,39 @@ class Universo(commands.Cog, name="Universo"):
             "mundo": (await self.mundo(guild.id))[0],
             # La fila de tragaperras de la plaza (`None` si la tragaperras no está cargada).
             "tragas": await tragas.plaza_meta(self.bot, guild.id),
+            "botes": await self.pots(guild.id),
         }
+
+    async def pots(self, guild_id: int) -> list[dict[str, str]]:
+        """Los botes del servidor para los letreros, guardados `POTS_SECONDS`.
+
+        Cada juego se pregunta por su función puente: uno sin cargar o que falla no sale,
+        y los demás sí.
+        """
+        now = time.monotonic()
+        cached = self._botes.get(guild_id)
+        if cached is not None and now - cached[0] < POTS_SECONDS:
+            return cached[1]
+        amounts: dict[str, int] = {}
+        for key, ask in (
+            ("tragas", tragas.pot),
+            ("poker", poker.pot),
+            ("caballos", caballos.pot),
+        ):
+            try:
+                value = await ask(self.bot, guild_id)
+            except Exception:
+                logger.exception("No se ha podido leer el bote de %s", key)
+                continue
+            if value is not None:
+                amounts[key] = value
+        try:
+            amounts.update(await loteria.jackpots(self.bot, guild_id))
+        except Exception:
+            logger.exception("No se han podido leer los botes de las loterías")
+        found = pot_list(amounts)
+        self._botes[guild_id] = (now, found)
+        return found
 
     async def mundo(self, guild_id: int) -> tuple[int, str]:
         """Versión publicada de un servidor y sus trozos ya codificados (0 y `{}` si no hay).
@@ -1229,6 +1277,12 @@ async def _mochila(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     session = bearer(request.headers.get("Authorization"))
     return web.json_response(await cog.backpack(session, dict(request.query)))
+
+
+async def _botes(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    guild, _ = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
+    return web.json_response({"botes": await cog.pots(guild.id), "catalogo": pot_catalog()})
 
 
 async def _paseo(request: web.Request) -> web.Response:

@@ -600,6 +600,8 @@ UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
 UNIVERSO_SLOT_PREFIX = "universo_slots_machine_"
 #: Tragaperras de la plaza del Jovaniverso (`bot.services.universo_tragas.MACHINES`).
 UNIVERSO_SLOT_MACHINES = 6
+#: Tragaperras distintas del Jovaniverso en las que se ha jugado; se calcula en `with_derived`.
+UNIVERSO_SLOTS_DISTINCT_STAT = "universo_slots_distinct"
 #: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
 #: `gesto_`), nombre y descripción.
 UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
@@ -2969,17 +2971,31 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a.append(Achievement(
         id="universo_slots_all", name="Ruta de las tragas",
-        description=f"Juega en las {UNIVERSO_SLOT_MACHINES} tragaperras de la plaza.",
+        description=(
+            f"Juega en las tragaperras número 1 a {UNIVERSO_SLOT_MACHINES} del Jovaniverso."
+        ),
         category="jovani", rarity=C,
         conditions=tuple(
             (f"{UNIVERSO_SLOT_PREFIX}{m}", 1) for m in range(1, UNIVERSO_SLOT_MACHINES + 1)
         ),
     ))  # fmt: skip
+    # Las tragaperras se ponen con el editor del mundo (números de 1 a 24): estas cuentan
+    # máquinas distintas, así que dependen de cuántas monten los editores.
+    a += _tiers("jovani", UNIVERSO_SLOTS_DISTINCT_STAT, [
+        (12, "universo_slots_distinct_12", "Docena de rodillos",
+         "Juega en 12 tragaperras distintas del Jovaniverso.", C),
+        (24, "universo_slots_distinct_24", "Veinticuatro horas, veinticuatro tragas",
+         "Juega en 24 tragaperras distintas del Jovaniverso.", C),
+    ])  # fmt: skip
     a += _tiers("jovani", "universo_slots_at_once", [
         (2, "universo_slots_at_once_2", "Ambidiestro del rodillo",
          "Juega a 2 tragaperras de la plaza a la vez.", C),
         (3, "universo_slots_at_once_3", "Pulpo Paul de los rodillos",
          "Juega a 3 tragaperras de la plaza a la vez.", C),
+        (6, "universo_slots_at_once_6", "Kali de las fichas",
+         "Juega a 6 tragaperras del Jovaniverso a la vez.", C),
+        (12, "universo_slots_at_once_12", "Doce campanadas",
+         "Juega a 12 tragaperras del Jovaniverso a la vez.", C),
     ])  # fmt: skip
     a += _tiers("jovani", "universo_slots_auto", [
         (1, "universo_slots_auto_1", "Auto de fe",
@@ -24188,6 +24204,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[UNIVERSO_TEASERS_STAT] = sum(
         1 for stat in stats if stat.startswith(UNIVERSO_TEASER_PREFIX)
     )
+    full[UNIVERSO_SLOTS_DISTINCT_STAT] = sum(
+        1 for stat, value in stats.items() if stat.startswith(UNIVERSO_SLOT_PREFIX) and value > 0
+    )
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -25395,7 +25414,7 @@ def universo_slots_stats(
     Lo de la tirada en sí (premios, giros gratis, calor) ya lo cuenta `slots_stats`.
 
     Args:
-        machine: Número de la máquina (de 1 a `UNIVERSO_SLOT_MACHINES`).
+        machine: Número de la máquina (de 1 a `bot.services.universo_editor.MAX_SLOTS`).
         at_once: Máquinas en las que el miembro está jugando ahora, contando esta.
         auto: Si la tirada es del ▶️ Auto.
         big_prize: Si es un premio gordo (el bote o ×50 la apuesta).

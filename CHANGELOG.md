@@ -8,6 +8,16 @@ criterio.
 
 ## 10.x
 
+### 10.8.0 · 2026-11-07
+
+- Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo
+- Jovaniverso: cualquier asset del editor puede ser una tragaperras jugable o un letrero (también un modelo `.glb`)
+- Jovaniverso: los letreros enseñan el título y los botes que se elijan (tragaperras, 💎 póker, Gran Premio de caballos, Primitiva, Bonoloto, Gordo y Euromillones), que rotan si son varios
+- Jovaniverso: se puede jugar a todas las tragaperras que se quiera a la vez (antes, 3); el Auto de cada una se para al alejarse de ella
+- Jovaniverso: el toldo del casino se ve (estaba bajo el suelo de la plaza)
+- Logros: jugar en 12 y en 24 tragaperras distintas, y a 6 y a 12 a la vez
+- Interno: los mundos guardados o publicados antes reciben el casino de la plaza una sola vez al arrancar
+
 ### 10.7.0 · 2026-11-07
 
 - Jovaniverso: el editor optimiza los polígonos de los modelos GLB. Uno de más de 6.000 triángulos o de más de 1 MB ya no se rechaza al importarlo: se elige a cuántos triángulos bajarlo y se simplifica antes de subirlo. El botón «Optimizar polígonos» hace lo mismo con un GLB ya importado

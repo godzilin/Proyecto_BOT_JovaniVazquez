@@ -2,7 +2,7 @@
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
-import type { Tragas } from "./casino/dibujo";
+import type { Bote, Tragas } from "./casino/dibujo";
 import { deTrozos } from "./editor/trozos";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
@@ -33,8 +33,10 @@ interface ProfileResponse {
   /** Es desarrollador del bot: puede dar y quitar permisos. */
   permisos?: boolean;
   mundo?: number;
-  /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
+  /** Lo que necesitan las tragaperras del mundo; `null` si la tragaperras no está cargada (entonces no se juega). */
   tragas?: Tragas | null;
+  /** Los botes del servidor para los letreros. */
+  botes?: Bote[];
 }
 interface ErrorResponse {
   error: string;
@@ -229,10 +231,8 @@ async function start(): Promise<void> {
         const s = entrada.guildId ? { session: entrada.session, guildId: entrada.guildId } : null;
         cargarDevtools(mundo, s, entrada.profile.permisos === true);
       }
-      if (entrada.profile.tragas) {
-        const nombre = entrada.profile.name;
-        activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
-      }
+      const nombre = entrada.profile.name;
+      activarCasino(mundo, { tragas: entrada.profile.tragas ?? null, botes: entrada.profile.botes ?? [], sesion, saldo: (t) => pildora(nombre, t) });
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
       menuEnPildora(iniciarMenu($("capa"), mundo, null));
@@ -253,7 +253,7 @@ async function start(): Promise<void> {
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);
-        if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, sesion: null, saldo: (t) => pildora("Prueba", t) });
+        if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, botes: local.botes ?? [], sesion: null, saldo: (t) => pildora("Prueba", t) });
       }
     }
     $("carga").classList.add("fuera");

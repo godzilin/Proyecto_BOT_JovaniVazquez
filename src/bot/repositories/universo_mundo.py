@@ -19,6 +19,11 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
   en cada servidor y quién se lo dio. Los desarrolladores no salen aquí: los tienen
   todos siempre (`bot.cogs.universo.DEVS`).
 
+- `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. El único
+  es `casino`: los mundos guardados o publicados antes de que las tragaperras fueran objetos
+  del editor reciben el casino de la plaza (`bot.services.universo_editor.add_casino`), en el
+  borrador y en una publicación nueva del bot (`author_id` 0).
+
 Las tablas del formato 1 (`universo_mundo_borrador` y `universo_mundo_versiones`, un
 documento entero por fila) se parten en trozos al arrancar, una sola vez, y se quedan como
 copia con `_v1` al final del nombre.
@@ -35,9 +40,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from bot.repositories import sqlite
+from bot.services.universo_editor import add_casino
 
 T = TypeVar("T")
 
@@ -184,6 +190,15 @@ class UniversoMundoRepository:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS universo_migraciones (
+                    guild_id INTEGER NOT NULL,
+                    nombre TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, nombre)
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS universo_permisos (
                     guild_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
@@ -207,6 +222,7 @@ class UniversoMundoRepository:
             connection.close()
         if old:
             self._transaction(lambda c: _migrate_v1(c, old))
+        self._transaction(_migrate_casino)
 
     async def permissions(self, guild_id: int, user_id: int) -> set[str]:
         """Los permisos que tiene un miembro en un servidor."""
@@ -583,4 +599,70 @@ def _migrate_v1(connection: sqlite3.Connection, old: set[str]) -> None:
                 )
         connection.execute(
             "ALTER TABLE universo_mundo_borrador RENAME TO universo_mundo_borrador_v1"
+        )
+
+
+def _dump(doc: object) -> str:
+    return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
+
+
+def _cell_refs(key: str, doc: dict[str, Any]) -> str:
+    return _refs({o["asset"] for o in doc.get("objetos", [])} if key.startswith("c/") else ())
+
+
+def _migrate_casino(connection: sqlite3.Connection) -> None:
+    """Pone el casino de la plaza en el borrador y lo publicado de cada servidor, una vez."""
+    guilds = [
+        int(r[0])
+        for r in connection.execute(
+            "SELECT guild_id FROM universo_trozos_borrador UNION "
+            "SELECT guild_id FROM universo_mundo_publicaciones EXCEPT "
+            "SELECT guild_id FROM universo_migraciones WHERE nombre = 'casino'"
+        )
+    ]
+    for guild_id in guilds:
+        revs: dict[str, int] = {}
+        draft: dict[str, dict[str, Any]] = {}
+        for r in connection.execute(
+            "SELECT clave, doc, rev FROM universo_trozos_borrador WHERE guild_id = ?", (guild_id,)
+        ):
+            revs[r["clave"]] = int(r["rev"])
+            if r["doc"]:
+                draft[r["clave"]] = json.loads(r["doc"])
+        for key, doc in (add_casino(draft) if draft else {}).items():
+            connection.execute(
+                "INSERT INTO universo_trozos_borrador "
+                "(guild_id, clave, doc, refs, rev, author_id, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?) ON CONFLICT (guild_id, clave) DO UPDATE SET "
+                "doc = excluded.doc, refs = excluded.refs, rev = excluded.rev, "
+                "author_id = 0, updated_at = excluded.updated_at",
+                (guild_id, key, _dump(doc), _cell_refs(key, doc), revs.get(key, 0) + 1, _now()),
+            )
+        last = connection.execute(
+            "SELECT MAX(version) FROM universo_mundo_publicaciones WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()[0]
+        if last is not None:
+            published = {
+                r["clave"]: json.loads(r["doc"])
+                for r in connection.execute(_latest_sql(), (guild_id, guild_id))
+                if r["doc"]
+            }
+            changed = add_casino(published)
+            if changed:
+                version = int(last) + 1
+                for key, doc in changed.items():
+                    connection.execute(
+                        "INSERT INTO universo_trozos_publicados "
+                        "(guild_id, clave, version, doc, refs) VALUES (?, ?, ?, ?, ?)",
+                        (guild_id, key, version, _dump(doc), _cell_refs(key, doc)),
+                    )
+                size = sum(len(_dump(d).encode()) for d in {**published, **changed}.values())
+                connection.execute(
+                    "INSERT INTO universo_mundo_publicaciones "
+                    "(guild_id, version, author_id, published_at, bytes) VALUES (?, ?, 0, ?, ?)",
+                    (guild_id, version, _now(), size),
+                )
+        connection.execute(
+            "INSERT INTO universo_migraciones (guild_id, nombre) VALUES (?, 'casino')", (guild_id,)
         )

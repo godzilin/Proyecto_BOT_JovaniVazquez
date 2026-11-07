@@ -359,6 +359,7 @@ PRODUCED_STATS = {
     # 🎤 Jovani: tragaperras de la plaza (`universo_slots_stats` y el fin del ▶️ Auto)
     "universo_slots_spins", "universo_slots_auto", "universo_slots_audience",
     "universo_slots_jackpot", "universo_slots_at_once", "universo_slots_regret",
+    "universo_slots_distinct",  # derivada: máquinas distintas (`with_derived`)
     *(f"universo_slots_machine_{m}" for m in range(1, 7)),
     "universo_dance_canarias",
     # 🎤 Jovani: el menú del tabulador (`universo_teleport_stats` y `universo_menu_stats`)
@@ -2831,3 +2832,8 @@ def test_el_menu_del_universo_cuenta_teleportes_lista_y_mochila() -> None:
     assert universo_menu_stats("jugadores", broke=True).add["universo_tab_broke"] == 1
     assert universo_menu_stats("mochila").add == {"universo_bag_opens": 1, "universo_bag_empty": 1}
     assert universo_menu_stats("mochila", items=12).peak == {"universo_bag_max": 12}
+
+
+def test_las_tragaperras_distintas_del_jovaniverso_se_cuentan() -> None:
+    stats = {f"universo_slots_machine_{m}": 1 for m in (1, 7, 24)} | {"universo_slots_machine_9": 0}
+    assert with_derived(stats)["universo_slots_distinct"] == 3

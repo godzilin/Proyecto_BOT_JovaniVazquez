@@ -6,10 +6,9 @@ import pytest
 
 from bot.services.autoplay import AUTOPLAY_MAX, LOSS_LIMIT_MULTIPLIER, StopReason
 from bot.services.slots import BONUS_FREE_SPINS, FREE_SPINS
+from bot.services.universo_editor import MAX_SLOTS
 from bot.services.universo_tragas import (
     IDLE_SECONDS,
-    MACHINES,
-    MAX_AT_ONCE,
     MIN_GAP_SECONDS,
     SeatError,
     Seats,
@@ -30,7 +29,7 @@ def play(seats: Seats, machine: int = 1, *, now: float, stake: int = 100, auto: 
 
 def test_maquina_que_no_existe_o_apuesta_cero_no_se_juega() -> None:
     seats = Seats()
-    for machine in (0, MACHINES + 1):
+    for machine in (0, MAX_SLOTS + 1):
         with pytest.raises(SeatError):
             seats.begin(G, U, machine, stake=100, auto=False, now=0)
     with pytest.raises(SeatError):
@@ -48,15 +47,13 @@ def test_no_se_tira_mas_rapido_que_la_tirada_mas_corta() -> None:
     seats.begin(G, U, 1, stake=100, auto=False, now=10 + MIN_GAP_SECONDS)
 
 
-def test_tope_de_maquinas_a_la_vez() -> None:
+def test_se_juega_a_todas_las_maquinas_a_la_vez() -> None:
     seats = Seats()
-    for machine in range(1, MAX_AT_ONCE + 1):
+    for machine in range(1, MAX_SLOTS + 1):
         play(seats, machine, now=0)
-    with pytest.raises(SeatError):
-        seats.begin(G, U, MAX_AT_ONCE + 1, stake=100, auto=False, now=1)
-    # Las que ya juega siguen valiendo, y otro miembro tiene las suyas.
-    seats.begin(G, U, 1, stake=100, auto=False, now=MIN_GAP_SECONDS)
-    seats.begin(G, U + 1, MAX_AT_ONCE + 1, stake=100, auto=False, now=1)
+    assert seats.active(G, U, now=1) == set(range(1, MAX_SLOTS + 1))
+    # Otro miembro tiene las suyas.
+    seats.begin(G, U + 1, 1, stake=100, auto=False, now=1)
 
 
 def test_los_giros_gratis_son_de_su_maquina_y_van_a_la_menor_apuesta() -> None:
@@ -114,3 +111,11 @@ def test_los_asientos_sin_usar_se_olvidan() -> None:
     play(seats, 2, now=IDLE_SECONDS)
     seats.sweep(IDLE_SECONDS + 1)
     assert len(seats) == 1
+
+
+def test_los_botes_de_loteria_son_los_de_la_loteria() -> None:
+    from bot.cogs.lottery import POOL_GAMES
+    from bot.services.universo_botes import LOTTERY_POTS, POTS
+
+    assert LOTTERY_POTS == POOL_GAMES
+    assert len({p.key for p in POTS}) == len(POTS)

@@ -8,6 +8,7 @@ import struct
 
 import pytest
 
+from bot.services import universo_editor as editor
 from bot.services.universo import PLACES
 from bot.services.universo_editor import (
     CELL_TERRAIN_SIDE,
@@ -422,3 +423,99 @@ def test_los_teleportes_son_un_trozo_con_nombre_y_punto() -> None:
 def test_un_teleporte_raro_no_vale(doc: dict, error: str) -> None:
     with pytest.raises(MundoError, match=error):
         validate_piece("teleportes", doc, {})
+
+
+def _celda(*objetos: dict) -> dict:
+    return {"objetos": list(objetos)}
+
+
+def _obj(asset: str, x: float = 1.0, **extra: object) -> dict:
+    return {"asset": asset, "pos": [x, 0.0, 1.0], "rot": [0, 0, 0], "esc": [1, 1, 1], **extra}
+
+
+def test_un_asset_puede_ser_tragaperras_o_letrero() -> None:
+    base = {"nombre": "Máquina", "tipo": "piezas", "piezas": [], "malla": None, "colision": None}
+    del base["malla"]
+    base["piezas"] = [
+        {"forma": "caja", "pos": [0, 0, 0], "rot": [0, 0, 0], "esc": [1, 1, 1], "color": 1}
+    ]
+    clean, _ = editor.validate_piece("a/t", {**base, "funcion": {"tipo": "traga"}}, {})
+    assert clean["funcion"] == {"tipo": "traga"}
+    sign = {"tipo": "letrero", "pos": [0, 2, 0.1], "ancho": 3, "alto": 0.5}
+    clean, _ = editor.validate_piece("a/l", {**base, "funcion": sign}, {})
+    assert clean["funcion"] == {
+        "tipo": "letrero",
+        "pos": [0.0, 2.0, 0.1],
+        "ancho": 3.0,
+        "alto": 0.5,
+    }
+    for bad in (
+        {"tipo": "ruleta"},
+        {"tipo": "traga", "ancho": 1},
+        {**sign, "ancho": 0},
+        {**sign, "alto": editor.MAX_SIGN_SIDE + 1},
+    ):
+        with pytest.raises(editor.MundoError):
+            editor.validate_piece("a/x", {**base, "funcion": bad}, {})
+
+
+def test_los_datos_de_tragaperras_y_letreros() -> None:
+    datos = {"n": 7, "titulo": " BOTE ", "botes": ["tragas", "poker"]}
+    clean, _ = editor.validate_piece("c/0/0", _celda(_obj("t", datos=datos)), {})
+    assert clean["objetos"][0]["datos"] == {"n": 7, "titulo": "BOTE", "botes": ["tragas", "poker"]}
+    # Unos datos vacíos no se guardan.
+    clean, _ = editor.validate_piece("c/0/0", _celda(_obj("t", datos={})), {})
+    assert "datos" not in clean["objetos"][0]
+    for bad in (
+        {"n": 0},
+        {"n": editor.MAX_SLOTS + 1},
+        {"n": True},
+        {"titulo": "x" * (editor.MAX_SIGN_TITLE + 1)},
+        {"botes": ["tragas", "tragas"]},
+        {"botes": ["Mal"]},
+        {"botes": ["a"] * (editor.MAX_SIGN_POTS + 1)},
+        {"color": 3},
+    ):
+        with pytest.raises(editor.MundoError):
+            editor.validate_piece("c/0/0", _celda(_obj("t", datos=bad)), {})
+
+
+def test_dos_tragaperras_no_comparten_numero() -> None:
+    dos = _celda(_obj("t", datos={"n": 3}), _obj("t", 2.0, datos={"n": 3}))
+    with pytest.raises(editor.MundoError, match="3"):
+        editor.validate_piece("c/0/0", dos, {})
+    # Tampoco en celdas distintas del mismo mundo.
+    traga = {
+        "nombre": "T",
+        "tipo": "piezas",
+        "piezas": [],
+        "malla": {"pos": [0] * 9, "color": [0] * 3},
+    }
+    world = {
+        "a/t": {**traga, "colision": None, "funcion": {"tipo": "traga"}},
+        "c/0/0": _celda(_obj("t", datos={"n": 3})),
+        "c/1/0": _celda(_obj("t", 81.0, datos={"n": 3})),
+    }
+    with pytest.raises(editor.MundoError, match="mismo número"):
+        editor.validate_world(world, {})
+
+
+def test_el_casino_de_serie_vale_y_se_suma_a_lo_que_hay() -> None:
+    casino = json.loads(editor.CASINO_FILE.read_text(encoding="utf-8"))
+    pieces = editor.split_world({**casino, "zonas": {}})
+    clean = editor.validate_world(pieces, {})
+    numbers = editor.slot_numbers(
+        o for k, t in clean.items() if k.startswith("c/") for o in t["objetos"]
+    )
+    assert numbers == [1, 2, 3, 4, 5, 6]
+    assert editor.add_casino(clean) == {}  # ya tiene tragaperras
+    mine = {
+        "a/pino": {"nombre": "Pino"},
+        "c/-1/0": {"objetos": [{"asset": "pino"}], "terreno": "T"},
+    }
+    changed = editor.add_casino(mine)
+    assert "a/pino" not in changed
+    assert changed["c/-1/0"]["terreno"] == "T"
+    assert changed["c/-1/0"]["objetos"][0] == {"asset": "pino"}
+    assert len(changed["c/-1/0"]["objetos"]) == 1 + len(casino["objetos"])
+    assert mine["c/-1/0"]["objetos"] == [{"asset": "pino"}]  # no toca lo que recibe

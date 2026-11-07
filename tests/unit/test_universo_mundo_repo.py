@@ -159,9 +159,15 @@ async def test_las_tablas_del_formato_1_se_parten_en_trozos(tmp_path: Path) -> N
     await repo.initialize()  # la segunda vez no hace nada
     pino = '{"nombre":"Pino"}'
     moved_cell = '{"objetos":[{"asset":"pino","pos":[100.0,0.0,-5.0]}]}'
-    assert await repo.published(1) == (4, {"a/pino": pino, "c/1/-1": moved_cell})
-    assert [v[0] for v in await repo.versions(1)] == [4, 3]
-    assert await repo.draft(1) == {"a/pino": (pino, 1), "c/1/-1": (moved_cell, 1)}
+    version, published = await repo.published(1)  # type: ignore[misc]
+    # La 5 la publica el bot con el casino de la plaza (`add_casino`), que el mundo no tenía.
+    assert version == 5
+    assert published["a/pino"] == pino and published["c/1/-1"] == moved_cell
+    assert "a/traga-roja" in published
+    assert [v[0] for v in await repo.versions(1)] == [5, 4, 3]
+    draft = await repo.draft(1)
+    assert draft["a/pino"] == (pino, 1) and draft["c/1/-1"] == (moved_cell, 1)
+    assert "a/letrero-botes" in draft
     assert await repo.revert(1, 3, 10) is True
     assert (await repo.draft(1))["c/0/0"][0] == '{"objetos":[{"asset":"pino","pos":[1.0,0.0,2.0]}]}'
     # El borrado se ve: en la 4 ya no hay nada en la celda 0, 0.
@@ -185,3 +191,43 @@ async def test_glb_por_contenido(repo: UniversoMundoRepository) -> None:
     await repo.put_glb("b" * 64, b"mas", 7, 10)
     assert await repo.glb("a" * 64) == b"datos"
     assert await repo.glb_triangles({"a" * 64, "b" * 64, "c" * 64}) == {"a" * 64: 12, "b" * 64: 7}
+
+
+async def test_los_mundos_sin_tragaperras_reciben_el_casino_una_sola_vez(tmp_path: Path) -> None:
+    repo = UniversoMundoRepository(tmp_path / "bot.sqlite3")
+    await repo.initialize()
+    # Un servidor con algo guardado y publicado de antes, en la misma celda que el casino.
+    cell = '{"objetos":[{"asset":"pino","pos":[-10.0,8.0,70.0]}]}'
+    await repo.save(1, {"a/pino": put(0, PINO), "c/-1/0": put(0, cell, "pino")}, 10, 99)
+    await repo.publish(1, 10)
+    # Otro que ya tiene su tragaperras: no se toca.
+    traga = json.dumps(
+        {"nombre": "T", "tipo": "piezas", "piezas": [], "funcion": {"tipo": "traga"}}
+    )
+    await repo.save(2, {"a/mia": put(0, traga)}, 10, 99)
+    connection = sqlite3.connect(repo.database_path)
+    connection.execute("DELETE FROM universo_migraciones")
+    connection.commit()
+    connection.close()
+
+    await repo.initialize()
+    version, published = await repo.published(1)  # type: ignore[misc]
+    assert version == 2
+    objetos = json.loads(published["c/-1/0"])["objetos"]
+    assert objetos[0]["asset"] == "pino"
+    assert sorted(o["datos"]["n"] for o in objetos if "n" in o.get("datos", {})) == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ]
+    draft = await repo.draft(1)
+    assert draft["c/-1/0"][1] == 2  # sube el rev: un editor abierto de antes no lo pisa
+    assert set(draft) == set(published)
+    assert set(await repo.draft(2)) == {"a/mia"}
+    # Quitar el casino después es cosa de los editores: no vuelve al reiniciar.
+    await repo.save(1, {"c/-1/0": put(2, cell, "pino")}, 10, 99)
+    await repo.initialize()
+    assert (await repo.draft(1))["c/-1/0"][0] == cell

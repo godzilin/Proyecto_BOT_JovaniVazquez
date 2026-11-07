@@ -57,8 +57,10 @@ from bot.services.slots import (
 from bot.services.slots_render import SYMBOL_FILES
 from bot.services.slots_scene import spin_states, still_state
 from bot.services.universo import GESTURES
+from bot.services.universo_botes import pot_catalog, pot_list
+from bot.services.universo_editor import MAX_SLOTS
 from bot.services.universo_sala import POSE, Salas
-from bot.services.universo_tragas import MACHINES, MAX_AT_ONCE, MIN_GAP_SECONDS, SeatError, Seats
+from bot.services.universo_tragas import MACHINES, MIN_GAP_SECONDS, SeatError, Seats
 
 GUILD = 1
 USER = 1
@@ -100,13 +102,17 @@ class Casino:
         self.machine = SlotMachine()
         self.balance = START_BALANCE
         self.pot = POT_SEED
-        self.heat = [0] * (MACHINES + 1)
-        self.bonus = [BonusMeter()] * (MACHINES + 1)
+        self.heat = [0] * (MAX_SLOTS + 1)
+        self.bonus = [BonusMeter()] * (MAX_SLOTS + 1)
+
+    def pots(self) -> list[dict[str, str]]:
+        """Los botes de los letreros: el de verdad de esta plaza y cifras fijas para el resto."""
+        fixed = {"poker": 12_345, "caballos": 250_000, "primitiva": 1_000_000}
+        return pot_list({"tragas": self.pot, **fixed})
 
     def meta(self) -> dict:
         return {
             "machines": MACHINES,
-            "max_at_once": MAX_AT_ONCE,
             "min_gap": MIN_GAP_SECONDS,
             "strips": list(REEL_STRIPS),
             "symbols": dict(SYMBOL_FILES),
@@ -184,8 +190,14 @@ async def entrar(request: web.Request) -> web.Response:
             "version": "local",
             "gestures": sorted(GESTURES),
             "tragas": casino.meta(),
+            "botes": casino.pots(),
         }
     )
+
+
+async def botes(request: web.Request) -> web.Response:
+    """`/api/botes` de pruebas: el bote de la tragaperras y unos de mentira para los letreros."""
+    return web.json_response({"botes": request.app["casino"].pots(), "catalogo": pot_catalog()})
 
 
 async def traga(request: web.Request) -> web.Response:
@@ -243,6 +255,7 @@ async def main() -> None:
     app.router.add_get("/api/sala", sala)
     app.router.add_post("/api/entrar", entrar)
     app.router.add_post("/api/traga", traga)
+    app.router.add_get("/api/botes", botes)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "localhost", args.puerto).start()

@@ -155,7 +155,6 @@ from bot.services.slots_scene import (
 from bot.services.taxes import TAX_COLLECTOR
 from bot.services.telemetry import TimedLock
 from bot.services.universo_tragas import MACHINES as PLAZA_MACHINES
-from bot.services.universo_tragas import MAX_AT_ONCE as PLAZA_MAX_AT_ONCE
 from bot.services.universo_tragas import MIN_GAP_SECONDS as PLAZA_MIN_GAP
 from bot.services.universo_tragas import Auto as PlazaAuto
 from bot.services.universo_tragas import SeatError, Seats, auto_stop_text
@@ -2419,7 +2418,6 @@ class Slots(commands.Cog, name="Tragaperras"):
         """
         return {
             "machines": PLAZA_MACHINES,
-            "max_at_once": PLAZA_MAX_AT_ONCE,
             "min_gap": PLAZA_MIN_GAP,
             "strips": list(REEL_STRIPS),
             "symbols": dict(SYMBOL_FILES),
@@ -2686,6 +2684,12 @@ def plaza_stop(
     """⏹️ Para el Auto de una tragaperras de la plaza; no hace nada sin el cog."""
     if (cog := find_cog(bot, Slots)) is not None:
         cog.plaza_stop(guild_id, member, channel, machine)
+
+
+async def pot(bot: commands.Bot, guild_id: int) -> int | None:
+    """El bote común de la tragaperras (`Slots.pot`), o `None` sin el cog (letreros)."""
+    cog = find_cog(bot, Slots)
+    return None if cog is None else await cog.pot(guild_id)
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
