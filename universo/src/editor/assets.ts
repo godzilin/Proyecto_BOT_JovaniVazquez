@@ -1,4 +1,5 @@
 // Modo «Assets» del editor del Jovaniverso (solo con permiso de editor, solo ordenador): monta y edita assets de piezas o importa GLB.
+// Se pueden elegir varias piezas (clic, Ctrl+clic, Mayús+clic en la lista, Mayús+arrastrar en la vista) y todo actúa sobre lo elegido.
 // El borrador, guardar, publicar y deshacer son del editor entero (`borrador.ts`, `editor.ts`).
 import * as api from "./api";
 import { dialogo, h } from "./dom";
@@ -26,6 +27,7 @@ import {
   triangulosPieza,
   type Vec3,
 } from "./formato";
+import { Seleccion } from "./grupo";
 import type { Anfitrion, Panel } from "./panel";
 import { type Modo, Vista } from "./vista";
 
@@ -37,6 +39,32 @@ const MODOS: [Modo, string, string][] = [
   ["rotate", "Girar (E)", "e"],
   ["scale", "Escalar (R)", "r"],
 ];
+
+/** Atajos y ratón de esta pestaña, para el menú de ayuda del editor. */
+export const AYUDA_ASSETS: [string, string][] = [
+  ["Clic en una pieza", "Elige solo esa pieza (en la vista o en la lista)"],
+  ["Ctrl+clic", "Añade o quita una pieza de la selección"],
+  ["Mayús+clic en la lista", "Elige todas las piezas entre la última elegida y la pulsada"],
+  ["Mayús+arrastrar en la vista", "Dibuja una caja y elige las piezas cuyo centro queda dentro (con Ctrl, se suman a las elegidas)"],
+  ["Clic en el vacío", "Deja de elegir ninguna pieza"],
+  ["Arrastrar con Ctrl", "Invierte el ajuste a rejilla mientras dura el arrastre"],
+  ["W / E / R", "Mover, girar o escalar con el gizmo"],
+  ["X", "Cambia el gizmo entre ejes locales y globales"],
+  ["Ctrl+D", "Duplica las piezas elegidas, 0,5 m a un lado"],
+  ["Ctrl+C / Ctrl+X / Ctrl+V", "Copia, corta y pega piezas (también entre assets)"],
+  ["Supr o Retroceso", "Borra las piezas elegidas"],
+  ["Ctrl+A", "Elige todas las piezas visibles"],
+  ["Escape", "Deja de elegir ninguna pieza"],
+  ["F", "Encuadra lo elegido o, si no hay nada, todo el asset"],
+  ["H", "Oculta las piezas elegidas (solo en el editor, no se guarda)"],
+  ["Alt+H", "Enseña todas las piezas ocultas"],
+  ["Flechas", "Mueven lo elegido 0,1 m en x y z (con Mayús, 1 m)"],
+  ["Re Pág / Av Pág", "Suben o bajan lo elegido 0,1 m (con Mayús, 1 m)"],
+  ["Ctrl+Z / Ctrl+Y", "Deshacer y rehacer"],
+];
+
+/** Portapapeles de piezas, en memoria: vale entre assets mientras el editor siga abierto. */
+let portapapeles: Pieza[] = [];
 
 function numero(n: number): string {
   return String(Math.round(n * 1000) / 1000);
@@ -63,7 +91,9 @@ function sacarId(nombre: string, existentes: Record<string, unknown>): string {
 
 export class PanelAssets implements Panel {
   private selId: string | null = null;
-  private piezaSel = -1;
+  private readonly sel = new Seleccion();
+  private readonly ocultas = new Set<Pieza>();
+  private local = false;
   private modo: Modo = "translate";
   private glbMostrado: string | null = null;
   private enfocarAlCargar = false;
@@ -91,13 +121,17 @@ export class PanelAssets implements Panel {
     this.selId = Object.keys(this.doc.assets)[0] ?? null;
     this.elementos = [this.izquierda(), this.centro(), this.derecha()];
     this.vista = new Vista(this.contenedor);
-    this.vista.alElegir = (i) => this.elegirPieza(i);
-    this.vista.alTransformar = (i, fin) => this.arrastrar(i, fin);
+    this.vista.alElegir = (i, aditivo) => (i >= 0 ? this.clicPieza(i, aditivo ? "alternar" : "solo") : aditivo ? undefined : this.clicPieza(-1, "solo"));
+    this.vista.alCaja = (indices, aditivo) => {
+      this.sel.poner(aditivo ? [...this.sel.lista.filter((i) => !indices.includes(i)), ...indices] : indices);
+      this.dibujar();
+    };
+    this.vista.alTransformar = (fin) => this.arrastrar(fin);
     this.filtro.addEventListener("input", () => this.pintarAssets());
     this.archivo.addEventListener("change", () => void this.importar());
     this.dibujar();
     this.enfocarAlCargar = true;
-    this.vista.enfocar(-1);
+    this.vista.enfocar([]);
   }
 
   private get doc(): MundoDoc {
@@ -158,7 +192,7 @@ export class PanelAssets implements Panel {
   private centro(): HTMLElement {
     const formas = FORMAS.map((f) => this.boton(`add-${f}`, f, () => this.anadir(f), `Añadir ${f}`));
     const modos = MODOS.map(([m, texto]) => {
-      const b = h("button", { className: "ed-b", textContent: texto, onclick: () => this.cambiarModo(m) });
+      const b = h("button", { className: "ed-b", textContent: texto, title: texto, onclick: () => this.cambiarModo(m) });
       this.botonesModo.set(m, b);
       return b;
     });
@@ -171,13 +205,21 @@ export class PanelAssets implements Panel {
         { className: "ed-barra" },
         ...formas,
         h("span", { className: "ed-sep" }),
-        this.boton("dup-pieza", "Duplicar pieza", () => this.duplicarPieza(), "Ctrl+D"),
-        this.boton("espejo", "Espejo X", () => this.espejoX()),
-        this.boton("borrar-pieza", "Borrar pieza", () => this.borrarPieza(), "Supr"),
+        this.boton("dup-pieza", "Duplicar", () => this.duplicarPieza(), "Duplica lo elegido (Ctrl+D)"),
+        this.boton("espejo", "Espejo X", () => this.espejoX(), "Copias de lo elegido reflejadas en x"),
+        this.boton("borrar-pieza", "Borrar", () => this.borrarPieza(), "Borra lo elegido (Supr o Retroceso)"),
+        this.boton("copiar", "Copiar", () => this.copiar(), "Ctrl+C"),
+        this.boton("cortar", "Cortar", () => this.cortar(), "Ctrl+X"),
+        this.boton("pegar", "Pegar", () => this.pegar(), "Ctrl+V"),
+        h("span", { className: "ed-sep" }),
+        this.boton("alinear-x", "Alinear X", () => this.alinear(0), "Lleva la x de lo elegido a la de la pieza principal (la última elegida)"),
+        this.boton("alinear-y", "Alinear Y", () => this.alinear(1), "Lleva la y de lo elegido a la de la pieza principal (la última elegida)"),
+        this.boton("alinear-z", "Alinear Z", () => this.alinear(2), "Lleva la z de lo elegido a la de la pieza principal (la última elegida)"),
         h("span", { className: "ed-sep" }),
         this.boton("deshacer", "Deshacer", () => this.a.b.irA(this.a.b.hi - 1), "Ctrl+Z"),
         this.boton("rehacer", "Rehacer", () => this.a.b.irA(this.a.b.hi + 1), "Ctrl+Y"),
-        this.boton("enfocar", "Enfocar", () => this.vista.enfocar(this.piezaSel), "F"),
+        this.boton("enfocar", "Enfocar", () => this.vista.enfocar(this.sel.lista), "Encuadra lo elegido (F)"),
+        this.boton("espacio", "Ejes: globales", () => this.cambiarEspacio(), "Ejes del gizmo locales o globales (X)"),
         h("span", { className: "ed-sep" }),
         ...modos,
         h("label", { className: "ed-etiqueta", title: "0,1 m, 15° y 0,1 de escala" }, ajuste, " Ajuste"),
@@ -188,7 +230,9 @@ export class PanelAssets implements Panel {
 
   private derecha(): HTMLElement {
     for (const f of FORMAS) this.forma.append(h("option", { value: f, textContent: f }));
+    this.forma.append(h("option", { value: "", textContent: "—", disabled: true }));
     this.forma.onchange = () =>
+      this.forma.value &&
       this.editar((p) => {
         p.forma = this.forma.value as Forma;
         // Cada pieza guarda solo los campos de su forma: el servidor rechaza los de un prisma en otra.
@@ -200,7 +244,7 @@ export class PanelAssets implements Panel {
 
     const fila = (titulo: string, campo: "pos" | "rot" | "esc", paso: string): HTMLElement => {
       const inputs = [0, 1, 2].map((i) => {
-        const input = h("input", { type: "number", step: paso });
+        const input = h("input", { type: "number", step: paso, placeholder: "—" });
         input.onchange = () => this.editarCampo(campo, i, input);
         this.campos.push({ campo, i, input });
         return input;
@@ -222,7 +266,7 @@ export class PanelAssets implements Panel {
       ["Fase (°)", "fase", "5"],
     ];
     for (const [titulo, campo, paso] of prisma) {
-      const input = h("input", { type: "number", step: paso });
+      const input = h("input", { type: "number", step: paso, placeholder: "—" });
       input.onchange = () => this.editarPrisma(campo, input);
       this.camposPrisma.push({ campo, input });
       this.propsPrisma.append(h("label", { className: "ed-vec" }, h("span", { textContent: titulo }), input));
@@ -264,8 +308,21 @@ export class PanelAssets implements Panel {
     return a?.tipo === "piezas" ? a.piezas : null;
   }
 
+  /** La pieza principal (la última elegida). */
   private get pieza(): Pieza | null {
-    return this.piezas?.[this.piezaSel] ?? null;
+    return this.piezas?.[this.sel.principal] ?? null;
+  }
+
+  /** Todas las elegidas, de menor a mayor índice. */
+  private elegidas(): Pieza[] {
+    const piezas = this.piezas ?? [];
+    return this.sel.lista.flatMap((i) => (piezas[i] ? [piezas[i]] : []));
+  }
+
+  /** El valor que comparten todas las elegidas, o `undefined` si difieren. */
+  private comun<T>(f: (p: Pieza) => T): T | undefined {
+    const ps = this.elegidas();
+    return ps.length && ps.every((p) => f(p) === f(ps[0])) ? f(ps[0]) : undefined;
   }
 
   private triangulos(a: Asset): number | null {
@@ -275,13 +332,15 @@ export class PanelAssets implements Panel {
 
   private editarPrisma(campo: "lados" | "arriba" | "abajo" | "fase", input: HTMLInputElement): void {
     const v = parseFloat(input.value);
-    const p = this.pieza;
-    if (!p || p.forma !== "prisma" || Number.isNaN(v)) return this.refrescar();
-    if (campo === "lados") p.lados = Math.min(Math.max(Math.round(v), MIN_LADOS), MAX_LADOS);
-    else if (campo === "fase") p.fase = Math.min(Math.max(v, -720), 720) * GRADOS;
-    else p[campo] = Math.min(Math.max(v, 0), 1);
-    // El servidor pide alguna tapa con radio.
-    if (!p.arriba && !p.abajo) p[campo === "abajo" ? "abajo" : "arriba"] = 0.05;
+    const ps = this.elegidas();
+    if (!ps.length || ps.some((p) => p.forma !== "prisma") || Number.isNaN(v)) return this.refrescar();
+    for (const p of ps) {
+      if (campo === "lados") p.lados = Math.min(Math.max(Math.round(v), MIN_LADOS), MAX_LADOS);
+      else if (campo === "fase") p.fase = Math.min(Math.max(v, -720), 720) * GRADOS;
+      else p[campo] = Math.min(Math.max(v, 0), 1);
+      // El servidor pide alguna tapa con radio.
+      if (!p.arriba && !p.abajo) p[campo === "abajo" ? "abajo" : "arriba"] = 0.05;
+    }
     this.commit();
   }
 
@@ -295,11 +354,11 @@ export class PanelAssets implements Panel {
     this.dibujar();
   }
 
-  /** Cambia la pieza elegida; con `cerrar` falso es un paso intermedio (no entra en el historial). */
+  /** Cambia todas las elegidas; con `cerrar` falso es un paso intermedio (no entra en el historial). */
   private editar(fn: (p: Pieza) => void, cerrar = true): void {
-    const p = this.pieza;
-    if (!p) return;
-    fn(p);
+    const ps = this.elegidas();
+    if (!ps.length) return;
+    ps.forEach(fn);
     if (cerrar) this.commit();
     else {
       this.a.b.marcarSucio();
@@ -309,18 +368,21 @@ export class PanelAssets implements Panel {
 
   private editarCampo(campo: "pos" | "rot" | "esc", i: number, input: HTMLInputElement): void {
     const v = parseFloat(input.value);
-    const p = this.pieza;
-    if (!p || Number.isNaN(v)) return this.refrescar();
+    const ps = this.elegidas();
+    if (!ps.length || Number.isNaN(v)) return this.refrescar();
     const [min, max, k] = campo === "pos" ? [-60, 60, 1] : campo === "esc" ? [0.02, 60, 1] : [-720, 720, GRADOS];
-    p[campo][i] = Math.min(Math.max(v, min), max) * k;
+    for (const p of ps) p[campo][i] = Math.min(Math.max(v, min), max) * k;
     this.commit();
   }
 
-  private arrastrar(i: number, fin: boolean): void {
-    const p = this.piezas?.[i];
-    if (!p) return;
-    const t = this.vista.transformacion(i);
-    [p.pos, p.rot, p.esc] = [redondear(t.pos), redondear(t.rot), redondear(t.esc)];
+  private arrastrar(fin: boolean): void {
+    const piezas = this.piezas;
+    if (!piezas) return;
+    for (const i of this.sel.lista) {
+      if (!piezas[i]) continue;
+      const t = this.vista.transformacion(i);
+      [piezas[i].pos, piezas[i].rot, piezas[i].esc] = [redondear(t.pos), redondear(t.rot), redondear(t.esc)];
+    }
     if (fin) this.commit();
     else this.refrescar();
   }
@@ -336,7 +398,7 @@ export class PanelAssets implements Panel {
       this.vista.colision(null);
     } else if (a.tipo === "piezas") {
       this.glbMostrado = null;
-      this.vista.mostrarPiezas(a.piezas, this.piezaSel, a.malla);
+      this.vista.mostrarPiezas(a.piezas, this.sel.lista, this.sel.principal, a.piezas.map((p) => this.ocultas.has(p)), a.malla);
       this.vista.colision(a.colision);
     } else {
       if (this.glbMostrado !== a.glb) this.cargarModelo(a.glb);
@@ -354,7 +416,7 @@ export class PanelAssets implements Panel {
         const a = this.asset;
         if (this.glbMostrado !== sha || a?.tipo !== "glb" || a.glb !== sha) return;
         this.vista.mostrarModelo(modelo);
-        if (this.enfocarAlCargar) this.vista.enfocar(-1);
+        if (this.enfocarAlCargar) this.vista.enfocar([]);
         this.enfocarAlCargar = false;
         this.refrescar();
       },
@@ -387,9 +449,15 @@ export class PanelAssets implements Panel {
   private pintarPiezas(): void {
     const piezas = this.piezas;
     const items = (piezas ?? []).map((p, i) => {
-      const b = h("button", { className: "ed-item", onclick: () => this.elegirPieza(i) }, `${i + 1}. ${p.forma} `, h("span", { className: "ed-muestra" }));
+      const oculta = this.ocultas.has(p);
+      const b = h(
+        "button",
+        { className: "ed-item", onclick: (e) => this.clicPieza(i, e.shiftKey ? "rango" : e.ctrlKey || e.metaKey ? "alternar" : "solo") },
+        `${i + 1}. ${p.forma}${oculta ? " (oculta)" : ""} `,
+        h("span", { className: "ed-muestra" }),
+      );
       (b.lastChild as HTMLElement).style.background = `#${p.color.toString(16).padStart(6, "0")}`;
-      b.setAttribute("aria-pressed", String(i === this.piezaSel));
+      b.setAttribute("aria-pressed", String(this.sel.tiene(i)));
       return b;
     });
     const a = this.asset;
@@ -402,13 +470,14 @@ export class PanelAssets implements Panel {
     const p = this.pieza;
     this.propsCaja.hidden = !p;
     if (p) {
+      // Cada campo enseña el valor si todas las elegidas lo comparten y, si no, se queda vacío («—»).
       for (const { campo, i, input } of this.campos) {
-        if (document.activeElement !== input) input.value = numero(p[campo][i] / (campo === "rot" ? GRADOS : 1));
+        if (document.activeElement !== input) input.value = this.comun((q) => numero(q[campo][i] / (campo === "rot" ? GRADOS : 1))) ?? "";
       }
-      this.forma.value = p.forma;
-      this.propsPrisma.hidden = p.forma !== "prisma";
+      this.forma.value = this.comun((q) => q.forma) ?? "";
+      this.propsPrisma.hidden = this.elegidas().some((q) => q.forma !== "prisma");
       for (const { campo, input } of this.camposPrisma) {
-        if (document.activeElement !== input) input.value = numero(p.forma !== "prisma" ? 0 : (p[campo] ?? 0) / (campo === "fase" ? GRADOS : 1));
+        if (document.activeElement !== input) input.value = this.comun((q) => numero((q[campo] ?? 0) / (campo === "fase" ? GRADOS : 1))) ?? "";
       }
       this.color.value = `#${p.color.toString(16).padStart(6, "0")}`;
     }
@@ -459,9 +528,11 @@ export class PanelAssets implements Panel {
         ...(a.tipo === "piezas" ? [`${a.piezas.length} / ${MAX_PIEZAS} piezas`] : []),
       );
     }
+    const n = this.sel.lista.length;
+    if (n > 1) partes.push(`${n} piezas elegidas`);
     if (this.mensaje) partes.push(this.mensaje);
 
-    const tienePieza = !!this.pieza;
+    const tienePieza = n > 0 && !!this.pieza;
     const hayPiezas = !!this.piezas;
     const puedo = (clave: string, si: boolean): void => {
       this.botones.get(clave)!.disabled = !si;
@@ -470,6 +541,10 @@ export class PanelAssets implements Panel {
     puedo("dup-pieza", tienePieza);
     puedo("espejo", tienePieza);
     puedo("borrar-pieza", tienePieza);
+    puedo("copiar", tienePieza);
+    puedo("cortar", tienePieza);
+    puedo("pegar", hayPiezas && portapapeles.length > 0);
+    for (const c of ["x", "y", "z"]) puedo(`alinear-${c}`, n > 1);
     puedo("deshacer", this.a.b.hi > 0);
     puedo("rehacer", this.a.b.hi < this.a.b.hist.length - 1);
     for (const c of ["duplicar", "renombrar", "borrar", "ajustar"]) puedo(c, !!a);
@@ -487,16 +562,28 @@ export class PanelAssets implements Panel {
 
   private elegirAsset(id: string): void {
     this.selId = id;
-    this.piezaSel = -1;
+    this.sel.vaciar();
+    this.ocultas.clear();
     this.glbMostrado = null;
     this.enfocarAlCargar = true;
     this.dibujar();
-    this.vista.enfocar(-1);
+    this.vista.enfocar([]);
   }
 
-  private elegirPieza(i: number): void {
-    this.piezaSel = i;
+  /** Clic en una pieza (o en el vacío, con -1): sola, añadida o quitada, o el rango desde la principal. Lo oculto no se elige. */
+  private clicPieza(i: number, como: "solo" | "alternar" | "rango"): void {
+    const p = this.piezas?.[i];
+    if (p && this.ocultas.has(p)) return;
+    if (como === "alternar") this.sel.alternar(i);
+    else if (como === "rango") this.sel.rango(i);
+    else this.sel.solo(i);
     this.dibujar();
+  }
+
+  private cambiarEspacio(): void {
+    this.local = !this.local;
+    this.vista.espacio(this.local);
+    this.botones.get("espacio")!.textContent = this.local ? "Ejes: locales" : "Ejes: globales";
   }
 
   private cambiarModo(m: Modo): void {
@@ -511,38 +598,84 @@ export class PanelAssets implements Panel {
     if (piezas.length >= MAX_PIEZAS) return this.avisar(`Un asset puede tener ${MAX_PIEZAS} piezas como mucho.`);
     const prisma = forma === "prisma" ? { lados: 6, arriba: 1, abajo: 1, fase: 0 } : {};
     piezas.push({ forma, pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0xc8c8d0, ...prisma });
-    this.piezaSel = piezas.length - 1;
+    this.sel.solo(piezas.length - 1);
     this.commit();
   }
 
   private duplicarPieza(): void {
-    this.copiarPieza((p) => (p.pos[0] += 0.5));
+    this.anadirCopias(this.elegidas(), (p) => (p.pos[0] += 0.5));
   }
 
   private espejoX(): void {
-    this.copiarPieza((p) => {
+    this.anadirCopias(this.elegidas(), (p) => {
       p.pos[0] = -p.pos[0];
       p.rot = [p.rot[0], -p.rot[1], -p.rot[2]];
     });
   }
 
-  private copiarPieza(cambio: (p: Pieza) => void): void {
+  /** Añade una copia de cada pieza (con `cambio` aplicado) y las deja elegidas, en un solo paso de historial. */
+  private anadirCopias(origen: Pieza[], cambio: (p: Pieza) => void = () => {}): void {
     const piezas = this.piezas;
-    const p = this.pieza;
-    if (!piezas || !p) return;
-    if (piezas.length >= MAX_PIEZAS) return this.avisar(`Un asset puede tener ${MAX_PIEZAS} piezas como mucho.`);
-    const copia = structuredClone(p);
-    cambio(copia);
-    piezas.push(copia);
-    this.piezaSel = piezas.length - 1;
+    if (!piezas || !origen.length) return;
+    if (piezas.length + origen.length > MAX_PIEZAS) return this.avisar(`Un asset puede tener ${MAX_PIEZAS} piezas como mucho.`);
+    const copias = origen.map((p) => {
+      const c = structuredClone(p);
+      cambio(c);
+      return c;
+    });
+    const n = piezas.length;
+    piezas.push(...copias);
+    this.sel.poner(copias.map((_, k) => n + k));
     this.commit();
   }
 
   private borrarPieza(): void {
-    if (!this.pieza) return;
-    this.piezas!.splice(this.piezaSel, 1);
-    this.piezaSel = -1;
+    const piezas = this.piezas;
+    const indices = this.sel.lista;
+    if (!piezas || !indices.length) return;
+    for (const i of [...indices].reverse()) piezas.splice(i, 1);
+    this.sel.trasBorrar(indices);
     this.commit();
+  }
+
+  private copiar(): void {
+    const ps = this.elegidas();
+    if (ps.length) portapapeles = ps.map((p) => structuredClone(p));
+    this.pintarEstado();
+  }
+
+  private cortar(): void {
+    this.copiar();
+    this.borrarPieza();
+  }
+
+  /** Pega en el sitio de donde se copió; lo pegado queda elegido. */
+  private pegar(): void {
+    this.anadirCopias(portapapeles);
+  }
+
+  /** Lleva la coordenada `c` (0 x, 1 y, 2 z) de todas las elegidas a la de la principal. */
+  private alinear(c: 0 | 1 | 2): void {
+    const ref = this.pieza?.pos[c];
+    if (ref === undefined) return;
+    for (const p of this.elegidas()) p.pos[c] = ref;
+    this.commit();
+  }
+
+  /** Mueve lo elegido (metros), sin salirse de ±60 como los campos de posición. */
+  private mover(d: Vec3): void {
+    const ps = this.elegidas();
+    if (!ps.length) return;
+    for (const p of ps) p.pos = redondear(p.pos.map((x, k) => Math.min(Math.max(x + d[k], -60), 60)) as Vec3);
+    this.commit();
+  }
+
+  /** H: oculta lo elegido (solo en el editor); Alt+H lo enseña todo. */
+  private ocultar(todoVisible: boolean): void {
+    if (todoVisible) this.ocultas.clear();
+    else for (const p of this.elegidas()) this.ocultas.add(p);
+    this.sel.poner(this.sel.lista.filter((i) => !this.ocultas.has(this.piezas![i])));
+    this.dibujar();
   }
 
   private anadirCirculo(): void {
@@ -571,7 +704,9 @@ export class PanelAssets implements Panel {
 
   private reajustarSeleccion(): void {
     if (!this.asset) this.selId = Object.keys(this.doc.assets)[0] ?? null;
-    if (!this.pieza) this.piezaSel = -1;
+    const piezas = this.piezas;
+    if (piezas) this.sel.ajustar(piezas.length);
+    else this.sel.vaciar();
   }
 
   // ---------------------------------------------------------------- assets
@@ -639,7 +774,8 @@ export class PanelAssets implements Panel {
     if ((await dialogo(this.a.raiz, "Borrar asset", `¿Borrar «${a.nombre}»? Se puede deshacer hasta que cierres el editor.`, "Borrar")) === null) return;
     delete this.doc.assets[id];
     this.selId = Object.keys(this.doc.assets)[0] ?? null;
-    this.piezaSel = -1;
+    this.sel.vaciar();
+    this.ocultas.clear();
     this.glbMostrado = null;
     this.commit();
   }
@@ -647,11 +783,34 @@ export class PanelAssets implements Panel {
   // ---------------------------------------------------------------- teclado
 
   /** Atajos de este modo (el editor ya ha tratado Ctrl+S, Ctrl+Z y Ctrl+Y). */
-  tecla(_e: KeyboardEvent, k: string, ctrl: boolean): boolean {
-    if (ctrl && k === "d") this.duplicarPieza();
-    else if (!ctrl && k === "delete") this.borrarPieza();
-    else if (!ctrl && k === "f") this.vista.enfocar(this.piezaSel);
-    else if (!ctrl && MODOS.some(([, , tecla]) => tecla === k)) this.cambiarModo(MODOS.find(([, , tecla]) => tecla === k)![0]);
+  tecla(e: KeyboardEvent, k: string, ctrl: boolean): boolean {
+    const paso = e.shiftKey ? 1 : 0.1;
+    const flechas: Record<string, Vec3> = {
+      arrowleft: [-paso, 0, 0],
+      arrowright: [paso, 0, 0],
+      arrowup: [0, 0, -paso],
+      arrowdown: [0, 0, paso],
+      pageup: [0, paso, 0],
+      pagedown: [0, -paso, 0],
+    };
+    if (ctrl) {
+      if (k === "d") this.duplicarPieza();
+      else if (k === "c") this.copiar();
+      else if (k === "x") this.cortar();
+      else if (k === "v") this.pegar();
+      else if (k === "a") {
+        this.sel.todos(this.piezas?.length ?? 0, (i) => this.ocultas.has(this.piezas![i]));
+        this.dibujar();
+      } else return false;
+    } else if (k === "delete" || k === "backspace") this.borrarPieza();
+    else if (k === "escape") {
+      this.sel.vaciar();
+      this.dibujar();
+    } else if (k === "f") this.vista.enfocar(this.sel.lista);
+    else if (k === "h" || e.code === "KeyH") this.ocultar(e.altKey);
+    else if (k === "x") this.cambiarEspacio();
+    else if (k in flechas) this.mover(flechas[k]);
+    else if (MODOS.some(([, , tecla]) => tecla === k)) this.cambiarModo(MODOS.find(([, , tecla]) => tecla === k)![0]);
     else return false;
     return true;
   }

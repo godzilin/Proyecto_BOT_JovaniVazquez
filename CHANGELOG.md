@@ -8,11 +8,17 @@ criterio.
 
 ## 10.x
 
-### 10.3.0 · 2026-11-07
+### 10.4.0 · 2026-11-07
 
 - Jovaniverso: tu robot se ve del mismo color en tu pantalla y en la de los demás (antes tú te veías siempre naranja)
 - Jovaniverso: agacharse (C o el botón ⤓ en el móvil) y deslizarse agachándose al correr; saltar deslizándote o nada más caer conserva la velocidad, en el aire se gira sin frenar y el salto perdona pulsarlo un pelín tarde o pronto
 - Logros de deslizarse en el Jovaniverso
+
+### 10.3.0 · 2026-11-07
+
+- Jovaniverso: el editor de niveles tiene editor de terreno: subir, bajar, aplanar, suavizar, pintar el color del suelo y sembrar vegetación, con los objetos siguiendo al suelo
+- Jovaniverso: en el editor se eligen varios objetos o piezas a la vez (Ctrl+clic, caja con Mayús) y se mueven, copian, pegan, alinean y ocultan juntos
+- Jovaniverso: el editor tiene un menú de ayuda (F1) con todos los atajos
 
 ### 10.2.1 · 2026-11-07
 
