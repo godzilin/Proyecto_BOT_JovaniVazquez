@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.1.1 · 2026-11-07
+
+- Jovaniverso: entrar al extraplano (y volver a la isla) desde Discord ya no se queda en «Entrando en el Jovaniverso…»
+
 ### 10.1.0 · 2026-11-07
 
 - Jovaniverso: menú ⚙ de ajustes con campo de visión, sensibilidad de la cámara e invertir el eje vertical
