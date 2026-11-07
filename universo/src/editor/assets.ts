@@ -2,7 +2,8 @@
 // Se pueden elegir varias piezas (clic, Ctrl+clic, Mayús+clic en la lista, Mayús+arrastrar en la vista) y todo actúa sobre lo elegido.
 // El borrador, guardar, publicar y deshacer son del editor entero (`borrador.ts`, `editor.ts`).
 import * as api from "./api";
-import { dialogo, h } from "./dom";
+import { dialogo, h, modal } from "./dom";
+import { type Analisis, analizar, optimizar } from "./optimizador";
 import {
   type Asset,
   cargarGlb,
@@ -34,6 +35,9 @@ import { type Modo, Vista } from "./vista";
 const GRADOS = Math.PI / 180;
 const MAX_COLISION = 40;
 const MAX_DESPLAZAMIENTO = 60;
+/** Lo más que pesa un GLB subido (`MAX_GLB_BYTES` del servidor). */
+const MAX_BYTES_GLB = 1024 * 1024;
+const mb = (bytes: number) => (bytes / MAX_BYTES_GLB).toLocaleString("es-ES", { maximumFractionDigits: 1 });
 const MODOS: [Modo, string, string][] = [
   ["translate", "Mover (W)", "w"],
   ["rotate", "Girar (E)", "e"],
@@ -183,6 +187,7 @@ export class PanelAssets implements Panel {
         this.boton("duplicar", "Duplicar", () => void this.duplicarAsset()),
         this.boton("renombrar", "Renombrar", () => void this.renombrar()),
         this.boton("borrar", "Borrar", () => void this.borrarAsset()),
+        this.boton("optimizar", "Optimizar polígonos", () => void this.optimizarAsset(), "Baja los triángulos del modelo GLB elegido"),
       ),
       this.listaAssets,
       this.archivo,
@@ -548,6 +553,7 @@ export class PanelAssets implements Panel {
     puedo("deshacer", this.a.b.hi > 0);
     puedo("rehacer", this.a.b.hi < this.a.b.hist.length - 1);
     for (const c of ["duplicar", "renombrar", "borrar", "ajustar"]) puedo(c, !!a);
+    puedo("optimizar", a?.tipo === "glb");
     puedo("circulo", !!a && (a.colision?.length ?? 0) < MAX_CIRCULOS);
     this.distancia.disabled = !a;
     for (const [m, b] of this.botonesModo) b.setAttribute("aria-pressed", String(m === this.modo));
@@ -736,10 +742,96 @@ export class PanelAssets implements Panel {
     this.mensaje = "Subiendo modelo…";
     this.pintarEstado();
     try {
-      const r = await api.subirGlb(this.a.sesion, await f.arrayBuffer());
+      let datos = await f.arrayBuffer();
+      const info = await analizar(datos).catch(() => null); // si no se lee, que lo diga el servidor
+      if (info && (info.triangulos > MAX_TRIANGULOS_GLB || datos.byteLength > MAX_BYTES_GLB)) {
+        const nuevo = await this.ventanaOptimizar(datos, info, Math.min(info.triangulos, MAX_TRIANGULOS_GLB));
+        if (!nuevo) return;
+        datos = nuevo;
+      }
+      const r = await api.subirGlb(this.a.sesion, datos);
       this.triangulosGlb.set(r.sha256, r.triangles);
       const nombre = f.name.replace(/\.glb$/i, "").slice(0, MAX_NOMBRE) || "modelo";
       this.anadirAsset(nombre, { nombre, tipo: "glb", glb: r.sha256, colision: null });
+    } catch (e) {
+      this.a.fallo(e);
+    } finally {
+      this.mensaje = "";
+      this.pintarEstado();
+    }
+  }
+
+  /** Ventana para bajar los triángulos de un GLB. Devuelve el GLB nuevo, o `null` si se cancela. */
+  private ventanaOptimizar(glb: ArrayBuffer, info: Analisis, porDefecto: number): Promise<ArrayBuffer | null> {
+    return new Promise((resolver) => {
+      const { fondo, caja } = modal(this.a.raiz, "Optimizar polígonos");
+      const valor = Math.min(MAX_TRIANGULOS_GLB, Math.max(100, Math.round(porDefecto)));
+      const rango = h("input", { type: "range", min: "100", max: String(MAX_TRIANGULOS_GLB), step: "100", value: String(valor) });
+      const num = h("input", { type: "number", min: "100", max: String(MAX_TRIANGULOS_GLB), value: String(valor) });
+      rango.oninput = () => (num.value = rango.value);
+      num.oninput = () => (rango.value = num.value);
+      const aviso = h("p", { textContent: "" });
+      const ok = h("button", { className: "ed-b ed-primario", textContent: "Optimizar y subir" });
+      const cancelar = h("button", { className: "ed-b", textContent: "Cancelar", onclick: () => fin(null) });
+      const fin = (v: ArrayBuffer | null): void => {
+        fondo.remove();
+        resolver(v);
+      };
+      ok.onclick = async () => {
+        const objetivo = Math.min(MAX_TRIANGULOS_GLB, Math.max(100, Math.floor(Number(num.value)) || valor));
+        for (const e of [ok, cancelar, rango, num]) e.disabled = true;
+        aviso.textContent = "Optimizando…";
+        try {
+          const r = await optimizar(glb, objetivo);
+          if (r.despues > MAX_TRIANGULOS_GLB) {
+            aviso.textContent = `Se ha quedado en ${r.despues} triángulos (el máximo es ${MAX_TRIANGULOS_GLB}): tiene muchas piezas pequeñas. Baja más el objetivo.`;
+          } else if (r.glb.byteLength > MAX_BYTES_GLB) {
+            aviso.textContent = `El modelo optimizado tiene ${r.despues} triángulos pero pesa ${mb(r.glb.byteLength)} MB y el límite es 1 MB. Baja más el objetivo o simplifica el modelo en otro programa.`;
+          } else return fin(r.glb);
+        } catch (e) {
+          aviso.textContent = `No se ha podido optimizar: ${e instanceof Error ? e.message : String(e)}`;
+        }
+        for (const e of [ok, cancelar, rango, num]) e.disabled = false;
+      };
+      caja.append(
+        h("p", {
+          textContent: `El modelo tiene ${info.triangulos.toLocaleString("es-ES")} triángulos y pesa ${mb(glb.byteLength)} MB; el máximo es ${MAX_TRIANGULOS_GLB.toLocaleString("es-ES")} triángulos y 1 MB. Elige a cuántos triángulos reducirlo. Se conservan la forma y los colores por vértice, y las normales se recalculan.`,
+        }),
+        ...(info.texturas ? [h("p", { textContent: "⚠ Tiene texturas: se quitan y el modelo se verá con el color liso de cada material." })] : []),
+        ...(info.animado ? [h("p", { textContent: "⚠ Tiene huesos o animaciones: se queda quieto en su postura de reposo." })] : []),
+        h("label", { className: "ed-vec" }, h("span", { textContent: "Triángulos" }), rango, num),
+        aviso,
+        h("div", { className: "ed-fila" }, ok, cancelar),
+      );
+      // Las teclas de la ventana no llegan a los atajos del editor.
+      caja.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Escape" && !cancelar.disabled) fin(null);
+      });
+      num.focus();
+    });
+  }
+
+  private async optimizarAsset(): Promise<void> {
+    const a = this.asset;
+    if (a?.tipo !== "glb") return;
+    this.mensaje = "Descargando modelo…";
+    this.pintarEstado();
+    try {
+      const res = await fetch(`/api/glb/${a.glb}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const datos = await res.arrayBuffer();
+      const info = await analizar(datos);
+      this.mensaje = "";
+      this.pintarEstado();
+      const nuevo = await this.ventanaOptimizar(datos, info, info.triangulos / 2);
+      if (!nuevo) return;
+      this.mensaje = "Subiendo modelo…";
+      this.pintarEstado();
+      const r = await api.subirGlb(this.a.sesion, nuevo);
+      this.triangulosGlb.set(r.sha256, r.triangles);
+      a.glb = r.sha256;
+      this.commit();
     } catch (e) {
       this.a.fallo(e);
     } finally {
