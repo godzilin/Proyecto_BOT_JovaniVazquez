@@ -43,3 +43,6 @@ docs/.sonidos_cache/
 
 # Página compilada del Jovaniverso (`npm run build` en universo/; la compila la imagen)
 src/bot/assets/universo/
+
+# Capturas de las pruebas de la página del Jovaniverso (docs/probar_casino.py, docs/medir_universo.py)
+docs/capturas_universo/

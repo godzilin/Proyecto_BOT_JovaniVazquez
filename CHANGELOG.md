@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.60.0 · 2026-11-07
+
+- Jovaniverso: seis tragaperras en la plaza que se juegan dentro del mundo, en primera persona, con botones que se pulsan, sonido desde cada máquina y modo Auto
+- Jovaniverso: el bote común de las tragaperras se ve en un letrero sobre la plaza
+
 ### 9.59.0 · 2026-11-07
 
 - Jovaniverso: gestos del robot (saludar, bailar, pulgar, sí, no, sentarse y puñetazo), que se compran en la tienda y los ven los demás

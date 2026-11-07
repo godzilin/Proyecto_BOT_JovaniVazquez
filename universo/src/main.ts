@@ -1,6 +1,8 @@
 // Lógica de la Activity del Jovaniverso: login con Discord, entrada al servidor del bot, HUD y arranque del mundo 3D.
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
+import { activarCasino } from "./casino/entrada";
+import type { Tragas } from "./casino/dibujo";
 import { crearMundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { iniciarPaseo } from "./paseo";
@@ -20,6 +22,8 @@ interface ProfileResponse {
   balance_text: string;
   version: string;
   gestures: number[];
+  /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
+  tragas?: Tragas | null;
 }
 interface ErrorResponse {
   error: string;
@@ -140,10 +144,19 @@ async function start(): Promise<void> {
       iniciarPaseo(mundo, sesion);
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
+      if (entrada.profile.tragas) {
+        const nombre = entrada.profile.name;
+        activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
+      }
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
+      // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
+      if (new URLSearchParams(location.search).has("debug")) {
+        const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);
+        if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, sesion: null, saldo: (t) => pildora("Prueba", t) });
+      }
     }
     $("carga").classList.add("fuera");
     ayuda();

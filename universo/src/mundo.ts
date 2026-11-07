@@ -34,7 +34,22 @@ export interface Informe {
   places: string[];
 }
 
+/** Lo que necesita un módulo que se cuelga del mundo (el casino): la escena, la cámara, el culling y un gancho por fotograma. */
+export interface Contexto {
+  escena: Scene;
+  camara: Camara;
+  camara3: PerspectiveCamera;
+  culling: Culling;
+  lienzo: HTMLCanvasElement;
+  capa: HTMLElement;
+  yo: Jugador;
+  tactil: boolean;
+  /** `f` se llama cada fotograma, con la cámara y el culling ya al día y antes de dibujar. */
+  enganchar(f: (dt: number, ahora: number) => void): void;
+}
+
 export interface Mundo {
+  readonly contexto: Contexto;
   /** Cuenta lo andado y los lugares nuevos desde el último informe; vacío si no hay nada que contar. */
   tomarInforme(): Informe | null;
   devolverInforme(i: Informe): void;
@@ -130,6 +145,19 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   ajustar();
   window.addEventListener("resize", ajustar);
 
+  const ganchos: ((dt: number, ahora: number) => void)[] = [];
+  const contexto: Contexto = {
+    escena,
+    camara,
+    camara3,
+    culling,
+    lienzo: renderer.domElement,
+    capa,
+    yo: jugador,
+    tactil,
+    enganchar: (f) => ganchos.push(f),
+  };
+
   let ultimo = performance.now();
   let reloj = 0;
   let sombrasQuitadas = false;
@@ -193,6 +221,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     culling.actualizar(camara3);
     mar.actualizar(reloj, camara3.position.x, camara3.position.z);
     cielo.actualizar(dt, camara3.position.x, camara3.position.y, camara3.position.z);
+    for (const g of ganchos) g(dt, ahora);
 
     if (!calidad.sombras && !sombrasQuitadas) {
       sombrasQuitadas = true;
@@ -234,6 +263,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
           cenit: [PICO.x, PICO.z, 0, 0, 1.45],
           nieves: [PICO.x, PICO.z, 1.0, 6, 0.35],
           drago: [PLAZA.x - 7, PLAZA.z + 4, 1.3, 9, 0.2],
+          casino: [PLAZA.x - 0.3, PLAZA.z + 11, -Math.PI / 2, 7, 0.2],
         };
         const [tx, tz, a, d, pitch] = sitios[nombre];
         const px = tx + Math.cos(a) * d;
@@ -254,6 +284,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   }
 
   return {
+    contexto,
     yo: jugador,
     remotos,
     tomarInforme() {

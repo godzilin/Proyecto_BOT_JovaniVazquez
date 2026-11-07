@@ -14,6 +14,12 @@ ata a 4 hilos para parecerse al NAS; el N100 va ~1,5 veces más lento por hilo q
 PC de sobremesa. Referencia (06/11/2026, PC): 50 jugadores, 3,4 % de un hilo y
 4,1 KB/s por cliente.
 
+Con `?debug` y fuera de Discord, la página llama además a `POST /api/entrar` y `POST
+/api/traga` de pruebas (`entrar` y `traga` aquí): las tragaperras de la plaza juegan
+con saldo en memoria (sin dinero real) y las mismas piezas del bot (`SlotMachine`,
+`line_payout`, `spin_states`, `still_state` y `Seats`), así que devuelven lo mismo que
+el servidor de verdad (`Slots.plaza`) salvo impuestos, logros y la banca.
+
     python docs/sala_local.py                # servidor para probar con Vite
     python docs/sala_local.py --medir 50     # 50 clientes falsos, 20 s
 """
@@ -25,6 +31,7 @@ import asyncio
 import itertools
 import math
 import os
+import random
 import struct
 import sys
 import time
@@ -32,10 +39,30 @@ import time
 import aiohttp
 from aiohttp import WSMsgType, web
 
+from bot.services.economy import format_amount
+from bot.services.slots import (
+    BONUS_MAX,
+    HEAT_MAX,
+    POT_SEED,
+    REEL_STRIPS,
+    BonusMeter,
+    SlotMachine,
+    add_bonus,
+    bar_fill,
+    line_payout,
+    next_heat,
+    pot_share,
+    win_tier,
+)
+from bot.services.slots_render import SYMBOL_FILES
+from bot.services.slots_scene import spin_states, still_state
 from bot.services.universo import GESTURES
 from bot.services.universo_sala import POSE, Salas
+from bot.services.universo_tragas import MACHINES, MAX_AT_ONCE, MIN_GAP_SECONDS, SeatError, Seats
 
 GUILD = 1
+USER = 1
+START_BALANCE = 100_000
 _ids = itertools.count(1)
 
 
@@ -63,6 +90,118 @@ async def sala(request: web.Request) -> web.WebSocketResponse:
     finally:
         await salas.leave(GUILD, player)
     return ws
+
+
+class Casino:
+    """La plaza de pruebas: un jugador con saldo en memoria y sus máquinas."""
+
+    def __init__(self) -> None:
+        self.seats = Seats()
+        self.machine = SlotMachine()
+        self.balance = START_BALANCE
+        self.pot = POT_SEED
+        self.heat = [0] * (MACHINES + 1)
+        self.bonus = [BonusMeter()] * (MACHINES + 1)
+
+    def meta(self) -> dict:
+        return {
+            "machines": MACHINES,
+            "max_at_once": MAX_AT_ONCE,
+            "min_gap": MIN_GAP_SECONDS,
+            "strips": list(REEL_STRIPS),
+            "symbols": dict(SYMBOL_FILES),
+            "stills": [still_state(self.machine.spin(), highlight=False) for _ in range(MACHINES)],
+            "pot_text": format_amount(self.pot),
+        }
+
+    def play(self, machine: int, stake: int, auto: bool) -> dict:
+        """Una tirada como `Slots.plaza`, sin impuestos ni logros. Lanza `SeatError`."""
+        now = time.monotonic()
+        self.seats.sweep(now)
+        turn = self.seats.begin(GUILD, USER, machine, stake=stake, auto=auto, now=now)
+        paid = 0 if turn.free else turn.stake
+        if paid > self.balance:
+            self.seats.stop(GUILD, USER, machine)
+            raise SeatError(f"No tienes bastante saldo: {format_amount(self.balance)}.")
+        spin = self.machine.spin()
+        jackpot = self.pot if spin.is_jackpot else 0
+        won = line_payout(spin, turn.stake) + jackpot
+        self.pot = POT_SEED if jackpot else self.pot + (0 if turn.free else pot_share(paid))
+        self.balance += won - paid
+        tier = win_tier(won, turn.stake)
+        self.heat[machine] = next_heat(self.heat[machine], paid=won > paid, was_hot=False)
+        bonus_stake = 0
+        if not turn.free:
+            self.bonus[machine], bonus_stake = add_bonus(
+                self.bonus[machine], spin, paid, random.randrange
+            )
+        big = tier is not None or jackpot > 0
+        ended = self.seats.finish(
+            GUILD, USER, machine, turn, now=now, net=won - paid, big_prize=big,
+            triggers_free_spins=spin.triggers_free_spins, bonus_stake=bonus_stake,
+        )  # fmt: skip
+        seat = self.seats.seat(GUILD, USER, machine)
+        text = f"### {'Premio' if won else 'Sin premio'}\n**{format_amount(won)}** cobrados"
+        text += f"\n-# Apuesta {format_amount(paid)}" + (" (giro gratis)" if turn.free else "")
+        return {
+            "machine": machine,
+            "states": spin_states(spin, won=won, stake=turn.stake),
+            "stops": list(spin.stops),
+            "stake": turn.stake,
+            "bet": turn.bet,
+            "free": turn.free,
+            "won": won,
+            "net": won - paid,
+            "jackpot": jackpot,
+            "big_prize": big,
+            "tier": tier,
+            "near_miss": spin.near_miss,
+            "free_won": spin.triggers_free_spins or bool(bonus_stake),
+            "balance": self.balance,
+            "balance_text": format_amount(self.balance),
+            "pot": self.pot,
+            "pot_text": format_amount(self.pot),
+            "heat": self.heat[machine],
+            "heat_max": HEAT_MAX,
+            "bonus": self.bonus[machine].points,
+            "bonus_fill": bar_fill(self.bonus[machine].points, BONUS_MAX),
+            "free_spins": seat.free_spins,
+            "text": text,
+            "auto": seat.auto is not None,
+            "auto_stop": f"El Auto se ha parado: {ended[0].name}." if ended else None,
+        }
+
+
+async def entrar(request: web.Request) -> web.Response:
+    """`/api/entrar` de pruebas: el perfil y la fila de máquinas, sin login."""
+    casino: Casino = request.app["casino"]
+    return web.json_response(
+        {
+            "name": "Prueba",
+            "guild": "Local",
+            "balance": casino.balance,
+            "balance_text": format_amount(casino.balance),
+            "version": "local",
+            "gestures": sorted(GESTURES),
+            "tragas": casino.meta(),
+        }
+    )
+
+
+async def traga(request: web.Request) -> web.Response:
+    """`/api/traga` de pruebas: una tirada, o parar el Auto de una máquina."""
+    casino: Casino = request.app["casino"]
+    body = await request.json()
+    machine, stake = body.get("machine"), body.get("stake", 0)
+    if type(machine) is not int or type(stake) is not int:
+        return web.json_response({"error": "La tirada no es válida."}, status=400)
+    if body.get("parar") is True:
+        casino.seats.stop(GUILD, USER, machine)
+        return web.json_response({"ok": True})
+    try:
+        return web.json_response(casino.play(machine, stake, body.get("auto") is True))
+    except SeatError as error:
+        return web.json_response({"error": str(error)}, status=400)
 
 
 async def fake_player(url: str, index: int, until: float, received: list[int]) -> None:
@@ -100,7 +239,10 @@ async def main() -> None:
 
     app = web.Application()
     app["salas"] = Salas()
+    app["casino"] = Casino()
     app.router.add_get("/api/sala", sala)
+    app.router.add_post("/api/entrar", entrar)
+    app.router.add_post("/api/traga", traga)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "localhost", args.puerto).start()
