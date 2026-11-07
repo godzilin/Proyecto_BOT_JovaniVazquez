@@ -183,9 +183,7 @@ HEARTBEAT_SECONDS = 20
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 
 #: Aviso del 409 cuando el `rev` del editor ya no es el del borrador.
-REV_CONFLICT = (
-    "Otra persona ha guardado el borrador mientras tanto. Recarga para ver sus cambios."
-)
+REV_CONFLICT = "Otra persona ha guardado el borrador mientras tanto. Recarga para ver sus cambios."
 #: Los desarrolladores del bot (Yeyo y godzilin): los únicos con devtools y extraplano.
 DEVS = frozenset({403646452414545921, 498473711687434241})
 #: Los permisos que se dan en el Jovaniverso, con su nombre para el panel.
