@@ -2,10 +2,10 @@
 // dentro de la isla) y «Assets» (montar los modelos), que comparten un solo borrador, un solo historial y la misma barra de
 // guardar, publicar y versiones.
 import * as api from "./api";
-import { Conflicto, type Sesion } from "./api";
+import { Conflicto, type Sesion, type TrozoBorrador } from "./api";
 import { Borrador } from "./borrador";
 import { dialogo, h, modal } from "./dom";
-import { comprobarFormas, FORMATO, type MundoDoc } from "./formato";
+import { comprobarFormas, type MundoDoc } from "./formato";
 import type { Anfitrion, Panel } from "./panel";
 import { AYUDA_ASSETS, PanelAssets } from "./assets";
 import { AYUDA_MUNDO, PanelMundo } from "./niveles";
@@ -45,10 +45,10 @@ export async function abrirEditor(sesion: Sesion, entorno: Entorno): Promise<voi
   try {
     if (import.meta.env.DEV) comprobarFormas();
     const b = await api.borrador(sesion);
-    // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío.
-    if (b.rev === 0 && b.version === 0) b.doc = mundoDeSerie();
-    if (b.doc.v !== FORMATO) throw new Error("El editor está desfasado: recarga la página.");
-    new Editor(sesion, entorno, b).iniciar();
+    if (!b.trozos) throw new Error("El editor está desfasado: recarga la página.");
+    // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío (y queda sucio para que se guarde).
+    const vacio = b.version === 0 && Object.values(b.trozos).every((t) => !t.doc);
+    new Editor(sesion, entorno, b, vacio ? mundoDeSerie() : undefined).iniciar();
   } catch (e) {
     abierto = false;
     throw e;
@@ -68,7 +68,8 @@ class Editor implements Anfitrion {
   constructor(
     readonly sesion: Sesion,
     private readonly entorno: Entorno,
-    b: { doc: MundoDoc; rev: number; version: number },
+    b: { version: number; trozos: Record<string, TrozoBorrador> },
+    semilla?: MundoDoc,
   ) {
     this.b = new Borrador(sesion, b, {
       fallo: (e) => this.fallo(e),
@@ -77,7 +78,7 @@ class Editor implements Anfitrion {
         this.panel(this.activa).alCambiarDoc();
         this.estado();
       },
-    });
+    }, semilla);
     this.raiz.append(this.arriba(), this.barra, this.cartel);
     // Las teclas escritas en un campo no llegan al mundo, que escucha en window.
     this.raiz.addEventListener("keydown", (e) => e.stopPropagation());

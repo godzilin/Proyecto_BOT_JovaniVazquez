@@ -41,6 +41,7 @@ def test_topes_y_version_coinciden() -> None:
     assert number("TERRENO_LADO") == py.TERRAIN_EXTENT
     assert number("TERRENO_CELDAS") == py.TERRAIN_CELLS
     assert number("TERRENO_PINTURAS") == py.TERRAIN_PAINTS
+    assert number("CELDA") == py.CELL
 
 
 def test_tinte_y_distancia_coinciden() -> None:

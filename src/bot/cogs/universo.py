@@ -32,9 +32,9 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
   lo que da tiempo a hacer (`bot.services.universo.walk_report`).
-- `GET /api/mundo?guild_id=` con la sesión de cualquier miembro: `{version, doc}`, el
-  mundo publicado (o `{version: 0, doc: EMPTY}`). El texto sale ya codificado y se guarda
-  en memoria por servidor hasta que alguien publica.
+- `GET /api/mundo?guild_id=` con la sesión de cualquier miembro: `{version, trozos}`, el
+  mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
+  El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
 - `GET /api/glb/{sha}`: un modelo GLB por el SHA-256 de su contenido, sin sesión (es
   contenido que no cambia: `immutable`).
 - `POST /api/traga` `{guild_id, channel_id, machine, stake, auto}`, con la sesión:
@@ -72,15 +72,17 @@ guarda las puertas. Sin bromas ni logros.
 - `POST /api/permisos` `{guild_id, user_id, permiso, dar}` -> lo mismo que el `GET`.
   Las dos, solo para los desarrolladores.
 
-- `GET /api/editor/borrador` -> `{doc, rev, version}`: el borrador (o lo publicado, o
-  `EMPTY`), su `rev` y la última versión publicada.
-- `PUT /api/editor/borrador` `{guild_id, rev, doc}` -> `{rev}`: valida
-  (`bot.services.universo_editor`) y guarda si el `rev` es el actual; si no, 409.
-- `POST /api/editor/publicar` `{guild_id, rev}` -> `{version}`: publica el borrador y
-  avisa a la sala (`{t: "mundo", version}`) para que las páginas recarguen.
+- `GET /api/editor/borrador` -> `{version, trozos: {clave: {doc, rev}}}`: el borrador por
+  trozos (`doc` es `null` en los borrados, que conservan su `rev`) y la última versión
+  publicada.
+- `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {rev, doc}}}` -> `{revs}`:
+  valida cada trozo (`bot.services.universo_editor`) y los guarda todos o ninguno: 409 si
+  alguno ya no tiene ese `rev`. `doc: null` (o vacío) lo borra.
+- `POST /api/editor/publicar` `{guild_id}` -> `{version}`: publica el borrador tal como esté
+  y avisa a la sala (`{t: "mundo", version}`) para que las páginas recarguen.
 - `GET /api/editor/versiones` -> `{versiones: [{version, autor, fecha, kb}]}`.
-- `POST /api/editor/volver` `{guild_id, rev, version}` -> `{rev}`: pone una versión
-  vieja como borrador.
+- `POST /api/editor/volver` `{guild_id, version}` -> `{}`: pone una versión vieja como
+  borrador (la página recarga el borrador después).
 - `POST /api/editor/glb` (cuerpo `octet-stream`) -> `{sha256, triangles}`: sube un modelo.
 
 La página no decide nada: todo lo que enseña sale de aquí, y el dinero (las tragaperras
@@ -118,6 +120,7 @@ from bot import __version__
 from bot.cogs import achievements as logros
 from bot.cogs import shop as tienda
 from bot.cogs import slots as tragas
+from bot.repositories.universo_mundo import Change, Conflict, MissingAssets
 from bot.services.achievements import (
     StatDelta,
     universo_gesture_stats,
@@ -142,14 +145,16 @@ from bot.services.universo import (
     walk_report,
 )
 from bot.services.universo_editor import (
-    EMPTY,
-    MAX_DOC_BYTES,
+    FORMAT,
+    MAX_ASSETS,
     MAX_GLB_BYTES,
     MundoError,
-    encode_world,
+    encode_piece,
     glb_refs,
     glb_summary,
-    validate_world,
+    is_empty,
+    parse_key,
+    validate_piece,
 )
 from bot.services.universo_sala import Player, SalaError, Salas, place
 from bot.services.universo_tragas import SeatError
@@ -171,10 +176,12 @@ MAX_BODY_BYTES = 16 * 1024
 #: Dirección en que escucha el servidor. En Docker hay que escuchar en todas para
 #: que el túnel, en otro contenedor, llegue; el puerto no se publica fuera.
 LISTEN_HOST = "0.0.0.0"  # noqa: S104
-#: Cuerpo máximo de las rutas del editor: lo más grande que acepta (un mundo o un GLB) con
-#: margen para el resto del JSON. El tope real de cada cosa lo ponen `encode_world` y
-#: `glb_summary`.
-MAX_EDITOR_BYTES = max(MAX_GLB_BYTES, MAX_DOC_BYTES) + 64 * 1024
+#: Cuerpo máximo de las rutas del editor: un GLB o un guardado de trozos. La página parte
+#: los guardados grandes en tandas de `MAX_TANDA` en `editor/borrador.ts`; el tope de cada
+#: trozo lo pone `encode_piece`, y el de un GLB, `glb_summary`.
+MAX_EDITOR_BYTES = max(MAX_GLB_BYTES, 8 * 1024 * 1024)
+#: Trozos que caben en un guardado.
+MAX_SAVE_PIECES = 5000
 
 #: Segundos que tiene la página para decir quién es al abrir el multijugador.
 HELLO_SECONDS = 10
@@ -216,8 +223,6 @@ NOT_ADMIN = "Solo quien tenga permiso de editor puede editar el mundo."
 #: Solo los desarrolladores cambian los permisos.
 NOT_OWNER = "Solo los desarrolladores del bot cambian los permisos."
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-#: El mundo vacío ya codificado, para servirlo sin pasar por el JSON.
-_EMPTY_TEXT = json.dumps(EMPTY, separators=(",", ":"))
 
 #: Texto de `.universo`.
 INTRO = (
@@ -545,14 +550,15 @@ class Universo(commands.Cog, name="Universo"):
         }
 
     async def mundo(self, guild_id: int) -> tuple[int, str]:
-        """Versión publicada de un servidor y su documento ya codificado (0 y vacío si no hay).
+        """Versión publicada de un servidor y sus trozos ya codificados (0 y `{}` si no hay).
 
         Se guarda en memoria hasta que `publish_world` la borra.
         """
         cached = self._mundo.get(guild_id)
         if cached is None:
             epoch = self._mundo_epoch.get(guild_id, 0)
-            cached = await self.bot.universo_mundo.published(guild_id) or (0, _EMPTY_TEXT)
+            found = await self.bot.universo_mundo.published(guild_id)
+            cached = (found[0], _pieces_text(found[1])) if found else (0, "{}")
             if self._mundo_epoch.get(guild_id, 0) == epoch:
                 self._mundo[guild_id] = cached
         return cached
@@ -628,48 +634,71 @@ class Universo(commands.Cog, name="Universo"):
         self.bot.telemetry.count("universo", "permiso", guild_id=guild.id, user_id=author.id)
         return await self.permission_list(guild)
 
-    async def draft_world(self, guild_id: int) -> tuple[str, int, int]:
-        """Lo que carga el editor: documento (borrador, publicado o vacío), `rev` y versión."""
-        text, rev = await self.bot.universo_mundo.draft(guild_id)
-        version, published = await self.mundo(guild_id)
-        return text if text is not None else published, rev, version
+    async def draft_world(self, guild_id: int) -> tuple[str, int]:
+        """Lo que carga el editor: los trozos del borrador ya codificados y la versión publicada."""
+        pieces = await self.bot.universo_mundo.draft(guild_id)
+        version, _published = await self.mundo(guild_id)
+        return _draft_text(pieces), version
 
     async def save_world(
         self, guild: discord.Guild, member: discord.Member, body: dict[str, Any]
-    ) -> int:
-        """Valida y guarda el borrador; devuelve el `rev` nuevo.
+    ) -> dict[str, int]:
+        """Valida y guarda unos trozos del borrador, todos o ninguno; devuelve sus `rev` nuevos.
 
         Raises:
-            UniversoError: 400 si el mundo no vale, 409 si el `rev` ya no es el actual.
+            UniversoError: 400 si algún trozo no vale o dejaría objetos sin asset, 409 si
+                alguno ya no tiene el `rev` que cree la página.
         """
+        if body.get("v") != FORMAT:
+            raise UniversoError("El editor está desfasado: recarga la página.")
+        pieces = body.get("trozos")
+        if not isinstance(pieces, dict) or not 0 < len(pieces) <= MAX_SAVE_PIECES:
+            raise UniversoError(f"Un guardado lleva de 1 a {MAX_SAVE_PIECES} trozos.")
         repo = self.bot.universo_mundo
-        doc = body.get("doc")
-        rev = _int(body.get("rev"), "rev", 0)
-        glbs = await repo.glb_triangles(glb_refs(doc))
+        docs = {k: v.get("doc") for k, v in pieces.items() if isinstance(v, dict)}
+        glbs = await repo.glb_triangles(glb_refs(docs))
+
+        def check() -> dict[str, Change]:
+            changes = {}
+            for key, value in pieces.items():
+                if not isinstance(value, dict) or set(value) != {"rev", "doc"}:
+                    raise MundoError("Cada trozo que se guarda es {rev, doc}.")
+                rev = _int(value["rev"], "rev", 0)
+                parse_key(key)
+                if value["doc"] is None:
+                    changes[key] = Change(rev, "")
+                    continue
+                clean, refs = validate_piece(key, value["doc"], glbs)
+                text = "" if is_empty(clean) else encode_piece(clean)
+                changes[key] = Change(rev, text, refs if text else frozenset())
+            return changes
+
         try:
-            text = await asyncio.to_thread(lambda: encode_world(validate_world(doc, glbs)))
+            changes = await asyncio.to_thread(check)
+            return await repo.save(guild.id, changes, member.id, MAX_ASSETS)
         except MundoError as error:
             raise UniversoError(str(error)) from error
-        saved = await repo.save_draft(guild.id, text, rev, member.id)
-        if saved is None:
-            raise UniversoError(REV_CONFLICT, 409)
-        return saved
+        except Conflict as error:
+            raise UniversoError(REV_CONFLICT, 409) from error
+        except MissingAssets as error:
+            if not error.missing:
+                raise UniversoError(
+                    f"El mundo puede tener {MAX_ASSETS} assets como mucho."
+                ) from error
+            raise UniversoError(
+                f"Hay objetos que usan assets que no existen: {', '.join(error.missing)}."
+            ) from error
 
-    async def publish_world(
-        self, guild: discord.Guild, member: discord.Member, body: dict[str, Any]
-    ) -> int:
+    async def publish_world(self, guild: discord.Guild, member: discord.Member) -> int:
         """Publica el borrador, limpia la caché y avisa a la sala; devuelve la versión.
 
         Raises:
-            UniversoError: 400 si no hay borrador, 409 si el `rev` ya no es el actual.
+            UniversoError: 400 si no hay borrador.
         """
         repo = self.bot.universo_mundo
-        version = await repo.publish(guild.id, _int(body.get("rev"), "rev", 0), member.id)
-        if version is None:
-            text, _rev = await repo.draft(guild.id)
-            if text is None:
-                raise UniversoError("No hay borrador que publicar.")
-            raise UniversoError(REV_CONFLICT, 409)
+        if not await repo.draft(guild.id):
+            raise UniversoError("No hay borrador que publicar.")
+        version = await repo.publish(guild.id, member.id)
         self._mundo.pop(guild.id, None)
         self._mundo_epoch[guild.id] = self._mundo_epoch.get(guild.id, 0) + 1
         self.bot.telemetry.count("universo", "publicar", guild_id=guild.id, user_id=member.id)
@@ -694,20 +723,15 @@ class Universo(commands.Cog, name="Universo"):
 
     async def revert_world(
         self, guild: discord.Guild, member: discord.Member, body: dict[str, Any]
-    ) -> int:
-        """Pone una versión publicada como borrador; devuelve el `rev` nuevo.
+    ) -> None:
+        """Pone una versión publicada como borrador (la página lo recarga después).
 
         Raises:
-            UniversoError: 404 si la versión no existe, 409 si el `rev` ya no es el actual.
+            UniversoError: 404 si la versión no existe.
         """
-        repo = self.bot.universo_mundo
-        doc = await repo.version_doc(guild.id, _int(body.get("version"), "version", 1))
-        if doc is None:
+        version = _int(body.get("version"), "version", 1)
+        if not await self.bot.universo_mundo.revert(guild.id, version, member.id):
             raise UniversoError("Esa versión ya no existe.", 404)
-        saved = await repo.save_draft(guild.id, doc, _int(body.get("rev"), "rev", 0), member.id)
-        if saved is None:
-            raise UniversoError(REV_CONFLICT, 409)
-        return saved
 
     async def upload_glb(self, member: discord.Member, data: bytes) -> dict[str, Any]:
         """Comprueba y guarda un GLB; devuelve su resumen (`sha256`) y triángulos.
@@ -992,23 +1016,40 @@ async def _editor_call(
     return cog, guild, member, body
 
 
+def _pieces_text(pieces: dict[str, str]) -> str:
+    """Los trozos publicados como un objeto JSON, pegando el texto de cada uno tal cual."""
+    return "{" + ",".join(f"{json.dumps(k)}:{doc}" for k, doc in sorted(pieces.items())) + "}"
+
+
+def _draft_text(pieces: dict[str, tuple[str, int]]) -> str:
+    """Los trozos del borrador (`{clave: {doc, rev}}`), sin decodificar cada `doc`."""
+    return (
+        "{"
+        + ",".join(
+            f'{json.dumps(k)}:{{"doc":{doc or "null"},"rev":{rev}}}'
+            for k, (doc, rev) in sorted(pieces.items())
+        )
+        + "}"
+    )
+
+
 async def _editor_borrador(request: web.Request) -> web.Response:
     cog, guild, _member, _body = await _editor_call(request)
-    doc, rev, version = await cog.draft_world(guild.id)
-    # El documento ya está codificado: se pega tal cual, sin pasar por `json`.
+    pieces, version = await cog.draft_world(guild.id)
+    # Los trozos ya están codificados: se pegan tal cual, sin pasar por `json`.
     return web.Response(
-        text=f'{{"doc":{doc},"rev":{rev},"version":{version}}}', content_type="application/json"
+        text=f'{{"version":{version},"trozos":{pieces}}}', content_type="application/json"
     )
 
 
 async def _editor_guardar(request: web.Request) -> web.Response:
     cog, guild, member, body = await _editor_call(request)
-    return web.json_response({"rev": await cog.save_world(guild, member, body)})
+    return web.json_response({"revs": await cog.save_world(guild, member, body)})
 
 
 async def _editor_publicar(request: web.Request) -> web.Response:
-    cog, guild, member, body = await _editor_call(request)
-    return web.json_response({"version": await cog.publish_world(guild, member, body)})
+    cog, guild, member, _body = await _editor_call(request)
+    return web.json_response({"version": await cog.publish_world(guild, member)})
 
 
 async def _editor_versiones(request: web.Request) -> web.Response:
@@ -1018,7 +1059,8 @@ async def _editor_versiones(request: web.Request) -> web.Response:
 
 async def _editor_volver(request: web.Request) -> web.Response:
     cog, guild, member, body = await _editor_call(request)
-    return web.json_response({"rev": await cog.revert_world(guild, member, body)})
+    await cog.revert_world(guild, member, body)
+    return web.json_response({})
 
 
 async def _editor_glb(request: web.Request) -> web.Response:
@@ -1029,8 +1071,8 @@ async def _editor_glb(request: web.Request) -> web.Response:
 async def _mundo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     guild, _member = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
-    version, doc = await cog.mundo(guild.id)
-    text = f'{{"version":{version},"doc":{doc}}}'
+    version, pieces = await cog.mundo(guild.id)
+    text = f'{{"version":{version},"trozos":{pieces}}}'
     if "gzip" not in request.headers.get("Accept-Encoding", ""):
         return web.Response(text=text, content_type="application/json")
     cached = cog._mundo_gz.get(guild.id)

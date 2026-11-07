@@ -1,26 +1,38 @@
-"""Persistencia del mundo editable del Jovaniverso.
+"""Persistencia del mundo editable del Jovaniverso, por trozos (`docs/mundo-celdas.md`).
 
 Tablas (en el mismo archivo SQLite que el resto del bot):
 
-- `universo_mundo_borrador`: el borrador de cada servidor, con un `rev` que sube en
-  cada guardado. Quien guarda dice qué `rev` creía que había; si ya es otro, otro
-  administrador se le adelantó y no se pisa nada.
-- `universo_mundo_versiones`: lo publicado, numerado desde 1 en cada servidor. Solo se
-  guardan las `KEEP_VERSIONS` últimas.
+- `universo_trozos_borrador`: el borrador de cada servidor, una fila por trozo (`clave`:
+  `zonas`, `a/<id>` o `c/<cx>/<cz>`). Cada trozo tiene su `rev`, que sube en cada guardado:
+  quien guarda dice qué `rev` creía que había y, si ya es otro, otro editor se le adelantó y
+  no se pisa nada. Un trozo borrado se queda con `doc` vacío (lápida) y sigue subiendo su
+  `rev`, para que un editor desfasado no lo resucite. `refs` son los assets que usa una celda
+  (separados por comas): no se guarda nada que deje un objeto sin su asset.
+- `universo_trozos_publicados`: solo los trozos que cambian en cada publicación. Lo
+  publicado en la versión N es, para cada clave, su fila más nueva con versión ≤ N (vacía si
+  se borró).
+- `universo_mundo_publicaciones`: una fila por publicación. Solo se guardan las
+  `KEEP_VERSIONS` últimas; al podar, cada clave conserva la fila en la que se apoyan.
 - `universo_glb`: los modelos GLB importados, por el SHA-256 de su contenido y comunes
   a todos los servidores.
 - `universo_permisos`: quién tiene cada permiso del Jovaniverso (`editor`, `devtools`)
   en cada servidor y quién se lo dio. Los desarrolladores no salen aquí: los tienen
   todos siempre (`bot.cogs.universo.DEVS`).
 
-Solo guarda: lo que vale como mundo lo decide `bot.services.universo_editor`.
+Las tablas del formato 1 (`universo_mundo_borrador` y `universo_mundo_versiones`, un
+documento entero por fila) se parten en trozos al arrancar, una sola vez, y se quedan como
+copia con `_v1` al final del nombre.
+
+Solo guarda: lo que vale como trozo lo decide `bot.services.universo_editor`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
@@ -35,6 +47,51 @@ KEEP_VERSIONS = 50
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+class Conflict(Exception):
+    """Algún trozo ya no tiene el `rev` que creía quien guarda; no se ha guardado nada."""
+
+
+class MissingAssets(Exception):
+    """El guardado dejaría objetos sin su asset (o demasiados assets); no se ha guardado nada.
+
+    Attributes:
+        missing: Los assets que faltarían (vacío si lo que sobra son assets).
+    """
+
+    def __init__(self, missing: Iterable[str]) -> None:
+        self.missing = sorted(missing)
+        super().__init__(", ".join(self.missing))
+
+
+@dataclass(frozen=True, slots=True)
+class Change:
+    """Un trozo que se guarda.
+
+    Attributes:
+        rev: El `rev` que cree tener quien guarda (0 si cree que no existe).
+        doc: Su JSON ya validado, o `""` para borrarlo.
+        refs: Los assets que usa (solo las celdas).
+    """
+
+    rev: int
+    doc: str
+    refs: frozenset[str] = frozenset()
+
+
+def _refs(refs: Iterable[str]) -> str:
+    return ",".join(sorted(refs))
+
+
+def _latest_sql(table_filter: str = "") -> str:
+    # La fila más nueva de cada clave (con versión ≤ ? si se filtra).
+    return (
+        "SELECT p.clave, p.doc, p.refs FROM universo_trozos_publicados p JOIN ("
+        "  SELECT clave, MAX(version) AS v FROM universo_trozos_publicados"
+        f"  WHERE guild_id = ? {table_filter} GROUP BY clave"
+        ") m ON p.clave = m.clave AND p.version = m.v WHERE p.guild_id = ?"
+    )
 
 
 class UniversoMundoRepository:
@@ -54,31 +111,62 @@ class UniversoMundoRepository:
         """Ejecuta una operación SQLite fuera del event loop."""
         return await asyncio.to_thread(operation, *args)
 
+    def _transaction(self, work: Callable[[sqlite3.Connection], T]) -> T:
+        """Ejecuta `work` en una transacción de escritura (`BEGIN IMMEDIATE`)."""
+        connection = sqlite.connect(self.database_path, isolation_level=None)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                result = work(connection)
+                connection.execute("COMMIT")
+            except BaseException:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+        finally:
+            connection.close()
+        return result
+
     async def initialize(self) -> None:
-        """Crea las tablas si no existen."""
+        """Crea las tablas si no existen y parte en trozos las del formato 1."""
         await self._run(self._initialize_sync)
 
     def _initialize_sync(self) -> None:
         with self._connect() as connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS universo_mundo_borrador (
-                    guild_id INTEGER PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS universo_trozos_borrador (
+                    guild_id INTEGER NOT NULL,
+                    clave TEXT NOT NULL,
                     doc TEXT NOT NULL,
+                    refs TEXT NOT NULL,
                     rev INTEGER NOT NULL,
                     author_id INTEGER NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, clave)
                 )
                 """
             )
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS universo_mundo_versiones (
+                CREATE TABLE IF NOT EXISTS universo_trozos_publicados (
                     guild_id INTEGER NOT NULL,
+                    clave TEXT NOT NULL,
                     version INTEGER NOT NULL,
                     doc TEXT NOT NULL,
+                    refs TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, clave, version)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS universo_mundo_publicaciones (
+                    guild_id INTEGER NOT NULL,
+                    version INTEGER NOT NULL,
                     author_id INTEGER NOT NULL,
                     published_at TEXT NOT NULL,
+                    bytes INTEGER NOT NULL,
                     PRIMARY KEY (guild_id, version)
                 )
                 """
@@ -106,6 +194,19 @@ class UniversoMundoRepository:
                 )
                 """
             )
+        connection = self._connect()
+        try:
+            old = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+                    "('universo_mundo_borrador', 'universo_mundo_versiones')"
+                )
+            }
+        finally:
+            connection.close()
+        if old:
+            self._transaction(lambda c: _migrate_v1(c, old))
 
     async def permissions(self, guild_id: int, user_id: int) -> set[str]:
         """Los permisos que tiene un miembro en un servidor."""
@@ -166,119 +267,125 @@ class UniversoMundoRepository:
         finally:
             connection.close()
 
-    async def draft(self, guild_id: int) -> tuple[str | None, int]:
-        """El texto del borrador y su `rev`; sin borrador, `(None, 0)`."""
+    async def draft(self, guild_id: int) -> dict[str, tuple[str, int]]:
+        """El borrador: clave → `(doc, rev)`, con las lápidas (`doc` vacío) incluidas."""
         return await self._run(self._draft_sync, guild_id)
 
-    def _draft_sync(self, guild_id: int) -> tuple[str | None, int]:
+    def _draft_sync(self, guild_id: int) -> dict[str, tuple[str, int]]:
         connection = self._connect()
         try:
-            row = connection.execute(
-                "SELECT doc, rev FROM universo_mundo_borrador WHERE guild_id = ?", (guild_id,)
-            ).fetchone()
+            rows = connection.execute(
+                "SELECT clave, doc, rev FROM universo_trozos_borrador WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchall()
         finally:
             connection.close()
-        return (row["doc"], int(row["rev"])) if row else (None, 0)
+        return {r["clave"]: (r["doc"], int(r["rev"])) for r in rows}
 
-    async def save_draft(
-        self, guild_id: int, doc_text: str, expected_rev: int, author_id: int
-    ) -> int | None:
-        """Guarda el borrador si su `rev` actual es `expected_rev` (0 = no hay).
-
-        Returns:
-            El `rev` nuevo, o `None` si no coincidía y no se ha guardado nada.
-        """
-        return await self._run(self._save_draft_sync, guild_id, doc_text, expected_rev, author_id)
-
-    def _save_draft_sync(
-        self, guild_id: int, doc_text: str, expected_rev: int, author_id: int
-    ) -> int | None:
-        connection = self._connect()
-        try:
-            with connection:
-                if expected_rev == 0:
-                    # Si ya hay borrador, el conflicto deja la fila como estaba.
-                    cursor = connection.execute(
-                        "INSERT OR IGNORE INTO universo_mundo_borrador "
-                        "(guild_id, doc, rev, author_id, updated_at) VALUES (?, ?, 1, ?, ?)",
-                        (guild_id, doc_text, author_id, _now()),
-                    )
-                else:
-                    cursor = connection.execute(
-                        "UPDATE universo_mundo_borrador SET doc = ?, rev = rev + 1, "
-                        "author_id = ?, updated_at = ? WHERE guild_id = ? AND rev = ?",
-                        (doc_text, author_id, _now(), guild_id, expected_rev),
-                    )
-                saved = cursor.rowcount == 1
-        finally:
-            connection.close()
-        return expected_rev + 1 if saved else None
-
-    async def publish(self, guild_id: int, expected_rev: int, author_id: int) -> int | None:
-        """Publica el borrador como versión nueva si su `rev` es `expected_rev`.
-
-        Conserva solo las `KEEP_VERSIONS` últimas en la misma transacción.
+    async def save(
+        self, guild_id: int, changes: dict[str, Change], author_id: int, max_assets: int
+    ) -> dict[str, int]:
+        """Guarda unos trozos del borrador, todos o ninguno.
 
         Returns:
-            El número de versión, o `None` si no hay borrador o el `rev` no coincide.
-        """
-        return await self._run(self._publish_sync, guild_id, expected_rev, author_id)
+            El `rev` nuevo de cada trozo guardado.
 
-    def _publish_sync(self, guild_id: int, expected_rev: int, author_id: int) -> int | None:
-        connection = sqlite.connect(self.database_path, isolation_level=None)
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
+        Raises:
+            Conflict: Si algún trozo ya no tiene el `rev` que se creía.
+            MissingAssets: Si quedaría algún objeto sin su asset o más de `max_assets`.
+        """
+        return await self._run(self._save_sync, guild_id, changes, author_id, max_assets)
+
+    def _save_sync(
+        self, guild_id: int, changes: dict[str, Change], author_id: int, max_assets: int
+    ) -> dict[str, int]:
+        def work(connection: sqlite3.Connection) -> dict[str, int]:
+            revs = {}
+            for key, change in changes.items():
                 row = connection.execute(
-                    "SELECT doc, rev FROM universo_mundo_borrador WHERE guild_id = ?",
-                    (guild_id,),
+                    "SELECT rev FROM universo_trozos_borrador WHERE guild_id = ? AND clave = ?",
+                    (guild_id, key),
                 ).fetchone()
-                if row is None or int(row["rev"]) != expected_rev:
-                    connection.execute("ROLLBACK")
-                    return None
-                last = connection.execute(
-                    "SELECT MAX(version) FROM universo_mundo_versiones WHERE guild_id = ?",
-                    (guild_id,),
-                ).fetchone()[0]
-                version = (last or 0) + 1
+                if (int(row["rev"]) if row else 0) != change.rev:
+                    raise Conflict(key)
+                revs[key] = change.rev + 1
                 connection.execute(
-                    "INSERT INTO universo_mundo_versiones "
-                    "(guild_id, version, doc, author_id, published_at) VALUES (?, ?, ?, ?, ?)",
-                    (guild_id, version, row["doc"], author_id, _now()),
+                    "INSERT INTO universo_trozos_borrador "
+                    "(guild_id, clave, doc, refs, rev, author_id, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (guild_id, clave) DO UPDATE SET "
+                    "doc = excluded.doc, refs = excluded.refs, rev = excluded.rev, "
+                    "author_id = excluded.author_id, updated_at = excluded.updated_at",
+                    (guild_id, key, change.doc, _refs(change.refs), revs[key], author_id, _now()),
                 )
-                connection.execute(
-                    "DELETE FROM universo_mundo_versiones WHERE guild_id = ? AND version <= ?",
-                    (guild_id, version - KEEP_VERSIONS),
-                )
-                connection.execute("COMMIT")
-            except BaseException:
-                if connection.in_transaction:
-                    connection.execute("ROLLBACK")
-                raise
-        finally:
-            connection.close()
-        return version
+            _check_refs(connection, guild_id, "universo_trozos_borrador", max_assets)
+            return revs
 
-    async def published(self, guild_id: int) -> tuple[int, str] | None:
-        """La última versión publicada: `(version, doc)`."""
+        return self._transaction(work)
+
+    async def publish(self, guild_id: int, author_id: int) -> int:
+        """Publica el borrador tal como esté como versión nueva; devuelve su número.
+
+        Solo apunta los trozos que han cambiado desde la versión anterior y conserva las
+        `KEEP_VERSIONS` últimas, en la misma transacción.
+        """
+        return await self._run(self._publish_sync, guild_id, author_id)
+
+    def _publish_sync(self, guild_id: int, author_id: int) -> int:
+        def work(connection: sqlite3.Connection) -> int:
+            last = connection.execute(
+                "SELECT MAX(version) FROM universo_mundo_publicaciones WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchone()[0]
+            version = (last or 0) + 1
+            published = {
+                r["clave"]: r["doc"]
+                for r in connection.execute(_latest_sql(), (guild_id, guild_id))
+            }
+            size = 0
+            for r in connection.execute(
+                "SELECT clave, doc, refs FROM universo_trozos_borrador WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchall():
+                size += len(r["doc"].encode())
+                if published.get(r["clave"], "") != r["doc"]:
+                    connection.execute(
+                        "INSERT INTO universo_trozos_publicados "
+                        "(guild_id, clave, version, doc, refs) VALUES (?, ?, ?, ?, ?)",
+                        (guild_id, r["clave"], version, r["doc"], r["refs"]),
+                    )
+            connection.execute(
+                "INSERT INTO universo_mundo_publicaciones "
+                "(guild_id, version, author_id, published_at, bytes) VALUES (?, ?, ?, ?, ?)",
+                (guild_id, version, author_id, _now(), size),
+            )
+            _prune(connection, guild_id, version - KEEP_VERSIONS + 1)
+            return version
+
+        return self._transaction(work)
+
+    async def published(self, guild_id: int) -> tuple[int, dict[str, str]] | None:
+        """La última versión publicada: `(version, {clave: doc})`, sin los trozos borrados."""
         return await self._run(self._published_sync, guild_id)
 
-    def _published_sync(self, guild_id: int) -> tuple[int, str] | None:
+    def _published_sync(self, guild_id: int) -> tuple[int, dict[str, str]] | None:
         connection = self._connect()
         try:
-            row = connection.execute(
-                "SELECT version, doc FROM universo_mundo_versiones WHERE guild_id = ? "
-                "ORDER BY version DESC LIMIT 1",
+            version = connection.execute(
+                "SELECT MAX(version) FROM universo_mundo_publicaciones WHERE guild_id = ?",
                 (guild_id,),
-            ).fetchone()
+            ).fetchone()[0]
+            if version is None:
+                return None
+            rows = connection.execute(_latest_sql(), (guild_id, guild_id)).fetchall()
         finally:
             connection.close()
-        return (int(row["version"]), row["doc"]) if row else None
+        return int(version), {r["clave"]: r["doc"] for r in rows if r["doc"]}
 
     async def versions(self, guild_id: int) -> list[tuple[int, int, str, int]]:
         """Versiones publicadas, de la más nueva a la más vieja.
 
-        Cada una es `(version, author_id, published_at, bytes)`.
+        Cada una es `(version, author_id, published_at, bytes)`; `bytes` es lo que pesa el
+        mundo entero en esa versión.
         """
         return await self._run(self._versions_sync, guild_id)
 
@@ -286,31 +393,61 @@ class UniversoMundoRepository:
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT version, author_id, published_at, LENGTH(CAST(doc AS BLOB)) AS size "
-                "FROM universo_mundo_versiones WHERE guild_id = ? ORDER BY version DESC",
+                "SELECT version, author_id, published_at, bytes FROM universo_mundo_publicaciones "
+                "WHERE guild_id = ? ORDER BY version DESC",
                 (guild_id,),
             ).fetchall()
         finally:
             connection.close()
         return [
-            (int(r["version"]), int(r["author_id"]), r["published_at"], int(r["size"]))
+            (int(r["version"]), int(r["author_id"]), r["published_at"], int(r["bytes"]))
             for r in rows
         ]
 
-    async def version_doc(self, guild_id: int, version: int) -> str | None:
-        """El documento de una versión publicada, si existe."""
-        return await self._run(self._version_doc_sync, guild_id, version)
+    async def revert(self, guild_id: int, version: int, author_id: int) -> bool:
+        """Pone en el borrador lo publicado en `version`; `False` si esa versión ya no existe.
 
-    def _version_doc_sync(self, guild_id: int, version: int) -> str | None:
-        connection = self._connect()
-        try:
-            row = connection.execute(
-                "SELECT doc FROM universo_mundo_versiones WHERE guild_id = ? AND version = ?",
+        Sube el `rev` de cada trozo que cambia: los editores que lo tuvieran abierto chocan
+        al guardarlo y recargan.
+        """
+        return await self._run(self._revert_sync, guild_id, version, author_id)
+
+    def _revert_sync(self, guild_id: int, version: int, author_id: int) -> bool:
+        def work(connection: sqlite3.Connection) -> bool:
+            exists = connection.execute(
+                "SELECT 1 FROM universo_mundo_publicaciones WHERE guild_id = ? AND version = ?",
                 (guild_id, version),
             ).fetchone()
-        finally:
-            connection.close()
-        return row["doc"] if row else None
+            if exists is None:
+                return False
+            target = {
+                r["clave"]: (r["doc"], r["refs"])
+                for r in connection.execute(
+                    _latest_sql("AND version <= ?"), (guild_id, version, guild_id)
+                )
+            }
+            draft = {
+                r["clave"]: r["doc"]
+                for r in connection.execute(
+                    "SELECT clave, doc FROM universo_trozos_borrador WHERE guild_id = ?",
+                    (guild_id,),
+                )
+            }
+            for key in draft.keys() | target.keys():
+                doc, refs = target.get(key, ("", ""))
+                if draft.get(key, "") == doc:
+                    continue
+                connection.execute(
+                    "INSERT INTO universo_trozos_borrador "
+                    "(guild_id, clave, doc, refs, rev, author_id, updated_at) "
+                    "VALUES (?, ?, ?, ?, 1, ?, ?) ON CONFLICT (guild_id, clave) DO UPDATE SET "
+                    "doc = excluded.doc, refs = excluded.refs, rev = rev + 1, "
+                    "author_id = excluded.author_id, updated_at = excluded.updated_at",
+                    (guild_id, key, doc, refs, author_id, _now()),
+                )
+            return True
+
+        return self._transaction(work)
 
     async def put_glb(self, sha256: str, data: bytes, triangles: int, author_id: int) -> None:
         """Guarda un GLB por su SHA-256; si ya estaba, no hace nada."""
@@ -359,3 +496,91 @@ class UniversoMundoRepository:
         finally:
             connection.close()
         return {r["sha256"]: int(r["triangles"]) for r in rows}
+
+
+def _check_refs(connection: sqlite3.Connection, guild_id: int, table: str, max_assets: int) -> None:
+    """Falla si alguna celda de `table` usa un asset que no está, o si sobran assets."""
+    assets: set[str] = set()
+    used: set[str] = set()
+    for r in connection.execute(
+        f"SELECT clave, refs FROM {table} WHERE guild_id = ? AND doc != ''",  # noqa: S608
+        (guild_id,),
+    ):
+        if r["clave"].startswith("a/"):
+            assets.add(r["clave"][2:])
+        elif r["refs"]:
+            used.update(r["refs"].split(","))
+    if used - assets:
+        raise MissingAssets(used - assets)
+    if len(assets) > max_assets:
+        raise MissingAssets(())
+
+
+def _prune(connection: sqlite3.Connection, guild_id: int, oldest: int) -> None:
+    """Olvida las versiones anteriores a `oldest` sin perder las filas en que se apoya."""
+    connection.execute(
+        "DELETE FROM universo_trozos_publicados AS p WHERE guild_id = ? AND version < ? "
+        "AND EXISTS (SELECT 1 FROM universo_trozos_publicados q WHERE q.guild_id = p.guild_id "
+        "AND q.clave = p.clave AND q.version > p.version AND q.version <= ?)",
+        (guild_id, oldest, oldest),
+    )
+    connection.execute(
+        "DELETE FROM universo_mundo_publicaciones WHERE guild_id = ? AND version < ?",
+        (guild_id, oldest),
+    )
+
+
+def _pieces_v1(doc_text: str) -> dict[str, tuple[str, str]]:
+    """Un mundo del formato 1 en trozos: clave → `(doc, refs)`."""
+    from bot.services.universo_editor import split_world
+
+    out = {}
+    for key, doc in split_world(json.loads(doc_text)).items():
+        refs = {o["asset"] for o in doc.get("objetos", [])} if key.startswith("c/") else ()
+        out[key] = (json.dumps(doc, ensure_ascii=False, separators=(",", ":")), _refs(refs))
+    return out
+
+
+def _migrate_v1(connection: sqlite3.Connection, old: set[str]) -> None:
+    """Parte en trozos el borrador y las versiones del formato 1 y deja las tablas como copia."""
+    if "universo_mundo_versiones" in old:
+        rows = connection.execute(
+            "SELECT guild_id, version, doc, author_id, published_at FROM universo_mundo_versiones "
+            "ORDER BY guild_id, version"
+        ).fetchall()
+        before: dict[int, dict[str, tuple[str, str]]] = {}
+        for r in rows:
+            guild_id, version = int(r["guild_id"]), int(r["version"])
+            pieces = _pieces_v1(r["doc"])
+            prev = before.get(guild_id, {})
+            for key in pieces.keys() | prev.keys():
+                doc, refs = pieces.get(key, ("", ""))
+                if prev.get(key, ("", ""))[0] != doc:
+                    connection.execute(
+                        "INSERT INTO universo_trozos_publicados "
+                        "(guild_id, clave, version, doc, refs) VALUES (?, ?, ?, ?, ?)",
+                        (guild_id, key, version, doc, refs),
+                    )
+            before[guild_id] = pieces
+            connection.execute(
+                "INSERT INTO universo_mundo_publicaciones "
+                "(guild_id, version, author_id, published_at, bytes) VALUES (?, ?, ?, ?, ?)",
+                (guild_id, version, r["author_id"], r["published_at"], len(r["doc"].encode())),
+            )
+        connection.execute(
+            "ALTER TABLE universo_mundo_versiones RENAME TO universo_mundo_versiones_v1"
+        )
+    if "universo_mundo_borrador" in old:
+        for r in connection.execute(
+            "SELECT guild_id, doc, author_id, updated_at FROM universo_mundo_borrador"
+        ).fetchall():
+            for key, (doc, refs) in _pieces_v1(r["doc"]).items():
+                connection.execute(
+                    "INSERT INTO universo_trozos_borrador "
+                    "(guild_id, clave, doc, refs, rev, author_id, updated_at) "
+                    "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                    (r["guild_id"], key, doc, refs, r["author_id"], r["updated_at"]),
+                )
+        connection.execute(
+            "ALTER TABLE universo_mundo_borrador RENAME TO universo_mundo_borrador_v1"
+        )
