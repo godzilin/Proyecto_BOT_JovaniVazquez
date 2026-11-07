@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.2.0 · 2026-11-07
+
+- Jovaniverso: las tragaperras de la plaza enseñan a todos lo que se juega en ellas; si alguien juega a tres máquinas, los demás ven girar las tres (sin su saldo)
+
 ### 10.1.1 · 2026-11-07
 
 - Jovaniverso: entrar al extraplano (y volver a la isla) desde Discord ya no se queda en «Entrando en el Jovaniverso…»

@@ -115,6 +115,8 @@ interface Maquina {
   ocupada: boolean;
   repro: Reproduccion | null;
   resp: Respuesta | null;
+  /** La tirada que se ve es de otro jugador (llegó por la sala): no toca tu saldo ni tu Auto. */
+  ajena: boolean;
   quieto: Estado;
   pintado: number;
   sucio: boolean;
@@ -261,6 +263,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       ocupada: false,
       repro: null,
       resp: null,
+      ajena: false,
       quieto: tragas.stills[i] as Estado,
       pintado: -2,
       sucio: true,
@@ -421,7 +424,9 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     tocar(m, "girar");
     try {
       const r = await pedir({ machine: m.i + 1, stake: m.apuesta, auto: desdeAuto });
+      m.zumbido?.parar();
       m.resp = r;
+      m.ajena = false;
       ultima = r;
       m.repro = new Reproduccion(r.states, largo, performance.now());
       m.zumbido = sonido.zumbido(m.i + 1, pos(m));
@@ -449,7 +454,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     m.zumbido = null;
     m.tension?.parar();
     m.tension = null;
-    m.apuesta = r.bet;
+    if (!m.ajena) m.apuesta = r.bet; // la apuesta de otro no se queda en tu botonera
     m.visor.gratis = r.free_spins;
     m.visor.bonus = r.bonus_fill;
     m.visor.calor = r.heat;
@@ -459,6 +464,10 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       bote = r.pot_text;
       dibujarLetrero(ga, bote);
       atlas.needsUpdate = true;
+    }
+    if (m.ajena) {
+      m.ajena = false;
+      return;
     }
     cfg.saldo(r.balance_text);
     mostrar(`Máquina ${m.i + 1}`, r.text);
@@ -503,6 +512,21 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       }
     }
   };
+
+  // La tirada de otro jugador (sala.ts): se ve y se oye en su máquina igual que la tuya.
+  window.addEventListener("jv:traga", (e) => {
+    const r = (e as CustomEvent<Respuesta>).detail;
+    const m = maquinas[r.machine - 1];
+    if (!m || m.ocupada) return; // la tuya manda
+    m.zumbido?.parar();
+    m.tension?.parar();
+    m.tension = null;
+    m.resp = r;
+    m.ajena = true;
+    m.repro = new Reproduccion(r.states, largo, performance.now());
+    m.zumbido = sonido.zumbido(m.i + 1, pos(m));
+    m.sucio = true;
+  });
 
   // -- Sentarse y pulsar -------------------------------------------------------------------------------------------
 

@@ -42,7 +42,8 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   calor por máquina, logros y anuncios que `tragas`). Devuelve los fotogramas de la
   animación (`spin_states`), que pinta la página. Con `{..., "parar": true}`, para el
   ▶️ Auto de esa máquina. Las reglas (máquinas a la vez, ritmo, Auto) están en
-  `bot.services.universo_tragas`.
+  `bot.services.universo_tragas`. La tirada sale también a los demás de la sala
+  (`{t: "traga", machine, states, ...}`, sin saldo ni texto), que la ven en esa máquina.
 - `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
   `{t: "hola", session, guild_id}`; después, poses en binario. El reparto lo hace
   `bot.services.universo_sala.Salas` (una sala por servidor, ticks fijos y binarios).
@@ -181,6 +182,21 @@ HELLO_SECONDS = 10
 MAX_WS_BYTES = 1024
 #: Latido del multijugador: una conexión que no contesta en este tiempo se cierra.
 HEARTBEAT_SECONDS = 20
+#: Lo que ven los demás de una tirada (lo que pinta y suena la máquina, no el saldo ni el texto).
+SEEN_SPIN = (
+    "machine",
+    "states",
+    "won",
+    "jackpot",
+    "tier",
+    "near_miss",
+    "free_won",
+    "pot_text",
+    "heat",
+    "heat_max",
+    "bonus_fill",
+    "free_spins",
+)
 
 #: Clave de la aplicación de aiohttp donde vive el cog.
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
@@ -765,6 +781,10 @@ class Universo(commands.Cog, name="Universo"):
             user_id=member.id,
             ms=(time.perf_counter() - started) * 1000,
         )
+        # Los demás ven la tirada en su pantalla: los fotogramas y el visor, sin saldo ni texto.
+        seen = {key: result[key] for key in SEEN_SPIN if key in result}
+        for salas in (self.salas, self.pruebas):
+            await salas.announce(guild.id, {"t": "traga", **seen}, skip_user=member.id)
         return result
 
     async def play(self, ws: web.WebSocketResponse, backlog: Callable[[], int]) -> None:

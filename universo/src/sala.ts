@@ -75,6 +75,8 @@ export function iniciarSala(
         } else if (m.t === "entra") remotos.entra(m.slot as number, m.id as string, m.nombre as string);
         else if (m.t === "sale") remotos.sale(m.slot as number);
         else if (m.t === "mundo") alMundo();
+        // La tirada de otro en una tragaperras: la pinta el casino si está montado (casino.ts).
+        else if (m.t === "traga") window.dispatchEvent(new CustomEvent("jv:traga", { detail: m }));
         else if (m.t === "error") {
           error = true;
           console.info("Sala del Jovaniverso:", m.error);

@@ -554,6 +554,33 @@ async def test_una_tirada_en_la_plaza_cobra_de_verdad_y_trae_la_animacion(
     assert "slots_turbo" not in profile.stats
 
 
+async def test_los_demas_de_la_sala_ven_tu_tirada_sin_tu_saldo(world: World) -> None:
+    guild = world.client.get_guild(GUILD_ID)
+    members = {USER_ID: guild.get_member(USER_ID), 777: member(777)}
+    guild.get_member = members.get
+    session = await login(world)
+    hello = {"t": "hola", "guild_id": str(GUILD_ID)}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({**hello, "session": session})
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    bea = await world.web.ws_connect("/api/sala")
+    await bea.send_json({**hello, "session": world.cog.signer.issue(777)})
+    assert (await bea.receive_json())["t"] == "bienvenida"
+    assert (await ana.receive_json())["t"] == "entra"
+    status, body = await spin(world, session, machine=3)
+    assert status == 200, body
+    seen = await bea.receive_json(timeout=2)
+    assert seen["t"] == "traga" and seen["machine"] == 3
+    assert seen["states"] == body["states"] and seen["pot_text"] == body["pot_text"]
+    assert not {"balance", "balance_text", "text", "bet"} & seen.keys()
+    # Quien tira no recibe su propia tirada por la sala: ya la tiene en la respuesta.
+    with pytest.raises(asyncio.TimeoutError):
+        await ana.receive_json(timeout=0.2)
+    await bea.close()
+    await ana.close()
+    await settle(world)
+
+
 async def test_cada_maquina_de_la_plaza_tiene_su_calor_y_su_barra(world: World) -> None:
     from bot.services.slots import SlotMachine, line_payout, spin_at
 

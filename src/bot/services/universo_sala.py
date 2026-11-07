@@ -265,11 +265,20 @@ class Salas:
         room = self.rooms.get(guild_id)
         return list(room.players.values()) if room else []
 
-    async def announce(self, guild_id: int, payload: dict[str, object]) -> None:
-        """Manda un aviso JSON a todos los de la sala de un servidor (sin sala, nada)."""
+    async def announce(
+        self, guild_id: int, payload: dict[str, object], *, skip_user: int | None = None
+    ) -> None:
+        """Manda un aviso JSON a todos los de la sala de un servidor (sin sala, nada).
+
+        Con `skip_user`, a todos menos a esa persona.
+        """
         room = self.rooms.get(guild_id)
-        if room is not None:
-            await self._broadcast_str(room, json.dumps(payload))
+        if room is None:
+            return
+        skip = next((p for p in room.players.values() if p.user_id == skip_user), None)
+        if skip is not None and len(room.players) == 1:
+            return
+        await self._broadcast_str(room, json.dumps(payload), skip=skip)
 
     async def close(self) -> None:
         """Para todas las salas (al descargar el cog)."""
