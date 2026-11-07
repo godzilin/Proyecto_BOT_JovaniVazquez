@@ -23,7 +23,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from interaction_fakes import fake_interaction
 
 from bot.app import ENTRY_POINT, INITIAL_EXTENSIONS, BotClient, BotTree
-from bot.services.economy import STARTING_BALANCE
+from bot.services.economy import STARTING_BALANCE, format_amount
 
 APP_ID = 1111
 GUILD_ID = 2222
@@ -346,6 +346,76 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     assert profile.stats["universo_place_faro"] == 1
     assert "universo_place_luna" not in profile.stats
     assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
+
+
+async def test_los_teleportes_del_paseo_cuentan_recortados(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+    await world.web.post("/api/entrar", json=body, headers=headers)
+    await asyncio.gather(*world.cog._background)
+    world.cog._last_walk[GUILD_ID, USER_ID] -= 10  # caben 5 teleportes
+    response = await world.web.post("/api/paseo", json={**body, "teleports": 40}, headers=headers)
+    assert response.status == 200
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_teleports"] == 5
+    assert "universo_teleports_1" in profile.unlocked
+
+
+# -- Menú del tabulador (`/api/jugadores`, `/api/mochila`) ---------------------------------
+
+
+async def test_la_lista_de_jugadores_trae_a_los_de_dentro_y_al_resto_con_saldo(
+    world: World,
+) -> None:
+    guild = world.client.get_guild(GUILD_ID)
+    rica, robot = member(777), member(888, bot=True)
+    rica.display_name = "Rica"
+    guild.members = [guild.get_member(USER_ID), rica, robot]
+    members = {USER_ID: guild.get_member(USER_ID), 777: rica}
+    guild.get_member = members.get
+    await world.client.economy.grant(GUILD_ID, 777, amount=10_000, reason="prueba")
+    session = await login(world)
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": session})
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    response = await world.web.get(
+        f"/api/jugadores?guild_id={GUILD_ID}", headers={"Authorization": f"Bearer {session}"}
+    )
+    assert response.status == 200
+    body = await response.json()
+    assert (body["miembros"], body["dentro"]) == (2, 1)
+    yo, otra = body["jugadores"]
+    assert (yo["nombre"], yo["dentro"], yo["yo"], yo["nivel"]) == ("Yeyo", True, True, None)
+    assert (otra["nombre"], otra["dentro"]) == ("Rica", False)
+    assert otra["saldo"] == format_amount(STARTING_BALANCE + 10_000)
+    await ana.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_tab_opens"] == 1
+    assert profile.stats["universo_tab_inside_max"] == 1
+    assert "universo_tab_top" not in profile.stats  # Rica tiene más
+    sin = await world.web.get(f"/api/jugadores?guild_id={GUILD_ID}")
+    assert sin.status == 401
+
+
+async def test_la_mochila_del_menu_trae_lo_comprado(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    empty = await (await world.web.get(f"/api/mochila?guild_id={GUILD_ID}", headers=headers)).json()
+    assert empty == {"objetos": []}
+    tienda = world.client.get_cog("Tienda")
+    assert await tienda.give_key(GUILD_ID, USER_ID, "gesto_baile") is not None
+    response = await world.web.get(f"/api/mochila?guild_id={GUILD_ID}", headers=headers)
+    assert response.status == 200
+    (row,) = (await response.json())["objetos"]
+    assert row["cantidad"] == 1 and row["nombre"]
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_bag_opens"] == 2
+    assert profile.stats["universo_bag_empty"] == 1
+    assert profile.stats["universo_bag_max"] == 1
 
 
 async def test_pasear_sin_sesion_no_deja(world: World) -> None:

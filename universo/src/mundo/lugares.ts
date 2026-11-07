@@ -68,6 +68,11 @@ export class Lugares {
     }
   }
 
+  /** Da por visitados, sin contarlos, los lugares donde está ese punto (al llegar saltando, no andando). */
+  saltar(x: number, y: number, z: number): void {
+    for (const l of LUGARES) if (l.dentro(x, y, z)) this.visitados.add(l.clave);
+  }
+
   /** Vacía y devuelve los lugares pisados por primera vez desde la última vez. */
   tomar(): string[] {
     return this.nuevos.splice(0);

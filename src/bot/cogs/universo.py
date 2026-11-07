@@ -52,6 +52,13 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   Los gestos del robot se compran en la tienda (`gesto_*`, `bot.services.universo.GESTURES`)
   y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
   a abrirlo.
+- `GET /api/jugadores?guild_id=[&mundo=pruebas]`, con la sesión: el menú del tabulador.
+  `{jugadores: [{nombre, saldo, nivel, dentro, yo}], miembros, dentro}`: quien está en la
+  sala y, después, el resto del servidor por saldo (`player_list`). `nivel` es `null` si
+  el servidor no tiene niveles. Solo lee.
+- `GET /api/mochila?guild_id=`, con la sesión: `{objetos: [{nombre, emoji, tipo, cantidad,
+  puesto, caduca}]}`, lo que tienes de la tienda (`backpack_list`). Solo lee: los objetos se usan
+  desde la mochila de `tienda`, en Discord.
 
 El editor del mundo vive en una subaplicación montada en `/api/editor/`, con su propio
 tope de cuerpo (`MAX_EDITOR_BYTES`: cabe un GLB; el resto de rutas sigue con
@@ -125,8 +132,10 @@ from bot.services.achievements import (
     StatDelta,
     universo_gesture_stats,
     universo_meet_stats,
+    universo_menu_stats,
     universo_stats,
     universo_teaser_stats,
+    universo_teleport_stats,
     universo_walk_stats,
 )
 from bot.services.economy import format_amount
@@ -137,11 +146,14 @@ from bot.services.universo import (
     DiscordOAuth,
     SessionSigner,
     UniversoError,
+    backpack_list,
     bearer,
     gestures_owned,
     on_summit,
     platform_of,
+    player_list,
     snowflake,
+    teleport_report,
     walk_report,
 )
 from bot.services.universo_editor import (
@@ -205,6 +217,9 @@ SEEN_SPIN = (
     "free_spins",
 )
 
+#: Segundos que vale la foto de saldos y niveles de la pestaña «Jugadores»: abrir el menú
+#: muchas veces seguidas no vuelve a leer la base de datos.
+LIST_SECONDS = 10
 #: Clave de la aplicación de aiohttp donde vive el cog.
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 
@@ -413,6 +428,8 @@ class Universo(commands.Cog, name="Universo"):
         # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
         # por publicación y fuera del bucle, no en cada entrada.
         self._mundo_gz: dict[int, tuple[int, bytes]] = {}
+        # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
+        self._lista: dict[int, tuple[float, dict[int, int], dict[int, int] | None]] = {}
 
     @property
     def is_open(self) -> bool:
@@ -469,6 +486,8 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_post("/api/traga", _traga)
         app.router.add_get("/api/sala", _sala)
         app.router.add_get("/api/permisos", _permisos)
+        app.router.add_get("/api/jugadores", _jugadores)
+        app.router.add_get("/api/mochila", _mochila)
         app.router.add_post("/api/permisos", _permisos)
         app.add_subapp("/api/editor/", self.build_editor())
         assets = self.static_dir / "assets"
@@ -746,6 +765,63 @@ class Universo(commands.Cog, name="Universo"):
         await self.bot.universo_mundo.put_glb(summary.sha256, data, summary.triangles, member.id)
         return {"sha256": summary.sha256, "triangles": summary.triangles}
 
+    async def players(self, session: str | None, query: dict[str, Any]) -> dict[str, Any]:
+        """Pestaña «Jugadores» del menú: quién está en la sala y el resto del servidor.
+
+        Con saldo y nivel de cada uno. Solo lee; los saldos y la experiencia se leen como
+        mucho una vez cada `LIST_SECONDS` por servidor.
+
+        Raises:
+            UniversoError: Igual que `enter`.
+        """
+        guild, member = self._member(session, query)
+        salas = self.pruebas if query.get("mundo") == "pruebas" else self.salas
+        inside = {p.user_id for p in salas.present(guild.id)}
+        now = time.monotonic()
+        cached = self._lista.get(guild.id)
+        if cached is None or now - cached[0] > LIST_SECONDS:
+            balances = await self.bot.economy.member_balances(guild.id)
+            settings = await self.bot.message_stats.level_settings(guild.id)
+            xps = None
+            if settings is not None and settings.enabled:
+                board = await self.bot.message_stats.level_leaderboard(guild.id, 1_000_000, 0)
+                xps = dict(board)
+            cached = (now, balances, xps)
+            self._lista[guild.id] = cached
+        members = [(m.id, m.display_name) for m in guild.members if not m.bot]
+        balances = cached[1]
+        if salas is self.salas:  # el extraplano no da logros
+            mine = balances.get(member.id, 0)
+            richest = mine > 0 and all(
+                balances.get(m, 0) <= mine for m, _ in members if m != member.id
+            )
+            delta = universo_menu_stats(
+                "jugadores", inside=len(inside), richest=richest, broke=mine == 0
+            )
+            logros.note(self.bot, guild.id, member.id, delta)
+        return {
+            "jugadores": player_list(members, inside, balances, cached[2], member.id),
+            "miembros": len(members),
+            "dentro": len(inside),
+        }
+
+    async def backpack(self, session: str | None, query: dict[str, Any]) -> dict[str, Any]:
+        """Pestaña «Mochila» del menú: lo que tiene quien la abre. Solo lee.
+
+        Raises:
+            UniversoError: Igual que `enter`; 503 si la tienda no está cargada.
+        """
+        guild, member = self._member(session, query)
+        entries = await tienda.inventory(self.bot, guild.id, member.id)
+        if entries is None:
+            raise UniversoError("La tienda no está disponible ahora.", 503)
+        rows = backpack_list(entries, time.time())
+        if query.get("mundo") != "pruebas":
+            logros.note(
+                self.bot, guild.id, member.id, universo_menu_stats("mochila", items=len(rows))
+            )
+        return {"objetos": rows}
+
     def walk(self, session: str | None, body: dict[str, Any]) -> None:
         """Apunta para los logros lo que la página dice que has paseado.
 
@@ -761,6 +837,9 @@ class Universo(commands.Cog, name="Universo"):
         self._last_walk[guild.id, member.id] = now
         meters, jumps, slides, places = walk_report(body, now - last)
         delta = universo_walk_stats(meters, jumps, places, slides)
+        delta.merge(
+            universo_teleport_stats(teleport_report(body, now - last), when=datetime.now(TIMEZONE))
+        )
         if delta.add:
             channel_id = snowflake(body.get("channel_id"))
             logros.note(self.bot, guild.id, member.id, delta, channel_id)
@@ -1138,6 +1217,18 @@ async def _permisos(request: web.Request) -> web.Response:
     if request.method == "GET":
         return web.json_response(await cog.permission_list(guild, str(body.get("q") or "")))
     return web.json_response(await cog.set_permission(guild, member, body))
+
+
+async def _jugadores(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    session = bearer(request.headers.get("Authorization"))
+    return web.json_response(await cog.players(session, dict(request.query)))
+
+
+async def _mochila(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    session = bearer(request.headers.get("Authorization"))
+    return web.json_response(await cog.backpack(session, dict(request.query)))
 
 
 async def _paseo(request: web.Request) -> web.Response:

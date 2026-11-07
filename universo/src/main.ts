@@ -5,6 +5,7 @@ import { activarCasino } from "./casino/entrada";
 import type { Tragas } from "./casino/dibujo";
 import { deTrozos } from "./editor/trozos";
 import { crearMundo, type Mundo } from "./mundo";
+import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
 import { iniciarPaseo } from "./paseo";
@@ -41,8 +42,8 @@ interface ErrorResponse {
 
 const FAILURE = "No se ha podido entrar en el Jovaniverso. Cierra la Activity y vuelve a abrirla.";
 const SIN_DISCORD = "Abre el Jovaniverso desde Discord para ver tu saldo";
-const AYUDA_ESCRITORIO = "WASD para moverte · Shift para correr · Espacio para saltar · C para agacharte (corriendo, te deslizas; salta deslizándote para no perder velocidad) · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos · ⚙ para capturar el ratón y cambiar el campo de visión";
-const AYUDA_MOVIL = "Mueve el joystick para andar; empújalo hasta el borde para correr · ⤓ para agacharte (corriendo, te deslizas) · 👁 para primera persona · 👋 para gestos";
+const AYUDA_ESCRITORIO = "Tab para el menú (jugadores, mochila y viajar) · WASD para moverte · Shift para correr · Espacio para saltar · C para agacharte (corriendo, te deslizas; salta deslizándote para no perder velocidad) · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos · ⚙ para capturar el ratón y cambiar el campo de visión";
+const AYUDA_MOVIL = "Toca tu nombre para el menú (jugadores, mochila y viajar) · Mueve el joystick para andar; empújalo hasta el borde para correr · ⤓ para agacharte (corriendo, te deslizas) · 👁 para primera persona · 👋 para gestos";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -91,7 +92,15 @@ function pildora(nombre: string, saldo: string | null, texto?: string): void {
   el.hidden = false;
 }
 
-/** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
+/** Tocar tu nombre (la píldora de arriba a la izquierda) abre el menú: es la forma de abrirlo en el móvil. */
+function menuEnPildora(menu: { alternar(): void }): void {
+  const el = $("pildora");
+  el.classList.add("jv-abre");
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", "Abrir el menú");
+  el.addEventListener("click", () => menu.alternar());
+}
+
 /** Aviso que se queda en pantalla (la sala se ha cerrado y no va a volver sola). */
 function aviso(texto: string): void {
   const el = document.createElement("div");
@@ -101,6 +110,7 @@ function aviso(texto: string): void {
   $("capa").append(el);
 }
 
+/** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
 function ayuda(): void {
   const el = $("ayuda");
   el.textContent = window.matchMedia("(pointer: coarse)").matches ? AYUDA_MOVIL : AYUDA_ESCRITORIO;
@@ -204,6 +214,7 @@ async function start(): Promise<void> {
       }
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
+      menuEnPildora(iniciarMenu($("capa"), mundo, sesion));
       // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
       if (!PRUEBAS) iniciarPaseo(mundo, sesion);
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => {
@@ -224,6 +235,7 @@ async function start(): Promise<void> {
       }
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
+      menuEnPildora(iniciarMenu($("capa"), mundo, null));
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
       // Solo en desarrollo: `docs/editor_local.py` da una sesión con permiso de editor sin Discord.

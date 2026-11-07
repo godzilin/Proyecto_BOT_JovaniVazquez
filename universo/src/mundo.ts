@@ -28,17 +28,19 @@ import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
+import { crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
 import { Obras } from "./mundo/obras";
 import { PRUEBAS } from "./mundo/modo";
 import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
 import { mundoDeSerie } from "./mundo/serie";
-import type { MundoDoc } from "./editor/formato";
+import type { MundoDoc, Teleporte } from "./editor/formato";
+import { SITIOS_ISLA, puntoDe, teleportesDeSerie } from "./mundo/teleportes";
 
 export interface Informe {
   meters: number;
   jumps: number;
   slides: number;
+  teleports: number;
   places: string[];
 }
 
@@ -80,6 +82,10 @@ export interface Mundo {
   readonly sitios: string[];
   /** Te lleva a uno de `sitios`, mirándolo. */
   irA(nombre: string): void;
+  /** Los sitios del panel «Viajar» del menú. */
+  readonly teleportes: Teleporte[];
+  /** Te lleva a un teleporte, a ras de suelo. */
+  viajar(t: Teleporte): void;
   /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
   pausar(si: boolean): void;
   detener(): void;
@@ -212,6 +218,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let metrosFrac = 0;
   let saltosPend = 0;
   let deslizPend = 0;
+  let viajesPend = 0;
   let metrosPend = 0;
   let pausado = false;
 
@@ -294,21 +301,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   };
   renderer.setAnimationLoop(fotograma);
 
-  // Se coloca a `d` metros del objetivo mirando hacia él, desde el ángulo `a`.
-  const sitiosIsla: Record<string, [number, number, number, number, number]> = {
-    nublo: [NUBLO.x, NUBLO.z, 3.5, 15, 0.2],
-    bandama: [BAND.x, BAND.z, 2.2, 17, 0.45],
-    dunas: [DUNAS.x - 4, DUNAS.z - 2, 1.4, 14, 0.3],
-    faro: [FARO.x, FARO.z, 3.9, 26, 0.12],
-    muelle: [MUELLE.cx, MUELLE.cz, 0, 0, 0.3],
-    mogan: [MUELLE.x0, MUELLE.z0, 3.0, 18, 0.25],
-    canteras: [CANTERAS.x, CANTERAS.z, 1.0, 10, 0.3],
-    dunasfaro: [FARO.x, FARO.z, 3.3, 40, 0.2],
-    cenit: [PICO.x, PICO.z, 0, 0, 1.45],
-    nieves: [PICO.x, PICO.z, 1.0, 6, 0.35],
-    drago: [PLAZA.x - 7, PLAZA.z + 4, 1.3, 9, 0.2],
-    casino: [PLAZA.x - 0.3, PLAZA.z + 11, -Math.PI / 2, 7, 0.2],
-  };
+  // Los del panel «Viajar»: en la isla, los del mundo publicado (o los de serie); en el extraplano, los de la pista.
+  let teleportes: Teleporte[] = PRUEBAS ? Object.entries(SITIOS_PISTA).map(([nombre, [x, z]]) => ({ nombre, x, z })) : teleportesDeSerie();
   const irA = (nombre: string): void => {
     // En el extraplano, la pista se mira hacia -z; el casino está donde en la isla y se encuadra igual.
     if (PRUEBAS && nombre !== "casino") {
@@ -319,10 +313,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       camara.dist = 9;
       return;
     }
-    if (!sitiosIsla[nombre]) return;
-    const [tx, tz, a, d, pitch] = sitiosIsla[nombre];
-    const px = tx + Math.cos(a) * d;
-    const pz = tz + Math.sin(a) * d;
+    if (!SITIOS_ISLA[nombre]) return;
+    const [tx, tz, , , pitch] = SITIOS_ISLA[nombre];
+    const [px, pz] = puntoDe(nombre);
     jugador.teletransportar(px, pz);
     camara.yaw = Math.atan2(-(tx - px), -(tz - pz));
     camara.pitch = pitch;
@@ -359,8 +352,20 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     contexto,
     yo: jugador,
     remotos,
-    sitios: Object.keys(PRUEBAS ? SITIOS_PISTA : sitiosIsla),
+    sitios: Object.keys(PRUEBAS ? SITIOS_PISTA : SITIOS_ISLA),
     irA,
+    get teleportes() {
+      return teleportes;
+    },
+    viajar(t) {
+      jugador.teletransportar(t.x, t.z);
+      if (!PRUEBAS) viajesPend++;
+      // Saltar no es pasear: el lugar de destino no cuenta para los logros de esta visita.
+      lugares.saltar(jugador.x, jugador.y, jugador.z);
+      camara.pitch = 0.25;
+      camara.distMax = 16;
+      camara.dist = 8;
+    },
     tomarInforme() {
       metrosFrac += metrosPend;
       metrosPend = 0;
@@ -370,13 +375,16 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       saltosPend = 0;
       const slides = deslizPend;
       deslizPend = 0;
+      const teleports = viajesPend;
+      viajesPend = 0;
       const places = lugares.tomar();
-      return meters > 0 || jumps > 0 || slides > 0 || places.length > 0 ? { meters, jumps, slides, places } : null;
+      return meters > 0 || jumps > 0 || slides > 0 || teleports > 0 || places.length > 0 ? { meters, jumps, slides, teleports, places } : null;
     },
     devolverInforme(i) {
       metrosFrac += i.meters;
       saltosPend += i.jumps;
       deslizPend += i.slides;
+      viajesPend += i.teleports;
       lugares.devolver(i.places);
     },
     cargarMundo(doc) {
@@ -386,6 +394,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       }
       obras.cargar(doc);
       fijarZonas(doc.zonas);
+      if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
     },
     retocarTerreno(ix0, iz0, ix1, iz1, conMar) {
       suelo?.actualizar(ix0, iz0, ix1, iz1);

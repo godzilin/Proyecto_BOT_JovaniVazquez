@@ -12,6 +12,7 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 
 ```
 "zonas"        {"zonas": {"<lugar>": {"x": float, "z": float, "r": float}}}
+"teleportes"   {"teleportes": [{"nombre": str, "x": float, "z": float}, ...]}
 "a/<id>"       {"nombre": str, "tipo": "piezas", "piezas": [Pieza, ...], "malla"?: Malla,
                 "colision": [[x, z, r], ...] | null, "distancia"?: float}
                {"nombre": str, "tipo": "glb", "glb": "<sha256>", "colision": ..., "distancia"?: ...}
@@ -41,6 +42,9 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
   de tono de un árbol a otro).
 - `zonas` mueve los lugares de los logros que son un círculo (`EDITABLE_ZONES`). No se
   crean ni se borran: cada clave es un logro (`PLACES` de `bot.services.universo`).
+- `teleportes` son los sitios del panel «Viajar» del menú (Tab): un nombre y un punto (x, z)
+  donde se aparece, a ras de suelo. Sin el trozo, la página pone los de serie; con la lista
+  vacía, no hay ninguno (por eso una lista vacía no cuenta como trozo vacío).
 - `terreno` es el suelo esculpido de la celda: una rejilla de `CELL_TERRAIN_SIDE` ×
   `CELL_TERRAIN_SIDE` vértices cada `TERRAIN_STEP` m desde su esquina (-x -z), fila a fila,
   con los bordes repetidos en la celda de al lado. `alturas` son enteros de 16 bits con
@@ -111,6 +115,8 @@ MAX_ROTATION = 4 * math.pi
 MAX_PIECE_OFFSET = 60.0
 MAX_COLLISION = 40.0
 MAX_ZONE_RADIUS = 60.0
+#: Sitios del panel «Viajar».
+MAX_TELEPORTS = 24
 #: La rejilla del terreno (`mundo/terreno.ts`: `LADO` y `CELDAS`) y los colores de su paleta.
 TERRAIN_EXTENT = 320
 TERRAIN_CELLS = 160
@@ -121,7 +127,7 @@ TERRAIN_PAINTS = 13
 CELL_TERRAIN_SIDE = CELL // TERRAIN_STEP + 1
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
-_KEY = re.compile(r"zonas|a/([a-z0-9_-]{1,40})|c/(-?\d{1,3})/(-?\d{1,3})")
+_KEY = re.compile(r"zonas|teleportes|a/([a-z0-9_-]{1,40})|c/(-?\d{1,3})/(-?\d{1,3})")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GLB_MAGIC = b"glTF"
 _CHUNK_JSON = 0x4E4F534A
@@ -321,7 +327,7 @@ def _terrain(value: object, side: int) -> dict[str, str]:
 
 
 def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
-    """La clase de un trozo por su clave: `("zonas", "")`, `("a", id)` o `("c", cx, cz)`.
+    """La clase de un trozo: `("zonas", "")`, `("teleportes", "")`, `("a", id)` o `("c", cx, cz)`.
 
     Raises:
         MundoError: Si la clave no es de ningún trozo o la celda cae fuera del mundo.
@@ -329,8 +335,8 @@ def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
     found = _KEY.fullmatch(key) if isinstance(key, str) else None
     if found is None:
         raise MundoError(f"«{str(key)[:40]}» no es la clave de ningún trozo del mundo.")
-    if key == "zonas":
-        return ("zonas", "")
+    if key in ("zonas", "teleportes"):
+        return (key, "")
     if found.group(1):
         return ("a", found.group(1))
     cx, cz = int(found.group(2)), int(found.group(3))
@@ -358,6 +364,24 @@ def _zones(value: object) -> dict[str, dict[str, float]]:
             "z": _number(z.get("z"), -half, half, f"La zona «{key}»: z"),
             "r": _number(z.get("r"), 1, MAX_ZONE_RADIUS, f"La zona «{key}»: el radio"),
         }
+    return clean
+
+
+def _teleports(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > MAX_TELEPORTS:
+        raise MundoError(f"Puede haber {MAX_TELEPORTS} teleportes como mucho.")
+    half = CELL * CELL_LIMIT
+    clean = []
+    for i, item in enumerate(value):
+        what = f"El teleporte {i + 1}"
+        t = _object(item, {"nombre", "x", "z"}, what)
+        clean.append(
+            {
+                "nombre": _name(t.get("nombre"), what),
+                "x": _number(t.get("x"), -half, half, f"{what}: x"),
+                "z": _number(t.get("z"), -half, half, f"{what}: z"),
+            }
+        )
     return clean
 
 
@@ -413,6 +437,9 @@ def validate_piece(
     if kind[0] == "zonas":
         d = _object(doc, {"zonas"}, "Las zonas")
         return {"zonas": _zones(d.get("zonas"))}, frozenset()
+    if kind[0] == "teleportes":
+        d = _object(doc, {"teleportes"}, "Los teleportes")
+        return {"teleportes": _teleports(d.get("teleportes"))}, frozenset()
     if kind[0] == "a":
         return _asset(doc, f"El asset «{kind[1]}»", glbs), frozenset()
     clean = _cell(doc, int(kind[1]), int(kind[2]))
@@ -477,6 +504,8 @@ def split_world(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     pieces: dict[str, dict[str, Any]] = {}
     if doc.get("zonas"):
         pieces["zonas"] = {"zonas": doc["zonas"]}
+    if "teleportes" in doc:
+        pieces["teleportes"] = {"teleportes": doc["teleportes"]}
     for key, asset in doc.get("assets", {}).items():
         pieces[f"a/{key}"] = asset
     for obj in doc.get("objetos", []):

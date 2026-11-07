@@ -59,6 +59,12 @@ export interface Zona {
   z: number;
   r: number;
 }
+/** Un sitio del panel «Viajar» del menú: se aparece en (x, z), a ras de suelo. */
+export interface Teleporte {
+  nombre: string;
+  x: number;
+  z: number;
+}
 /**
  * La isla esculpida: rejilla de (`TERRENO_CELDAS` + 1)² vértices sobre `TERRENO_LADO` m centrados en 0, fila a fila desde -x -z,
  * en base64. `alturas`: enteros de 16 bits (little-endian) en centímetros. `colores`: un byte por vértice, 0 el color natural
@@ -73,6 +79,8 @@ export interface MundoDoc {
   assets: Record<string, Asset>;
   objetos: Objeto[];
   zonas: Record<string, Zona>;
+  /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
+  teleportes?: Teleporte[];
   terreno?: Terreno;
 }
 
@@ -88,6 +96,7 @@ export const MIN_LADOS = 3;
 export const MAX_LADOS = 32;
 export const MAX_TRIANGULOS_MALLA = 2000;
 export const MAX_CIRCULOS = 16;
+export const MAX_TELEPORTES = 24;
 export const MIN_TINTE = 0.3;
 export const MAX_TINTE = 2.0;
 export const MIN_DISTANCIA = 20.0;

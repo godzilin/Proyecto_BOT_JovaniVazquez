@@ -171,7 +171,9 @@ from bot.services.achievements import (
     sports_void_stats,
     total_reward,
     universo_gesture_stats,
+    universo_menu_stats,
     universo_stats,
+    universo_teleport_stats,
     universo_walk_stats,
     with_derived,
 )
@@ -359,6 +361,10 @@ PRODUCED_STATS = {
     "universo_slots_jackpot", "universo_slots_at_once", "universo_slots_regret",
     *(f"universo_slots_machine_{m}" for m in range(1, 7)),
     "universo_dance_canarias",
+    # 🎤 Jovani: el menú del tabulador (`universo_teleport_stats` y `universo_menu_stats`)
+    "universo_teleports", "universo_teleport_night", "universo_tab_opens", "universo_tab_top",
+    "universo_tab_broke", "universo_tab_inside_max", "universo_bag_opens", "universo_bag_max",
+    "universo_bag_empty",
     # 🎤 Jovani: el botón 🌌 Jovaniverso de los paneles (`universo_teaser_stats`)
     "universo_teasers", "universo_teaser_slots",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
@@ -2811,3 +2817,17 @@ def test_un_gesto_suma_lo_suyo_segun_quien_hay_cerca_y_donde() -> None:
     dance = universo_gesture_stats("baile", near=3, together=3, summit=False, when=canarias)
     assert dance.peak == {"universo_dance_max": 3}
     assert dance.add["universo_dance_canarias"] == 1
+
+
+def test_el_menu_del_universo_cuenta_teleportes_lista_y_mochila() -> None:
+    noche = datetime(2026, 11, 7, 4, 0, tzinfo=TIMEZONE)
+    tarde = datetime(2026, 11, 7, 17, 0, tzinfo=TIMEZONE)
+    assert universo_teleport_stats(3, when=tarde).add == {"universo_teleports": 3}
+    assert universo_teleport_stats(1, when=noche).add["universo_teleport_night"] == 1
+    assert not universo_teleport_stats(0, when=noche)
+    lista = universo_menu_stats("jugadores", inside=4, richest=True)
+    assert lista.add == {"universo_tab_opens": 1, "universo_tab_top": 1}
+    assert lista.peak == {"universo_tab_inside_max": 4}
+    assert universo_menu_stats("jugadores", broke=True).add["universo_tab_broke"] == 1
+    assert universo_menu_stats("mochila").add == {"universo_bag_opens": 1, "universo_bag_empty": 1}
+    assert universo_menu_stats("mochila", items=12).peak == {"universo_bag_max": 12}

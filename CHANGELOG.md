@@ -8,6 +8,18 @@ criterio.
 
 ## 10.x
 
+### 10.7.0 · 2026-11-07
+
+- Jovaniverso: el editor optimiza los polígonos de los modelos GLB. Uno de más de 6.000 triángulos o de más de 1 MB ya no se rechaza al importarlo: se elige a cuántos triángulos bajarlo y se simplifica antes de subirlo. El botón «Optimizar polígonos» hace lo mismo con un GLB ya importado
+- Jovaniverso: un modelo con huesos o animación que pasa por el optimizador se queda quieto en su postura de reposo y así se ve en el mundo (antes no se dibujaba)
+
+### 10.6.0 · 2026-11-07
+
+- Jovaniverso: menú con Tab (en el móvil, tocando tu nombre) con tres pestañas: Jugadores (quién está dentro y el resto del servidor, con su saldo y su nivel), Mochila (lo que tienes de la tienda) y Viajar (teleportes a sitios de la isla)
+- Jovaniverso: el editor pone los teleportes del menú (hasta 24)
+- Logros del menú: teleportes, abrir la lista con gente dentro, la mochila llena o vacía y usar las tres pestañas
+- Interno: sistema de interfaz común para las ventanas del Jovaniverso (`universo/src/ui/`), con sus líneas de diseño en la Biblia
+
 ### 10.5.0 · 2026-11-07
 
 - Jovaniverso: el mundo ya no tiene tope de objetos; se guarda por trozos (cada asset y cada celda de 80 m) y el tope es de 4000 objetos por celda

@@ -14,6 +14,7 @@ from bot.services.universo_editor import (
     EDITABLE_ZONES,
     MAX_CELL_OBJECTS,
     MAX_GLB_TRIANGLES,
+    MAX_TELEPORTS,
     TERRAIN_PAINTS,
     TERRAIN_SIDE,
     MundoError,
@@ -394,3 +395,30 @@ def test_un_trozo_vacio_se_guarda_como_borrado() -> None:
     assert not is_empty(validate_piece("zonas", {"zonas": world()["zonas"]}, {})[0])
     with pytest.raises(MundoError, match="campos que no se conocen"):
         validate_piece("zonas", {"zonas": {}, "x": 1}, {})
+
+
+def test_los_teleportes_son_un_trozo_con_nombre_y_punto() -> None:
+    tps = [{"nombre": " Faro ", "x": 10, "z": -20.5}]
+    clean, refs = validate_piece("teleportes", {"teleportes": tps}, {})
+    assert clean == {"teleportes": [{"nombre": "Faro", "x": 10.0, "z": -20.5}]}
+    assert refs == frozenset()
+    assert parse_key("teleportes") == ("teleportes", "")
+    # La lista vacía quiere decir «ninguno», no «los de serie»: no es un trozo vacío.
+    assert not is_empty(validate_piece("teleportes", {"teleportes": []}, {})[0])
+    assert split_world({**world(), "teleportes": []})["teleportes"] == {"teleportes": []}
+    assert "teleportes" not in split_world(world())
+
+
+@pytest.mark.parametrize(
+    ("doc", "error"),
+    [
+        ({"teleportes": [{"nombre": "", "x": 0, "z": 0}]}, "nombre"),
+        ({"teleportes": [{"nombre": "a", "x": 1e9, "z": 0}]}, "x"),
+        ({"teleportes": [{"nombre": "a", "x": 0, "z": 0, "y": 3}]}, "campos que no se conocen"),
+        ({"teleportes": [{"nombre": "a", "x": 0, "z": 0}] * (MAX_TELEPORTS + 1)}, "como mucho"),
+        ({"teleportes": {}}, "como mucho"),
+    ],
+)
+def test_un_teleporte_raro_no_vale(doc: dict, error: str) -> None:
+    with pytest.raises(MundoError, match=error):
+        validate_piece("teleportes", doc, {})
