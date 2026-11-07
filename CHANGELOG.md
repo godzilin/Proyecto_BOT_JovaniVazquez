@@ -18,6 +18,11 @@ criterio.
 
 ## 9.x
 
+### 9.62.0 · 2026-11-07
+
+- Jovaniverso: todos los juegos y paneles llevan un botón 🌌 Jovaniverso que cuenta que el juego tendrá su versión mejorada dentro, qué se puede hacer ya y abre el universo
+- Logros: cuatro nuevos por pulsar el botón 🌌 Jovaniverso en juegos y paneles distintos
+
 ### 9.61.0 · 2026-11-07
 
 - Jovaniverso: editor del mundo para administradores, desde el ordenador: colocar, mover y borrar casas, árboles e hitos, mover las zonas de los logros y montar assets con formas básicas o modelos GLB, con borrador, publicación e historial de versiones

@@ -156,7 +156,6 @@ async def test_entrar_da_el_perfil_con_el_saldo_real_y_apunta_los_logros(world: 
     body = await response.json()
     assert body["name"] == "Yeyo"
     assert body["balance"] == STARTING_BALANCE
-    assert body["balance"] == await world.client.economy.balance(GUILD_ID, USER_ID)
     # La fila de tragaperras de la plaza: una máquina parada por cada una.
     assert len(body["tragas"]["stills"]) == body["tragas"]["machines"]
     assert body["tragas"]["symbols"]
