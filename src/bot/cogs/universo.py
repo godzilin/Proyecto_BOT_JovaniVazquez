@@ -46,6 +46,8 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
 - `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
   `{t: "hola", session, guild_id}`; después, poses en binario. El reparto lo hace
   `bot.services.universo_sala.Salas` (una sala por servidor, ticks fijos y binarios).
+  Con `mundo: "pruebas"` en el saludo, entra en la sala del extraplano, que es otra
+  (`pruebas`), sin logros de coincidir ni de gestos y solo para los desarrolladores.
   Los gestos del robot se compran en la tienda (`gesto_*`, `bot.services.universo.GESTURES`)
   y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
   a abrirlo.
@@ -55,6 +57,11 @@ tope de cuerpo (`MAX_EDITOR_BYTES`: cabe un GLB; el resto de rutas sigue con
 `MAX_BODY_BYTES`). Todas sus rutas llevan la sesión y `guild_id` (en el cuerpo JSON o,
 en `GET` y en la subida de GLB, en la query) y el servidor comprueba siempre que quien
 llama es administrador. Es una herramienta de administración: sin bromas ni logros.
+
+Las devtools del Jovaniverso (noclip, volar, velocidad, el extraplano de pruebas) son
+solo para los desarrolladores del bot (`DEVS`, por ID de Discord): `/api/entrar`
+devuelve `dev` y la sala del extraplano rechaza a los demás. Lo que hacen pasa en el
+navegador; el servidor solo guarda la puerta de la sala. Tampoco llevan logros.
 
 - `GET /api/editor/borrador` -> `{doc, rev, version}`: el borrador (o lo publicado, o
   `EMPTY`), su `rev` y la última versión publicada.
@@ -171,6 +178,10 @@ _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 REV_CONFLICT = (
     "Otro administrador ha guardado el borrador mientras tanto. Recarga para ver sus cambios."
 )
+#: Los desarrolladores del bot (Yeyo y godzilin): los únicos con devtools y extraplano.
+DEVS = frozenset({403646452414545921, 498473711687434241})
+#: Quien no es desarrollador no entra en el extraplano.
+NOT_DEV = "El mundo de pruebas es solo para los desarrolladores del bot."
 #: Quien no es administrador no toca el mundo.
 NOT_ADMIN = "Solo los administradores pueden editar el mundo."
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -253,6 +264,9 @@ class Universo(commands.Cog, name="Universo"):
         # `time.monotonic`: dice cuánto ha podido andar desde entonces.
         self._last_walk: dict[tuple[int, int], float] = {}
         self.salas = Salas(on_gesture=self._gesture)
+        # El extraplano de los desarrolladores: sala aparte, para que nadie vea volar a
+        # nadie por la plaza, y sin gestos que cuenten para logros.
+        self.pruebas = Salas()
         # Mundo publicado de cada servidor (versión y texto ya codificado), para no ir
         # a la base en cada entrada. `_mundo_epoch` cuenta las publicaciones: una lectura
         # que empezó antes de publicar no guarda lo viejo.
@@ -291,6 +305,7 @@ class Universo(commands.Cog, name="Universo"):
     async def cog_unload(self) -> None:
         """Cierra el servidor web, la sesión HTTP y espera los logros pendientes."""
         await self.salas.close()
+        await self.pruebas.close()
         if self.runner is not None:
             await self.runner.cleanup()
             self.runner = None
@@ -384,6 +399,7 @@ class Universo(commands.Cog, name="Universo"):
             "gestures": sorted(gestures),
             "version": __version__,
             "admin": member.guild_permissions.administrator,
+            "dev": member.id in DEVS,
             "mundo": (await self.mundo(guild.id))[0],
             # La fila de tragaperras de la plaza (`None` si la tragaperras no está cargada).
             "tragas": await tragas.plaza_meta(self.bot, guild.id),
@@ -586,8 +602,12 @@ class Universo(commands.Cog, name="Universo"):
             return
         try:
             guild, member = self._member(hello.get("session"), hello)
+            pruebas = hello.get("mundo") == "pruebas"
+            if pruebas and member.id not in DEVS:
+                raise UniversoError(NOT_DEV, 403)
+            salas = self.pruebas if pruebas else self.salas
             gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
-            player = await self.salas.join(
+            player = await salas.join(
                 guild.id, member.id, member.display_name, ws, backlog, gestures
             )
         except (UniversoError, SalaError) as error:
@@ -596,13 +616,14 @@ class Universo(commands.Cog, name="Universo"):
             await ws.close()
             return
         self.bot.telemetry.count("universo", "sala", guild_id=guild.id, user_id=member.id)
-        self._meet(guild.id, player)
+        if not pruebas:
+            self._meet(guild.id, player)
         try:
             async for message in ws:
                 if message.type == WSMsgType.BINARY:
-                    self.salas.pose(guild.id, player, message.data)
+                    salas.pose(guild.id, player, message.data)
         finally:
-            await self.salas.leave(guild.id, player)
+            await salas.leave(guild.id, player)
 
     def _meet(self, guild_id: int, player: Player) -> None:
         """Logros de coincidir: quien entra y cada uno de los que ya estaban."""

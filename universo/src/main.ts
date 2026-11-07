@@ -6,6 +6,7 @@ import type { Tragas } from "./casino/dibujo";
 import type { MundoDoc } from "./editor/formato";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
+import { PRUEBAS, irAMundo } from "./mundo/modo";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
 import { mundoDeSerie } from "./mundo/serie";
@@ -25,6 +26,8 @@ interface ProfileResponse {
   version: string;
   gestures: number[];
   admin?: boolean;
+  /** Desarrollador del bot: devtools y extraplano. */
+  dev?: boolean;
   mundo?: number;
   /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
   tragas?: Tragas | null;
@@ -146,6 +149,13 @@ function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string })
   $("capa").append(b);
 }
 
+/** Las devtools (solo desarrolladores), en un chunk aparte que no se descarga nadie más. */
+function cargarDevtools(mundo: Mundo, sesion: { session: string; guildId: string } | null): void {
+  import("./dev/devtools")
+    .then((m) => m.iniciarDevtools(mundo, sesion))
+    .catch((e: unknown) => console.error("No se han podido cargar las devtools", e));
+}
+
 interface Entrada {
   profile: ProfileResponse;
   session: string;
@@ -179,15 +189,23 @@ async function start(): Promise<void> {
   try {
     const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa")), enDiscord ? entrar() : Promise.resolve(null)]);
     if (entrada) {
+      if (PRUEBAS && !entrada.profile.dev) {
+        irAMundo(false); // el extraplano es solo de los desarrolladores
+        return;
+      }
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
-      iniciarPaseo(mundo, sesion);
-      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => void cargarObras(mundo, sesion));
-      if ((entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
+      // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
+      if (!PRUEBAS) iniciarPaseo(mundo, sesion);
+      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => {
+        if (!PRUEBAS) void cargarObras(mundo, sesion);
+      });
+      if (!PRUEBAS && (entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
-      if (entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
+      if (!PRUEBAS && entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
         botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
       }
+      if (entrada.profile.dev) cargarDevtools(mundo, entrada.guildId ? { session: entrada.session, guildId: entrada.guildId } : null);
       if (entrada.profile.tragas) {
         const nombre = entrada.profile.name;
         activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
@@ -202,6 +220,8 @@ async function start(): Promise<void> {
         botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
         void cargarObras(mundo, { session: dev.session, guildId: dev.guild_id });
       }
+      // Solo en desarrollo: `?devtools` las abre sin Discord (y `?mundo=pruebas`, el extraplano).
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("devtools")) cargarDevtools(mundo, null);
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);

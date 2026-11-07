@@ -378,6 +378,44 @@ async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) ->
     assert world.cog.salas.rooms == {}
 
 
+async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
+    world: World,
+) -> None:
+    from bot.cogs.universo import DEVS
+
+    dev_id = min(DEVS)
+    guild = world.client.get_guild(GUILD_ID)
+    members = {USER_ID: guild.get_member(USER_ID), dev_id: member(dev_id)}
+    guild.get_member = members.get
+    body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+
+    async def entrar(session: str) -> dict:
+        headers = {"Authorization": f"Bearer {session}"}
+        return await (await world.web.post("/api/entrar", json=body, headers=headers)).json()
+
+    assert (await entrar(await login(world)))["dev"] is False
+    assert (await entrar(world.cog.signer.issue(dev_id)))["dev"] is True
+
+    hello = {"t": "hola", "guild_id": str(GUILD_ID), "mundo": "pruebas"}
+    nadie = await world.web.ws_connect("/api/sala")
+    await nadie.send_json({**hello, "session": await login(world)})
+    assert (await nadie.receive_json())["error"].startswith("El mundo de pruebas")
+    isla = await world.web.ws_connect("/api/sala")
+    await isla.send_json({**hello, "mundo": None, "session": await login(world)})
+    assert (await isla.receive_json())["jugadores"] == []
+    dev = await world.web.ws_connect("/api/sala")
+    await dev.send_json({**hello, "session": world.cog.signer.issue(dev_id)})
+    assert (await dev.receive_json())["jugadores"] == []  # no ve a quien está en la isla
+    await dev.send_bytes(struct.pack("<BhhhBB", 1, 15, 1900, -40, 128, 0))
+    assert list(world.cog.pruebas.rooms) == [GUILD_ID]
+    assert [p.user_id for p in world.cog.salas.present(GUILD_ID)] == [USER_ID]
+    await dev.close()
+    await isla.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, dev_id)
+    assert not any(stat.startswith("universo_met") for stat in profile.stats)
+
+
 async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
     ws = await world.web.ws_connect("/api/sala")
     await ws.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": "falsa"})

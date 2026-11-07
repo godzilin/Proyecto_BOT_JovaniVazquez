@@ -3,11 +3,13 @@ import {
   AmbientLight,
   DirectionalLight,
   FogExp2,
+  GridHelper,
   HemisphereLight,
   Mesh,
   MeshLambertMaterial,
   PCFShadowMap,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
   WebGLRenderer,
   NeutralToneMapping,
@@ -25,6 +27,8 @@ import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
 import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, heightAt, sueloEn } from "./mundo/terreno";
 import { Obras } from "./mundo/obras";
+import { PRUEBAS } from "./mundo/modo";
+import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
 import { mundoDeSerie } from "./mundo/serie";
 import type { MundoDoc } from "./editor/formato";
 
@@ -45,6 +49,8 @@ export interface Contexto {
   lienzo: HTMLCanvasElement;
   capa: HTMLElement;
   yo: Jugador;
+  /** Resolución y sombras adaptativas (las devtools enseñan cómo van). */
+  calidad: Calidad;
   tactil: boolean;
   /** `f` se llama cada fotograma, con la cámara y el culling ya al día y antes de dibujar. */
   enganchar(f: (dt: number, ahora: number) => void): void;
@@ -61,6 +67,10 @@ export interface Mundo {
   readonly remotos: Remotos;
   /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes). */
   cargarMundo(doc: MundoDoc): void;
+  /** Sitios a los que se puede ir con `irA`: los de la isla o, en el extraplano, los de la pista. */
+  readonly sitios: string[];
+  /** Te lleva a uno de `sitios`, mirándolo. */
+  irA(nombre: string): void;
   /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
   pausar(si: boolean): void;
   detener(): void;
@@ -109,17 +119,29 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   // Mundo.
   const culling = new Culling();
   const param = (n: string, defecto: number): number => (debug !== null ? Number(new URLSearchParams(location.search).get(n)) || defecto : defecto);
-  for (const baldosa of crearTerreno(param("teselas", TESELAS))) {
-    escena.add(baldosa);
-    culling.registrarMalla(baldosa, DIST_TERRENO);
+  let mar: ReturnType<typeof crearMar> | null = null;
+  const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  if (PRUEBAS) {
+    // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) y la pista, como datos.
+    const suelo = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ color: 0x9aa3ab }));
+    suelo.receiveShadow = true;
+    const fina = new GridHelper(600, 600, 0x6b747c, 0x6b747c);
+    const gruesa = new GridHelper(600, 60, 0x2e353b, 0x2e353b);
+    fina.position.y = 0.01;
+    gruesa.position.y = 0.02;
+    escena.add(suelo, fina, gruesa);
+    obras.cargar(pistaDoc());
+  } else {
+    for (const baldosa of crearTerreno(param("teselas", TESELAS))) {
+      escena.add(baldosa);
+      culling.registrarMalla(baldosa, DIST_TERRENO);
+    }
+    mar = crearMar(crearMapaProfundidad());
+    escena.add(mar.malla);
+    obras.cargar(mundoDeSerie());
   }
-  const mar = crearMar(crearMapaProfundidad());
-  escena.add(mar.malla);
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
-  // El pueblo, los hitos y la vegetación son un mundo de datos más: lo publicado desde el editor lo sustituye.
-  const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
-  obras.cargar(mundoDeSerie());
   escena.add(jugador.objeto);
   camara.proteger(jugador.objeto);
   camara.enlazarSombra(sol.shadow);
@@ -152,6 +174,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     lienzo: renderer.domElement,
     capa,
     yo: jugador,
+    calidad,
     tactil,
     enganchar: (f) => ganchos.push(f),
   };
@@ -201,7 +224,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     controles.saltar = false;
     saltosPend += jugador.saltos - saltos0;
     metrosPend += jugador.metros - metros0;
-    lugares.comprobar(jugador.x, jugador.y, jugador.z);
+    if (!PRUEBAS && !jugador.trucos) lugares.comprobar(jugador.x, jugador.y, jugador.z);
 
     remotos.actualizar(dt, ahora, jugador.x, jugador.z, calidad.sombras);
 
@@ -218,7 +241,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
 
     culling.escala = !calidad.sombras ? 0.6 : calidad.ratio < ratioInicial ? 0.8 : 1;
     culling.actualizar(camara3);
-    mar.actualizar(reloj, camara3.position.x, camara3.position.z);
+    mar?.actualizar(reloj, camara3.position.x, camara3.position.z);
     cielo.actualizar(dt, camara3.position.x, camara3.position.y, camara3.position.z);
     for (const g of ganchos) g(dt, ahora);
 
@@ -232,6 +255,42 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     renderer.render(escena, camara3);
   };
   renderer.setAnimationLoop(fotograma);
+
+  // Se coloca a `d` metros del objetivo mirando hacia él, desde el ángulo `a`.
+  const sitiosIsla: Record<string, [number, number, number, number, number]> = {
+    nublo: [NUBLO.x, NUBLO.z, 3.5, 15, 0.2],
+    bandama: [BAND.x, BAND.z, 2.2, 17, 0.45],
+    dunas: [DUNAS.x - 4, DUNAS.z - 2, 1.4, 14, 0.3],
+    faro: [FARO.x, FARO.z, 3.9, 26, 0.12],
+    muelle: [MUELLE.cx, MUELLE.cz, 0, 0, 0.3],
+    mogan: [MUELLE.x0, MUELLE.z0, 3.0, 18, 0.25],
+    canteras: [CANTERAS.x, CANTERAS.z, 1.0, 10, 0.3],
+    dunasfaro: [FARO.x, FARO.z, 3.3, 40, 0.2],
+    cenit: [PICO.x, PICO.z, 0, 0, 1.45],
+    nieves: [PICO.x, PICO.z, 1.0, 6, 0.35],
+    drago: [PLAZA.x - 7, PLAZA.z + 4, 1.3, 9, 0.2],
+    casino: [PLAZA.x - 0.3, PLAZA.z + 11, -Math.PI / 2, 7, 0.2],
+  };
+  const irA = (nombre: string): void => {
+    // En el extraplano, la pista se mira hacia -z; el casino está donde en la isla y se encuadra igual.
+    if (PRUEBAS && nombre !== "casino") {
+      const [x, z] = SITIOS_PISTA[nombre] ?? SITIOS_PISTA.plaza;
+      jugador.teletransportar(x, z);
+      camara.yaw = 0;
+      camara.pitch = 0.3;
+      camara.dist = 9;
+      return;
+    }
+    if (!sitiosIsla[nombre]) return;
+    const [tx, tz, a, d, pitch] = sitiosIsla[nombre];
+    const px = tx + Math.cos(a) * d;
+    const pz = tz + Math.sin(a) * d;
+    jugador.teletransportar(px, pz);
+    camara.yaw = Math.atan2(-(tx - px), -(tz - pz));
+    camara.pitch = pitch;
+    camara.distMax = nombre === "cenit" ? 260 : 16;
+    camara.dist = nombre === "cenit" ? 230 : ({ dunasfaro: 10, nublo: 12, bandama: 4, faro: 11, dunas: 9 } as Record<string, number>)[nombre] ?? 8;
+  };
 
   if (debug !== null) {
     (window as unknown as Record<string, unknown>).__jv = {
@@ -248,31 +307,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       heightAt,
       sueloEn,
       info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
-      irA: (nombre: string) => {
-        // Se coloca a `d` metros del objetivo mirando hacia él, desde el ángulo `a`.
-        const sitios: Record<string, [number, number, number, number, number]> = {
-          nublo: [NUBLO.x, NUBLO.z, 3.5, 15, 0.2],
-          bandama: [BAND.x, BAND.z, 2.2, 17, 0.45],
-          dunas: [DUNAS.x - 4, DUNAS.z - 2, 1.4, 14, 0.3],
-          faro: [FARO.x, FARO.z, 3.9, 26, 0.12],
-          muelle: [MUELLE.cx, MUELLE.cz, 0, 0, 0.3],
-          mogan: [MUELLE.x0, MUELLE.z0, 3.0, 18, 0.25],
-          canteras: [CANTERAS.x, CANTERAS.z, 1.0, 10, 0.3],
-          dunasfaro: [FARO.x, FARO.z, 3.3, 40, 0.2],
-          cenit: [PICO.x, PICO.z, 0, 0, 1.45],
-          nieves: [PICO.x, PICO.z, 1.0, 6, 0.35],
-          drago: [PLAZA.x - 7, PLAZA.z + 4, 1.3, 9, 0.2],
-          casino: [PLAZA.x - 0.3, PLAZA.z + 11, -Math.PI / 2, 7, 0.2],
-        };
-        const [tx, tz, a, d, pitch] = sitios[nombre];
-        const px = tx + Math.cos(a) * d;
-        const pz = tz + Math.sin(a) * d;
-        jugador.teletransportar(px, pz);
-        camara.yaw = Math.atan2(-(tx - px), -(tz - pz));
-        camara.pitch = pitch;
-        camara.distMax = nombre === "cenit" ? 260 : 16;
-        camara.dist = nombre === "cenit" ? 230 : ({ dunasfaro: 10, nublo: 12, bandama: 4, faro: 11, dunas: 9 } as Record<string, number>)[nombre] ?? 8;
-      },
+      irA,
       tp: (x: number, z: number, yaw?: number, pitch?: number, dist?: number) => {
         jugador.teletransportar(x, z);
         if (yaw !== undefined) camara.yaw = yaw;
@@ -286,6 +321,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     contexto,
     yo: jugador,
     remotos,
+    sitios: Object.keys(PRUEBAS ? SITIOS_PISTA : sitiosIsla),
+    irA,
     tomarInforme() {
       metrosFrac += metrosPend;
       metrosPend = 0;

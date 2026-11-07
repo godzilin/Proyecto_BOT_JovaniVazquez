@@ -1,6 +1,8 @@
 // El terreno de la isla: altura analítica (heightAt), disposición de los lugares, malla con color por vértice
 // y un suelo interpolado idéntico a la malla para que los pies no floten ni se hundan.
 import { BufferAttribute, BufferGeometry, Color, DataTexture, LinearFilter, Mesh, MeshLambertMaterial, RedFormat, UnsignedByteType } from "three";
+import { PRUEBAS } from "./modo";
+import { alturaPista } from "./pista";
 import { clamp, fbm, lerp, ruido, smoothstep } from "./ruido";
 
 export const NIVEL_MAR = 0;
@@ -126,6 +128,7 @@ export const MUELLE = (() => {
 })();
 
 export function enMuelle(x: number, z: number): boolean {
+  if (PRUEBAS) return false;
   const px = x - MUELLE.x0;
   const pz = z - MUELLE.z0;
   const a = px * MUELLE.dx + pz * MUELLE.dz;
@@ -140,6 +143,7 @@ for (let iz = 0; iz < N1; iz++) for (let ix = 0; ix < N1; ix++) alturas[iz * N1 
 
 /** Altura del terreno tal y como se dibuja (sin cubierta del muelle). */
 export function terrenoEn(x: number, z: number): number {
+  if (PRUEBAS) return alturaPista(x, z); // el extraplano: suelo a 0 m y los bloques de la pista
   const gx = (x + MITAD) / PASO;
   const gz = (z + MITAD) / PASO;
   if (gx < 0 || gz < 0 || gx >= CELDAS || gz >= CELDAS) return -10;

@@ -38,6 +38,8 @@ export class Camara {
   pitch = 0.38;
   dist = 7.5;
   distMax = 16;
+  /** Devtools (noclip): la cámara atraviesa el terreno en vez de acercarse o subir por encima. */
+  atraviesa = false;
   private _modo: Modo = leerModo();
   private foco = new Vector3();
   private deseada = new Vector3();
@@ -157,7 +159,7 @@ export class Camara {
     } else {
       // Acerca la cámara si el rayo atraviesa el terreno.
       let d = this.dist;
-      for (let t = 1.2; t <= this.dist; t += 0.6) {
+      for (let t = 1.2; !this.atraviesa && t <= this.dist; t += 0.6) {
         const px = this.foco.x + dx * t;
         const pz = this.foco.z + dz * t;
         if (this.foco.y + dy * t < Math.max(terrenoEn(px, pz), 0) + 0.5) {
@@ -167,7 +169,7 @@ export class Camara {
       }
       const cx = this.foco.x + dx * d;
       const cz = this.foco.z + dz * d;
-      const cy = Math.max(this.foco.y + dy * d, Math.max(terrenoEn(cx, cz), 0) + 0.45);
+      const cy = this.atraviesa ? this.foco.y + dy * d : Math.max(this.foco.y + dy * d, Math.max(terrenoEn(cx, cz), 0) + 0.45);
       this.pos.set(cx, cy, cz);
       this.mira.position.copy(this.pos);
       this.mira.lookAt(this.foco);
