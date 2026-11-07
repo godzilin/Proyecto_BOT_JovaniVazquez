@@ -319,12 +319,18 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     await world.web.post("/api/entrar", json=body, headers=headers)
     await asyncio.gather(*world.cog._background)
-    # Como si hubieran pasado 10 s desde que entró: caben 120 m y 20 saltos.
+    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos y 10 deslizamientos.
     key = (GUILD_ID, USER_ID)
     world.cog._last_walk[key] -= 10
     response = await world.web.post(
         "/api/paseo",
-        json={**body, "meters": 90, "jumps": 500, "places": ["faro", "faro", "luna", 7]},
+        json={
+            **body,
+            "meters": 90,
+            "jumps": 500,
+            "slides": 3,
+            "places": ["faro", "faro", "luna", 7],
+        },
         headers=headers,
     )
     assert response.status == 200
@@ -336,6 +342,7 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
     assert 90 <= profile.stats["universo_meters"] < 92
     assert profile.stats["universo_jumps"] == 20
+    assert profile.stats["universo_slides"] == 3
     assert profile.stats["universo_place_faro"] == 1
     assert "universo_place_luna" not in profile.stats
     assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)

@@ -1,6 +1,6 @@
 // Prepara el robot para dibujar a los demás jugadores barato: las 19 piezas del modelo (rígidas y de las manos) se
 // funden en 3 mallas con esqueleto, una por material, y quedan 3 llamadas de dibujo por robot en vez de 19.
-import { AnimationClip, Bone, BufferAttribute, BufferGeometry, Matrix4, Mesh, Object3D, Skeleton, SkinnedMesh, Sphere, Vector3 } from "three";
+import { AnimationClip, Bone, BufferAttribute, BufferGeometry, Color, Matrix4, Mesh, Object3D, Skeleton, SkinnedMesh, Sphere, Vector3 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 
@@ -12,6 +12,16 @@ export interface PlantillaRobot {
 
 /** Nombre del material que se tiñe de un color distinto para cada jugador. */
 export const MATERIAL_CUERPO = "Main";
+
+/** Tono (0-1, 24 posibles) del cuerpo sacado del id de Discord: el mismo en todas las pantallas, la tuya incluida. */
+export function tonoDe(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 24) / 24;
+}
+
+/** Pone en `c` el color del cuerpo de un tono. */
+export const colorCuerpo = (t: number, c: Color): Color => c.setHSL(t, 0.7, 0.5);
 
 export function fundirRobot(modelo: Object3D, clips: AnimationClip[]): PlantillaRobot {
   const raiz = clone(modelo);

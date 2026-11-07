@@ -2808,6 +2808,17 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1_000, "universo_jumps_1k", "Rodillas de muelle",
          "Salta 1.000 veces en el Jovaniverso.", R),
     ])  # fmt: skip
+    # Deslizarse (agacharse corriendo): el impulso se recarga en un segundo y el
+    # servidor no acepta más de uno por segundo.
+    a += _tiers("jovani", "universo_slides", [
+        (1, "universo_slides_1", "Ni que fuera jabón", "Deslízate en el Jovaniverso.", C),
+        (100, "universo_slides_100", "Tobogán de Mogán",
+         "Deslízate 100 veces en el Jovaniverso.", C),
+        (1_000, "universo_slides_1k", "Entrada a lo Ramos",
+         "Deslízate 1.000 veces en el Jovaniverso.", R),
+        (10_000, "universo_slides_10k", "Newton pide la hoja de reclamaciones",
+         "Deslízate 10.000 veces en el Jovaniverso.", E),
+    ])  # fmt: skip
     for place, name, text, secret in UNIVERSO_PLACES:
         a += _tiers("jovani", f"{UNIVERSO_PLACE_PREFIX}{place}", [
             (1, f"{UNIVERSO_PLACE_PREFIX}{place}", name, text, C, secret),
@@ -25231,7 +25242,9 @@ def universo_meet_stats(met: Iterable[int], crowd: int) -> StatDelta:
     )
 
 
-def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatDelta:
+def universo_walk_stats(
+    meters: int, jumps: int, places: Iterable[str], slides: int = 0
+) -> StatDelta:
     """Lo que suma un informe de paseo por el Jovaniverso, ya recortado por el
     servidor (`bot.services.universo.walk_report`).
 
@@ -25239,8 +25252,11 @@ def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatD
         meters: Metros recorridos desde el informe anterior.
         jumps: Saltos desde el informe anterior.
         places: Lugares pisados (claves de `UNIVERSO_PLACES`).
+        slides: Deslizamientos desde el informe anterior.
     """
     add = {f"{UNIVERSO_PLACE_PREFIX}{place}": 1 for place in places}
+    if slides > 0:
+        add["universo_slides"] = slides
     if meters > 0:
         add["universo_meters"] = meters
     if jumps > 0:

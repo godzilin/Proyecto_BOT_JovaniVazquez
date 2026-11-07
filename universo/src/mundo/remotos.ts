@@ -7,7 +7,6 @@ import {
   AnimationAction,
   AnimationMixer,
   CanvasTexture,
-  Color,
   Group,
   LoopOnce,
   Material,
@@ -21,8 +20,8 @@ import {
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { Estela } from "./estela";
 import { gestoDe } from "./gestos";
-import { PASO_ANDAR, PASO_CORRER } from "./jugador";
-import { MATERIAL_CUERPO, type PlantillaRobot } from "./robot";
+import { PASO_ANDAR, PASO_CORRER, POSTURAS } from "./jugador";
+import { MATERIAL_CUERPO, colorCuerpo, tonoDe, type PlantillaRobot } from "./robot";
 import { clamp } from "./ruido";
 
 const TOPE = 12; // robots dibujados a la vez
@@ -46,13 +45,6 @@ class Remoto {
   meshes: Mesh[] = [];
 }
 
-/** Tono del cuerpo sacado del id (el mismo para todos los que lo vean). */
-function tono(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
-  return ((h >>> 0) % 24) / 24;
-}
-
 function porCercania(a: Remoto, b: Remoto): number {
   return a.d2 - b.d2;
 }
@@ -61,7 +53,6 @@ export class Remotos {
   private readonly todos = new Map<number, Remoto>();
   private readonly orden: Remoto[] = [];
   private readonly materiales = new Map<number, Material>();
-  private readonly color = new Color();
   private miSlot = -1;
 
   constructor(
@@ -154,12 +145,12 @@ export class Remotos {
 
   private animar(r: Remoto, dt: number): void {
     const quiero = r.estela.anim;
-    const q = quiero > 10 ? 0 : quiero;
+    const q = quiero > 12 ? 0 : quiero;
     if (q !== r.actual) {
       const de = r.acciones[r.actual];
-      const hacia = r.acciones[q] ?? this.accionGesto(r, q);
+      const hacia = r.acciones[q] ?? this.accionExtra(r, q);
       hacia.reset().play();
-      hacia.crossFadeFrom(de, q === 3 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
+      hacia.crossFadeFrom(de, q === 3 || q === 12 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
       r.actual = q;
     }
     const v = r.estela.v;
@@ -168,13 +159,14 @@ export class Remotos {
     (r.mixer as AnimationMixer).update(dt);
   }
 
-  /** La acción de un gesto (4-10), creada la primera vez que ese jugador lo hace. */
-  private accionGesto(r: Remoto, q: number): AnimationAction {
-    const g = gestoDe(q) as NonNullable<ReturnType<typeof gestoDe>>;
-    const clip = this.plantilla.clips.find((c) => c.name === g.clip);
-    if (!clip) throw new Error(`Falta la animación ${g.clip}`);
+  /** La acción de un gesto (4-10) o una postura (11-12), creada la primera vez que ese jugador la hace. */
+  private accionExtra(r: Remoto, q: number): AnimationAction {
+    const g = gestoDe(q);
+    const nombre = g?.clip ?? POSTURAS[q];
+    const clip = this.plantilla.clips.find((c) => c.name === nombre);
+    if (!clip) throw new Error(`Falta la animación ${nombre}`);
     const acc = (r.mixer as AnimationMixer).clipAction(clip);
-    if (g.modo !== "bucle") {
+    if (g && g.modo !== "bucle") {
       acc.setLoop(LoopOnce, 1);
       acc.clampWhenFinished = true;
     }
@@ -189,7 +181,7 @@ export class Remotos {
       const malla = m as Mesh;
       if (!malla.isMesh) return;
       r.meshes.push(malla);
-      if (malla.name === MATERIAL_CUERPO) malla.material = this.materialDe(malla.material as MeshStandardMaterial, tono(r.id));
+      if (malla.name === MATERIAL_CUERPO) malla.material = this.materialDe(malla.material as MeshStandardMaterial, tonoDe(r.id));
     });
     const mixer = new AnimationMixer(raiz);
     NOMBRES.forEach((n, i) => {
@@ -206,7 +198,7 @@ export class Remotos {
     r.actual = 0;
     r.mixer = mixer;
     r.objeto = o;
-    r.sprite = crearNombre(r.nombre, tono(r.id));
+    r.sprite = crearNombre(r.nombre, tonoDe(r.id));
     o.add(r.sprite);
     this.escena.add(o);
   }
@@ -217,7 +209,7 @@ export class Remotos {
     let m = this.materiales.get(clave);
     if (!m) {
       m = base.clone();
-      (m as MeshStandardMaterial).color.copy(this.color.setHSL(t, 0.7, 0.5));
+      colorCuerpo(t, (m as MeshStandardMaterial).color);
       this.materiales.set(clave, m);
     }
     return m;

@@ -8,6 +8,12 @@ criterio.
 
 ## 10.x
 
+### 10.3.0 · 2026-11-07
+
+- Jovaniverso: tu robot se ve del mismo color en tu pantalla y en la de los demás (antes tú te veías siempre naranja)
+- Jovaniverso: agacharse (C o el botón ⤓ en el móvil) y deslizarse agachándose al correr; saltar deslizándote o nada más caer conserva la velocidad, en el aire se gira sin frenar y el salto perdona pulsarlo un pelín tarde o pronto
+- Logros de deslizarse en el Jovaniverso
+
 ### 10.2.1 · 2026-11-07
 
 - Jovaniverso: los demás jugadores ya no se mueven a tirones; se ven andar fluidos aunque la conexión vaya a trompicones (a cambio, un cuarto de segundo de retraso)

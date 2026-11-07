@@ -12,6 +12,8 @@ export interface PoseLocal {
   readonly z: number;
   readonly giro: number;
   readonly anim: number;
+  /** Tiñe tu robot con el color que sale de tu id, el mismo con que te ven los demás. */
+  colorear(id: string): void;
 }
 
 const ESPERAS = [1000, 2000, 5000, 10000]; // ms; después, cada 10 s
@@ -71,6 +73,7 @@ export function iniciarSala(
         const m = JSON.parse(e.data) as { t: string; slot?: number; id?: string; nombre?: string; jugadores?: Jugadores[]; error?: string };
         if (m.t === "bienvenida") {
           intento = 0;
+          if (m.id) yo.colorear(m.id);
           remotos.bienvenida(m.slot as number, m.jugadores ?? []);
         } else if (m.t === "entra") remotos.entra(m.slot as number, m.id as string, m.nombre as string);
         else if (m.t === "sale") remotos.sale(m.slot as number);

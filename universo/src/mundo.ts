@@ -38,6 +38,7 @@ import type { MundoDoc } from "./editor/formato";
 export interface Informe {
   meters: number;
   jumps: number;
+  slides: number;
   places: string[];
 }
 
@@ -204,6 +205,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let sombrasQuitadas = false;
   let metrosFrac = 0;
   let saltosPend = 0;
+  let deslizPend = 0;
   let metrosPend = 0;
   let pausado = false;
 
@@ -240,16 +242,25 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       dz /= fuerza;
     }
     const saltos0 = jugador.saltos;
+    const desliz0 = jugador.deslizamientos;
     const metros0 = jugador.metros;
-    jugador.actualizar(dt, { dx, dz, fuerza, correr: !quieto && controles.correr, saltar: !quieto && controles.saltar });
+    jugador.actualizar(dt, {
+      dx,
+      dz,
+      fuerza,
+      correr: !quieto && controles.correr,
+      saltar: !quieto && controles.saltar,
+      agachar: !quieto && controles.agachar,
+    });
     controles.saltar = false;
     saltosPend += jugador.saltos - saltos0;
+    deslizPend += jugador.deslizamientos - desliz0;
     metrosPend += jugador.metros - metros0;
     if (!PRUEBAS && !jugador.trucos) lugares.comprobar(jugador.x, jugador.y, jugador.z);
 
     remotos.actualizar(dt, ahora, jugador.x, jugador.z, calidad.sombras);
 
-    camara.actualizar(dt, jugador.x, jugador.y, jugador.z);
+    camara.actualizar(dt, jugador.x, jugador.y - jugador.bajada, jugador.z);
 
     // El recuadro de sombras sigue al jugador, ajustado a la rejilla del mapa para que no parpadee.
     const texel = (2 * SOMBRA) / mapa;
@@ -351,12 +362,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       metrosFrac -= meters;
       const jumps = saltosPend;
       saltosPend = 0;
+      const slides = deslizPend;
+      deslizPend = 0;
       const places = lugares.tomar();
-      return meters > 0 || jumps > 0 || places.length > 0 ? { meters, jumps, places } : null;
+      return meters > 0 || jumps > 0 || slides > 0 || places.length > 0 ? { meters, jumps, slides, places } : null;
     },
     devolverInforme(i) {
       metrosFrac += i.meters;
       saltosPend += i.jumps;
+      deslizPend += i.slides;
       lugares.devolver(i.places);
     },
     cargarMundo(doc) {
