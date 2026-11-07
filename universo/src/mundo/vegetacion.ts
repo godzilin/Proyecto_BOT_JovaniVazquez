@@ -1,5 +1,5 @@
 // Vegetación e instancias: pinos canarios, palmeras, dragos, cardones, tabaibas y rocas.
-// Cada especie es una sola malla instanciada (una llamada de dibujo) con el color en los vértices.
+// Cada especie y celda es una malla instanciada con el color en los vértices; las celdas se descartan por separado.
 import {
   BufferGeometry,
   Color,
@@ -13,6 +13,7 @@ import {
   Object3D,
 } from "three";
 import { añadirCirculo } from "./colision";
+import { celdaDe } from "./culling";
 import { fundir, pintar, poner } from "./geom";
 import { hash2, mulberry32, smoothstep } from "./ruido";
 import { BAND, BENTAYGA, CANTERAS, CHARCA, DUNAS, FARO, MOGAN, MUELLE, NUBLO, PICO, PLAZA, heightAt, pendienteEn, sueloEn } from "./terreno";
@@ -98,6 +99,8 @@ function roca(): BufferGeometry {
 interface Especie {
   geo: BufferGeometry;
   n: number;
+  /** Distancia máxima a la que se dibuja (metros, hasta el borde de su celda): lo pequeño desaparece antes. */
+  distancia: number;
   /** Devuelve la escala si el punto vale, o 0. */
   vale: (x: number, z: number, h: number, pend: number, dv: number, r: () => number) => number;
   radioTronco: number;
@@ -129,6 +132,7 @@ const ESPECIES: Especie[] = [
   {
     geo: pino(),
     n: 190,
+    distancia: 240,
     radioTronco: 0.45,
     tinte: [0.85, 1.1],
     vale: (x, z, h, p, dc) => (dc > 14 && dc < 80 && h > 9 && p < 0.8 && !enDunas(x, z) && libre(x, z) ? 0.8 + 0.7 * hash2(Math.round(x), Math.round(z)) : 0),
@@ -136,6 +140,7 @@ const ESPECIES: Especie[] = [
   {
     geo: palmera(),
     n: 60,
+    distancia: 200,
     radioTronco: 0.35,
     tinte: [0.9, 1.1],
     inclinar: 0.12,
@@ -148,6 +153,7 @@ const ESPECIES: Especie[] = [
   {
     geo: drago(),
     n: 12,
+    distancia: 260,
     radioTronco: 0.85,
     tinte: [0.9, 1.1],
     vale: (x, z, h, p, dc) => (h > 3 && h < 22 && p < 0.4 && dc > 30 && !enDunas(x, z) && libre(x, z) ? 0.9 + 0.5 * hash2(Math.round(x * 2), Math.round(z)) : 0),
@@ -155,6 +161,7 @@ const ESPECIES: Especie[] = [
   {
     geo: cardon(),
     n: 90,
+    distancia: 150,
     radioTronco: 0.5,
     tinte: [0.85, 1.1],
     vale: (x, z, h, p) => (h > 1.5 && h < 24 && p < 0.55 && sur(z) > 0.4 && !enDunas(x, z) && libre(x, z) ? 0.8 + 0.7 * hash2(Math.round(x), Math.round(z * 3)) : 0),
@@ -162,6 +169,7 @@ const ESPECIES: Especie[] = [
   {
     geo: tabaiba(),
     n: 150,
+    distancia: 110,
     radioTronco: 0,
     tinte: [0.85, 1.15],
     vale: (x, z, h, p) => (h > 1.2 && h < 26 && p < 0.7 && sur(z) > 0.2 && !enDunas(x, z) && libre(x, z) ? 0.8 + 0.8 * hash2(Math.round(z * 2), Math.round(x)) : 0),
@@ -169,17 +177,24 @@ const ESPECIES: Especie[] = [
   {
     geo: roca(),
     n: 100,
+    distancia: 110,
     radioTronco: 0,
     tinte: [0.75, 1.15],
     vale: (x, z, h, _p, dc, r) => (h > -0.3 && !enDunas(x, z) && libre(x, z) ? (0.4 + 1.4 * r() * r()) * (1 + smoothstep(60, 25, dc) * 0.6) : 0),
   },
 ];
 
-export function crearVegetacion(): InstancedMesh[] {
+export interface Vegetacion {
+  malla: InstancedMesh;
+  distancia: number;
+}
+
+/** La vegetación de la isla, en mallas instanciadas por especie y por celda de `celda` metros de lado. */
+export function crearVegetacion(celda: number): Vegetacion[] {
   const rng = mulberry32(20261106);
   const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const dummy = new Object3D();
-  const out: InstancedMesh[] = [];
+  const out: Vegetacion[] = [];
 
   ESPECIES.forEach((esp, idx) => {
     const lista: { m: Matrix4; t: number }[] = [];
@@ -213,17 +228,27 @@ export function crearVegetacion(): InstancedMesh[] {
       lista.push({ m: dummy.matrix.clone(), t: 1 });
       añadirCirculo(DRAGO.x, DRAGO.z, 1.5);
     }
-    const mesh = new InstancedMesh(esp.geo, material, lista.length);
+    // Una malla por celda: la esfera de sus instancias es la que descarta three, en la cámara y en la del sol.
+    const celdas = new Map<string, { m: Matrix4; t: number }[]>();
+    for (const it of lista) {
+      const k = celdaDe(it.m.elements[12], it.m.elements[14], celda);
+      const c = celdas.get(k);
+      if (c) c.push(it);
+      else celdas.set(k, [it]);
+    }
     const color = new Color();
-    lista.forEach((it, i) => {
-      mesh.setMatrixAt(i, it.m);
-      mesh.setColorAt(i, color.setScalar(it.t));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.castShadow = true;
-    mesh.receiveShadow = idx !== 4;
-    mesh.computeBoundingSphere();
-    out.push(mesh);
+    for (const items of celdas.values()) {
+      const mesh = new InstancedMesh(esp.geo, material, items.length);
+      items.forEach((it, i) => {
+        mesh.setMatrixAt(i, it.m);
+        mesh.setColorAt(i, color.setScalar(it.t));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.castShadow = true;
+      mesh.receiveShadow = idx !== 4;
+      mesh.computeBoundingSphere();
+      out.push({ malla: mesh, distancia: esp.distancia });
+    }
   });
   return out;
 }

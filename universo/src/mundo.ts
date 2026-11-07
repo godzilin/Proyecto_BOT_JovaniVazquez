@@ -16,7 +16,7 @@ import { Calidad } from "./mundo/calidad";
 import { Camara } from "./mundo/camara";
 import { Controles } from "./mundo/controles";
 import { crearCielo } from "./mundo/cielo";
-import { fundir } from "./mundo/geom";
+import { Culling, mallasPorCeldas } from "./mundo/culling";
 import { crearCanteras, crearFaro, crearMogan, crearMuelle, crearRoques } from "./mundo/hitos";
 import { Jugador } from "./mundo/jugador";
 import { Lugares } from "./mundo/lugares";
@@ -34,7 +34,22 @@ export interface Informe {
   places: string[];
 }
 
+/** Lo que necesita un módulo que se cuelga del mundo (el casino): la escena, la cámara, el culling y un gancho por fotograma. */
+export interface Contexto {
+  escena: Scene;
+  camara: Camara;
+  camara3: PerspectiveCamera;
+  culling: Culling;
+  lienzo: HTMLCanvasElement;
+  capa: HTMLElement;
+  yo: Jugador;
+  tactil: boolean;
+  /** `f` se llama cada fotograma, con la cámara y el culling ya al día y antes de dibujar. */
+  enganchar(f: (dt: number, ahora: number) => void): void;
+}
+
 export interface Mundo {
+  readonly contexto: Contexto;
   /** Cuenta lo andado y los lugares nuevos desde el último informe; vacío si no hay nada que contar. */
   tomarInforme(): Informe | null;
   devolverInforme(i: Informe): void;
@@ -47,6 +62,12 @@ export interface Mundo {
   detener(): void;
 }
 
+// Tamaños medidos con docs/medir_universo.py; con ?debug=1&celda=..&vegetacion=..&teselas=.. se prueban otros.
+const CELDA_OBRA = 128; // lado en metros de las celdas de construcciones (la isla mide ~240 m: 4 celdas con algo)
+const CELDA_VEGETACION = 96; // más pequeñas encogen la pasada de sombras pero disparan las llamadas (64 m: 125 en la plaza)
+const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
+const DIST_OBRA = 330; // dentro de la niebla (a 330 m tapa ~75 %)
+const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
 
 export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Promise<Mundo> {
@@ -85,24 +106,32 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   escena.add(new AmbientLight(0xffe8d0, 0.25));
 
   // Mundo.
-  const terreno = crearTerreno();
-  escena.add(terreno);
+  const culling = new Culling();
+  const param = (n: string, defecto: number): number => (debug !== null ? Number(new URLSearchParams(location.search).get(n)) || defecto : defecto);
+  for (const baldosa of crearTerreno(param("teselas", TESELAS))) {
+    escena.add(baldosa);
+    culling.registrarMalla(baldosa, DIST_TERRENO);
+  }
   const mar = crearMar(crearMapaProfundidad());
   escena.add(mar.malla);
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
-  for (const v of crearVegetacion()) escena.add(v);
-  const construcciones = new Mesh(
-    fundir([...crearPueblo(), ...crearFaro(), ...crearMuelle(), ...crearRoques(), ...crearCanteras(), ...crearMogan()]),
-    new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
-  );
-  construcciones.castShadow = true;
-  construcciones.receiveShadow = true;
-  escena.add(construcciones);
+  for (const v of crearVegetacion(param("vegetacion", CELDA_VEGETACION))) {
+    escena.add(v.malla);
+    culling.registrarMalla(v.malla, v.distancia);
+  }
+  const piezas = [...crearPueblo(), ...crearFaro(), ...crearMuelle(), ...crearRoques(), ...crearCanteras(), ...crearMogan()];
+  for (const c of mallasPorCeldas(piezas, param("celda", CELDA_OBRA), new MeshLambertMaterial({ vertexColors: true, flatShading: true }))) {
+    escena.add(c);
+    culling.registrarMalla(c, DIST_OBRA);
+  }
   escena.add(jugador.objeto);
+  camara.proteger(jugador.objeto);
+  camara.enlazarSombra(sol.shadow);
   const remotos = new Remotos(escena, fundirRobot(jugador.modelo, jugador.clips));
 
   const calidad = new Calidad(renderer, sol, tactil ? 1.5 : 2);
+  const ratioInicial = calidad.ratio;
   if (debug === "fijo") calidad.activa = false;
   const controles = new Controles(renderer.domElement, capa);
   const lugares = new Lugares();
@@ -117,6 +146,19 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   };
   ajustar();
   window.addEventListener("resize", ajustar);
+
+  const ganchos: ((dt: number, ahora: number) => void)[] = [];
+  const contexto: Contexto = {
+    escena,
+    camara,
+    camara3,
+    culling,
+    lienzo: renderer.domElement,
+    capa,
+    yo: jugador,
+    tactil,
+    enganchar: (f) => ganchos.push(f),
+  };
 
   let ultimo = performance.now();
   let reloj = 0;
@@ -139,10 +181,16 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
 
     controles.actualizar();
     const cam = controles.consumirCamara();
+    if (controles.cambiarVista) {
+      controles.cambiarVista = false;
+      camara.alternar();
+    }
     camara.girar(cam.dYaw, cam.dPitch, cam.zoom);
     const f = camara.adelante;
-    const mx = controles.mover.x;
-    const my = controles.mover.y;
+    // Anclada (sentado ante una máquina) el jugador no se mueve.
+    const quieto = camara.anclada;
+    const mx = quieto ? 0 : controles.mover.x;
+    const my = quieto ? 0 : controles.mover.y;
     const fuerza = Math.hypot(mx, my);
     // Hacia delante = f; a la derecha = (-f.z, f.x).
     let dx = f.x * my - f.z * mx;
@@ -153,7 +201,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     }
     const saltos0 = jugador.saltos;
     const metros0 = jugador.metros;
-    jugador.actualizar(dt, { dx, dz, fuerza, correr: controles.correr, saltar: controles.saltar });
+    jugador.actualizar(dt, { dx, dz, fuerza, correr: !quieto && controles.correr, saltar: !quieto && controles.saltar });
     controles.saltar = false;
     saltosPend += jugador.saltos - saltos0;
     metrosPend += jugador.metros - metros0;
@@ -172,8 +220,11 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     sol.position.set(sx + DIR_SOL.x * 80, sy + DIR_SOL.y * 80, sz + DIR_SOL.z * 80);
     sol.target.updateMatrixWorld();
 
+    culling.escala = !calidad.sombras ? 0.6 : calidad.ratio < ratioInicial ? 0.8 : 1;
+    culling.actualizar(camara3);
     mar.actualizar(reloj, camara3.position.x, camara3.position.z);
     cielo.actualizar(dt, camara3.position.x, camara3.position.y, camara3.position.z);
+    for (const g of ganchos) g(dt, ahora);
 
     if (!calidad.sombras && !sombrasQuitadas) {
       sombrasQuitadas = true;
@@ -189,11 +240,13 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   if (debug !== null) {
     (window as unknown as Record<string, unknown>).__jv = {
       renderer,
+      escena,
       remotos,
       jugador,
       gesto: (id: number) => jugador.gesto(id),
       camara,
       calidad,
+      culling,
       controles,
       lugares,
       heightAt,
@@ -213,6 +266,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
           cenit: [PICO.x, PICO.z, 0, 0, 1.45],
           nieves: [PICO.x, PICO.z, 1.0, 6, 0.35],
           drago: [PLAZA.x - 7, PLAZA.z + 4, 1.3, 9, 0.2],
+          casino: [PLAZA.x - 0.3, PLAZA.z + 11, -Math.PI / 2, 7, 0.2],
         };
         const [tx, tz, a, d, pitch] = sitios[nombre];
         const px = tx + Math.cos(a) * d;
@@ -233,6 +287,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   }
 
   return {
+    contexto,
     yo: jugador,
     remotos,
     tomarInforme() {

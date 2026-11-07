@@ -1390,6 +1390,15 @@ puerto 8080 la misma sala que el bot, sin login (Vite le reenvía `/api`): con d
 pestañas, cada una ve a la otra. `--medir 30` mete 30 jugadores falsos dando vueltas
 por la plaza y dice cuánta CPU gasta el servidor.
 
+Con `?debug` en la URL y fuera de Discord, la página monta además las tragaperras de la
+plaza contra el `/api/entrar` y el `/api/traga` de pruebas de `sala_local.py` (las piezas
+reales de la tragaperras, con saldo en memoria y sin tocar la base de datos).
+`python docs/probar_casino.py --arrancar` lo levanta todo y, con Chromium sin ventana,
+se sienta, gira, juega hasta un premio, pone otra máquina en Auto y la para, comprueba
+qué suena y saca capturas en escritorio y en móvil. `python docs/medir_universo.py`
+mide las llamadas de dibujo y los triángulos de cada vista (el presupuesto de la Biblia).
+Los sonidos de las tragaperras salen de `docs/sonidos_tragas.py`.
+
 Solo hace falta desplegar para lo que pasa en el servidor (login, saldo, logros del
 paseo) o para verlo dentro de Discord. Lo de Python no se puede cambiar en caliente:
 el bot instala el paquete en la imagen y cada cambio en `main` sube la versión.
