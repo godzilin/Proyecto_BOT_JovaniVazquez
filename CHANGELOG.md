@@ -8,6 +8,12 @@ criterio.
 
 ## 10.x
 
+### 10.5.0 · 2026-11-07
+
+- Jovaniverso: el mundo ya no tiene tope de objetos; se guarda por trozos (cada asset y cada celda de 80 m) y el tope es de 4000 objetos por celda
+- Jovaniverso: el editor guarda solo lo que has cambiado y el deshacer ya no guarda copias del mundo entero; dos editores a la vez solo chocan si tocan la misma celda
+- Interno: el mundo publicado y su historial se pasan solos al formato nuevo al arrancar (las tablas viejas quedan de copia)
+
 ### 10.4.0 · 2026-11-07
 
 - Jovaniverso: tu robot se ve del mismo color en tu pantalla y en la de los demás (antes tú te veías siempre naranja)

@@ -41,8 +41,7 @@ const GRADOS = Math.PI / 180;
 /** Presupuesto de la Biblia («Jovaniverso: rendimiento imperativo») en la peor vista. */
 const MAX_LLAMADAS = 120;
 const MAX_TRIANGULOS = 250_000;
-// Los mismos topes que el servidor (`universo_editor.py`).
-const MAX_OBJETOS = 20_000;
+// Sin tope de objetos del mundo: el servidor pone uno por celda (`MAX_CELL_OBJECTS`) y avisa al guardar.
 /** Cada objeto elegido se pinta suelto (una llamada de dibujo): no se eligen más a la vez. */
 const TOPE_SEL = 300;
 const MITAD = 260;
@@ -869,10 +868,6 @@ export class PanelMundo implements Panel {
   private duplicar(): boolean {
     const lista = this.conPrincipalAlFinal();
     if (!lista.length) return false;
-    if (this.doc.objetos.length + lista.length > MAX_OBJETOS) {
-      this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
-      return true;
-    }
     const nuevos = lista.map((i) => {
       const copia = structuredClone(this.doc.objetos[i]);
       copia.pos[0] = limitar(copia.pos[0] + 1, -MITAD, MITAD);
@@ -910,10 +905,6 @@ export class PanelMundo implements Panel {
   private pegar(): boolean {
     const items = portapapeles.filter((p) => this.doc.assets[p.objeto.asset]);
     if (!items.length) return false;
-    if (this.doc.objetos.length + items.length > MAX_OBJETOS) {
-      this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
-      return true;
-    }
     const caja = new Box3();
     const v = new Vector3();
     for (const { objeto } of items) caja.expandByPoint(v.set(...objeto.pos));
@@ -982,7 +973,6 @@ export class PanelMundo implements Panel {
     const p = id ? this.suelo(rayo) : null;
     if (!id || !p) return;
     if (Math.abs(p.x) > MITAD || Math.abs(p.z) > MITAD) return this.a.aviso("Ahí queda fuera del mundo.");
-    if (this.doc.objetos.length >= MAX_OBJETOS) return this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
     const pos: Vec3 = [redondear(p.x, 100), redondear(sueloEn(p.x, p.z)), redondear(p.z, 100)];
     this.sel.solo(this.doc.objetos.push({ asset: id, pos, rot: [0, 0, 0], esc: [1, 1, 1] }) - 1);
     this.zona = null;

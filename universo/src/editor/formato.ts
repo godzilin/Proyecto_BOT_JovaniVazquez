@@ -69,7 +69,7 @@ export interface Terreno {
   colores: string;
 }
 export interface MundoDoc {
-  v: 1;
+  v: 2;
   assets: Record<string, Asset>;
   objetos: Objeto[];
   zonas: Record<string, Zona>;
@@ -77,11 +77,11 @@ export interface MundoDoc {
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.
-export const FORMATO = 1;
+export const FORMATO = 2;
 export const TRIANGULOS: Record<Forma, number> = { caja: 12, cuna: 8, cilindro: 48, cono: 24, esfera: 168, icosaedro: 20, dodecaedro: 36, prisma: 0 };
 export const FORMAS = Object.keys(TRIANGULOS) as Forma[];
 export const MAX_PIEZAS = 300;
-export const MAX_ASSETS = 400;
+export const MAX_ASSETS = 2000;
 export const MAX_TRIANGULOS_GLB = 6000;
 export const MAX_NOMBRE = 40;
 export const MIN_LADOS = 3;
@@ -95,6 +95,8 @@ export const MAX_DISTANCIA = 600.0;
 export const TERRENO_LADO = 320;
 export const TERRENO_CELDAS = 160;
 export const TERRENO_PINTURAS = 13;
+/** Lado en metros de una celda del mundo: el mundo se guarda y se descarga en trozos de este tamaño (`CELL` en Python). */
+export const CELDA = 80;
 export const ID = /^[a-z0-9_-]{1,40}$/;
 
 /** Rampa: base en y=-0.5, cara vertical en z=-0.5 y pendiente hasta z=+0.5. 8 triángulos. */

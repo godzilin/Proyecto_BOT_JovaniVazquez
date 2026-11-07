@@ -63,7 +63,7 @@ export function pistaDoc(): MundoDoc {
     color: b.color,
   }));
   return {
-    v: 1,
+    v: 2,
     assets: {
       pista: { tipo: "piezas", nombre: "Pista de pruebas", colision: null, piezas, distancia: 600 },
       columna: {

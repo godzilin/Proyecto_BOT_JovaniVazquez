@@ -3,7 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Tragas } from "./casino/dibujo";
-import type { MundoDoc } from "./editor/formato";
+import { deTrozos } from "./editor/trozos";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
@@ -116,12 +116,18 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
+/** El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). */
+interface MundoPublicado {
+  version: number;
+  trozos: Record<string, unknown>;
+}
+
 /** Pide el mundo publicado de este servidor y lo dibuja en lugar del de serie; si no hay nada publicado o falla, el de serie sigue como estaba. */
 function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
   if (!sesion.guildId) return Promise.resolve();
-  return api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
+  return api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
     .then((r) => {
-      if (r.version > 0) mundo.cargarMundo(r.doc);
+      if (r.version > 0) mundo.cargarMundo(deTrozos(r.trozos));
     })
     .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
 }
@@ -129,8 +135,8 @@ function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | 
 /** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
 async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
   try {
-    const r = await api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
-    mundo.cargarMundo(r.version > 0 ? r.doc : mundoDeSerie());
+    const r = await api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
+    mundo.cargarMundo(r.version > 0 ? deTrozos(r.trozos) : mundoDeSerie());
   } catch (e) {
     console.warn("No se ha podido cargar el mundo publicado.", e);
     aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");

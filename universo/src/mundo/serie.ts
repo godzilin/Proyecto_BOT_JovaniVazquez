@@ -17,5 +17,5 @@ export function mundoDeSerie(): MundoDoc {
   crearCanteras(a);
   crearMogan(a);
   crearVegetacion(a);
-  return { v: 1, assets: a.assets, objetos: a.objetos, zonas: zonasDeSerie() };
+  return { v: 2, assets: a.assets, objetos: a.objetos, zonas: zonasDeSerie() };
 }

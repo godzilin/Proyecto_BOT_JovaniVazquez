@@ -459,9 +459,9 @@ function iniciarAssets(padre: HTMLElement, mundo: Mundo, sesion: { session: stri
 
   if (sesion) {
     fetch(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, { headers: { Authorization: `Bearer ${sesion.session}` } })
-      .then((r) => (r.ok ? (r.json() as Promise<{ version: number; doc: MundoDoc }>) : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((r) => (r.ok ? (r.json() as Promise<{ version: number; trozos: Record<string, Asset> }>) : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((r) => {
-        Object.assign(assets, r.doc.assets); // el publicado gana en ids repetidos
+        for (const [clave, a] of Object.entries(r.trozos)) if (clave.startsWith("a/")) assets[clave.slice(2)] = a; // el publicado gana en ids repetidos
         pintar();
       })
       .catch((e: unknown) => console.warn("Devtools: sin los assets publicados.", e));

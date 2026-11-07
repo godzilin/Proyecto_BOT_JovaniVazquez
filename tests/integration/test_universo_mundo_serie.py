@@ -35,11 +35,15 @@ def mundo() -> dict:
 
 
 def test_el_servidor_acepta_el_mundo_de_serie(mundo: dict) -> None:
-    limpio = editor.validate_world(mundo, {})
+    limpio = editor.validate_world(editor.split_world(mundo), {})
     # Con holgura frente a los topes: el mundo de serie es solo el punto de partida del editor.
-    assert len(editor.encode_world(limpio).encode()) < editor.MAX_DOC_BYTES // 4
-    assert len(limpio["assets"]) < editor.MAX_ASSETS // 2
-    assert len(limpio["objetos"]) < editor.MAX_OBJECTS // 4
+    assert max(len(editor.encode_piece(t).encode()) for t in limpio.values()) < (
+        editor.MAX_PIECE_BYTES // 4
+    )
+    assert sum(k.startswith("a/") for k in limpio) < editor.MAX_ASSETS // 2
+    densa = max(len(t["objetos"]) for k, t in limpio.items() if k.startswith("c/"))
+    assert densa < editor.MAX_CELL_OBJECTS // 4
+    assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"])
 
 
 def test_lleva_lo_de_siempre(mundo: dict) -> None:
@@ -64,3 +68,14 @@ def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:
     assert mundo["assets"]["roca"]["colision"] is None
     assert mundo["assets"]["roca-grande"]["colision"]
     assert mundo["assets"]["roca"]["malla"] == mundo["assets"]["roca-grande"]["malla"]
+
+
+def test_la_pagina_parte_el_mundo_igual_que_el_servidor(mundo: dict) -> None:
+    # `aTrozos` y `deTrozos` de la página contra `split_world` (`docs/comparar_trozos.py`).
+    spec = importlib.util.spec_from_file_location(
+        "comparar_trozos", RAIZ / "docs" / "comparar_trozos.py"
+    )
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    modulo.main()
