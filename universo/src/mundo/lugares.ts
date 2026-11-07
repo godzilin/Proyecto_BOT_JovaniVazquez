@@ -9,6 +9,21 @@ interface Lugar {
   dentro: (x: number, y: number, z: number) => boolean;
 }
 
+/** Centro y radio de serie de los lugares que son un círculo (los mismos que las zonas del mundo de serie). */
+const BASE: Record<string, { x: number; z: number; r: number }> = {
+  nublo: { ...NUBLO, r: 12 },
+  dunas: { ...DUNAS, r: 24 },
+  faro: { ...FARO, r: 9 },
+  plaza: { x: PLAZA.x, z: PLAZA.z, r: 10 },
+  drago: { ...DRAGO, r: 7 },
+  canteras: { ...CANTERAS, r: 16 },
+};
+
+/** Una copia de las zonas de serie, para el documento del mundo. */
+export function zonasDeSerie(): Record<string, { x: number; z: number; r: number }> {
+  return Object.fromEntries(Object.entries(BASE).map(([k, z]) => [k, { x: Math.round(z.x * 1e4) / 1e4, z: Math.round(z.z * 1e4) / 1e4, r: z.r }]));
+}
+
 /** Zonas movidas desde el editor (`fijarZonas`); las que no vienen siguen en su sitio de siempre. */
 let zonas: Record<string, { x: number; z: number; r: number }> = {};
 
@@ -17,24 +32,24 @@ export function fijarZonas(nuevas: Record<string, { x: number; z: number; r: num
   zonas = nuevas;
 }
 
-const radio = (clave: string, p: { x: number; z: number }, r: number) => (x: number, _y: number, z: number): boolean => {
-  const o = zonas[clave];
-  return Math.hypot(x - (o?.x ?? p.x), z - (o?.z ?? p.z)) < (o?.r ?? r);
+const radio = (clave: string) => (x: number, _y: number, z: number): boolean => {
+  const o = zonas[clave] ?? BASE[clave];
+  return Math.hypot(x - o.x, z - o.z) < o.r;
 };
 
 const LUGARES: Lugar[] = [
   { clave: "nieves", dentro: (x, y, z) => Math.hypot(x - PICO.x, z - PICO.z) < 10 && y > heightAt(PICO.x, PICO.z) - 6 },
-  { clave: "nublo", dentro: radio("nublo", NUBLO, 12) },
+  { clave: "nublo", dentro: radio("nublo") },
   { clave: "bandama", dentro: (x, y, z) => {
     const d = Math.hypot(x - BAND.x, z - BAND.z);
     return d > 12 && d < 24 && y > BAND.alt - 4;
   } },
-  { clave: "dunas", dentro: radio("dunas", DUNAS, 24) },
-  { clave: "faro", dentro: radio("faro", FARO, 9) },
-  { clave: "plaza", dentro: radio("plaza", PLAZA, 10) },
-  { clave: "drago", dentro: radio("drago", DRAGO, 7) },
+  { clave: "dunas", dentro: radio("dunas") },
+  { clave: "faro", dentro: radio("faro") },
+  { clave: "plaza", dentro: radio("plaza") },
+  { clave: "drago", dentro: radio("drago") },
   { clave: "muelle", dentro: (x, y, z) => enMuelle(x, z) && y > NIVEL_MAR + 0.8 },
-  { clave: "canteras", dentro: radio("canteras", CANTERAS, 16) },
+  { clave: "canteras", dentro: radio("canteras") },
   { clave: "agua", dentro: (_x, y) => y < NIVEL_MAR - 0.25 },
 ];
 

@@ -1,8 +1,7 @@
-// El pueblo: casas blancas con ventanas y balcones de madera, una iglesia pequeña y un quiosco alrededor de una plaza.
-// La plaza (radio ~12 m) queda libre a propósito: ahí irán el casino y el banco.
-import { BoxGeometry, BufferGeometry, ConeGeometry, CylinderGeometry } from "three";
-import { añadirCirculo } from "./colision";
-import { pintar, poner } from "./geom";
+// El pueblo, como datos: casas blancas con ventanas y balcones de madera, una iglesia pequeña y un quiosco alrededor de una plaza.
+// La plaza (radio ~12 m) queda libre a propósito: ahí irán el casino y el banco. Cada casa es un asset con sus piezas.
+import type { Pieza } from "../editor/formato";
+import { type Aporte, asset, caja as cajaPieza, objeto, prisma } from "./piezas";
 import { mulberry32 } from "./ruido";
 import { PLAZA, sueloEn } from "./terreno";
 
@@ -11,9 +10,9 @@ const PUERTAS = [0x5b3a29, 0x2f6b57, 0x2d5d8a, 0x7a2f2a];
 const TEJAS = [0xb5523a, 0xc4633f, 0xa8492f];
 const MADERA = 0x7a4a2a;
 
-type P = BufferGeometry[];
+type P = Pieza[];
 const caja = (p: P, w: number, h: number, d: number, x: number, y: number, z: number, color: number): void => {
-  p.push(pintar(poner(new BoxGeometry(w, h, d), [x, y, z]), color));
+  p.push(cajaPieza(w, h, d, x, y, z, color));
 };
 
 /** Casa en coordenadas locales: el frente mira a +z y el suelo está en y = 0. */
@@ -26,9 +25,7 @@ export function casa(w: number, d: number, pisos: number, rng: () => number, par
   caja(p, w, alto + 1.4, d, 0, alto / 2 - 0.7, 0, pared);
   if (rng() < 0.5) {
     // Tejado a cuatro aguas.
-    const t = new ConeGeometry(1, 1.8, 4);
-    t.rotateY(Math.PI / 4);
-    p.push(pintar(poner(t, [0, alto + 0.9, 0], [0, 0, 0], [(w + 0.9) / Math.SQRT2, 1, (d + 0.9) / Math.SQRT2]), TEJAS[Math.floor(rng() * TEJAS.length)]));
+    p.push(prisma(0, 1, 1.8, 4, TEJAS[Math.floor(rng() * TEJAS.length)], { pos: [0, alto + 0.9, 0], escala: [(w + 0.9) / Math.SQRT2, 1, (d + 0.9) / Math.SQRT2] }, Math.PI / 4));
   } else {
     caja(p, w + 0.3, 0.3, d + 0.3, 0, alto + 0.15, 0, 0xf2ead8);
   }
@@ -61,15 +58,11 @@ export function casa(w: number, d: number, pisos: number, rng: () => number, par
 function iglesia(): P {
   const p: P = [];
   caja(p, 7, 5.2, 11, 0, 2.6 - 0.7, 0, 0xf6efe0);
-  const t = new ConeGeometry(1, 2.4, 4);
-  t.rotateY(Math.PI / 4);
-  p.push(pintar(poner(t, [0, 6.8, 0], [0, 0, 0], [5.2, 1, 7.7]), 0xb5523a));
+  p.push(prisma(0, 1, 2.4, 4, 0xb5523a, { pos: [0, 6.8, 0], escala: [5.2, 1, 7.7] }, Math.PI / 4));
   for (const sx of [-2.3, 2.3]) {
     caja(p, 2.4, 11, 3.2, sx, 4.8, 6.2, 0xf6efe0);
     caja(p, 1, 1.8, 0.2, sx, 10.2, 7.85, 0x2a3b4d);
-    const cupula = new ConeGeometry(1.9, 3, 4);
-    cupula.rotateY(Math.PI / 4);
-    p.push(pintar(poner(cupula, [sx, 12.8, 6.2]), 0xb5523a));
+    p.push(prisma(0, 1.9, 3, 4, 0xb5523a, { pos: [sx, 12.8, 6.2] }, Math.PI / 4));
     caja(p, 0.2, 1.4, 0.2, sx, 14.9, 6.2, 0x3b2a22);
     caja(p, 0.8, 0.2, 0.2, sx, 14.9, 6.2, 0x3b2a22);
   }
@@ -81,25 +74,19 @@ function iglesia(): P {
 
 function quiosco(): P {
   const p: P = [];
-  p.push(pintar(poner(new CylinderGeometry(2.3, 2.3, 0.3, 8), [0, 0.1, 0]), 0xcdbd9a));
+  p.push(prisma(2.3, 2.3, 0.3, 8, 0xcdbd9a, { pos: [0, 0.1, 0] }));
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    p.push(pintar(poner(new CylinderGeometry(0.1, 0.1, 2.8, 5), [Math.cos(a) * 1.9, 1.5, Math.sin(a) * 1.9]), i % 2 ? 0xf4ecda : 0xb5523a));
+    p.push(prisma(0.1, 0.1, 2.8, 5, i % 2 ? 0xf4ecda : 0xb5523a, { pos: [Math.cos(a) * 1.9, 1.5, Math.sin(a) * 1.9] }));
   }
-  p.push(pintar(poner(new CylinderGeometry(0.1, 2.7, 1.5, 8), [0, 3.65, 0]), 0xc4633f));
-  p.push(pintar(poner(new CylinderGeometry(0.4, 0.4, 1.0, 8), [0, 0.8, 0]), 0xe7d6b0));
+  p.push(prisma(0.1, 2.7, 1.5, 8, 0xc4633f, { pos: [0, 3.65, 0] }));
+  p.push(prisma(0.4, 0.4, 1.0, 8, 0xe7d6b0, { pos: [0, 0.8, 0] }));
   return p;
 }
 
-/** Cada pieza se coloca con una rotación Y y se hunde un poco para que no flote en cuestas suaves. */
-function colocar(piezas: P, x: number, z: number, giro: number, k = 1): BufferGeometry[] {
-  const y = sueloEn(x, z);
-  return piezas.map((g) => poner(g, [x, y, z], [0, giro, 0], k));
-}
-
-export function crearPueblo(): BufferGeometry[] {
+/** Suma al aporte las casas de los dos anillos, la Basílica y el quiosco, cada uno con su asset y su objeto. */
+export function crearPueblo(a: Aporte): void {
   const rng = mulberry32(4242);
-  const salida: BufferGeometry[] = [];
   const mirarPlaza = (x: number, z: number): number => Math.atan2(PLAZA.x - x, PLAZA.z - z);
 
   // Dos anillos de casas. Huecos libres hacia el sureste (camino a la playa) y el oeste (futuro banco/casino).
@@ -107,33 +94,34 @@ export function crearPueblo(): BufferGeometry[] {
     [21, 11, 0.2, [0.6, 3.14]], // radio, casas, desfase, ángulos que se dejan libres (rad, ±0.4)
     [32, 8, 0.1, [0.6]],
   ];
-  for (const [radio, n, off, libres] of anillos) {
-    for (let i = 0; i < n; i++) {
-      const a = off + (i / n) * Math.PI * 2;
-      if (radio === 21 && Math.abs(a - Math.PI * 1.5) < 0.35) continue; // aquí va la iglesia
-      if (libres.some((l) => Math.abs(((a - l + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.4)) continue;
+  let n = 0;
+  for (const [radio, cuantas, off, libres] of anillos) {
+    for (let i = 0; i < cuantas; i++) {
+      const ang = off + (i / cuantas) * Math.PI * 2;
+      if (radio === 21 && Math.abs(ang - Math.PI * 1.5) < 0.35) continue; // aquí va la iglesia
+      if (libres.some((l) => Math.abs(((ang - l + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.4)) continue;
       const r = radio + (rng() - 0.5) * 3;
-      const x = PLAZA.x + Math.cos(a) * r;
-      const z = PLAZA.z + Math.sin(a) * r;
+      const x = PLAZA.x + Math.cos(ang) * r;
+      const z = PLAZA.z + Math.sin(ang) * r;
       const w = 5.2 + rng() * 2.2;
       const d = 4.6 + rng() * 1.6;
-      salida.push(...colocar(casa(w, d, rng() < 0.45 ? 2 : 1, rng), x, z, mirarPlaza(x, z)));
-      const rc = Math.hypot(w, d) * 0.5 * 0.86;
-      añadirCirculo(x, z, rc);
+      const piezas = casa(w, d, rng() < 0.45 ? 2 : 1, rng);
+      const id = `casa-${++n}`;
+      a.assets[id] = asset(`Casa ${n}`, piezas, [[0, 0, Math.hypot(w, d) * 0.5 * 0.86]]);
+      a.objetos.push(objeto(id, [x, sueloEn(x, z), z], [0, mirarPlaza(x, z), 0]));
     }
   }
 
+  // La Basílica del Pino, más grande que una iglesia normal (escala 1,35): sus círculos eran del mundo y aquí van en el asset.
+  const k = 1.35;
   const ix = PLAZA.x;
   const iz = PLAZA.z - 21;
-  salida.push(...colocar(iglesia(), ix, iz, 0, 1.35)); // la Basílica del Pino, más grande que una iglesia normal
-  añadirCirculo(ix, iz - 2, 5.6);
-  añadirCirculo(ix, iz + 3, 5.6);
-  añadirCirculo(ix - 3.1, iz + 8.4, 3.2);
-  añadirCirculo(ix + 3.1, iz + 8.4, 3.2);
+  const c = (dx: number, dz: number, rad: number): [number, number, number] => [dx / k, dz / k, rad / k];
+  a.assets.iglesia = asset("Basílica", iglesia(), [c(0, -2, 5.6), c(0, 3, 5.6), c(-3.1, 8.4, 3.2), c(3.1, 8.4, 3.2)]);
+  a.objetos.push(objeto("iglesia", [ix, sueloEn(ix, iz), iz], [0, 0, 0], k));
 
   const kx = PLAZA.x + 8;
   const kz = PLAZA.z - 5;
-  salida.push(...colocar(quiosco(), kx, kz, 0));
-  añadirCirculo(kx, kz, 2.4);
-  return salida;
+  a.assets.quiosco = asset("Quiosco", quiosco(), [[0, 0, 2.4]]);
+  a.objetos.push(objeto("quiosco", [kx, sueloEn(kx, kz), kz]));
 }

@@ -16,19 +16,16 @@ import { Calidad } from "./mundo/calidad";
 import { Camara } from "./mundo/camara";
 import { Controles } from "./mundo/controles";
 import { crearCielo } from "./mundo/cielo";
-import { Culling, mallasPorCeldas } from "./mundo/culling";
-import { crearCanteras, crearFaro, crearMogan, crearMuelle, crearRoques } from "./mundo/hitos";
+import { Culling } from "./mundo/culling";
 import { Jugador } from "./mundo/jugador";
 import { Lugares, fijarZonas } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { crearPueblo } from "./mundo/pueblo";
 import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, heightAt, sueloEn } from "./mundo/terreno";
-import { CELDA_OBRA, CELDA_VEGETACION, DIST_OBRA } from "./mundo/medidas";
 import { Obras } from "./mundo/obras";
-import { crearVegetacion } from "./mundo/vegetacion";
+import { mundoDeSerie } from "./mundo/serie";
 import type { MundoDoc } from "./editor/formato";
 
 export interface Informe {
@@ -60,14 +57,14 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
-  /** Dibuja el mundo publicado desde el editor encima del de serie, sustituyendo el que hubiera. */
+  /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes). */
   cargarMundo(doc: MundoDoc): void;
   /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
   pausar(si: boolean): void;
   detener(): void;
 }
 
-// Tamaños medidos con docs/medir_universo.py (los de obras, en mundo/medidas.ts); con ?debug=1&celda=..&vegetacion=..&teselas=.. se prueban otros.
+// Tamaños medidos con docs/medir_universo.py (los de obras, en mundo/medidas.ts); con ?debug=1&teselas=.. se prueban otros.
 const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
 const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
@@ -118,17 +115,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   escena.add(mar.malla);
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
-  for (const v of crearVegetacion(param("vegetacion", CELDA_VEGETACION))) {
-    escena.add(v.malla);
-    culling.registrarMalla(v.malla, v.distancia);
-  }
-  const piezas = [...crearPueblo(), ...crearFaro(), ...crearMuelle(), ...crearRoques(), ...crearCanteras(), ...crearMogan()];
-  const materialObra = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  for (const c of mallasPorCeldas(piezas, param("celda", CELDA_OBRA), materialObra)) {
-    escena.add(c);
-    culling.registrarMalla(c, DIST_OBRA);
-  }
-  const obras = new Obras(escena, culling, materialObra);
+  // El pueblo, los hitos y la vegetación son un mundo de datos más: lo publicado desde el editor lo sustituye.
+  const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  obras.cargar(mundoDeSerie());
   escena.add(jugador.objeto);
   camara.proteger(jugador.objeto);
   camara.enlazarSombra(sol.shadow);

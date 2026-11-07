@@ -109,11 +109,13 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
-/** Pide el mundo publicado de este servidor y lo dibuja encima del de serie; si falla, el de serie sigue como estaba. */
+/** Pide el mundo publicado de este servidor y lo dibuja en lugar del de serie; si no hay nada publicado o falla, el de serie sigue como estaba. */
 function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
   if (!sesion.guildId) return Promise.resolve();
   return api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
-    .then((r) => mundo.cargarMundo(r.doc))
+    .then((r) => {
+      if (r.version > 0) mundo.cargarMundo(r.doc);
+    })
     .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
 }
 

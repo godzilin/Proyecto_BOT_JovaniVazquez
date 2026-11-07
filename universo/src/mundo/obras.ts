@@ -35,6 +35,7 @@ export class Obras {
   cargar(doc: MundoDoc): void {
     this.vaciar();
     const gen = this.generacion;
+    // Los assets que solo se diferencian en la colisión se dibujan juntos (una malla instanciada por celda, no una por asset).
     const usos = new Map<string, Objeto[]>();
     for (const o of doc.objetos) {
       if (!doc.assets[o.asset]) continue;
@@ -42,10 +43,17 @@ export class Obras {
       if (l) l.push(o);
       else usos.set(o.asset, [o]);
     }
-    const sueltas = new Map<number, BufferGeometry[]>();
+    const grupos = new Map<string, { asset: Asset; objetos: Objeto[] }>();
     for (const [id, objetos] of usos) {
       const a = doc.assets[id];
       this.colisiones(a, objetos);
+      const clave = JSON.stringify([a.tipo === "glb" ? a.glb : [a.piezas, a.malla], a.distancia]);
+      const g = grupos.get(clave);
+      if (g) g.objetos.push(...objetos);
+      else grupos.set(clave, { asset: a, objetos });
+    }
+    const sueltas = new Map<number, BufferGeometry[]>();
+    for (const { asset: a, objetos } of grupos.values()) {
       const distancia = a.distancia ?? DIST_OBRA;
       if (a.tipo === "glb") {
         const sha = a.glb;

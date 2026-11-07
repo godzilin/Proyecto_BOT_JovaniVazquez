@@ -27,6 +27,7 @@ import {
   type Vec3,
 } from "./formato";
 import { type Modo, Vista } from "./vista";
+import { mundoDeSerie } from "../mundo/serie";
 
 const GRADOS = Math.PI / 180;
 const AUTOGUARDADO_MS = 20_000;
@@ -57,6 +58,8 @@ export async function abrirEditor(sesion: Sesion, mundo: Mundo | null): Promise<
   try {
     if (import.meta.env.DEV) comprobarFormas();
     const b = await api.borrador(sesion);
+    // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío.
+    if (b.rev === 0 && b.version === 0) b.doc = mundoDeSerie();
     if (b.doc.v !== FORMATO) throw new Error("El editor está desfasado: recarga la página.");
     new Editor(sesion, mundo, b).iniciar();
   } catch (e) {
