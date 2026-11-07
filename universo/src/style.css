@@ -156,6 +156,23 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.boton-vista {
+  position: fixed;
+  right: calc(max(20px, env(safe-area-inset-right)) + 56px + 10px);
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 1.6rem;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+  backdrop-filter: blur(4px);
+}
+
 .panel-gestos {
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
@@ -248,6 +265,11 @@ body {
 }
 
 @media (pointer: coarse) {
+  /* Junto al botón de salto (76 px), a su izquierda, sin taparlo. */
+  .boton-vista {
+    right: calc(max(22px, env(safe-area-inset-right)) + 76px + 12px);
+    bottom: calc(max(28px, env(safe-area-inset-bottom)) + 10px);
+  }
   /* Encima del botón de salto (76 px), sin taparlo. */
   .boton-gestos {
     right: max(32px, env(safe-area-inset-right));
