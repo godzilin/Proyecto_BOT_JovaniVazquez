@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import struct
 
@@ -12,6 +13,8 @@ from bot.services.universo_editor import (
     EDITABLE_ZONES,
     EMPTY,
     MAX_GLB_TRIANGLES,
+    TERRAIN_PAINTS,
+    TERRAIN_SIDE,
     MundoError,
     asset_triangles,
     encode_world,
@@ -246,3 +249,35 @@ def test_el_tinte_de_un_objeto_tiene_tope() -> None:
     doc["objetos"][0]["tinte"] = 5
     with pytest.raises(MundoError, match="tinte"):
         validate_world(doc, {})
+
+
+def terreno(alturas: list[int] | None = None, colores: bytes | None = None) -> dict:
+    """Un terreno de la rejilla entera: todo a 0 m y con el color natural, salvo lo que se pase."""
+    n = TERRAIN_SIDE * TERRAIN_SIDE
+    h = (alturas or []) + [0] * (n - len(alturas or []))
+    return {
+        "alturas": base64.b64encode(struct.pack(f"<{len(h)}h", *h)).decode(),
+        "colores": base64.b64encode(colores if colores is not None else bytes(n)).decode(),
+    }
+
+
+def test_un_terreno_esculpido_vale_y_se_guarda_tal_cual() -> None:
+    t = terreno([-1000, 4200], bytes([TERRAIN_PAINTS]) + bytes(TERRAIN_SIDE**2 - 1))
+    assert validate_world(world(terreno=t), {})["terreno"] == t
+    assert "terreno" not in validate_world(world(), {})
+
+
+@pytest.mark.parametrize(
+    ("t", "texto"),
+    [
+        ({"alturas": "@@", "colores": ""}, "base64"),
+        ({"alturas": base64.b64encode(b"\0\0").decode(), "colores": ""}, "rejilla"),
+        (terreno([12001]), "altura"),
+        (terreno([-2001]), "altura"),
+        (terreno(colores=bytes([TERRAIN_PAINTS + 1]) + bytes(TERRAIN_SIDE**2 - 1)), "paleta"),
+        ({**terreno(), "extra": 1}, "campos que no se conocen"),
+    ],
+)  # fmt: skip
+def test_un_terreno_malo_dice_por_que(t: dict, texto: str) -> None:
+    with pytest.raises(MundoError, match=texto):
+        validate_world(world(terreno=t), {})

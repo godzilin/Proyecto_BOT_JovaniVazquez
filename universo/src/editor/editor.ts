@@ -7,8 +7,9 @@ import { Borrador } from "./borrador";
 import { dialogo, h, modal } from "./dom";
 import { comprobarFormas, FORMATO, type MundoDoc } from "./formato";
 import type { Anfitrion, Panel } from "./panel";
-import { PanelAssets } from "./assets";
-import { PanelMundo } from "./niveles";
+import { AYUDA_ASSETS, PanelAssets } from "./assets";
+import { AYUDA_MUNDO, PanelMundo } from "./niveles";
+import { AYUDA_TERRENO } from "./pincel";
 import { mundoDeSerie } from "../mundo/serie";
 import type { Mundo } from "../mundo";
 
@@ -20,6 +21,17 @@ export interface Entorno {
 }
 
 type Pestana = "mundo" | "assets";
+
+/** Lo que vale en las dos pestañas. */
+const AYUDA_GENERAL: [string, string][] = [
+  ["F1 o ?", "Abre esta ayuda"],
+  ["Ctrl+S", "Guarda el borrador (también se guarda solo cada 20 segundos)"],
+  ["Ctrl+Z", "Deshace el último cambio"],
+  ["Ctrl+Y o Ctrl+Mayús+Z", "Rehace lo deshecho"],
+  ["Publicar", "Todos los jugadores pasan a ver el borrador; hasta entonces, nadie más lo ve"],
+  ["Versiones", "Lista lo publicado y deja volver el borrador a una versión anterior"],
+  ["Cerrar", "Sale del editor; el mundo vuelve a lo publicado"],
+];
 
 let abierto = false;
 
@@ -105,6 +117,7 @@ class Editor implements Anfitrion {
       this.boton("guardar", "Guardar borrador", () => void this.guardar(), "Ctrl+S"),
       this.boton("publicar", "Publicar", () => void this.publicar()),
       this.boton("versiones", "Versiones", () => void this.verVersiones()),
+      this.boton("ayuda", "Ayuda", () => this.ayuda(), "F1"),
       this.boton("cerrar", "Cerrar", () => void this.cerrar()),
     );
   }
@@ -214,6 +227,29 @@ class Editor implements Anfitrion {
     caja.addEventListener("keydown", (e) => e.key === "Escape" && fondo.remove());
   }
 
+  /** Los atajos y el ratón de cada pestaña, la que está abierta primero. */
+  private ayuda(): void {
+    const { fondo, caja } = modal(this.raiz, "Ayuda del editor");
+    caja.classList.add("ed-caja-ancha");
+    const seccion = (titulo: string, filas: [string, string][]): HTMLElement =>
+      h(
+        "section",
+        {},
+        h("h3", { textContent: titulo }),
+        h("dl", { className: "ed-ayuda" }, ...filas.flatMap(([tecla, que]) => [h("dt", {}, h("kbd", { textContent: tecla })), h("dd", { textContent: que })])),
+      );
+    const mundo = [seccion("Mundo · Objetos", AYUDA_MUNDO), seccion("Mundo · Terreno", AYUDA_TERRENO)];
+    const assets = [seccion("Assets", AYUDA_ASSETS)];
+    const cerrar = h("button", { className: "ed-b", textContent: "Cerrar", onclick: () => fondo.remove() });
+    caja.append(
+      ...(this.activa === "mundo" ? [...mundo, ...assets] : [...assets, ...mundo]),
+      seccion("En las dos pestañas", AYUDA_GENERAL),
+      h("div", { className: "ed-fila" }, cerrar),
+    );
+    caja.addEventListener("keydown", (e) => e.key === "Escape" && fondo.remove());
+    cerrar.focus({ preventScroll: true });
+  }
+
   private async volverA(version: number): Promise<void> {
     const ok = await dialogo(this.raiz, "Volver a una versión", `El borrador pasará a ser la versión ${version} y se perderán los cambios sin publicar. No se publica nada hasta que pulses Publicar.`, "Volver a esta");
     if (ok === null) return;
@@ -248,6 +284,12 @@ class Editor implements Anfitrion {
     if (this.raiz.querySelector(".ed-fondo")) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
+    if (k === "f1") {
+      e.preventDefault(); // la ayuda del navegador
+      e.stopPropagation();
+      this.ayuda();
+      return;
+    }
     if (ctrl && k === "s") {
       e.preventDefault();
       (document.activeElement as HTMLElement | null)?.blur(); // el valor a medio escribir entra antes de guardar
@@ -256,7 +298,8 @@ class Editor implements Anfitrion {
     }
     if (this.esCampoDeTexto(e.target)) return;
     e.stopPropagation(); // el mundo no se entera
-    if (ctrl && k === "z") this.b.irA(this.b.hi + (e.shiftKey ? 1 : -1));
+    if (k === "?") this.ayuda();
+    else if (ctrl && k === "z") this.b.irA(this.b.hi + (e.shiftKey ? 1 : -1));
     else if (ctrl && k === "y") this.b.irA(this.b.hi + 1);
     else if (!this.panel(this.activa).tecla(e, k, ctrl)) return;
     e.preventDefault();

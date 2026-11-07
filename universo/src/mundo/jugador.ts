@@ -1,11 +1,28 @@
 // El jugador: el robot (modelo glb con animaciones) y su movimiento: velocidad, gravedad, salto, pendientes,
 // colisiones con círculos y pared invisible en el mar. Las unidades son metros y segundos.
-import { AnimationAction, AnimationClip, AnimationMixer, Box3, Group, LoopOnce, Mesh, MeshStandardMaterial, Object3D, Vector3 } from "three";
+// Movimiento con técnica: agacharse corriendo es deslizarse (con impulso cada DESLIZ_RECARGA s y que acelera cuesta
+// abajo), saltar desde el deslizamiento o nada más caer conserva la velocidad (bunny hop), en el aire se gira sin
+// frenar (air strafe), y el salto perdona un poco tarde (coyote) y un poco pronto (buffer).
+import {
+  AnimationAction,
+  AnimationClip,
+  AnimationMixer,
+  AnimationUtils,
+  Box3,
+  Color,
+  Group,
+  LoopOnce,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Vector3,
+} from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { empujar } from "./colision";
 import { GESTOS, gestoDe } from "./gestos";
 import { clamp } from "./ruido";
 import { SUELO_AGUA, PLAZA, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./terreno";
+import { MATERIAL_CUERPO, colorCuerpo, tonoDe } from "./robot";
 import robotUrl from "../modelos/robot.glb?url";
 
 export const VEL_ANDAR = 5;
@@ -18,6 +35,21 @@ const VEL_VUELO = 6; // m/s al subir o bajar volando, por la velocidad de las de
 // Velocidad (m/s) a la que el clip, a escala 1, no hace patinar los pies. Medida a ojo en el modelo; ajustable.
 export const PASO_ANDAR = 2.1;
 export const PASO_CORRER = 4.2;
+const VEL_AGACHADO = 2.5;
+const VEL_MAX = 15; // tope con impulsos encadenados; el paseo para los logros se recorta a 12 m/s de media
+const DESLIZ_MIN = 6; // m/s para que agacharse sea deslizarse
+const DESLIZ_IMPULSO = 3.5;
+const DESLIZ_RECARGA = 1; // s entre impulsos (y la sala cuenta como mucho un deslizamiento por segundo)
+const DESLIZ_ROCE = 6; // m/s² en llano
+const DESLIZ_CUESTA = 14; // m/s² por unidad de pendiente: cuesta abajo acelera, cuesta arriba frena
+const DESLIZ_GIRO = 1.8; // rad/s que se puede torcer deslizándose
+const AIRE_ACEL = 14; // m/s² de control en el aire, sin pasar de la velocidad que ya llevas
+const GRACIA_BHOP = 0.12; // s tras caer sin roce: saltar ahí conserva la velocidad
+const COYOTE = 0.12; // s tras dejar el suelo en los que aún se puede saltar
+const BUFFER = 0.15; // s antes de tocar el suelo en los que el salto pulsado se guarda
+
+/** Animaciones de moverse que no son clips del modelo: una pose sacada de otro clip (`cargar`). Sus ids de la sala. */
+export const POSTURAS: Readonly<Record<number, string>> = { 11: "Agachado", 12: "Deslizar" };
 
 export interface Entrada {
   /** Dirección deseada ya en el mundo (x, z) y fuerza 0..1. */
@@ -26,6 +58,8 @@ export interface Entrada {
   fuerza: number;
   correr: boolean;
   saltar: boolean;
+  /** Se mantiene pulsado: agachado, o deslizándose si se va rápido. */
+  agachar: boolean;
 }
 
 export class Jugador {
@@ -41,6 +75,11 @@ export class Jugador {
   /** Metros recorridos sin informar y saltos hechos. */
   metros = 0;
   saltos = 0;
+  deslizamientos = 0;
+  agachado = false;
+  deslizando = false;
+  /** Cuánto bajan los ojos (m), suavizado: la cámara lo resta. */
+  bajada = 0;
   // Devtools (solo desarrolladores): volar sin gravedad, atravesarlo todo y multiplicar la velocidad. Con cualquiera
   // puesto no se cuentan metros ni saltos: no son paseo para los logros.
   volar = false;
@@ -57,6 +96,10 @@ export class Jugador {
   /** Id (4-10) del gesto en marcha, o 0. */
   private enGesto = 0;
   private tmp = { x: 0, z: 0 };
+  private recarga = 0;
+  private coyote = 0;
+  private buffer = 0;
+  private desdeCaida = 1;
 
   private constructor(
     readonly modelo: Object3D,
@@ -81,7 +124,7 @@ export class Jugador {
     });
     this.objeto.add(modelo);
     this.mixer = new AnimationMixer(modelo);
-    for (const nombre of ["Idle", "Walking", "Running", "Jump"]) {
+    for (const nombre of ["Idle", "Walking", "Running", "Jump", ...Object.values(POSTURAS)]) {
       const clip = clips.find((c) => c.name === nombre);
       if (!clip) throw new Error(`Falta la animación ${nombre}`);
       const a = this.mixer.clipAction(clip);
@@ -98,7 +141,31 @@ export class Jugador {
 
   static async cargar(): Promise<Jugador> {
     const gltf = await new GLTFLoader().loadAsync(robotUrl);
+    // El modelo no trae agacharse ni deslizarse: son un fotograma de otro clip (a 100 fps). Agachado, el impulso del
+    // salto (0,10 s); deslizándose, la caída de espaldas con los pies por delante (0,25 s de Death).
+    const pose = (de: string, nombre: string, f: number): AnimationClip => {
+      const clip = gltf.animations.find((c) => c.name === de);
+      if (!clip) throw new Error(`Falta la animación ${de}`);
+      return AnimationUtils.subclip(clip, nombre, f, f + 1, 100);
+    };
+    gltf.animations.push(pose("Jump", "Agachado", 10), pose("Death", "Deslizar", 25));
     return new Jugador(gltf.scene, gltf.animations);
+  }
+
+  /** Tiñe tu robot del color con que te ven los demás (sale de tu id, como en `Remotos`). */
+  colorear(id: string): void {
+    const color = colorCuerpo(tonoDe(id), new Color());
+    const nuevos = new Map<MeshStandardMaterial, MeshStandardMaterial>();
+    this.modelo.traverse((o) => {
+      const m = o as Mesh;
+      const mat = m.material as MeshStandardMaterial;
+      if (!m.isMesh || mat.name !== MATERIAL_CUERPO) return;
+      // Copia: el original lo comparte la plantilla de los demás robots.
+      let n = nuevos.get(mat);
+      if (!n) nuevos.set(mat, (n = mat.clone()));
+      n.color.copy(color);
+      m.material = n;
+    });
   }
 
   teletransportar(x: number, z: number): void {
@@ -108,6 +175,7 @@ export class Jugador {
     this.vy = 0;
     this.vx = this.vz = 0;
     this.suelo = true;
+    this.deslizando = false;
     this.colocar();
   }
 
@@ -132,19 +200,80 @@ export class Jugador {
     const antesX = this.x;
     const antesZ = this.z;
 
-    // Velocidad objetivo: analógica al andar, fija al correr.
     const vuela = this.volar || this.noclip;
-    let vel = e.fuerza > 0.02 ? (e.correr ? VEL_CORRER : VEL_ANDAR * clamp(e.fuerza / 0.85, 0, 1)) * this.velocidad : 0;
-    if (vel > 0 && !vuela) {
-      const pend = (sueloEn(this.x + e.dx, this.z + e.dz) - sueloEn(this.x, this.z)) / 1;
-      if (pend > 0.55) vel *= 1 - clamp((pend - 0.55) / 0.9, 0, 0.85);
+    const mueve = e.fuerza > 0.02;
+    this.recarga = Math.max(0, this.recarga - dt);
+    this.coyote = this.suelo ? COYOTE : Math.max(0, this.coyote - dt);
+    this.buffer = e.saltar ? BUFFER : Math.max(0, this.buffer - dt);
+    this.desdeCaida += dt;
+    this.agachado = e.agachar && !vuela;
+    let rapidez = Math.hypot(this.vx, this.vz);
+
+    // Agacharse en el suelo yendo rápido (o caer agachado) empieza a deslizarse.
+    if (this.agachado && this.suelo && !this.deslizando && rapidez >= DESLIZ_MIN && this.y > -0.1) {
+      this.deslizando = true;
+      if (this.recarga === 0) {
+        const k = Math.min(rapidez + DESLIZ_IMPULSO, VEL_MAX) / rapidez;
+        this.vx *= k;
+        this.vz *= k;
+        rapidez *= k;
+        this.recarga = DESLIZ_RECARGA;
+      }
+      if (!this.trucos) this.deslizamientos++;
     }
-    if (this.y < -0.1 && !vuela) vel *= 1 - 0.5 * clamp(-this.y / 0.9, 0, 1); // vadear cuesta
-    const tx = e.dx * vel;
-    const tz = e.dz * vel;
-    const k = 1 - Math.exp(-dt * (this.suelo || vuela ? 12 : 3));
-    this.vx += (tx - this.vx) * k;
-    this.vz += (tz - this.vz) * k;
+
+    if (this.deslizando) {
+      // Se tuerce poco, la cuesta empuja y el roce frena. Se acaba al soltar, al frenar o en el agua.
+      if (mueve && rapidez > 0.1) {
+        const rumbo = Math.atan2(this.vx, this.vz);
+        let d = Math.atan2(e.dx, e.dz) - rumbo;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const a = rumbo + clamp(d, -DESLIZ_GIRO * dt, DESLIZ_GIRO * dt);
+        this.vx = Math.sin(a) * rapidez;
+        this.vz = Math.cos(a) * rapidez;
+      }
+      this.vx -= (sueloEn(this.x + 0.5, this.z) - sueloEn(this.x - 0.5, this.z)) * DESLIZ_CUESTA * dt;
+      this.vz -= (sueloEn(this.x, this.z + 0.5) - sueloEn(this.x, this.z - 0.5)) * DESLIZ_CUESTA * dt;
+      rapidez = Math.hypot(this.vx, this.vz);
+      const k = Math.max(0, rapidez - DESLIZ_ROCE * dt) / Math.max(rapidez, 1e-4);
+      this.vx *= k;
+      this.vz *= k;
+      rapidez *= k;
+      if (!this.agachado || rapidez < VEL_AGACHADO + 0.5 || this.y < -0.1) this.deslizando = false;
+    } else {
+      // Velocidad objetivo: analógica al andar y agachado, fija al correr.
+      const tope = this.agachado ? VEL_AGACHADO : e.correr ? VEL_CORRER : VEL_ANDAR;
+      let vel = mueve ? (e.correr && !this.agachado ? tope : tope * clamp(e.fuerza / 0.85, 0, 1)) * this.velocidad : 0;
+      if (vel > 0 && !vuela) {
+        const pend = (sueloEn(this.x + e.dx, this.z + e.dz) - sueloEn(this.x, this.z)) / 1;
+        if (pend > 0.55) vel *= 1 - clamp((pend - 0.55) / 0.9, 0, 0.85);
+      }
+      if (this.y < -0.1 && !vuela) vel *= 1 - 0.5 * clamp(-this.y / 0.9, 0, 1); // vadear cuesta
+      if (this.suelo || vuela) {
+        // Por encima de la velocidad objetivo (tras deslizarse o caer de un salto) se frena más despacio, y nada
+        // justo al caer: si se vuelve a saltar ahí, se conserva.
+        const sobra = !vuela && rapidez > vel + 0.1;
+        if (!sobra || this.desdeCaida > GRACIA_BHOP) {
+          const k = 1 - Math.exp(-dt * (sobra ? 4 : 12));
+          this.vx += (e.dx * vel - this.vx) * k;
+          this.vz += (e.dz * vel - this.vz) * k;
+        }
+      } else if (mueve) {
+        // En el aire se tuerce hacia donde empujas sin ganar más velocidad de la que llevabas (o de la de andar).
+        const nx = this.vx + e.dx * AIRE_ACEL * dt;
+        const nz = this.vz + e.dz * AIRE_ACEL * dt;
+        const k = Math.min(1, Math.max(rapidez, vel) / Math.max(Math.hypot(nx, nz), 1e-4));
+        this.vx = nx * k;
+        this.vz = nz * k;
+      }
+    }
+    if (!this.trucos) {
+      rapidez = Math.hypot(this.vx, this.vz);
+      if (rapidez > VEL_MAX) {
+        this.vx *= VEL_MAX / rapidez;
+        this.vz *= VEL_MAX / rapidez;
+      }
+    }
 
     // Mover por ejes por separado para poder deslizar contra la pared del mar.
     const nx = this.x + this.vx * dt;
@@ -171,9 +300,11 @@ export class Jugador {
       if (!this.noclip && this.y < suelo) this.y = suelo;
       this.suelo = true;
     } else {
-      if (e.saltar && this.suelo) {
+      if (this.buffer > 0 && this.coyote > 0) {
         this.vy = VEL_SALTO;
         this.suelo = false;
+        this.buffer = this.coyote = 0;
+        this.deslizando = false; // saltar deslizándose conserva la velocidad
         if (!this.trucos) this.saltos++;
         this.saltarAnim();
       }
@@ -184,6 +315,7 @@ export class Jugador {
           this.y = suelo;
           this.vy = 0;
           this.suelo = true;
+          this.desdeCaida = 0;
         }
       } else if (this.y - suelo > 0.35) {
         this.suelo = false; // se cae por un borde (o acaba de dejar de volar)
@@ -202,8 +334,9 @@ export class Jugador {
       d = Math.atan2(Math.sin(d), Math.cos(d));
       this.giro += d * (1 - Math.exp(-dt * 14));
     }
+    this.bajada += ((this.deslizando ? 0.9 : this.agachado ? 0.55 : 0) - this.bajada) * (1 - Math.exp(-dt * 12));
     this.colocar();
-    this.animar(dt, e.fuerza > 0.02);
+    this.animar(dt, mueve);
   }
 
   /** Hace un gesto (4-10) si estás en el suelo. Moverte o saltar lo corta. */
@@ -250,7 +383,7 @@ export class Jugador {
     if (this.enGesto) {
       const g = GESTOS[this.enGesto - 4];
       const a = this.acciones[g.clip];
-      if (mueve || !this.suelo) this.enGesto = 0;
+      if (mueve || !this.suelo || this.agachado) this.enGesto = 0;
       else if (g.modo === "una" && a.time >= a.getClip().duration) {
         this.enGesto = 0;
         this.fundir("Idle", 0.2);
@@ -259,19 +392,21 @@ export class Jugador {
     let quiero: string;
     if (this.enGesto) quiero = this.actual;
     else if (!this.suelo) quiero = "Jump";
+    else if (this.deslizando) quiero = "Deslizar";
+    else if (this.agachado) quiero = "Agachado";
     else if (this.velH > 7) quiero = "Running";
     else if (this.velH > 0.4) quiero = "Walking";
     else quiero = "Idle";
     if (quiero === "Jump" && this.actual !== "Jump") this.saltarAnim();
-    else if (quiero !== "Jump") this.fundir(quiero, 0.22);
+    else if (quiero !== "Jump") this.fundir(quiero, quiero === "Deslizar" ? 0.1 : quiero === "Agachado" ? 0.15 : 0.22);
     this.acciones.Walking.timeScale = clamp(this.velH / PASO_ANDAR, 0.4, 3);
     this.acciones.Running.timeScale = clamp(this.velH / PASO_CORRER, 0.5, 3);
     this.mixer.update(dt);
   }
 
-  /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar, 4-10 gestos. */
+  /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar, 4-10 gestos, 11-12 `POSTURAS`. */
   get anim(): number {
-    return this.enGesto || ({ Idle: 0, Walking: 1, Running: 2, Jump: 3 }[this.actual] ?? 0);
+    return this.enGesto || ({ Idle: 0, Walking: 1, Running: 2, Jump: 3, Agachado: 11, Deslizar: 12 }[this.actual] ?? 0);
   }
 
   get posicion(): Vector3 {

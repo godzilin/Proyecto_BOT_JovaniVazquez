@@ -1407,7 +1407,11 @@ Activity, en el ordenador, con el botón 🛠 Editor (FUNCIONALIDADES, «Jovaniv
 del bot: un borrador por servidor y las 50 últimas versiones publicadas
 (`bot.repositories.universo_mundo`), más los modelos GLB por su SHA-256. Mientras no se
 publica nada, la página dibuja el mundo de serie (`universo/src/mundo/serie.ts`). No hay
-nada que hacer en el NAS: las tablas se crean solas al arrancar.
+nada que hacer en el NAS: las tablas se crean solas al arrancar. El terreno esculpido viaja
+en el mismo documento (`terreno`: alturas en centímetros y un color por vértice en base64,
+~100 KB); sin él, la isla sale de la fórmula de `mundo/terreno.ts`. Los pinceles están en
+`universo/src/editor/pincel.ts` y la multiselección común de las dos pestañas, en
+`universo/src/editor/grupo.ts`.
 
 Para probarlo sin Discord: `PYTHONPATH=src python docs/editor_local.py` levanta en el
 puerto 8080 el servidor de verdad con un editor falso y el mundo en un SQLite

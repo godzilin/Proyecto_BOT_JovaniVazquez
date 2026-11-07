@@ -59,11 +59,21 @@ export interface Zona {
   z: number;
   r: number;
 }
+/**
+ * La isla esculpida: rejilla de (`TERRENO_CELDAS` + 1)² vértices sobre `TERRENO_LADO` m centrados en 0, fila a fila desde -x -z,
+ * en base64. `alturas`: enteros de 16 bits (little-endian) en centímetros. `colores`: un byte por vértice, 0 el color natural
+ * y de 1 a `TERRENO_PINTURAS` la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie.
+ */
+export interface Terreno {
+  alturas: string;
+  colores: string;
+}
 export interface MundoDoc {
   v: 1;
   assets: Record<string, Asset>;
   objetos: Objeto[];
   zonas: Record<string, Zona>;
+  terreno?: Terreno;
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.
@@ -82,6 +92,9 @@ export const MIN_TINTE = 0.3;
 export const MAX_TINTE = 2.0;
 export const MIN_DISTANCIA = 20.0;
 export const MAX_DISTANCIA = 600.0;
+export const TERRENO_LADO = 320;
+export const TERRENO_CELDAS = 160;
+export const TERRENO_PINTURAS = 13;
 export const ID = /^[a-z0-9_-]{1,40}$/;
 
 /** Rampa: base en y=-0.5, cara vertical en z=-0.5 y pendiente hasta z=+0.5. 8 triángulos. */

@@ -58,7 +58,7 @@ async def test_al_entrar_te_dan_tu_hueco_y_los_demas_se_enteran(salas: Salas) ->
     ana, bea = FakeClient(), FakeClient()
     first = await salas.join(1, 10, "Ana", ana)
     second = await salas.join(1, 20, "Bea", bea)
-    assert ana.texts[0] == {"t": "bienvenida", "slot": first.slot, "jugadores": []}
+    assert ana.texts[0] == {"t": "bienvenida", "slot": first.slot, "id": "10", "jugadores": []}
     assert bea.texts[0]["jugadores"] == [{"slot": first.slot, "id": "10", "nombre": "Ana"}]
     assert ana.texts[1] == {"t": "entra", "slot": second.slot, "id": "20", "nombre": "Bea"}
     await salas.leave(1, second)
@@ -156,6 +156,10 @@ async def test_un_gesto_sin_comprar_se_ve_como_quieto() -> None:
         assert ana.pose[-1] == 5
         assert hits == [5]
         assert parse_pose(pose(anim=200), frozenset({5})) == pose(anim=0)[1:]
+        # Agacharse y deslizarse son de todos y no cuentan como gesto.
+        salas.pose(1, ana, pose(anim=12))
+        assert ana.pose[-1] == 12
+        assert hits == [5]
     finally:
         await salas.close()
 

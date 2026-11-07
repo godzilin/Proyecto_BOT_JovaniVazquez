@@ -139,6 +139,33 @@ body {
   background: rgba(255, 255, 255, 0.5);
 }
 
+/* Encima del 👁, a la izquierda del de salto: el pulgar pasa de uno a otro sin soltar. */
+.boton-agachar {
+  position: fixed;
+  right: calc(max(22px, env(safe-area-inset-right)) + 76px + 12px);
+  bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px);
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+  backdrop-filter: blur(4px);
+}
+
+.boton-agachar[hidden] {
+  display: none;
+}
+
+.boton-agachar.activo {
+  background: rgba(255, 255, 255, 0.5);
+}
+
 .boton-gestos {
   position: fixed;
   right: max(20px, env(safe-area-inset-right));
@@ -713,6 +740,41 @@ body {
 
 .ed-caja p {
   margin: 0;
+}
+
+.ed-caja-ancha {
+  width: min(760px, 94vw);
+}
+
+.ed-caja h3 {
+  margin: 8px 0 4px;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+/* Ayuda del editor: atajo a la izquierda y qué hace a la derecha. */
+.ed-ayuda {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.ed-ayuda dt {
+  white-space: nowrap;
+}
+
+.ed-ayuda dd {
+  margin: 0;
+}
+
+.ed-ayuda kbd {
+  padding: 1px 5px;
+  font: inherit;
+  font-size: 0.8rem;
+  background: #3a4060;
+  border: 1px solid var(--border);
+  border-radius: 3px;
 }
 
 .ed-version {
