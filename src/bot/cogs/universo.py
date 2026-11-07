@@ -45,15 +45,15 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
   a abrirlo.
 
-La página no decide nada: todo lo que enseña sale de aquí, y lo que algún día mueva
-dinero se decidirá aquí con `EconomyService`, nunca en el navegador.
+La página no decide nada: todo lo que enseña sale de aquí, y el dinero (las tragaperras
+de la plaza) se decide aquí con `EconomyService`, nunca en el navegador.
 
 Logros: entrar (`universo_stats`, días distintos, móvil, ordenador, madrugada y
 Día de Canarias), pasear (`universo_walk_stats`, metros, saltos y lugares),
 coincidir con otros (`universo_meet_stats`, al entrar en la sala), y gestos
-(`universo_gesture_stats`, al empezar cada uno), categoría 🎤 Jovani. La mascota no
-sale: la página no es un mensaje de Discord y, de momento, no enseña ningún resultado
-en el que pueda hablar.
+(`universo_gesture_stats`, al empezar cada uno) y las tragaperras de la plaza
+(`universo_slots_stats`), categoría 🎤 Jovani. La mascota solo habla en el resultado de
+las tragaperras (`renta.hint`, que pide el cog de la tragaperras).
 """
 
 from __future__ import annotations
