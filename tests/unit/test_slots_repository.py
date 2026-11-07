@@ -115,3 +115,17 @@ async def test_una_base_sin_columnas_de_bonus_las_gana(tmp_path: Path) -> None:
 
     assert await repository.load_bonus(GUILD, USER) == BonusMeter()
     assert await repository.load_heat(GUILD, USER) == (4, 5.0)
+
+
+async def test_cada_maquina_guarda_su_calor_y_su_barra(tmp_path: Path) -> None:
+    repository = await make_repository(tmp_path)
+    await repository.save_heat(GUILD, USER, 2, 1.0, BonusMeter(10, 500, 5))
+    await repository.save_heat(GUILD, USER, 4, 2.0, BonusMeter(30, 900, 9), machine=3)
+
+    assert await repository.load_heat(GUILD, USER) == (2, 1.0)
+    assert await repository.load_heat(GUILD, USER, 3) == (4, 2.0)
+    assert await repository.load_heat(GUILD, USER, 2) is None
+    assert await repository.load_bonus(GUILD, USER) == BonusMeter(10, 500, 5)
+    assert await repository.load_bonus(GUILD, USER, 3) == BonusMeter(30, 900, 9)
+    await repository.delete_guild_data(GUILD)
+    assert await repository.load_heat(GUILD, USER, 3) is None

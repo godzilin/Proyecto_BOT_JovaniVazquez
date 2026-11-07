@@ -7,7 +7,9 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
   bot; guardando la hora, el enfriamiento se puede calcular al volver.
   También la barra de bonus (`bonus`, `bonus_stake`, `bonus_spins`): los
   puntos, la suma de las apuestas que la han llenado y cuántas tiradas. Se
-  guarda en la misma fila y en la misma escritura que el calor.
+  guarda en la misma fila y en la misma escritura que el calor. Cada máquina
+  tiene los suyos (`machine`): la 0 es la de Discord (`tragas`) y las demás,
+  las de la plaza del Jovaniverso (`bot.services.universo_tragas`).
 - `slots_daily`: el giro diario gratis. Último día reclamado (`YYYY-MM-DD`,
   día local del servidor) y la racha de días seguidos.
 
@@ -59,9 +61,13 @@ class SlotsRepository:
                 CREATE TABLE IF NOT EXISTS slots_heat (
                     guild_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
+                    machine INTEGER NOT NULL DEFAULT 0,
                     heat INTEGER NOT NULL,
                     updated_at REAL NOT NULL,
-                    PRIMARY KEY (guild_id, user_id)
+                    bonus INTEGER NOT NULL DEFAULT 0,
+                    bonus_stake INTEGER NOT NULL DEFAULT 0,
+                    bonus_spins INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (guild_id, user_id, machine)
                 );
 
                 CREATE TABLE IF NOT EXISTS slots_daily (
@@ -80,18 +86,50 @@ class SlotsRepository:
                     connection.execute(
                         f"ALTER TABLE slots_heat ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
                     )
+            if "machine" not in columns:
+                # La clave primaria no cambia con ALTER: se rehace la tabla y lo de
+                # antes queda como la máquina 0 (la de Discord).
+                connection.executescript(
+                    """
+                    ALTER TABLE slots_heat RENAME TO slots_heat_old;
+                    CREATE TABLE slots_heat (
+                        guild_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        machine INTEGER NOT NULL DEFAULT 0,
+                        heat INTEGER NOT NULL,
+                        updated_at REAL NOT NULL,
+                        bonus INTEGER NOT NULL DEFAULT 0,
+                        bonus_stake INTEGER NOT NULL DEFAULT 0,
+                        bonus_spins INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (guild_id, user_id, machine)
+                    );
+                    INSERT INTO slots_heat
+                        (guild_id, user_id, machine, heat, updated_at,
+                         bonus, bonus_stake, bonus_spins)
+                    SELECT guild_id, user_id, 0, heat, updated_at, bonus, bonus_stake, bonus_spins
+                    FROM slots_heat_old;
+                    DROP TABLE slots_heat_old;
+                    """
+                )
 
     # -- Calor -----------------------------------------------------------------------
 
-    async def load_heat(self, guild_id: int, user_id: int) -> tuple[int, float] | None:
-        """Calor guardado del miembro y cuándo se guardó (`None` si nunca ha jugado)."""
-        return await self._run(self._load_heat_sync, guild_id, user_id)
+    async def load_heat(
+        self, guild_id: int, user_id: int, machine: int = 0
+    ) -> tuple[int, float] | None:
+        """Calor guardado de una máquina del miembro y cuándo se guardó (`None` si nunca)."""
+        return await self._run(self._load_heat_sync, guild_id, user_id, machine)
 
-    def _load_heat_sync(self, guild_id: int, user_id: int) -> tuple[int, float] | None:
+    def _load_heat_sync(
+        self, guild_id: int, user_id: int, machine: int
+    ) -> tuple[int, float] | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                "SELECT heat, updated_at FROM slots_heat WHERE guild_id = ? AND user_id = ?",
-                (guild_id, user_id),
+                """
+                SELECT heat, updated_at FROM slots_heat
+                WHERE guild_id = ? AND user_id = ? AND machine = ?
+                """,
+                (guild_id, user_id, machine),
             ).fetchone()
         if row is None:
             return None
@@ -104,55 +142,73 @@ class SlotsRepository:
         heat: int,
         now: float,
         bonus: BonusMeter | None = None,
+        machine: int = 0,
     ) -> None:
-        """Guarda el calor del miembro con la hora `now` (epoch), pisando el anterior.
+        """Guarda el calor de una máquina del miembro con la hora `now` (epoch).
 
         Args:
             bonus: Si se pasa, guarda también la barra de bonus en la misma
                 escritura; si no, la deja como estaba.
+            machine: 0 la de Discord; las demás, las de la plaza del Jovaniverso.
         """
-        await self._run(self._save_heat_sync, guild_id, user_id, heat, now, bonus)
+        await self._run(self._save_heat_sync, guild_id, user_id, heat, now, bonus, machine)
 
     def _save_heat_sync(
-        self, guild_id: int, user_id: int, heat: int, now: float, bonus: BonusMeter | None
+        self,
+        guild_id: int,
+        user_id: int,
+        heat: int,
+        now: float,
+        bonus: BonusMeter | None,
+        machine: int,
     ) -> None:
         with closing(self._connect()) as connection, connection:
             if bonus is None:
                 connection.execute(
                     """
-                    INSERT INTO slots_heat (guild_id, user_id, heat, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT (guild_id, user_id) DO UPDATE SET
+                    INSERT INTO slots_heat (guild_id, user_id, machine, heat, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (guild_id, user_id, machine) DO UPDATE SET
                         heat = excluded.heat, updated_at = excluded.updated_at
                     """,
-                    (guild_id, user_id, heat, now),
+                    (guild_id, user_id, machine, heat, now),
                 )
                 return
             connection.execute(
                 """
                 INSERT INTO slots_heat
-                    (guild_id, user_id, heat, updated_at, bonus, bonus_stake, bonus_spins)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (guild_id, user_id) DO UPDATE SET
+                    (guild_id, user_id, machine, heat, updated_at,
+                     bonus, bonus_stake, bonus_spins)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (guild_id, user_id, machine) DO UPDATE SET
                     heat = excluded.heat, updated_at = excluded.updated_at,
                     bonus = excluded.bonus, bonus_stake = excluded.bonus_stake,
                     bonus_spins = excluded.bonus_spins
                 """,
-                (guild_id, user_id, heat, now, bonus.points, bonus.stake_sum, bonus.spins),
+                (
+                    guild_id,
+                    user_id,
+                    machine,
+                    heat,
+                    now,
+                    bonus.points,
+                    bonus.stake_sum,
+                    bonus.spins,
+                ),
             )
 
-    async def load_bonus(self, guild_id: int, user_id: int) -> BonusMeter:
-        """Barra de bonus guardada del miembro (vacía si nunca ha jugado)."""
-        return await self._run(self._load_bonus_sync, guild_id, user_id)
+    async def load_bonus(self, guild_id: int, user_id: int, machine: int = 0) -> BonusMeter:
+        """Barra de bonus guardada de una máquina del miembro (vacía si nunca ha jugado)."""
+        return await self._run(self._load_bonus_sync, guild_id, user_id, machine)
 
-    def _load_bonus_sync(self, guild_id: int, user_id: int) -> BonusMeter:
+    def _load_bonus_sync(self, guild_id: int, user_id: int, machine: int) -> BonusMeter:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
                 SELECT bonus, bonus_stake, bonus_spins FROM slots_heat
-                WHERE guild_id = ? AND user_id = ?
+                WHERE guild_id = ? AND user_id = ? AND machine = ?
                 """,
-                (guild_id, user_id),
+                (guild_id, user_id, machine),
             ).fetchone()
         if row is None:
             return BonusMeter()

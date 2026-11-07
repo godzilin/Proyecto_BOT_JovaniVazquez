@@ -591,6 +591,10 @@ UNIVERSO_MET_PREFIX = "universo_met_"
 UNIVERSO_PEOPLE_STAT = "universo_people"
 #: Prefijo de cada gesto del robot hecho en el universo (`universo_gesture_baile`).
 UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
+#: Tiradas en cada tragaperras de la plaza (`universo_slots_machine_3`).
+UNIVERSO_SLOT_PREFIX = "universo_slots_machine_"
+#: Tragaperras de la plaza del Jovaniverso (`bot.services.universo_tragas.MACHINES`).
+UNIVERSO_SLOT_MACHINES = 6
 #: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
 #: `gesto_`), nombre y descripción.
 UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
@@ -2864,6 +2868,53 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", "universo_dance_canarias", [
         (1, "universo_dance_canarias", "Baile de magos",
          "Baila en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
+    # Tragaperras de la plaza (`universo_slots_stats`, cogs/slots.py: Slots.plaza). Las
+    # tiradas cuestan dinero pero son rápidas: los escalones se miden como en `tragas`.
+    # Jugar a varias a la vez y el Auto son decisiones: Comunes.
+    a += _tiers("jovani", "universo_slots_spins", [
+        (1, "universo_slots_1", "Tragaperras con vistas",
+         "Juega una tirada en una tragaperras de la plaza del Jovaniverso.", C),
+        (100, "universo_slots_100", "Las Vegas de Tirajana",
+         "Juega 100 tiradas en las tragaperras de la plaza.", C),
+        (1_000, "universo_slots_1k", "Manivela de hierro",
+         "Juega 1.000 tiradas en las tragaperras de la plaza.", R),
+        (10_000, "universo_slots_10k", "El Bellagio de Vegueta",
+         "Juega 10.000 tiradas en las tragaperras de la plaza.", E),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_slots_all", name="Ruta de las tragas",
+        description=f"Juega en las {UNIVERSO_SLOT_MACHINES} tragaperras de la plaza.",
+        category="jovani", rarity=C,
+        conditions=tuple(
+            (f"{UNIVERSO_SLOT_PREFIX}{m}", 1) for m in range(1, UNIVERSO_SLOT_MACHINES + 1)
+        ),
+    ))  # fmt: skip
+    a += _tiers("jovani", "universo_slots_at_once", [
+        (2, "universo_slots_at_once_2", "Ambidiestro del rodillo",
+         "Juega a 2 tragaperras de la plaza a la vez.", C),
+        (3, "universo_slots_at_once_3", "Pulpo Paul de los rodillos",
+         "Juega a 3 tragaperras de la plaza a la vez.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_auto", [
+        (1, "universo_slots_auto_1", "Auto de fe",
+         "Juega una tirada con ▶️ Auto en la plaza.", C),
+        (100, "universo_slots_auto_100", "Autobombo",
+         "Juega 100 tiradas con ▶️ Auto en la plaza.", C),
+        (1_000, "universo_slots_auto_1k", "Auto sacramental",
+         "Juega 1.000 tiradas con ▶️ Auto en la plaza.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_regret", [
+        (1, "universo_slots_regret", "Autocrítica",
+         "Para a mano un ▶️ Auto de la plaza después de su primera tirada.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_audience", [
+        (1, "universo_slots_audience", "Ovación en el Pérez Galdós",
+         "Saca un premio gordo en la plaza con alguien más en el Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_jackpot", [
+        (1, "universo_slots_jackpot", "Jovanazo al aire libre",
+         "Llévate el bote de la tragaperras en una máquina de la plaza.", E),
     ])  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
@@ -25195,6 +25246,31 @@ def universo_gesture_stats(
         if (when.month, when.day) == (5, 30):
             add["universo_dance_canarias"] = 1
     return StatDelta(add=add, peak=peak)
+
+
+def universo_slots_stats(
+    machine: int, *, at_once: int, auto: bool, big_prize: bool, jackpot: bool, audience: int
+) -> StatDelta:
+    """Lo que suma una tirada en una tragaperras de la plaza del Jovaniverso.
+
+    Lo de la tirada en sí (premios, giros gratis, calor) ya lo cuenta `slots_stats`.
+
+    Args:
+        machine: Número de la máquina (de 1 a `UNIVERSO_SLOT_MACHINES`).
+        at_once: Máquinas en las que el miembro está jugando ahora, contando esta.
+        auto: Si la tirada es del ▶️ Auto.
+        big_prize: Si es un premio gordo (el bote o ×50 la apuesta).
+        jackpot: Si se ha llevado el bote.
+        audience: Cuántos más hay en la sala del Jovaniverso.
+    """
+    add = {"universo_slots_spins": 1, f"{UNIVERSO_SLOT_PREFIX}{machine}": 1}
+    if auto:
+        add["universo_slots_auto"] = 1
+    if big_prize and audience:
+        add["universo_slots_audience"] = 1
+    if jackpot:
+        add["universo_slots_jackpot"] = 1
+    return StatDelta(add=add, peak={"universo_slots_at_once": at_once})
 
 
 def image_stats(effect: str, extension: str, *, subject_is_author: bool | None) -> StatDelta:

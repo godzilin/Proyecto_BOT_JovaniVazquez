@@ -354,6 +354,10 @@ PRODUCED_STATS = {
     # 🎤 Jovani: gestos del robot (`universo_gesture_stats`)
     "universo_gestures", *(f"universo_gesture_{g}" for g, *_ in UNIVERSO_GESTURES),
     "universo_wave_near", "universo_punch_near", "universo_dance_max", "universo_sit_summit",
+    # 🎤 Jovani: tragaperras de la plaza (`universo_slots_stats` y el fin del ▶️ Auto)
+    "universo_slots_spins", "universo_slots_auto", "universo_slots_audience",
+    "universo_slots_jackpot", "universo_slots_at_once", "universo_slots_regret",
+    *(f"universo_slots_machine_{m}" for m in range(1, 7)),
     "universo_dance_canarias",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
     *(f"jovani_look_{key}" for key in (
