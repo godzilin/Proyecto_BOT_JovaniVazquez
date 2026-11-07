@@ -277,6 +277,14 @@ async def test_donar_por_texto_dona_y_cuenta_para_logros(
     track = AsyncMock()
     monkeypatch.setattr(donations_cog.logros, "track", track)
     monkeypatch.setattr(donations_cog.renta, "hint", AsyncMock(return_value=None))
+
+    class Noon(datetime):
+        # El cog mira la hora de verdad: de madrugada sumaba `donation_dawn` y fallaba.
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 11, 4, 12, tzinfo=tz)
+
+    monkeypatch.setattr(donations_cog, "datetime", Noon)
     service = await make_service(tmp_path, Clock(day(6)))
     cog = Donaciones(MagicMock(), service)
     ctx = make_ctx()
