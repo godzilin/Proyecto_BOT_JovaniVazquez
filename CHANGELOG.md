@@ -10,7 +10,8 @@ criterio.
 
 ### 9.60.0 · 2026-11-07
 
-- Jovaniverso: tragaperras en la plaza, con sonido, botones de verdad y modo Auto
+- Jovaniverso: seis tragaperras en la plaza que se juegan dentro del mundo, en primera persona, con botones que se pulsan, sonido desde cada máquina y modo Auto
+- Jovaniverso: el bote común de las tragaperras se ve en un letrero sobre la plaza
 - Jovaniverso: cámara en primera persona (tecla V o 👁) y el mundo dibuja solo lo que se ve
 - Tragaperras: cada máquina tiene su propio calor y su barra de bonus
 - Logros: 13 nuevos en 🎤 Jovani por las tragaperras de la plaza
