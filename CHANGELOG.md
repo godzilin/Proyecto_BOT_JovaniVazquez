@@ -10,7 +10,7 @@ criterio.
 
 ### 10.7.0 · 2026-11-07
 
-- Jovaniverso: el editor optimiza los polígonos de los modelos GLB. Uno de más de 6.000 triángulos o de más de 1 MB ya no se rechaza al importarlo: se elige a cuántos triángulos bajarlo y se simplifica antes de subirlo. El botón «Optimizar polígonos» hace lo mismo con un GLB ya importado
+- Jovaniverso: el editor optimiza los polígonos de los modelos GLB. Uno de más de 6.000 triángulos o de más de 1 MB ya no se rechaza al importarlo: se elige a cuántos triángulos bajarlo y se simplifica antes de subirlo. El botón «Optimizar polígonos» hace lo mismo con un GLB ya importado. Los colores de las texturas pasan a los vértices, así que el modelo conserva sus colores (no los detalles finos)
 - Jovaniverso: un modelo con huesos o animación que pasa por el optimizador se queda quieto en su postura de reposo y así se ve en el mundo (antes no se dibujaba)
 
 ### 10.6.0 · 2026-11-07
