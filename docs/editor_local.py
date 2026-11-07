@@ -2,7 +2,7 @@
 
 Levanta en `http://localhost:8080` la aplicación web del cog de verdad
 (`Universo(...).build_app()`) con un bot falso: un servidor con un único miembro
-administrador y el mundo en un SQLite (`--db`, por defecto en el directorio temporal
+con permiso de editor y el mundo en un SQLite (`--db`, por defecto en el directorio temporal
 del sistema, así que el borrador sobrevive entre ejecuciones). Añade la ruta
 `GET /api/dev/sesion`, que da una sesión firmada de ese miembro; esa ruta solo existe
 aquí.
@@ -41,6 +41,7 @@ async def sesion(request: web.Request) -> web.Response:
 async def main(db: Path, port: int) -> None:
     repo = UniversoMundoRepository(db)
     await repo.initialize()
+    await repo.set_permission(GUILD_ID, USER_ID, "editor", True, USER_ID)
     admin = SimpleNamespace(
         id=USER_ID,
         bot=False,

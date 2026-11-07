@@ -14,6 +14,7 @@ const GRAVEDAD = 20;
 const VEL_SALTO = Math.sqrt(2 * GRAVEDAD * 1.3); // 1,3 m de altura
 const RADIO = 0.45;
 const ALTO_ROBOT = 1.9;
+const VEL_VUELO = 6; // m/s al subir o bajar volando, por la velocidad de las devtools
 // Velocidad (m/s) a la que el clip, a escala 1, no hace patinar los pies. Medida a ojo en el modelo; ajustable.
 export const PASO_ANDAR = 2.1;
 export const PASO_CORRER = 4.2;
@@ -40,6 +41,13 @@ export class Jugador {
   /** Metros recorridos sin informar y saltos hechos. */
   metros = 0;
   saltos = 0;
+  // Devtools (solo desarrolladores): volar sin gravedad, atravesarlo todo y multiplicar la velocidad. Con cualquiera
+  // puesto no se cuentan metros ni saltos: no son paseo para los logros.
+  volar = false;
+  noclip = false;
+  velocidad = 1;
+  /** Volando: 1 sube, -1 baja, 0 se queda a la misma altura. */
+  subir = 0;
 
   private vx = 0;
   private vz = 0;
@@ -103,6 +111,11 @@ export class Jugador {
     this.colocar();
   }
 
+  /** Si hay alguna devtool puesta. */
+  get trucos(): boolean {
+    return this.volar || this.noclip || this.velocidad !== 1;
+  }
+
   /** ¿Se puede estar en (x, z)? Mar profundo y laderas imposibles lo impiden salvo que se vaya a menos profundidad. */
   private permitido(x: number, z: number, desdeX: number, desdeZ: number): boolean {
     const t = terrenoEn(x, z);
@@ -120,54 +133,69 @@ export class Jugador {
     const antesZ = this.z;
 
     // Velocidad objetivo: analógica al andar, fija al correr.
-    let vel = e.fuerza > 0.02 ? (e.correr ? VEL_CORRER : VEL_ANDAR * clamp(e.fuerza / 0.85, 0, 1)) : 0;
-    if (vel > 0) {
+    const vuela = this.volar || this.noclip;
+    let vel = e.fuerza > 0.02 ? (e.correr ? VEL_CORRER : VEL_ANDAR * clamp(e.fuerza / 0.85, 0, 1)) * this.velocidad : 0;
+    if (vel > 0 && !vuela) {
       const pend = (sueloEn(this.x + e.dx, this.z + e.dz) - sueloEn(this.x, this.z)) / 1;
       if (pend > 0.55) vel *= 1 - clamp((pend - 0.55) / 0.9, 0, 0.85);
     }
-    if (this.y < -0.1) vel *= 1 - 0.5 * clamp(-this.y / 0.9, 0, 1); // vadear cuesta
+    if (this.y < -0.1 && !vuela) vel *= 1 - 0.5 * clamp(-this.y / 0.9, 0, 1); // vadear cuesta
     const tx = e.dx * vel;
     const tz = e.dz * vel;
-    const k = 1 - Math.exp(-dt * (this.suelo ? 12 : 3));
+    const k = 1 - Math.exp(-dt * (this.suelo || vuela ? 12 : 3));
     this.vx += (tx - this.vx) * k;
     this.vz += (tz - this.vz) * k;
 
     // Mover por ejes por separado para poder deslizar contra la pared del mar.
     const nx = this.x + this.vx * dt;
     const nz = this.z + this.vz * dt;
-    if (this.permitido(nx, this.z, this.x, this.z)) this.x = nx;
-    else this.vx = 0;
-    if (this.permitido(this.x, nz, this.x, this.z)) this.z = nz;
-    else this.vz = 0;
-    empujar(this.x, this.z, RADIO, this.tmp);
-    this.x = this.tmp.x;
-    this.z = this.tmp.z;
+    if (this.noclip) {
+      this.x = nx;
+      this.z = nz;
+    } else {
+      if (this.permitido(nx, this.z, this.x, this.z)) this.x = nx;
+      else this.vx = 0;
+      if (this.permitido(this.x, nz, this.x, this.z)) this.z = nz;
+      else this.vz = 0;
+      empujar(this.x, this.z, RADIO, this.tmp);
+      this.x = this.tmp.x;
+      this.z = this.tmp.z;
+    }
 
     // Vertical.
     const suelo = sueloEn(this.x, this.z);
-    if (e.saltar && this.suelo) {
-      this.vy = VEL_SALTO;
-      this.suelo = false;
-      this.saltos++;
-      this.saltarAnim();
-    }
-    if (!this.suelo) {
-      this.vy -= GRAVEDAD * dt;
+    if (vuela) {
+      // Sin gravedad; el robot anda en el aire (anima como en el suelo). Sin noclip, el suelo sigue parando.
+      this.vy = this.subir * VEL_VUELO * this.velocidad;
       this.y += this.vy * dt;
-      if (this.y <= suelo && this.vy <= 0) {
-        this.y = suelo;
-        this.vy = 0;
-        this.suelo = true;
-      }
-    } else if (this.y - suelo > 0.35) {
-      this.suelo = false; // se cae por un borde
+      if (!this.noclip && this.y < suelo) this.y = suelo;
+      this.suelo = true;
     } else {
-      this.y = suelo;
+      if (e.saltar && this.suelo) {
+        this.vy = VEL_SALTO;
+        this.suelo = false;
+        if (!this.trucos) this.saltos++;
+        this.saltarAnim();
+      }
+      if (!this.suelo) {
+        this.vy -= GRAVEDAD * dt;
+        this.y += this.vy * dt;
+        if (this.y <= suelo && this.vy <= 0) {
+          this.y = suelo;
+          this.vy = 0;
+          this.suelo = true;
+        }
+      } else if (this.y - suelo > 0.35) {
+        this.suelo = false; // se cae por un borde (o acaba de dejar de volar)
+        this.vy = 0;
+      } else {
+        this.y = suelo;
+      }
     }
 
     const movido = Math.hypot(this.x - antesX, this.z - antesZ);
     this.velH = movido / Math.max(dt, 1e-4);
-    this.metros += movido;
+    if (!this.trucos) this.metros += movido;
     if (this.velH > 0.3) {
       const objetivo = Math.atan2(this.vx, this.vz);
       let d = objetivo - this.giro;

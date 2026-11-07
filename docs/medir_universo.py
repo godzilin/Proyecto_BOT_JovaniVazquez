@@ -12,6 +12,7 @@ sombras (se mide también con las sombras apagadas y se resta). `--arrancar` lan
 Las vistas `casino` (fuera, con las seis tragaperras de la plaza) y `casinodentro` (sentado en la 3) necesitan el
 servidor de pruebas `docs/sala_local.py` (con PYTHONPATH=src): `--arrancar` lo lanza también. Sin él no hay casino y
 las vistas `plaza`, `casino` y `casinodentro` salen sin las máquinas (el script lo avisa).
+`--pruebas` mide el extraplano de los desarrolladores (`?mundo=pruebas`) en sus vistas (`VISTAS_PRUEBAS`).
 Presupuesto (Biblia, «Jovaniverso: rendimiento imperativo»): < 120 llamadas y < 250.000 triángulos en la peor vista.
 """
 
@@ -42,7 +43,9 @@ VISTAS = [
     "casino",
     "casinodentro",
 ]
-CAPTURAS = ["plaza", "faro", "nublo", "cenit", "casino", "casinodentro"]
+CAPTURAS = ["plaza", "faro", "nublo", "cenit", "casino", "casinodentro", "rampas", "escalones"]
+#: Vistas del extraplano: los sitios de `SITIOS_PISTA` (universo/src/mundo/pista.ts) y el casino.
+VISTAS_PRUEBAS = ["plaza", "rampas", "escalones", "columnas", "muro", "casino", "casinodentro"]
 PERFILES = {
     "escritorio": dict(viewport={"width": 1280, "height": 720}),
     "movil": dict(
@@ -92,7 +95,9 @@ def plaza() -> tuple[float, float]:
     return float(m.group(1)), float(m.group(2))
 
 
-def medir(url: str, capturas: Path | None, extra: str = "", solo: str = "") -> dict:
+def medir(
+    url: str, capturas: Path | None, extra: str = "", solo: str = "", vistas: list[str] = VISTAS
+) -> dict:
     px, pz = plaza()
     res: dict = {}
     with sync_playwright() as p:
@@ -113,7 +118,7 @@ def medir(url: str, capturas: Path | None, extra: str = "", solo: str = "") -> d
                     f"AVISO: sin casino en {perfil} (¿falta docs/sala_local.py?)", file=sys.stderr
                 )
             res[perfil] = {}
-            for v in VISTAS:
+            for v in vistas:
                 pag.evaluate(JS_IR, [v, px, pz])
                 m = pag.evaluate(JS_MEDIR)
                 t, s = m["total"], m["sin"]
@@ -160,6 +165,7 @@ def main() -> None:
         "--extra", default="", help="parámetros de URL extra, p. ej. &teselas=10"
     )
     ap.add_argument("--solo", choices=list(PERFILES), default="", help="mide solo este perfil")
+    ap.add_argument("--pruebas", action="store_true", help="mide el extraplano de pruebas")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     proc = sala = None
@@ -172,7 +178,10 @@ def main() -> None:
     try:
         if a.capturas:
             a.capturas.mkdir(parents=True, exist_ok=True)
-        res = medir(a.url, a.capturas, a.extra, a.solo)
+        if a.pruebas:
+            res = medir(a.url, a.capturas, a.extra + "&mundo=pruebas", a.solo, VISTAS_PRUEBAS)
+        else:
+            res = medir(a.url, a.capturas, a.extra, a.solo)
     finally:
         for pr in (proc, sala):
             if pr:

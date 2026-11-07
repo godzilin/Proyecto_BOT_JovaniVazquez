@@ -1,4 +1,4 @@
-// Cliente de las rutas del editor del mundo (`/api/editor/*`, solo administradores): lanza el texto de error del servidor tal cual.
+// Cliente de las rutas del editor del mundo (`/api/editor/*`, solo con permiso de editor): lanza el texto de error del servidor tal cual.
 import type { MundoDoc } from "./formato";
 
 export interface Sesion {
@@ -12,7 +12,7 @@ export interface Version {
   kb: number;
 }
 
-/** Otro administrador ha guardado antes (409): hay que recargar. */
+/** Otra persona con el editor ha guardado antes (409): hay que recargar. */
 export class Conflicto extends Error {}
 
 async function llamar<T>(s: Sesion, metodo: string, ruta: string, cuerpo?: unknown, crudo?: ArrayBuffer): Promise<T> {

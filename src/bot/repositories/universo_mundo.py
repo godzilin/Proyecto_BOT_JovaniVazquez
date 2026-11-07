@@ -9,6 +9,9 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
   guardan las `KEEP_VERSIONS` últimas.
 - `universo_glb`: los modelos GLB importados, por el SHA-256 de su contenido y comunes
   a todos los servidores.
+- `universo_permisos`: quién tiene cada permiso del Jovaniverso (`editor`, `devtools`)
+  en cada servidor y quién se lo dio. Los desarrolladores no salen aquí: los tienen
+  todos siempre (`bot.cogs.universo.DEVS`).
 
 Solo guarda: lo que vale como mundo lo decide `bot.services.universo_editor`.
 """
@@ -91,6 +94,77 @@ class UniversoMundoRepository:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS universo_permisos (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    permiso TEXT NOT NULL,
+                    author_id INTEGER NOT NULL,
+                    granted_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, user_id, permiso)
+                )
+                """
+            )
+
+    async def permissions(self, guild_id: int, user_id: int) -> set[str]:
+        """Los permisos que tiene un miembro en un servidor."""
+        return await self._run(self._permissions_sync, guild_id, user_id)
+
+    def _permissions_sync(self, guild_id: int, user_id: int) -> set[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT permiso FROM universo_permisos WHERE guild_id = ? AND user_id = ?",
+                (guild_id, user_id),
+            ).fetchall()
+        finally:
+            connection.close()
+        return {row["permiso"] for row in rows}
+
+    async def granted(self, guild_id: int) -> list[tuple[int, str]]:
+        """Todos los permisos dados en un servidor, como `(user_id, permiso)`."""
+        return await self._run(self._granted_sync, guild_id)
+
+    def _granted_sync(self, guild_id: int) -> list[tuple[int, str]]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT user_id, permiso FROM universo_permisos WHERE guild_id = ? "
+                "ORDER BY granted_at, user_id, permiso",
+                (guild_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [(int(row["user_id"]), row["permiso"]) for row in rows]
+
+    async def set_permission(
+        self, guild_id: int, user_id: int, permiso: str, on: bool, author_id: int
+    ) -> None:
+        """Da (`on`) o quita un permiso; darlo dos veces o quitar uno que no hay no hace nada."""
+        await self._run(self._set_permission_sync, guild_id, user_id, permiso, on, author_id)
+
+    def _set_permission_sync(
+        self, guild_id: int, user_id: int, permiso: str, on: bool, author_id: int
+    ) -> None:
+        connection = self._connect()
+        try:
+            with connection:
+                if on:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO universo_permisos "
+                        "(guild_id, user_id, permiso, author_id, granted_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (guild_id, user_id, permiso, author_id, _now()),
+                    )
+                else:
+                    connection.execute(
+                        "DELETE FROM universo_permisos "
+                        "WHERE guild_id = ? AND user_id = ? AND permiso = ?",
+                        (guild_id, user_id, permiso),
+                    )
+        finally:
+            connection.close()
 
     async def draft(self, guild_id: int) -> tuple[str | None, int]:
         """El texto del borrador y su `rev`; sin borrador, `(None, 0)`."""

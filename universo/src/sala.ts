@@ -1,6 +1,7 @@
 // La conexión del multijugador: abre el WebSocket de la sala (/api/sala), manda tu pose en binario (9 bytes, como mucho
 // 10 veces por segundo y solo si cambia), recibe la de los demás y se la pasa a `Remotos`. Si se corta sola, reconecta
 // con espera creciente. El protocolo está en `src/bot/services/universo_sala.py`.
+import { PRUEBAS } from "./mundo/modo";
 import type { Remotos } from "./mundo/remotos";
 import type { Sesion } from "./paseo";
 
@@ -48,9 +49,11 @@ export function iniciarSala(
   let ug = -1;
   let ua = -1;
 
+  // En el extraplano se entra en su propia sala (solo desarrolladores): los de la isla no ven a nadie volar.
+  const mundo = PRUEBAS ? "pruebas" : undefined;
   const hola = (): string =>
     JSON.stringify(
-      sesion ? { t: "hola", session: sesion.session, guild_id: sesion.guildId, channel_id: sesion.channelId } : { t: "hola", dev: "Prueba" },
+      sesion ? { t: "hola", session: sesion.session, guild_id: sesion.guildId, channel_id: sesion.channelId, mundo } : { t: "hola", dev: "Prueba" },
     );
 
   const conectar = (): void => {
