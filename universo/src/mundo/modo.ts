@@ -8,5 +8,11 @@ export function irAMundo(pruebas: boolean): void {
   const u = new URL(location.href);
   if (pruebas) u.searchParams.set("mundo", "pruebas");
   else u.searchParams.delete("mundo");
+  // Sin esto la página nueva tendría de `document.referrer` a sí misma, y el SDK de Discord manda el saludo a ese origen
+  // (no al de Discord): nunca le contestan y se queda en «Entrando en el Jovaniverso…». Sin referrer, lo manda a '*'.
+  const meta = document.createElement("meta");
+  meta.name = "referrer";
+  meta.content = "no-referrer";
+  document.head.append(meta);
   location.replace(u);
 }
