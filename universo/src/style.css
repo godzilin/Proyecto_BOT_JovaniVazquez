@@ -139,6 +139,87 @@ body {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.boton-gestos {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 1.6rem;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+  backdrop-filter: blur(4px);
+}
+
+.panel-gestos {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 66px);
+  width: min(340px, calc(100% - 32px));
+  padding: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.panel-gestos[hidden],
+.nota-gestos[hidden] {
+  display: none;
+}
+
+.rejilla-gestos {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.gesto {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px 6px;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.gesto-emoji {
+  font-size: 1.7rem;
+  line-height: 1.2;
+}
+
+.gesto-tecla {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 0.65rem;
+  color: var(--accent);
+}
+
+.gesto.bloqueado {
+  opacity: 0.45;
+}
+
+.nota-gestos {
+  margin: 8px 2px 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: var(--accent);
+}
+
 .carga {
   position: fixed;
   inset: 0;
@@ -167,6 +248,14 @@ body {
 }
 
 @media (pointer: coarse) {
+  /* Encima del botón de salto (76 px), sin taparlo. */
+  .boton-gestos {
+    right: max(32px, env(safe-area-inset-right));
+    bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px);
+  }
+  .panel-gestos {
+    bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px + 56px + 10px);
+  }
   .ayuda {
     bottom: auto;
     top: calc(max(12px, env(safe-area-inset-top)) + 64px);

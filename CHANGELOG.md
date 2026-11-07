@@ -8,6 +8,13 @@ criterio.
 
 ## 9.x
 
+### 9.59.0 · 2026-11-07
+
+- Jovaniverso: gestos del robot (saludar, bailar, pulgar, sí, no, sentarse y puñetazo), que se compran en la tienda y los ven los demás
+- Tienda: 7 gestos del Jovaniverso a la venta, cada uno en el pasillo de su tema
+- Jovaniverso: cada uno aparece en un punto distinto de la plaza
+- Logros: 19 nuevos en 🎤 Jovani por los gestos
+
 ### 9.58.0 · 2026-11-06
 
 - Jovaniverso: multijugador, ves a los demás del servidor moviéndose por la isla

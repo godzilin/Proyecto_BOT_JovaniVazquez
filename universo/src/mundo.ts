@@ -22,7 +22,6 @@ import { Jugador } from "./mundo/jugador";
 import { Lugares } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
-import type { PoseLocal } from "./sala";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
 import { crearPueblo } from "./mundo/pueblo";
@@ -40,7 +39,7 @@ export interface Mundo {
   tomarInforme(): Informe | null;
   devolverInforme(i: Informe): void;
   /** Tu pose, para mandarla a la sala. */
-  readonly yo: PoseLocal;
+  readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
   detener(): void;
@@ -189,6 +188,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       renderer,
       remotos,
       jugador,
+      gesto: (id: number) => jugador.gesto(id),
       camara,
       calidad,
       controles,
