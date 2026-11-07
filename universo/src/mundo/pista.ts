@@ -16,7 +16,7 @@ interface Bloque {
 
 /** Pendientes de las rampas, en grados. El jugador no sube de ~56° (pendiente 1,5): la de 60 no se sube. */
 export const RAMPAS = [15, 30, 45, 55, 60];
-const ALTO_RAMPA = 3;
+const ALTO_RAMPA = 4; // con menos, la de 60° mide menos de 2 m y la pendiente (diferencia a ±1 m) no la ve entera
 /** Alturas de los escalones, en metros. */
 export const ESCALONES = [0.25, 0.5, 0.75, 1, 1.5, 2];
 /** Radios de las columnas, en metros (colisión de círculo, como los troncos y las casas). */

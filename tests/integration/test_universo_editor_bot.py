@@ -1,6 +1,7 @@
 """Las rutas del editor del Jovaniverso con el bot real (`BotClient` + extensiones).
 
-Mismo montaje que `test_universo_bot.py`, pero con un administrador y alguien que no lo es.
+Mismo montaje que `test_universo_bot.py`, pero con alguien con permiso de editor y un
+administrador de Discord sin él (ser administrador ya no basta).
 """
 
 from __future__ import annotations
@@ -45,7 +46,8 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
     client = await load(tmp_path)
     cog = client.get_cog("Universo")
     assert cog is not None
-    members = {ADMIN: member(ADMIN, admin=True), PLAIN: member(PLAIN)}
+    members = {ADMIN: member(ADMIN), PLAIN: member(PLAIN, admin=True)}
+    await client.universo_mundo.set_permission(GUILD_ID, ADMIN, "editor", True, 0)
     members[ADMIN].display_name = "Admin"
     guild = SimpleNamespace(
         id=GUILD_ID,
@@ -126,7 +128,7 @@ async def test_quien_no_es_admin_recibe_403_en_cada_ruta(world: World) -> None:
     for call in calls:
         response = await call
         assert response.status == 403
-        assert "administradores" in (await response.json())["error"]
+        assert "permiso de editor" in (await response.json())["error"]
     # Y sin sesión, 401.
     assert (await world.web.get("/api/editor/borrador", params=query)).status == 401
 
@@ -166,9 +168,9 @@ async def test_guardar_publicar_y_leer_lo_publicado(world: World) -> None:
     [row] = (await versions.json())["versiones"]
     assert (row["version"], row["autor"], row["kb"]) == (1, "Admin", 1)
 
-    # Entrar dice si eres admin y qué versión hay.
+    # Entrar dice si puedes editar y qué versión hay.
     entered = await world.web.post("/api/entrar", json={"guild_id": str(GUILD_ID)}, headers=headers)
-    assert (await entered.json())["admin"] is True
+    assert (await entered.json())["editor"] is True
     assert (await entered.json())["mundo"] == 1
 
 
@@ -182,7 +184,7 @@ async def test_un_rev_viejo_da_409_y_publicar_sin_borrador_400(world: World) -> 
     assert (await save(world, mundo("a")))[0] == 200
     status, error = await save(world, mundo("b"), rev=0)
     assert status == 409
-    assert "Otro administrador" in error["error"]
+    assert "Otra persona" in error["error"]
     stale = await world.web.post(
         "/api/editor/publicar", json={"guild_id": str(GUILD_ID), "rev": 5}, headers=headers
     )

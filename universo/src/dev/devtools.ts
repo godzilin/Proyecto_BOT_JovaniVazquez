@@ -30,8 +30,11 @@ function boton(texto: string, f: () => void, clase = "dev-b"): HTMLButtonElement
   return b;
 }
 
-/** Arranca las devtools: botón 🧪 en el HUD, panel con F2, teclas de vuelo y medidor. `sesion` sirve para pedir los assets publicados. */
-export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId: string } | null): void {
+/**
+ * Arranca las devtools: botón 🧪 en el HUD, panel con F2, teclas de vuelo y medidor. `sesion` sirve para pedir los assets
+ * publicados; con `gestor` (los desarrolladores del bot) sale también la sección de permisos.
+ */
+export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId: string } | null, gestor = false): void {
   const ctx = mundo.contexto;
   const yo = ctx.yo;
   const escena = ctx.escena;
@@ -269,6 +272,7 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
   const as = seccion("Assets");
   if (!PRUEBAS) as.append(el("p", "dev-nota", "Solo en el extraplano."));
   else iniciarAssets(as, mundo, sesion);
+  if (gestor && sesion) iniciarPermisos(seccion("Permisos de este servidor"), sesion);
   panel.append(aviso);
 
   // ---- Teclas (valen con el panel cerrado) ----
@@ -326,6 +330,76 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
       `x ${yo.x.toFixed(1)}  y ${yo.y.toFixed(1)}  z ${yo.z.toFixed(1)}\n` +
       `ratio ${ctx.calidad.ratio.toFixed(2)} · sombras ${ctx.calidad.sombras ? "sí" : "no"} · remotos ${remotos.cuantos}`;
   });
+}
+
+interface ListaPermisos {
+  permisos: Record<string, string>;
+  usuarios: { id: string; nombre: string; permisos: string[] }[];
+  candidatos: { id: string; nombre: string }[];
+}
+
+/**
+ * Sección de permisos (solo los desarrolladores): quién puede usar el editor y las devtools en este servidor. Cada fila es
+ * alguien con una casilla por permiso; buscar añade filas de miembros sin ninguno. El servidor decide y devuelve la lista.
+ */
+function iniciarPermisos(padre: HTMLElement, sesion: { session: string; guildId: string }): void {
+  const lista = el("div", "dev-permisos");
+  const estado = el("p", "dev-nota");
+  const buscar = el("input", "dev-texto");
+  buscar.type = "search";
+  buscar.placeholder = "Buscar miembro por nombre";
+  let datos: ListaPermisos = { permisos: {}, usuarios: [], candidatos: [] };
+
+  const llamar = async (body?: Record<string, unknown>, q = ""): Promise<void> => {
+    const url = `/api/permisos?guild_id=${encodeURIComponent(sesion.guildId)}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+    const r = await fetch(url, {
+      method: body ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${sesion.session}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify({ guild_id: sesion.guildId, ...body }) : undefined,
+    });
+    const j = (await r.json().catch(() => null)) as (ListaPermisos & { error?: string }) | null;
+    if (!r.ok || !j) throw new Error(j?.error ?? `HTTP ${r.status}`);
+    // Los candidatos de la última búsqueda se quedan tras dar un permiso, para seguir dando.
+    datos = { ...j, candidatos: body ? datos.candidatos : j.candidatos };
+  };
+  const pintar = (): void => {
+    const con = new Set(datos.usuarios.map((u) => u.id));
+    const filas = [...datos.usuarios, ...datos.candidatos.filter((c) => !con.has(c.id)).map((c) => ({ ...c, permisos: [] as string[] }))];
+    lista.replaceChildren(
+      ...filas.map((u) => {
+        const fila = el("div", "dev-permiso");
+        fila.append(el("span", "dev-permiso-nombre", u.nombre));
+        for (const [clave, nombre] of Object.entries(datos.permisos)) {
+          const l = el("label", "dev-casilla");
+          const i = el("input");
+          i.type = "checkbox";
+          i.checked = u.permisos.includes(clave);
+          i.addEventListener("change", () => {
+            i.disabled = true;
+            hacer(llamar({ user_id: u.id, permiso: clave, dar: i.checked }));
+          });
+          l.append(i, el("span", undefined, nombre));
+          fila.append(l);
+        }
+        return fila;
+      }),
+    );
+    if (!filas.length) lista.append(el("p", "dev-nota", "Nadie más tiene permisos. Busca a alguien para dárselos."));
+  };
+  const hacer = (p: Promise<void>): void => {
+    estado.textContent = "";
+    p.then(pintar, (e: unknown) => {
+      estado.textContent = e instanceof Error ? e.message : "No se han podido cambiar los permisos.";
+      pintar();
+    });
+  };
+  const fila = el("div", "dev-fila");
+  fila.append(buscar, boton("Buscar", () => hacer(llamar(undefined, buscar.value.trim()))));
+  buscar.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") hacer(llamar(undefined, buscar.value.trim()));
+  });
+  padre.append(el("p", "dev-nota", "Los desarrolladores los tienen todos. Ser administrador de Discord no da ninguno."), fila, lista, estado);
+  hacer(llamar());
 }
 
 /** Sección de assets del extraplano: lista filtrable y objetos puestos delante del robot (hasta 200). */

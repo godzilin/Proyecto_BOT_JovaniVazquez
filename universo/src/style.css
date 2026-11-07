@@ -886,3 +886,19 @@ body {
   touch-action: none;
   user-select: none;
 }
+
+/* Devtools: permisos (una fila por persona, con una casilla por permiso). */
+.dev-permiso {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-permiso-nombre {
+  flex: 1 0 100%;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

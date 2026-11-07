@@ -416,6 +416,67 @@ async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
     assert not any(stat.startswith("universo_met") for stat in profile.stats)
 
 
+async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: World) -> None:
+    from bot.cogs.universo import DEVS
+
+    dev_id = min(DEVS)
+    guild = world.client.get_guild(GUILD_ID)
+    plain = guild.get_member(USER_ID)
+    plain.name = "yeyo"
+    admin = member(888, admin=True)  # administrador de Discord: eso ya no da nada
+    admin.display_name = admin.name = "Bea"
+    members = {USER_ID: plain, dev_id: member(dev_id), 888: admin}
+    guild.get_member = members.get
+    guild.members = list(members.values())
+    dev = {"Authorization": f"Bearer {world.cog.signer.issue(dev_id)}"}
+    yeyo = {"Authorization": f"Bearer {await login(world)}"}
+    query = {"guild_id": str(GUILD_ID)}
+
+    async def entrar(headers: dict[str, str]) -> dict:
+        return await (await world.web.post("/api/entrar", json=query, headers=headers)).json()
+
+    async def dar(user_id: int, permiso: str, si: bool = True) -> tuple[int, dict]:
+        body = {**query, "user_id": str(user_id), "permiso": permiso, "dar": si}
+        response = await world.web.post("/api/permisos", json=body, headers=dev)
+        return response.status, await response.json()
+
+    # Solo los desarrolladores ven y cambian los permisos.
+    for headers in (yeyo, {"Authorization": f"Bearer {world.cog.signer.issue(888)}"}):
+        assert (await world.web.get("/api/permisos", params=query, headers=headers)).status == 403
+        body = {**query, "user_id": str(USER_ID), "permiso": "editor", "dar": True}
+        assert (await world.web.post("/api/permisos", json=body, headers=headers)).status == 403
+    found = await world.web.get("/api/permisos", params={**query, "q": "YE"}, headers=dev)
+    listing = await found.json()
+    assert listing["usuarios"] == [] and set(listing["permisos"]) == {"editor", "devtools"}
+    assert [c["id"] for c in listing["candidatos"]] == [str(USER_ID)]  # ni el dev ni bots
+    assert (await entrar(dev))["permisos"] is True
+    profile = await entrar(yeyo)
+    assert (profile["editor"], profile["dev"], profile["permisos"]) == (False, False, False)
+    borrador = {"params": query, "headers": yeyo}
+    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 403
+
+    status, listing = await dar(USER_ID, "editor")
+    assert status == 200
+    assert listing["usuarios"] == [{"id": str(USER_ID), "nombre": "Yeyo", "permisos": ["editor"]}]
+    assert (await dar(USER_ID, "devtools"))[0] == 200
+    profile = await entrar(yeyo)
+    assert (profile["editor"], profile["dev"]) == (True, True)
+    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 200
+    sala = await world.web.ws_connect("/api/sala")
+    await sala.send_json({**query, "t": "hola", "mundo": "pruebas", "session": await login(world)})
+    assert (await sala.receive_json())["t"] == "bienvenida"
+    await sala.close()
+
+    assert (await dar(USER_ID, "editor", False))[0] == 200
+    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 403
+    assert (await entrar(yeyo))["dev"] is True
+    # Lo que no se puede: un permiso que no existe, quitárselo a un dev o dárselo a un bot.
+    assert (await dar(USER_ID, "dios"))[0] == 400
+    assert "todos los permisos" in (await dar(dev_id, "editor", False))[1]["error"]
+    members[999] = member(999, bot=True)
+    assert (await dar(999, "editor"))[0] == 400
+
+
 async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
     ws = await world.web.ws_connect("/api/sala")
     await ws.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": "falsa"})

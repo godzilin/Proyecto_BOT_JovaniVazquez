@@ -1,4 +1,4 @@
-// Modo «Assets» del editor del Jovaniverso (solo administradores, solo ordenador): monta y edita assets de piezas o importa GLB.
+// Modo «Assets» del editor del Jovaniverso (solo con permiso de editor, solo ordenador): monta y edita assets de piezas o importa GLB.
 // El borrador, guardar, publicar y deshacer son del editor entero (`borrador.ts`, `editor.ts`).
 import * as api from "./api";
 import { dialogo, h } from "./dom";

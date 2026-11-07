@@ -25,9 +25,12 @@ interface ProfileResponse {
   balance_text: string;
   version: string;
   gestures: number[];
-  admin?: boolean;
+  /** Tiene permiso de editor (lo dan los desarrolladores; ser admin de Discord no basta). */
+  editor?: boolean;
   /** Desarrollador del bot: devtools y extraplano. */
   dev?: boolean;
+  /** Es desarrollador del bot: puede dar y quitar permisos. */
+  permisos?: boolean;
   mundo?: number;
   /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
   tragas?: Tragas | null;
@@ -150,9 +153,9 @@ function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string })
 }
 
 /** Las devtools (solo desarrolladores), en un chunk aparte que no se descarga nadie más. */
-function cargarDevtools(mundo: Mundo, sesion: { session: string; guildId: string } | null): void {
+function cargarDevtools(mundo: Mundo, sesion: { session: string; guildId: string } | null, gestor = false): void {
   import("./dev/devtools")
-    .then((m) => m.iniciarDevtools(mundo, sesion))
+    .then((m) => m.iniciarDevtools(mundo, sesion, gestor))
     .catch((e: unknown) => console.error("No se han podido cargar las devtools", e));
 }
 
@@ -202,10 +205,13 @@ async function start(): Promise<void> {
       });
       if (!PRUEBAS && (entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
-      if (!PRUEBAS && entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
+      if (!PRUEBAS && entrada.profile.editor && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
         botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
       }
-      if (entrada.profile.dev) cargarDevtools(mundo, entrada.guildId ? { session: entrada.session, guildId: entrada.guildId } : null);
+      if (entrada.profile.dev) {
+        const s = entrada.guildId ? { session: entrada.session, guildId: entrada.guildId } : null;
+        cargarDevtools(mundo, s, entrada.profile.permisos === true);
+      }
       if (entrada.profile.tragas) {
         const nombre = entrada.profile.name;
         activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
@@ -214,14 +220,18 @@ async function start(): Promise<void> {
       iniciarSala(mundo.yo, mundo.remotos, null);
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
-      // Solo en desarrollo: `docs/editor_local.py` da una sesión de administrador sin Discord.
+      // Solo en desarrollo: `docs/editor_local.py` da una sesión con permiso de editor sin Discord.
       if (import.meta.env.DEV && new URLSearchParams(location.search).has("editor")) {
         const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion");
         botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
         void cargarObras(mundo, { session: dev.session, guildId: dev.guild_id });
       }
-      // Solo en desarrollo: `?devtools` las abre sin Discord (y `?mundo=pruebas`, el extraplano).
-      if (import.meta.env.DEV && new URLSearchParams(location.search).has("devtools")) cargarDevtools(mundo, null);
+      // Solo en desarrollo: `?devtools` las abre sin Discord (y `?mundo=pruebas`, el extraplano). Con `docs/editor_local.py`
+      // usan su sesión y sale la sección de permisos (el servidor decide si vale).
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("devtools")) {
+        const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion").catch(() => null);
+        cargarDevtools(mundo, dev && { session: dev.session, guildId: dev.guild_id }, dev !== null);
+      }
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);

@@ -1401,8 +1401,8 @@ Los sonidos de las tragaperras salen de `docs/sonidos_tragas.py`.
 
 #### Editor del mundo
 
-Los administradores editan el mundo desde la propia Activity, en el ordenador, con el
-botón 🛠 Editor (FUNCIONALIDADES, «Jovaniverso»). El mundo es un documento JSON
+Quien tiene permiso de editor (ver «Permisos y devtools») edita el mundo desde la propia
+Activity, en el ordenador, con el botón 🛠 Editor (FUNCIONALIDADES, «Jovaniverso»). El mundo es un documento JSON
 (formato y topes en `bot.services.universo_editor`) que se guarda en la base de datos
 del bot: un borrador por servidor y las 50 últimas versiones publicadas
 (`bot.repositories.universo_mundo`), más los modelos GLB por su SHA-256. Mientras no se
@@ -1410,10 +1410,25 @@ publica nada, la página dibuja el mundo de serie (`universo/src/mundo/serie.ts`
 nada que hacer en el NAS: las tablas se crean solas al arrancar.
 
 Para probarlo sin Discord: `PYTHONPATH=src python docs/editor_local.py` levanta en el
-puerto 8080 el servidor de verdad con un administrador falso y el mundo en un SQLite
+puerto 8080 el servidor de verdad con un editor falso y el mundo en un SQLite
 temporal, y con `npm run dev` en `universo/` se abre `http://localhost:5173/?editor`.
 `python docs/volcar_mundo_serie.py` vuelca el mundo de serie, lo pasa por la validación
 del servidor y dice cuánto pesa (unos 145 KB).
+
+#### Permisos y devtools
+
+Los desarrolladores del bot (`DEVS` en `bot.cogs.universo`, por ID de Discord) tienen todos
+los permisos del Jovaniverso y son los únicos que los dan, desde la sección «Permisos de
+este servidor» de las devtools. Los permisos (`editor` y `devtools`) son por servidor y se
+guardan en la tabla `universo_permisos` (`bot.repositories.universo_mundo`), que se crea
+sola al arrancar. Para añadir un desarrollador se cambia `DEVS` y se despliega.
+
+Las devtools (botón 🧪 o F2) y el extraplano de pruebas (`?mundo=pruebas`, con su propia
+sala) están en FUNCIONALIDADES, «Jovaniverso». Sin Discord: `npm run dev` en `universo/` y
+`http://localhost:5173/?devtools&mundo=pruebas` (con `docs/editor_local.py` en marcha, la
+sección de permisos usa su sesión). `python docs/medir_universo.py --arrancar --pruebas` mide
+el extraplano como la isla. La pista sale de `universo/src/mundo/pista.ts`, que da a la vez
+la altura del suelo y su dibujo.
 
 Solo hace falta desplegar para lo que pasa en el servidor (login, saldo, logros del
 paseo) o para verlo dentro de Discord. Lo de Python no se puede cambiar en caliente:

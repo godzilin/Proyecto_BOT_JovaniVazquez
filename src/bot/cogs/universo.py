@@ -56,12 +56,20 @@ El editor del mundo vive en una subaplicación montada en `/api/editor/`, con su
 tope de cuerpo (`MAX_EDITOR_BYTES`: cabe un GLB; el resto de rutas sigue con
 `MAX_BODY_BYTES`). Todas sus rutas llevan la sesión y `guild_id` (en el cuerpo JSON o,
 en `GET` y en la subida de GLB, en la query) y el servidor comprueba siempre que quien
-llama es administrador. Es una herramienta de administración: sin bromas ni logros.
+llama tiene el permiso `editor`. Es una herramienta de administración: sin bromas ni logros.
 
-Las devtools del Jovaniverso (noclip, volar, velocidad, el extraplano de pruebas) son
-solo para los desarrolladores del bot (`DEVS`, por ID de Discord): `/api/entrar`
-devuelve `dev` y la sala del extraplano rechaza a los demás. Lo que hacen pasa en el
-navegador; el servidor solo guarda la puerta de la sala. Tampoco llevan logros.
+Permisos del Jovaniverso (`PERMISOS`), por servidor: `editor` (el editor del mundo) y
+`devtools` (noclip, volar, velocidad y el extraplano de pruebas). Los desarrolladores del
+bot (`DEVS`, por ID de Discord) los tienen todos siempre y son los únicos que los dan y
+los quitan; ser administrador de Discord no da ninguno. `/api/entrar` devuelve `editor`,
+`dev` (devtools) y `permisos` (si puede cambiarlos), y la sala del extraplano rechaza a
+quien no tenga `devtools`. Lo que hacen las devtools pasa en el navegador; el servidor solo
+guarda las puertas. Sin bromas ni logros.
+
+- `GET /api/permisos?guild_id=[&q=]` -> `{permisos, usuarios, candidatos}`: los nombres de
+  cada permiso, quién tiene alguno y, con `q`, hasta 10 miembros cuyo nombre lo contiene.
+- `POST /api/permisos` `{guild_id, user_id, permiso, dar}` -> lo mismo que el `GET`.
+  Las dos, solo para los desarrolladores.
 
 - `GET /api/editor/borrador` -> `{doc, rev, version}`: el borrador (o lo publicado, o
   `EMPTY`), su `rev` y la última versión publicada.
@@ -176,14 +184,20 @@ _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 
 #: Aviso del 409 cuando el `rev` del editor ya no es el del borrador.
 REV_CONFLICT = (
-    "Otro administrador ha guardado el borrador mientras tanto. Recarga para ver sus cambios."
+    "Otra persona ha guardado el borrador mientras tanto. Recarga para ver sus cambios."
 )
 #: Los desarrolladores del bot (Yeyo y godzilin): los únicos con devtools y extraplano.
 DEVS = frozenset({403646452414545921, 498473711687434241})
-#: Quien no es desarrollador no entra en el extraplano.
-NOT_DEV = "El mundo de pruebas es solo para los desarrolladores del bot."
-#: Quien no es administrador no toca el mundo.
-NOT_ADMIN = "Solo los administradores pueden editar el mundo."
+#: Los permisos que se dan en el Jovaniverso, con su nombre para el panel.
+PERMISOS = {"editor": "Editar el mundo", "devtools": "Devtools y extraplano"}
+#: Candidatos que devuelve la búsqueda de miembros del panel de permisos.
+MAX_CANDIDATOS = 10
+#: Quien no tiene `devtools` no entra en el extraplano.
+NOT_DEV = "El mundo de pruebas es solo para quien tenga permiso de devtools."
+#: Quien no tiene `editor` no toca el mundo.
+NOT_ADMIN = "Solo quien tenga permiso de editor puede editar el mundo."
+#: Solo los desarrolladores cambian los permisos.
+NOT_OWNER = "Solo los desarrolladores del bot cambian los permisos."
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 #: El mundo vacío ya codificado, para servirlo sin pasar por el JSON.
 _EMPTY_TEXT = json.dumps(EMPTY, separators=(",", ":"))
@@ -328,6 +342,8 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_get("/api/glb/{sha}", _glb)
         app.router.add_post("/api/traga", _traga)
         app.router.add_get("/api/sala", _sala)
+        app.router.add_get("/api/permisos", _permisos)
+        app.router.add_post("/api/permisos", _permisos)
         app.add_subapp("/api/editor/", self.build_editor())
         assets = self.static_dir / "assets"
         if assets.is_dir():
@@ -383,6 +399,7 @@ class Universo(commands.Cog, name="Universo"):
         self._last_walk[guild.id, member.id] = time.monotonic()
         balance = await self.bot.economy.balance(guild.id, member.id)
         gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
+        permisos = await self.permisos(guild.id, member.id)
         channel_id = snowflake(body.get("channel_id"))
         channel = guild.get_channel_or_thread(channel_id) if channel_id is not None else None
         delta = universo_stats(platform_of(body.get("platform")), when=datetime.now(TIMEZONE))
@@ -398,8 +415,9 @@ class Universo(commands.Cog, name="Universo"):
             "balance_text": format_amount(balance),
             "gestures": sorted(gestures),
             "version": __version__,
-            "admin": member.guild_permissions.administrator,
-            "dev": member.id in DEVS,
+            "editor": "editor" in permisos,
+            "dev": "devtools" in permisos,
+            "permisos": member.id in DEVS,
             "mundo": (await self.mundo(guild.id))[0],
             # La fila de tragaperras de la plaza (`None` si la tragaperras no está cargada).
             "tragas": await tragas.plaza_meta(self.bot, guild.id),
@@ -418,18 +436,76 @@ class Universo(commands.Cog, name="Universo"):
                 self._mundo[guild_id] = cached
         return cached
 
-    def admin(
+    async def permisos(self, guild_id: int, user_id: int) -> set[str]:
+        """Los permisos de un miembro: todos si es desarrollador, si no los que le dieron."""
+        if user_id in DEVS:
+            return set(PERMISOS)
+        return await self.bot.universo_mundo.permissions(guild_id, user_id)
+
+    async def editor(
         self, session: str | None, body: dict[str, Any]
     ) -> tuple[discord.Guild, discord.Member]:
-        """Servidor y miembro de una llamada del editor; solo valen los administradores.
+        """Servidor y miembro de una llamada del editor; solo vale quien tiene `editor`.
 
         Raises:
-            UniversoError: Como `_member`, y 403 si no es administrador.
+            UniversoError: Como `_member`, y 403 sin el permiso.
         """
         guild, member = self._member(session, body)
-        if not member.guild_permissions.administrator:
+        if "editor" not in await self.permisos(guild.id, member.id):
             raise UniversoError(NOT_ADMIN, 403)
         return guild, member
+
+    async def permission_list(self, guild: discord.Guild, query: str = "") -> dict[str, Any]:
+        """Lo que enseña el panel de permisos: nombres, quién tiene alguno y la búsqueda."""
+        usuarios: dict[int, list[str]] = {}
+        for user_id, permiso in await self.bot.universo_mundo.granted(guild.id):
+            usuarios.setdefault(user_id, []).append(permiso)
+
+        def card(member: discord.Member | None, user_id: int) -> dict[str, Any]:
+            nombre = member.display_name if member is not None else f"Ya no está ({user_id})"
+            return {"id": str(user_id), "nombre": nombre}
+
+        found: list[dict[str, Any]] = []
+        query = query.strip().casefold()[:40]
+        if query:
+            for member in getattr(guild, "members", []):
+                names = (member.display_name.casefold(), member.name.casefold())
+                if not member.bot and member.id not in DEVS and any(query in n for n in names):
+                    found.append(card(member, member.id))
+                    if len(found) >= MAX_CANDIDATOS:
+                        break
+        return {
+            "permisos": PERMISOS,
+            "usuarios": [
+                {**card(guild.get_member(uid), uid), "permisos": perms}
+                for uid, perms in usuarios.items()
+            ],
+            "candidatos": found,
+        }
+
+    async def set_permission(
+        self, guild: discord.Guild, author: discord.Member, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Da o quita un permiso a un miembro (solo los desarrolladores llegan aquí).
+
+        Raises:
+            UniversoError: Permiso que no existe, alguien que no es del servidor o un
+                desarrollador (los tiene todos y no se le quitan).
+        """
+        permiso = body.get("permiso")
+        if permiso not in PERMISOS:
+            raise UniversoError("Ese permiso no existe.")
+        user_id = snowflake(body.get("user_id"))
+        member = guild.get_member(user_id) if user_id is not None else None
+        dar = body.get("dar") is True
+        # Quitar se deja aunque ya no sea del servidor, para poder limpiar la lista.
+        if user_id is None or (dar and (member is None or member.bot)):
+            raise UniversoError("Esa persona no es miembro de este servidor.")
+        if user_id in DEVS:
+            raise UniversoError("Los desarrolladores tienen todos los permisos siempre.")
+        await self.bot.universo_mundo.set_permission(guild.id, user_id, permiso, dar, author.id)
+        self.bot.telemetry.count("universo", "permiso", guild_id=guild.id, user_id=author.id)
+        return await self.permission_list(guild)
 
     async def draft_world(self, guild_id: int) -> tuple[str, int, int]:
         """Lo que carga el editor: documento (borrador, publicado o vacío), `rev` y versión."""
@@ -603,7 +679,7 @@ class Universo(commands.Cog, name="Universo"):
         try:
             guild, member = self._member(hello.get("session"), hello)
             pruebas = hello.get("mundo") == "pruebas"
-            if pruebas and member.id not in DEVS:
+            if pruebas and "devtools" not in await self.permisos(guild.id, member.id):
                 raise UniversoError(NOT_DEV, 403)
             salas = self.pruebas if pruebas else self.salas
             gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
@@ -762,7 +838,7 @@ async def _editor_call(
         body: dict[str, Any] = dict(request.query)
     else:
         body = await asyncio.to_thread(_decode_object, await _read_body(request))
-    guild, member = cog.admin(session, body)
+    guild, member = await cog.editor(session, body)
     return cog, guild, member, body
 
 
@@ -858,6 +934,18 @@ async def _entrar(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     body = await _json_body(request)
     return web.json_response(await cog.enter(bearer(request.headers.get("Authorization")), body))
+
+
+async def _permisos(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    session = bearer(request.headers.get("Authorization"))
+    body = dict(request.query) if request.method == "GET" else await _json_body(request)
+    guild, member = cog._member(session, body)
+    if member.id not in DEVS:
+        raise UniversoError(NOT_OWNER, 403)
+    if request.method == "GET":
+        return web.json_response(await cog.permission_list(guild, str(body.get("q") or "")))
+    return web.json_response(await cog.set_permission(guild, member, body))
 
 
 async def _paseo(request: web.Request) -> web.Response:

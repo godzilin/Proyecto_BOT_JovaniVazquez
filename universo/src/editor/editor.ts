@@ -1,4 +1,4 @@
-// Editor del Jovaniverso (solo administradores, solo ordenador): una pantalla con dos modos, «Mundo» (colocar y mover objetos y zonas
+// Editor del Jovaniverso (solo con permiso de editor, solo ordenador): una pantalla con dos modos, «Mundo» (colocar y mover objetos y zonas
 // dentro de la isla) y «Assets» (montar los modelos), que comparten un solo borrador, un solo historial y la misma barra de
 // guardar, publicar y versiones.
 import * as api from "./api";
@@ -25,7 +25,7 @@ let abierto = false;
 
 /**
  * Abre el editor a pantalla completa. Se resuelve cuando el borrador está cargado; el editor sigue
- * abierto hasta que el administrador lo cierra. Si no se puede cargar, lanza el error del servidor.
+ * abierto hasta que quien edita lo cierra. Si no se puede cargar, lanza el error del servidor.
  */
 export async function abrirEditor(sesion: Sesion, entorno: Entorno): Promise<void> {
   if (abierto) return;

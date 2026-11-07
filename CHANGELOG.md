@@ -6,6 +6,16 @@ la sección «Versiones» de `Biblia.txt`. Las versiones anteriores a la 5.22.0
 se asignaron a posteriori, revisando cada PR y commit de `main` con el mismo
 criterio.
 
+## 10.x
+
+### 10.0.0 · 2026-11-07
+
+- Jovaniverso: el editor del mundo ya no lo usa cualquier administrador de Discord, solo quien tenga permiso de editor
+- Jovaniverso: permisos que dan y quitan los desarrolladores del bot desde un panel: quién usa el editor y quién las devtools
+- Jovaniverso: devtools para los desarrolladores y quien tenga permiso: volar, noclip, velocidad hasta ×20, teletransporte, medidor de rendimiento, ver las colisiones, robots de prueba y poner assets
+- Jovaniverso: un mundo plano de pruebas aparte, con su propia sala, una pista de rampas, escalones, muro y columnas, y todas las tragaperras del Jovaniverso
+- Jovaniverso: arreglado el estilo de los botones y avisos de las tragaperras de la plaza, que no se aplicaba
+
 ## 9.x
 
 ### 9.61.0 · 2026-11-07

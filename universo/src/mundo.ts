@@ -1,15 +1,17 @@
 // Monta el mundo 3D de la isla: escena, luz, cámara, jugador, bucle de dibujo y el informe de paseo para los logros.
 import {
   AmbientLight,
+  CanvasTexture,
   DirectionalLight,
   FogExp2,
-  GridHelper,
   HemisphereLight,
   Mesh,
   MeshLambertMaterial,
   PCFShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
+  RepeatWrapping,
+  SRGBColorSpace,
   Scene,
   WebGLRenderer,
   NeutralToneMapping,
@@ -122,14 +124,29 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let mar: ReturnType<typeof crearMar> | null = null;
   const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
   if (PRUEBAS) {
-    // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) y la pista, como datos.
-    const suelo = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ color: 0x9aa3ab }));
+    // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) pintada en una textura que se
+    // repite (una sola llamada, sin parpadeo de líneas a lo lejos), y la pista, como datos.
+    const lienzo = document.createElement("canvas");
+    lienzo.width = lienzo.height = 512; // una baldosa de 10 m
+    const g = lienzo.getContext("2d") as CanvasRenderingContext2D;
+    g.fillStyle = "#9aa3ab";
+    g.fillRect(0, 0, 512, 512);
+    g.fillStyle = "#7b848c";
+    for (let i = 1; i < 10; i++) {
+      g.fillRect(Math.round(i * 51.2) - 1, 0, 2, 512);
+      g.fillRect(0, Math.round(i * 51.2) - 1, 512, 2);
+    }
+    g.fillStyle = "#4a535b";
+    g.fillRect(0, 0, 4, 512);
+    g.fillRect(0, 0, 512, 4);
+    const rejilla = new CanvasTexture(lienzo);
+    rejilla.wrapS = rejilla.wrapT = RepeatWrapping;
+    rejilla.repeat.set(60, 60);
+    rejilla.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    rejilla.colorSpace = SRGBColorSpace;
+    const suelo = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ map: rejilla }));
     suelo.receiveShadow = true;
-    const fina = new GridHelper(600, 600, 0x6b747c, 0x6b747c);
-    const gruesa = new GridHelper(600, 60, 0x2e353b, 0x2e353b);
-    fina.position.y = 0.01;
-    gruesa.position.y = 0.02;
-    escena.add(suelo, fina, gruesa);
+    escena.add(suelo);
     obras.cargar(pistaDoc());
   } else {
     for (const baldosa of crearTerreno(param("teselas", TESELAS))) {

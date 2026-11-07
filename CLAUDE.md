@@ -51,7 +51,9 @@ Lo que más se olvida:
 - **Botones:** contestan a Discord antes de tocar la base de datos. Sección siguiente.
 - **Jovaniverso:** la optimización es un requisito, no un retoque: el NAS tiene 8 GB y 4 hilos
   para todo. El servidor no simula (valida y reparte en ticks fijos, binario, con topes) y la
-  página tiene presupuesto de llamadas de dibujo y triángulos. Sección «Jovaniverso:
+  página tiene presupuesto de llamadas de dibujo y triángulos. Todo lo nuevo (máquinas, juegos,
+  muebles) se monta también en el extraplano de pruebas (`?mundo=pruebas`). Los permisos (`editor`,
+  `devtools`) los dan solo los desarrolladores (`DEVS`). Sección «Jovaniverso:
   rendimiento imperativo» de `Biblia.txt`.
 - **Subagentes:** solo Haiku (lo mecánico) o Sonnet (programar), en su última versión, uno a
   la vez y para una tarea bien acotada. Si pueden hacerlo, se les delega y se espera, revisando
