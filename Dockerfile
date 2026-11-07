@@ -15,8 +15,8 @@ WORKDIR /opt/universo
 COPY universo/package.json universo/package-lock.json ./
 RUN npm ci
 COPY universo/ ./
-# Las tragaperras de la plaza pintan en directo la escena de la clásica del bot: Vite la copia
-# de ../src/bot/assets (vite.config.ts), con sus símbolos y fuentes.
+# Las tragaperras de la plaza pintan en directo la escena de la clásica del bot: la página la importa
+# de ../src/bot/assets (universo/src/casino/escena.ts), con sus símbolos y fuentes.
 COPY src/bot/assets/tragas.js /opt/src/bot/assets/
 COPY src/bot/assets/slots/ /opt/src/bot/assets/slots/
 COPY src/bot/assets/botes/fonts/luckiest-guy.woff /opt/src/bot/assets/botes/fonts/

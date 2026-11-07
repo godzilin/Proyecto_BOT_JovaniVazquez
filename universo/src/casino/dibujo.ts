@@ -1,5 +1,7 @@
-// Lo que se dibuja en 2D para las máquinas: el pintor de pantallas (la escena de la tragaperras del bot, en un iframe oculto)
+// Lo que se dibuja en 2D para las máquinas: el pintor de pantallas (la escena de la tragaperras del bot, ver escena.ts)
 // y el atlas de letrero, visores, etiquetas de botones y números, que es una sola textura para todo el casino.
+
+import type { Escena } from "./escena";
 
 export interface Tragas {
   machines: number;
@@ -9,51 +11,29 @@ export interface Tragas {
   pot_text: string;
 }
 
-interface EscenaVentana extends Window {
-  setup(meta: unknown): Promise<boolean>;
-  paintState(estado: unknown): HTMLCanvasElement;
-}
-
 export const PANTALLA_W = 544;
 export const PANTALLA_H = 412;
-const RUTA = "/assets/tragas/slots/";
 
 /** Un solo pintor para todas las máquinas: pinta el estado de una y se copia a la pantalla de esa máquina. */
 export class Pintor {
-  private constructor(
-    private readonly marco: HTMLIFrameElement,
-    private readonly w: EscenaVentana,
-  ) {}
+  private constructor(private readonly escena: Escena) {}
 
   static async crear(t: Tragas): Promise<Pintor> {
-    const html = await (await fetch(`${RUTA}escena.html`)).text();
-    const marco = document.createElement("iframe");
-    marco.setAttribute("aria-hidden", "true");
-    marco.tabIndex = -1;
-    marco.style.cssText = "position:fixed;left:-9999px;top:0;width:600px;height:460px;border:0;visibility:hidden;pointer-events:none";
-    // Escala 1 (544 × 412) y rutas relativas a la carpeta de la escena.
-    marco.srcdoc = html
-        .replace('src="../tragas.js"', 'src="/assets/tragas/tragas.js"') // sin esto, el precargador de scripts lo pide antes de leer <base>
-        .replace("<head>", `<head><base href="${RUTA}"><script>window.TRAGAS_S = 1</script>`);
-    const cargado = new Promise<void>((ok, mal) => {
-      marco.onload = () => ok();
-      marco.onerror = () => mal(new Error("No se ha podido cargar la escena de la tragaperras"));
-    });
-    document.body.append(marco);
-    await cargado;
-    const w = marco.contentWindow as EscenaVentana;
-    const symbols = Object.fromEntries(Object.entries(t.symbols).map(([clave, archivo]) => [clave, RUTA + archivo]));
-    await w.setup({ strips: t.strips, symbols, symbolsKey: "plaza-v1", out: [PANTALLA_W, PANTALLA_H] });
-    return new Pintor(marco, w);
+    // La escena va en un chunk aparte (con el resto del casino) y se evalúa al pedirla, ya a escala 1.
+    const { cargarEscena, SIMBOLOS } = await import("./escena");
+    const escena = await cargarEscena();
+    const symbols = Object.fromEntries(Object.entries(t.symbols).map(([clave, archivo]) => [clave, SIMBOLOS[archivo]]));
+    await escena.setup({ strips: t.strips, symbols, symbolsKey: "plaza-v1", out: [PANTALLA_W, PANTALLA_H] });
+    return new Pintor(escena);
   }
 
   /** Pinta `estado` y lo copia en `destino`. */
   pintar(estado: unknown, destino: CanvasRenderingContext2D): void {
-    destino.drawImage(this.w.paintState(estado), 0, 0);
+    destino.drawImage(this.escena.paintState(estado), 0, 0);
   }
 
   destruir(): void {
-    this.marco.remove();
+    // Nada que soltar: la escena vive en la página y la siguiente vez se reutiliza.
   }
 }
 
