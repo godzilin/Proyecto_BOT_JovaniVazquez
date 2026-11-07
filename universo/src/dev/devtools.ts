@@ -345,10 +345,11 @@ function iniciarAssets(padre: HTMLElement, mundo: Mundo, sesion: { session: stri
   const aplicar = (): void => {
     const doc: MundoDoc = pistaDoc();
     doc.assets = { ...doc.assets };
-    for (const o of puestos) doc.assets[o.asset] = assets[o.asset];
-    doc.objetos = [...doc.objetos, ...puestos];
+    // Con prefijo: un asset publicado que se llame como los de la pista (`pista`, `columna`) no la pisa.
+    for (const o of puestos) doc.assets[`+${o.asset}`] = assets[o.asset];
+    doc.objetos = [...doc.objetos, ...puestos.map((o) => ({ ...o, asset: `+${o.asset}` }))];
     mundo.cargarMundo(doc);
-    estado.textContent = puestos.length >= MAX_OBJETOS ? `Límite de ${MAX_OBJETOS} objetos puestos.` : `${puestos.length} objetos puestos.`;
+    estado.textContent = puestos.length >= MAX_OBJETOS ? `Límite de ${MAX_OBJETOS} objetos puestos.` : `Objetos puestos: ${puestos.length}.`;
   };
   const poner = (id: string): void => {
     if (puestos.length >= MAX_OBJETOS) {
@@ -356,8 +357,10 @@ function iniciarAssets(padre: HTMLElement, mundo: Mundo, sesion: { session: stri
       return;
     }
     const cm = (v: number): number => Math.round(v * 100) / 100;
-    const x = yo.x + Math.sin(yo.giro) * 3;
-    const z = yo.z + Math.cos(yo.giro) * 3;
+    // A 3 m del robot más lo que mide el asset (sus círculos de colisión), para no ponérselo encima.
+    const d = 3 + Math.max(0, ...(assets[id].colision ?? []).map(([cx, cz, r]) => Math.hypot(cx, cz) + r));
+    const x = yo.x + Math.sin(yo.giro) * d;
+    const z = yo.z + Math.cos(yo.giro) * d;
     puestos.push({ asset: id, pos: [cm(x), cm(sueloEn(x, z)), cm(z)], rot: [0, cm(yo.giro), 0], esc: [1, 1, 1] });
     aplicar();
   };
