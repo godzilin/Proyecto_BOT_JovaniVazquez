@@ -431,6 +431,22 @@ El Jovaniverso tiene que ir fluido en el NAS (8 GB de RAM para todo el NAS, 2 GB
 - **Peso de la descarga:** cada KB pasa por el túnel y por el proxy de Discord. Sin dependencias nuevas sin necesidad (las de Node, fijadas y con dos semanas, como siempre), modelos sin texturas cuando se pueda y lo pesado cargado cuando haga falta, no al entrar.
 - **Se prueba en lo lento:** capturas a 390 × 844 con táctil, `renderer.info` en la peor vista y, antes de dar algo por bueno, un móvil de verdad dentro de Discord.
 
+### Jovaniverso: interfaz
+
+Las ventanas y paneles de la página (lo que no es el mundo 3D) salen de un solo sistema de interfaz, `universo/src/ui/`: `ui.css` (las fichas de diseño y las piezas) y `ventana.ts` (la ventana con pestañas y las piezas en TypeScript: `seccion`, `fila`, `ficha`, `cifra`, `vacio`). El primero que lo usa es el menú del tabulador (`menu.ts`: Jugadores, Mochila y Viajar). Un panel nuevo usa estas piezas; si le falta una, se añade al sistema, no a su panel. Las herramientas de los desarrolladores (editor y devtools) tienen su propio estilo (`ed-*`, `dev-*`) y no cambian.
+
+Líneas de diseño:
+
+- **Fichas, no valores sueltos:** colores, espacios (`--jv-esp-1` a `-5`: 4, 8, 12, 16 y 24 px), radios, grosores y tiempos salen de las variables `--jv-*`.
+- **La ventana:** fondo oscuro translúcido, filete fino (`--jv-linea`) y dos escuadras de acento en esquinas opuestas. Bajo el título, una línea con degradado; cada sección abre con su rótulo en versalitas y una línea que corre hasta el borde; las filas se separan con una línea de puntos.
+- **El acento** (amarillo) es para lo que importa: el dinero, la pestaña elegida y lo tuyo. El turquesa (`--jv-vivo`) dice «en vivo». Nada se dice solo con color: siempre lleva texto o icono.
+- **Cifras** alineadas a la derecha y con números de ancho fijo; el dinero va con `format_amount` del servidor, nunca formateado en la página.
+- **Teclado:** una ventana abierta se queda con las teclas (el robot no se mueve ni hace gestos) salvo Esc, que la cierra; las flechas cambian de pestaña. Abrirla suelta el ratón capturado.
+- **Móvil:** la ventana ocupa la pantalla entera y respeta las zonas seguras; los botones miden al menos 44 px. Siempre hay una forma de abrirla tocando (el menú, tocando tu nombre).
+- **Peso:** HTML y CSS, sin imágenes ni librerías; animaciones de 120 ms como mucho y ninguna con `prefers-reduced-motion`. Una ventana cerrada no gasta: no pide datos ni repinta.
+- **Datos:** la página no decide nada de lo que enseña. Lo pide al servidor al abrir la pestaña, con un rato de validez (10 s en el menú) para que abrir y cerrar no machaque la base de datos, y el servidor lo cachea igual por servidor.
+- **Textos:** informan en normal y claro (la sección «Personalidad»); una broma, si acaso, en un vacío o un aviso, nunca en una cifra ni en una regla.
+
 ## 6. Seguridad y permisos
 
 - El token del bot y cualquier credencial son secretos. Usar variables de entorno o un gestor de secretos del entorno de despliegue.

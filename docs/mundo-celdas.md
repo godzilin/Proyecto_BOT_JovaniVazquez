@@ -15,6 +15,7 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 | Clave | Qué lleva |
 |---|---|
 | `zonas` | `{"zonas": {...}}`: los lugares de logros que se mueven desde el editor. |
+| `teleportes` | `{"teleportes": [{nombre, x, z}, ...]}`: los sitios del menú Viajar (hasta 24). Sin el trozo, los de serie; con la lista vacía, ninguno. |
 | `a/<id>` | Un asset (el mismo objeto que antes en `assets[<id>]`). |
 | `c/<cx>/<cz>` | Una celda de `CELDA` = 80 m de lado: `{"objetos": [...], "terreno"?: {...}}`. |
 

@@ -3410,6 +3410,13 @@ async def owned_keys(bot: commands.Bot, guild_id: int, user_id: int) -> frozense
         return frozenset()
 
 
+async def inventory(bot: commands.Bot, guild_id: int, user_id: int) -> list[InventoryEntry] | None:
+    """Lo que tiene un miembro en vigor (la mochila del Jovaniverso); `None` sin tienda."""
+    if (cog := find_cog(bot, Tienda)) is None:
+        return None
+    return await cog.repository.inventory(guild_id, user_id, cog.clock())
+
+
 async def give_key(
     bot: commands.Bot, guild_id: int, user_id: int, catalog_key: str
 ) -> ShopItem | None:

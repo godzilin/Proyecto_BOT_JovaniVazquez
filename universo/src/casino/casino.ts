@@ -548,6 +548,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     botonLevantar.hidden = true;
   };
   botonLevantar.addEventListener("click", levantar);
+  window.addEventListener("jv:viaje", levantar); // un teleporte del menú te saca del asiento
   window.addEventListener("resize", () => sentada !== null && sentar(sentada));
 
   const cercana = (): number | null => {

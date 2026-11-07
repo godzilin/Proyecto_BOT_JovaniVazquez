@@ -8,6 +8,13 @@ criterio.
 
 ## 10.x
 
+### 10.6.0 · 2026-11-07
+
+- Jovaniverso: menú con Tab (en el móvil, tocando tu nombre) con tres pestañas: Jugadores (quién está dentro y el resto del servidor, con su saldo y su nivel), Mochila (lo que tienes de la tienda) y Viajar (teleportes a sitios de la isla)
+- Jovaniverso: el editor pone los teleportes del menú (hasta 24) y optimiza los polígonos de los modelos GLB: uno de más de 6.000 triángulos ya no se rechaza al importarlo, se simplifica antes de subirlo
+- Logros del menú: teleportes, abrir la lista con gente dentro, la mochila llena o vacía y usar las tres pestañas
+- Interno: sistema de interfaz común para las ventanas del Jovaniverso (`universo/src/ui/`), con sus líneas de diseño en la Biblia
+
 ### 10.5.0 · 2026-11-07
 
 - Jovaniverso: el mundo ya no tiene tope de objetos; se guarda por trozos (cada asset y cada celda de 80 m) y el tope es de 4000 objetos por celda

@@ -2,7 +2,7 @@
 // `aTrozos` es el par de `split_world` de `bot/services/universo_editor.py` (mismas claves, mismos objetos, mismo base64 de terreno);
 // se comprueba con `docs/comparar_trozos.py`. Vive aparte de `formato.ts` porque rellenar el terreno que falta necesita `heightAt`
 // (`mundo/terreno.ts`), que a su vez importa las constantes de `formato.ts`: un ciclo.
-import { CELDA, TERRENO_CELDAS, TERRENO_LADO, type Asset, type MundoDoc, type Objeto, type Terreno, type Zona } from "./formato";
+import { CELDA, TERRENO_CELDAS, TERRENO_LADO, type Asset, type MundoDoc, type Objeto, type Teleporte, type Terreno, type Zona } from "./formato";
 import { heightAt, MAX_ALTURA, MIN_ALTURA } from "../mundo/terreno";
 
 const PASO = TERRENO_LADO / TERRENO_CELDAS;
@@ -58,6 +58,8 @@ function partirTerreno(t: Terreno): Map<string, Terreno> {
 export function aTrozos(doc: MundoDoc): Map<string, string> {
   const trozos = new Map<string, string>();
   if (Object.keys(doc.zonas).length > 0) trozos.set("zonas", JSON.stringify({ zonas: doc.zonas }));
+  // Una lista vacía sí sale: quiere decir «ningún teleporte», no «los de serie».
+  if (doc.teleportes) trozos.set("teleportes", JSON.stringify({ teleportes: doc.teleportes }));
   for (const [id, asset] of Object.entries(doc.assets)) trozos.set(`a/${id}`, JSON.stringify(asset));
   const celdas = new Map<string, Celda>();
   const celda = (clave: string): Celda => {
@@ -82,6 +84,7 @@ export function deTrozos(trozos: Record<string, unknown>): MundoDoc {
   for (const [clave, t] of Object.entries(trozos)) {
     if (!t) continue;
     if (clave === "zonas") doc.zonas = (t as { zonas: Record<string, Zona> }).zonas;
+    else if (clave === "teleportes") doc.teleportes = (t as { teleportes: Teleporte[] }).teleportes;
     else if (clave.startsWith("a/")) doc.assets[clave.slice(2)] = t as Asset;
     else {
       const m = /^c\/(-?\d+)\/(-?\d+)$/.exec(clave);

@@ -13,14 +13,18 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from bot.services.shop import Kind
 from bot.services.universo import (
     SESSION_SECONDS,
     DiscordOAuth,
     SessionSigner,
     UniversoError,
+    backpack_list,
     bearer,
     platform_of,
+    player_list,
     snowflake,
+    teleport_report,
 )
 
 CODE = "abcdefghijklmnopqrstuvwxyz0123"
@@ -209,3 +213,56 @@ async def test_si_discord_no_contesta_el_login_falla_con_502() -> None:
         with pytest.raises(UniversoError) as raised:
             await oauth.exchange(CODE)
     assert raised.value.status == 502
+
+
+def test_la_lista_del_menu_pone_primero_a_los_de_dentro_y_luego_por_saldo() -> None:
+    members = [(1, "Ana"), (2, "Beto"), (3, "Carla"), (4, "Dani"), (5, "Eva")]
+    balances = {1: 50, 2: 900, 3: 10, 5: 400}
+    rows = player_list(members, {3}, balances, {2: 250, 3: 0}, 1, limit=3)
+    # Carla está dentro; tú (Ana) vas siempre; del resto, el que más tiene hasta llenar.
+    assert [r["nombre"] for r in rows] == ["Carla", "Ana", "Beto"]
+    assert rows[0] == {
+        "nombre": "Carla",
+        "saldo": rows[0]["saldo"],
+        "nivel": 0,
+        "dentro": True,
+        "yo": False,
+    }
+    assert rows[1]["yo"] and not rows[1]["dentro"]
+    assert rows[2]["nivel"] == 1  # 100 XP el nivel 1 y 200 más el 2
+    assert all(r["nivel"] is None for r in player_list(members, set(), balances, None, 1))
+    assert len(player_list(members, set(), balances, None, 1)) == 5
+
+
+class _Entry:
+    def __init__(self, name: str, kind: Kind, emoji: str = "🎩", **kw: object) -> None:
+        self.name, self.kind, self.emoji = name, kind, emoji
+        self.equipped = kw.get("equipped", False)
+        self.expires_at = kw.get("expires_at")
+
+
+def test_la_mochila_del_menu_agrupa_iguales_y_dice_cuanto_les_queda() -> None:
+    rows = backpack_list(
+        [
+            _Entry("Chistera", Kind.TROPHY),
+            _Entry("Chistera", Kind.TROPHY),
+            _Entry("Turbo", Kind.BOOST, "<:turbo:123>", expires_at=1_500.0),
+            _Entry("Turbo", Kind.BOOST, "<:turbo:123>", expires_at=1_100.0),
+            _Entry("VIP", Kind.ROLE, "⭐", equipped=True),
+        ],
+        1_000.0,
+    )
+    by_name = {r["nombre"]: r for r in rows}
+    assert by_name["Chistera"]["cantidad"] == 2
+    assert by_name["Turbo"]["caduca"] == 100  # la más cercana
+    assert by_name["Turbo"]["emoji"] == Kind.BOOST.icon  # el emoji propio no se pinta
+    assert by_name["VIP"]["puesto"] is True
+    assert by_name["Chistera"]["caduca"] is None
+    assert backpack_list([], 0) == []
+
+
+def test_los_teleportes_del_paseo_se_recortan_al_tiempo() -> None:
+    assert teleport_report({"teleports": 50}, 10) == 5
+    assert teleport_report({"teleports": 2}, 10) == 2
+    for raro in (-1, True, "3", None):
+        assert teleport_report({"teleports": raro}, 10) == 0
