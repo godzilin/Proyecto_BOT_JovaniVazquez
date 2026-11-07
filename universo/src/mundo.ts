@@ -28,7 +28,7 @@ import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, heightAt, sueloEn } from "./mundo/terreno";
+import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
 import { Obras } from "./mundo/obras";
 import { PRUEBAS } from "./mundo/modo";
 import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
@@ -68,8 +68,13 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
-  /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes). */
+  /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes), terreno incluido. */
   cargarMundo(doc: MundoDoc): void;
+  /**
+   * El editor ha esculpido o pintado la rejilla del terreno (`terreno.ts`) entre esos vértices: se rehace esa parte de la
+   * malla. Con `mar`, también el mapa de profundidad del mar (al acabar el trazo; es más caro).
+   */
+  retocarTerreno(ix0: number, iz0: number, ix1: number, iz1: number, mar: boolean): void;
   /** Sitios a los que se puede ir con `irA`: los de la isla o, en el extraplano, los de la pista. */
   readonly sitios: string[];
   /** Te lleva a uno de `sitios`, mirándolo. */
@@ -123,6 +128,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   const culling = new Culling();
   const param = (n: string, defecto: number): number => (debug !== null ? Number(new URLSearchParams(location.search).get(n)) || defecto : defecto);
   let mar: ReturnType<typeof crearMar> | null = null;
+  let suelo: Suelo | null = null;
+  let profundidad: ReturnType<typeof crearMapaProfundidad> | null = null;
   const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
   if (PRUEBAS) {
     // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) pintada en una textura que se
@@ -150,11 +157,10 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     escena.add(suelo);
     obras.cargar(pistaDoc());
   } else {
-    for (const baldosa of crearTerreno(param("teselas", TESELAS))) {
-      escena.add(baldosa);
-      culling.registrarMalla(baldosa, DIST_TERRENO);
-    }
-    mar = crearMar(crearMapaProfundidad());
+    suelo = crearTerreno(param("teselas", TESELAS), culling, DIST_TERRENO);
+    escena.add(...suelo.baldosas);
+    profundidad = crearMapaProfundidad();
+    mar = crearMar(profundidad);
     escena.add(mar.malla);
     obras.cargar(mundoDeSerie());
   }
@@ -360,8 +366,16 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       lugares.devolver(i.places);
     },
     cargarMundo(doc) {
+      if (fijarTerreno(doc.terreno)) {
+        suelo?.actualizar();
+        if (profundidad) rellenarMapaProfundidad(profundidad);
+      }
       obras.cargar(doc);
       fijarZonas(doc.zonas);
+    },
+    retocarTerreno(ix0, iz0, ix1, iz1, conMar) {
+      suelo?.actualizar(ix0, iz0, ix1, iz1);
+      if (conMar && profundidad) rellenarMapaProfundidad(profundidad);
     },
     pausar(si) {
       pausado = si;

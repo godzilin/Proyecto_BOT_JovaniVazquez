@@ -19,7 +19,8 @@ Formato (`FORMAT`), un objeto JSON:
   },
   "objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z], "esc": [x, y, z],
                "tinte"?: float}],
-  "zonas": {"<lugar>": {"x": float, "z": float, "r": float}}
+  "zonas": {"<lugar>": {"x": float, "z": float, "r": float}},
+  "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}
 }
 ```
 
@@ -41,6 +42,12 @@ Formato (`FORMAT`), un objeto JSON:
   de tono de un árbol a otro).
 - `zonas` mueve los lugares de los logros que son un círculo (`EDITABLE_ZONES`). No se
   crean ni se borran: cada clave es un logro (`PLACES` de `bot.services.universo`).
+- `terreno` es la isla esculpida en el editor: una rejilla de `TERRAIN_SIDE` ×
+  `TERRAIN_SIDE` vértices cada `TERRAIN_STEP` m que cubre `TERRAIN_EXTENT` m centrados en
+  0, fila a fila desde -x -z. `alturas` son enteros de 16 bits con signo en centímetros
+  (little-endian) y `colores` un byte por vértice: 0 es el color natural (sale de la
+  altura y la pendiente) y de 1 a `TERRAIN_PAINTS` uno de la paleta de `mundo/terreno.ts`.
+  Sin él, la isla de serie (la fórmula de `heightAt`).
 - Un GLB va aparte, por su resumen (`glb_summary`), y el mundo solo lo nombra.
 
 No guarda nada ni habla con Discord: solo dice si un mundo o un GLB valen.
@@ -48,11 +55,15 @@ No guarda nada ni habla con Discord: solo dice si un mundo o un GLB valen.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import math
 import re
 import struct
+import sys
+from array import array
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,6 +104,12 @@ MAX_ROTATION = 4 * math.pi
 MAX_PIECE_OFFSET = 60.0
 MAX_COLLISION = 40.0
 MAX_ZONE_RADIUS = 60.0
+#: La rejilla del terreno (`mundo/terreno.ts`: `LADO` y `CELDAS`) y los colores de su paleta.
+TERRAIN_EXTENT = 320
+TERRAIN_CELLS = 160
+TERRAIN_SIDE = TERRAIN_CELLS + 1
+TERRAIN_STEP = TERRAIN_EXTENT / TERRAIN_CELLS
+TERRAIN_PAINTS = 13
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -284,6 +301,30 @@ def glb_refs(doc: object) -> set[str]:
     }
 
 
+def _terrain(value: object) -> dict[str, str]:
+    t = _object(value, {"alturas", "colores"}, "El terreno")
+    n = TERRAIN_SIDE * TERRAIN_SIDE
+    raw = {}
+    for key in ("alturas", "colores"):
+        text = t.get(key)
+        try:
+            if not isinstance(text, str):
+                raise ValueError
+            raw[key] = base64.b64decode(text, validate=True)
+        except (ValueError, binascii.Error):
+            raise MundoError(f"El terreno: «{key}» no es base64.") from None
+    if len(raw["alturas"]) != 2 * n or len(raw["colores"]) != n:
+        raise MundoError(f"El terreno tiene que ser una rejilla de {TERRAIN_SIDE} × {TERRAIN_SIDE}.")
+    heights = array("h", raw["alturas"])
+    if sys.byteorder == "big":
+        heights.byteswap()
+    if min(heights) < MIN_Y * 100 or max(heights) > MAX_Y * 100:
+        raise MundoError(f"El terreno va de {MIN_Y:g} a {MAX_Y:g} m de altura.")
+    if max(raw["colores"]) > TERRAIN_PAINTS:
+        raise MundoError("El terreno usa un color que no está en la paleta.")
+    return {"alturas": t["alturas"], "colores": t["colores"]}
+
+
 def validate_world(doc: object, glbs: dict[str, int]) -> dict[str, Any]:
     """Comprueba un mundo y lo devuelve limpio (solo los campos conocidos, en float).
 
@@ -294,7 +335,7 @@ def validate_world(doc: object, glbs: dict[str, int]) -> dict[str, Any]:
     Raises:
         MundoError: Con el primer problema, en un texto para el administrador.
     """
-    d = _object(doc, {"v", "assets", "objetos", "zonas"}, "El mundo")
+    d = _object(doc, {"v", "assets", "objetos", "zonas", "terreno"}, "El mundo")
     if d.get("v") != FORMAT:
         raise MundoError("El editor está desfasado: recarga la página.")
     assets = d.get("assets")
@@ -338,7 +379,15 @@ def validate_world(doc: object, glbs: dict[str, int]) -> dict[str, Any]:
             "z": _number(z.get("z"), -WORLD_HALF, WORLD_HALF, f"La zona «{key}»: z"),
             "r": _number(z.get("r"), 1, MAX_ZONE_RADIUS, f"La zona «{key}»: el radio"),
         }
-    return {"v": FORMAT, "assets": clean_assets, "objetos": clean_objects, "zonas": clean_zones}
+    clean: dict[str, Any] = {
+        "v": FORMAT,
+        "assets": clean_assets,
+        "objetos": clean_objects,
+        "zonas": clean_zones,
+    }
+    if "terreno" in d:
+        clean["terreno"] = _terrain(d["terreno"])
+    return clean
 
 
 def encode_world(doc: dict[str, Any]) -> str:

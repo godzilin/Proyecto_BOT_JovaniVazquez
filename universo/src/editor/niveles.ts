@@ -25,7 +25,9 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import type { Mundo } from "../mundo";
 import { zonasDeSerie } from "../mundo/lugares";
 import { matriz } from "../mundo/obras";
+import { PRUEBAS } from "../mundo/modo";
 import { PLAZA, sueloEn } from "../mundo/terreno";
+import { PincelTerreno } from "./pincel";
 import { cargarGlb, geometriaAsset, type MundoDoc, type Objeto, type Vec3 } from "./formato";
 import { h } from "./dom";
 import type { Anfitrion, Panel } from "./panel";
@@ -86,6 +88,11 @@ export class PanelMundo implements Panel {
   private matVisual: MeshLambertMaterial | null = null;
   private cajaVisual: Box3Helper | null = null;
   private colocando: string | null = null;
+  /** Colocar y mover objetos, o esculpir y pintar el terreno con el pincel. */
+  private herramienta: "objetos" | "terreno" = "objetos";
+  private readonly pincel: PincelTerreno;
+  private readonly cajaObjetos = h("div", { className: "ed-props" });
+  private readonly botonesHerramienta = new Map<"objetos" | "terreno", HTMLButtonElement>();
   private modoGizmo: ModoGizmo = "translate";
   private readonly cajas = new Map<string, Box3 | null>();
   private etiquetasZona = new Map<string, HTMLButtonElement>();
@@ -124,6 +131,7 @@ export class PanelMundo implements Panel {
     this.renderer = this.ctx.renderer;
     this.padre = this.renderer.domElement.parentElement;
 
+    this.pincel = new PincelTerreno(a, mundo, this.ctx.escena, { pedir: () => this.pedir(), rehacerObras: () => this.cargarObras() });
     this.elementos = [this.izquierda(), this.centro(), this.derecha()];
     this.contenedor.append(this.etiquetas);
     this.ancla.rotation.order = "YXZ";
@@ -153,6 +161,12 @@ export class PanelMundo implements Panel {
 
     this.contenedor.addEventListener("pointerdown", this.alBajar);
     this.contenedor.addEventListener("pointerup", this.alSubir);
+    // El pincel mira el ratón antes que los controles de la cámara (fase de captura) y se queda el botón izquierdo.
+    this.contenedor.addEventListener("pointerdown", this.alBajarPincel, true);
+    this.contenedor.addEventListener("pointermove", this.alMoverPincel);
+    this.contenedor.addEventListener("pointerup", this.alSoltarPincel);
+    this.contenedor.addEventListener("pointerleave", this.alSalirPincel);
+    this.contenedor.addEventListener("wheel", this.alRuedaPincel, { capture: true, passive: false });
     this.observador = new ResizeObserver(() => this.ajustar());
     this.observador.observe(this.contenedor);
   }
@@ -167,13 +181,26 @@ export class PanelMundo implements Panel {
 
   private izquierda(): HTMLElement {
     this.filtro.addEventListener("input", () => this.pintarAssets());
-    return h(
-      "aside",
-      { className: "ed-panel ed-izq" },
+    const herramienta = (k: "objetos" | "terreno", texto: string, titulo: string): HTMLButtonElement => {
+      const b = h("button", { className: "ed-b ed-pestana", textContent: texto, title: titulo, onclick: () => this.cambiarHerramienta(k) });
+      this.botonesHerramienta.set(k, b);
+      return b;
+    };
+    const terreno = herramienta("terreno", "Terreno", PRUEBAS ? "El extraplano de pruebas no tiene terreno que esculpir" : "Esculpir y pintar la isla (T)");
+    terreno.disabled = PRUEBAS;
+    this.cajaObjetos.append(
       h("h2", { textContent: "Colocar" }),
       this.filtro,
       h("p", { className: "ed-vacio", textContent: "Elige un asset y haz clic en el terreno; Escape para parar." }),
       this.listaAssets,
+    );
+    this.pincel.panel.hidden = true;
+    return h(
+      "aside",
+      { className: "ed-panel ed-izq" },
+      h("div", { className: "ed-fila" }, herramienta("objetos", "Objetos", "Colocar y mover objetos (T)"), terreno),
+      this.cajaObjetos,
+      this.pincel.panel,
       h("h2", { textContent: "Ir a" }),
       this.irA,
     );
@@ -301,6 +328,8 @@ export class PanelMundo implements Panel {
     ];
     if (this.ultimaCarga !== null) partes.push(`Mundo rehecho en ${Math.round(this.ultimaCarga)} ms`);
     if (this.colocando) partes.push(`Colocando: ${this.doc.assets[this.colocando]?.nombre ?? this.colocando}`);
+    if (this.herramienta === "terreno") partes.push(...this.pincel.estado());
+    for (const [k, b] of this.botonesHerramienta) b.setAttribute("aria-pressed", String(k === this.herramienta));
     const objeto = this.sel?.tipo === "objeto";
     for (const c of ["suelo", "duplicar", "borrar", "editar"]) this.botones.get(c)!.disabled = !objeto;
     this.botones.get("deshacer")!.disabled = this.a.b.hi <= 0;
@@ -326,6 +355,7 @@ export class PanelMundo implements Panel {
   }
 
   desactivar(): void {
+    this.pincel.terminar();
     this.activo = false;
     cancelAnimationFrame(this.pendiente);
     this.pendiente = 0;
@@ -337,6 +367,7 @@ export class PanelMundo implements Panel {
     if (this.colocando && !this.doc.assets[this.colocando]) this.colocando = null;
     this.elegirYa(null);
     this.llenarAssets();
+    this.pincel.refrescar();
     this.pintarAnillos();
     this.cargarObras();
     this.pintarProps();
@@ -351,6 +382,12 @@ export class PanelMundo implements Panel {
     this.observador.disconnect();
     this.contenedor.removeEventListener("pointerdown", this.alBajar);
     this.contenedor.removeEventListener("pointerup", this.alSubir);
+    this.contenedor.removeEventListener("pointerdown", this.alBajarPincel, true);
+    this.contenedor.removeEventListener("pointermove", this.alMoverPincel);
+    this.contenedor.removeEventListener("pointerup", this.alSoltarPincel);
+    this.contenedor.removeEventListener("pointerleave", this.alSalirPincel);
+    this.contenedor.removeEventListener("wheel", this.alRuedaPincel, true);
+    this.pincel.dispose();
     this.transform.detach();
     const escena = this.ctx.escena;
     escena.remove(this.transform.getHelper(), this.anillos, this.ancla);
@@ -797,6 +834,7 @@ export class PanelMundo implements Panel {
   };
 
   private readonly alSubir = (e: PointerEvent): void => {
+    if (this.herramienta === "terreno") return;
     if (e.button !== 0 || e.target !== this.contenedor || this.inicio.distanceTo(new Vector2(e.clientX, e.clientY)) > 4 || this.transform.axis) return;
     const rayo = this.rayo(e).clone();
     if (this.colocando) return this.ponerEn(rayo);
@@ -804,6 +842,56 @@ export class PanelMundo implements Panel {
     if (zona) return this.elegir({ tipo: "zona", clave: zona });
     const i = this.objetoEn(rayo);
     this.elegir(i >= 0 ? { tipo: "objeto", i } : null);
+  };
+
+  // ---------------------------------------------------------------- terreno
+
+  private cambiarHerramienta(k: "objetos" | "terreno"): void {
+    if (k === this.herramienta || (k === "terreno" && PRUEBAS)) return;
+    this.herramienta = k;
+    const terreno = k === "terreno";
+    if (terreno) {
+      this.colocar(null);
+      this.elegir(null);
+    }
+    this.cajaObjetos.hidden = terreno;
+    this.pincel.panel.hidden = !terreno;
+    this.pincel.mostrar(terreno);
+    // Con el pincel, el botón izquierdo pinta y el central gira la cámara.
+    this.controles.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: terreno ? MOUSE.ROTATE : MOUSE.DOLLY, RIGHT: MOUSE.PAN };
+    this.contenedor.style.cursor = terreno ? "crosshair" : "";
+    this.pincel.refrescar();
+    this.a.estado();
+    this.pedir();
+  }
+
+  private readonly alBajarPincel = (e: PointerEvent): void => {
+    if (this.herramienta !== "terreno" || e.button !== 0 || e.target !== this.contenedor) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    this.contenedor.setPointerCapture(e.pointerId);
+    this.pincel.apuntar(this.suelo(this.rayo(e).clone()));
+    this.pincel.empezar(e.shiftKey);
+  };
+
+  private readonly alMoverPincel = (e: PointerEvent): void => {
+    if (this.herramienta === "terreno") this.pincel.apuntar(this.suelo(this.rayo(e).clone()));
+  };
+
+  private readonly alSoltarPincel = (e: PointerEvent): void => {
+    if (this.herramienta !== "terreno" || e.button !== 0) return;
+    this.pincel.terminar();
+    if (this.contenedor.hasPointerCapture(e.pointerId)) this.contenedor.releasePointerCapture(e.pointerId);
+  };
+
+  private readonly alSalirPincel = (): void => {
+    if (this.herramienta === "terreno") this.pincel.apuntar(null);
+  };
+
+  private readonly alRuedaPincel = (e: WheelEvent): void => {
+    if (this.herramienta !== "terreno" || !this.pincel.rueda(e)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   };
 
   // ---------------------------------------------------------------- cámara y teclado
@@ -838,6 +926,11 @@ export class PanelMundo implements Panel {
   }
 
   tecla(_e: KeyboardEvent, k: string, ctrl: boolean): boolean {
+    if (!ctrl && k === "t") {
+      this.cambiarHerramienta(this.herramienta === "terreno" ? "objetos" : "terreno");
+      return true;
+    }
+    if (this.herramienta === "terreno") return !ctrl && this.pincel.tecla(k);
     if (k === "escape") {
       if (this.colocando) this.colocar(null);
       else if (this.sel) this.elegir(null);

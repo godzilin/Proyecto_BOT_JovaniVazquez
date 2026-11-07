@@ -1,7 +1,7 @@
 // Lugares con clave fija (para logros): cada uno es un radio alrededor de un punto o una condición.
 // El jugador los "pisa" una sola vez por sesión de página; los nuevos se acumulan hasta el siguiente informe.
 import { DRAGO } from "./vegetacion";
-import { BAND, CANTERAS, DUNAS, FARO, NIVEL_MAR, NUBLO, PICO, PLAZA, enMuelle, heightAt } from "./terreno";
+import { BAND, CANTERAS, DUNAS, FARO, NIVEL_MAR, NUBLO, PICO, PLAZA, enMuelle, terrenoEn } from "./terreno";
 
 interface Lugar {
   clave: string;
@@ -38,7 +38,7 @@ const radio = (clave: string) => (x: number, _y: number, z: number): boolean => 
 };
 
 const LUGARES: Lugar[] = [
-  { clave: "nieves", dentro: (x, y, z) => Math.hypot(x - PICO.x, z - PICO.z) < 10 && y > heightAt(PICO.x, PICO.z) - 6 },
+  { clave: "nieves", dentro: (x, y, z) => Math.hypot(x - PICO.x, z - PICO.z) < 10 && y > terrenoEn(PICO.x, PICO.z) - 6 },
   { clave: "nublo", dentro: radio("nublo") },
   { clave: "bandama", dentro: (x, y, z) => {
     const d = Math.hypot(x - BAND.x, z - BAND.z);

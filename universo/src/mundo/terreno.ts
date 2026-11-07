@@ -1,15 +1,18 @@
 // El terreno de la isla: altura analítica (heightAt), disposición de los lugares, malla con color por vértice
-// y un suelo interpolado idéntico a la malla para que los pies no floten ni se hundan.
+// y un suelo interpolado idéntico a la malla para que los pies no floten ni se hundan. La rejilla sale de la
+// fórmula o, si el mundo publicado trae un terreno esculpido en el editor, de sus datos (`fijarTerreno`).
 import { BufferAttribute, BufferGeometry, Color, DataTexture, LinearFilter, Mesh, MeshLambertMaterial, RedFormat, UnsignedByteType } from "three";
+import { TERRENO_CELDAS, TERRENO_LADO, TERRENO_PINTURAS, type Terreno } from "../editor/formato";
+import type { Culling } from "./culling";
 import { PRUEBAS } from "./modo";
 import { alturaPista } from "./pista";
 import { clamp, fbm, lerp, ruido, smoothstep } from "./ruido";
 
 export const NIVEL_MAR = 0;
-export const LADO = 320; // metros de malla; el resto es mar profundo
-const CELDAS = 160;
-const PASO = LADO / CELDAS;
-const MITAD = LADO / 2;
+export const LADO = TERRENO_LADO; // metros de malla; el resto es mar profundo
+export const CELDAS = TERRENO_CELDAS;
+export const PASO = LADO / CELDAS;
+export const MITAD = LADO / 2;
 export const SUELO_AGUA = -1.1; // hasta aquí se puede vadear
 
 /** Radio de la costa en la dirección unitaria (ux, uz), con forma irregular sin usar trigonometría. */
@@ -136,14 +139,60 @@ export function enMuelle(x: number, z: number): boolean {
   return a >= 0 && a <= MUELLE.largo && c <= MUELLE.ancho / 2;
 }
 
-// --- Suelo interpolado igual que la malla (diagonal v01-v10 en cada celda) ---
-const N1 = CELDAS + 1;
-const alturas = new Float32Array(N1 * N1);
-for (let iz = 0; iz < N1; iz++) for (let ix = 0; ix < N1; ix++) alturas[iz * N1 + ix] = heightAt(ix * PASO - MITAD, iz * PASO - MITAD);
+// --- La rejilla: alturas y pintura de cada vértice ---
+export const N1 = CELDAS + 1;
+/** Altura de cada vértice (metros), fila a fila desde -x -z. El editor la esculpe en sitio y avisa con `Suelo.actualizar`. */
+export const alturas = new Float32Array(N1 * N1);
+/** Pintura de cada vértice: 0 es el color natural; de 1 en adelante, `PALETA[n - 1]`. */
+export const pinturas = new Uint8Array(N1 * N1);
+export const MIN_ALTURA = -20;
+export const MAX_ALTURA = 120;
+let fijado: Terreno | undefined;
 
-/** Altura del terreno tal y como se dibuja (sin cubierta del muelle). */
-export function terrenoEn(x: number, z: number): number {
-  if (PRUEBAS) return alturaPista(x, z); // el extraplano: suelo a 0 m y los bloques de la pista
+function deSerie(): void {
+  for (let iz = 0; iz < N1; iz++) for (let ix = 0; ix < N1; ix++) alturas[iz * N1 + ix] = heightAt(ix * PASO - MITAD, iz * PASO - MITAD);
+  pinturas.fill(0);
+}
+deSerie();
+
+const aBytes = (b64: string): Uint8Array => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+function aBase64(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/**
+ * Pone la rejilla del mundo publicado (o la de serie sin terreno). Devuelve si ha cambiado algo, para rehacer la malla
+ * y el mapa del mar solo entonces. Un terreno que no cuadra con la rejilla se descarta (el servidor ya lo valida).
+ */
+export function fijarTerreno(t: Terreno | undefined): boolean {
+  if (PRUEBAS || (t?.alturas === fijado?.alturas && t?.colores === fijado?.colores)) return false;
+  fijado = t;
+  const h = t && aBytes(t.alturas);
+  const c = t && aBytes(t.colores);
+  if (!h || !c || h.length !== 2 * N1 * N1 || c.length !== N1 * N1) {
+    deSerie();
+    return true;
+  }
+  const v = new DataView(h.buffer);
+  for (let i = 0; i < N1 * N1; i++) alturas[i] = v.getInt16(i * 2, true) / 100;
+  pinturas.set(c.map((x) => (x > TERRENO_PINTURAS ? 0 : x)));
+  return true;
+}
+
+/** La rejilla tal como está, en el formato del documento (alturas en centímetros). */
+export function terrenoDoc(): Terreno {
+  const h = new Uint8Array(N1 * N1 * 2);
+  const v = new DataView(h.buffer);
+  for (let i = 0; i < N1 * N1; i++) v.setInt16(i * 2, Math.round(clamp(alturas[i], MIN_ALTURA, MAX_ALTURA) * 100), true);
+  const t = { alturas: aBase64(h), colores: aBase64(pinturas) };
+  fijado = t; // es la que hay: al volver con el documento no se rehace nada
+  return t;
+}
+
+/** Altura interpolada en una rejilla de alturas (la de ahora u otra copia, como la de antes de un trazo). */
+export function alturaEn(rejilla: Float32Array, x: number, z: number): number {
   const gx = (x + MITAD) / PASO;
   const gz = (z + MITAD) / PASO;
   if (gx < 0 || gz < 0 || gx >= CELDAS || gz >= CELDAS) return -10;
@@ -151,11 +200,17 @@ export function terrenoEn(x: number, z: number): number {
   const iz = Math.floor(gz);
   const u = gx - ix;
   const v = gz - iz;
-  const h00 = alturas[iz * N1 + ix];
-  const h10 = alturas[iz * N1 + ix + 1];
-  const h01 = alturas[(iz + 1) * N1 + ix];
-  const h11 = alturas[(iz + 1) * N1 + ix + 1];
+  const h00 = rejilla[iz * N1 + ix];
+  const h10 = rejilla[iz * N1 + ix + 1];
+  const h01 = rejilla[(iz + 1) * N1 + ix];
+  const h11 = rejilla[(iz + 1) * N1 + ix + 1];
   return u + v <= 1 ? h00 + (h10 - h00) * u + (h01 - h00) * v : h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
+}
+
+/** Altura del terreno tal y como se dibuja (sin cubierta del muelle). */
+export function terrenoEn(x: number, z: number): number {
+  if (PRUEBAS) return alturaPista(x, z); // el extraplano: suelo a 0 m y los bloques de la pista
+  return alturaEn(alturas, x, z);
 }
 
 /** Suelo sobre el que se camina: terreno o cubierta del muelle, con el fondo del vadeo como mínimo. */
@@ -187,10 +242,29 @@ const ACANT = c(0x57493f);
 const PIEDRA = c(0xd9c9a5);
 const CAMINO = c(0xc9b48a);
 
-function colorEn(x: number, z: number, h: number, pend: number): Color {
+/** Los colores con los que pinta el editor, en el orden de `pinturas` (el 1 es el primero). */
+export const PALETA: { nombre: string; color: Color }[] = [
+  { nombre: "Arena", color: ARENA },
+  { nombre: "Duna", color: ARENA_DUNA },
+  { nombre: "Fondo del mar", color: FONDO },
+  { nombre: "Hierba seca", color: SECO },
+  { nombre: "Hierba", color: VERDE },
+  { nombre: "Pinar", color: PINAR },
+  { nombre: "Tierra", color: TIERRA },
+  { nombre: "Cumbre", color: ALTA },
+  { nombre: "Ceniza", color: CENIZA },
+  { nombre: "Roca", color: ROCA },
+  { nombre: "Acantilado", color: ACANT },
+  { nombre: "Piedra", color: PIEDRA },
+  { nombre: "Camino", color: CAMINO },
+];
+if (PALETA.length !== TERRENO_PINTURAS) throw new Error("La paleta del terreno no cuadra con TERRENO_PINTURAS");
+
+function colorEn(x: number, z: number, h: number, pend: number, pintura: number): Color {
+  const out = new Color();
+  if (pintura) return out.copy(PALETA[pintura - 1].color).multiplyScalar(0.94 + fbm(x * 0.7, z * 0.7, 1) * 0.12);
   const r = Math.hypot(x, z) || 1e-6;
   const dp = Math.hypot(x - PICO.x, z - PICO.z);
-  const out = new Color();
   out.copy(SECO).lerp(VERDE, smoothstep(0.35, 0.65, fbm(x * 0.045 + 3, z * 0.045 - 8, 2)));
   out.lerp(PINAR, smoothstep(80, 55, dp) * smoothstep(8, 14, h) * smoothstep(0.1, 0.3, fbm(x * 0.03, z * 0.03, 2)));
   out.lerp(TIERRA, smoothstep(40, 25, dp) * 0.7);
@@ -211,79 +285,108 @@ function colorEn(x: number, z: number, h: number, pend: number): Color {
   return out.multiplyScalar(0.94 + fbm(x * 0.7, z * 0.7, 1) * 0.12);
 }
 
-/** El terreno en `teselas` × `teselas` baldosas (divisor de 160), para que three descarte las que no se ven. */
-export function crearTerreno(teselas: number): Mesh[] {
-  const pos = new Float32Array(N1 * N1 * 3);
-  const col = new Float32Array(N1 * N1 * 3);
-  for (let iz = 0; iz < N1; iz++) {
-    for (let ix = 0; ix < N1; ix++) {
-      const i = iz * N1 + ix;
-      const x = ix * PASO - MITAD;
-      const z = iz * PASO - MITAD;
-      const h = alturas[i];
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = h;
-      pos[i * 3 + 2] = z;
-      const hx = alturas[iz * N1 + Math.min(ix + 1, CELDAS)] - alturas[iz * N1 + Math.max(ix - 1, 0)];
-      const hz = alturas[Math.min(iz + 1, CELDAS) * N1 + ix] - alturas[Math.max(iz - 1, 0) * N1 + ix];
-      const co = colorEn(x, z, h, Math.hypot(hx, hz) / (2 * PASO));
-      col[i * 3] = co.r;
-      col[i * 3 + 1] = co.g;
-      col[i * 3 + 2] = co.b;
-    }
-  }
-  // Baldosas de CELDAS/teselas casillas por lado, con los vértices copiados de la rejilla entera (altura y color
-  // idénticos, así que las juntas coinciden) y cada una con su esfera para el culling.
+/** La malla del terreno: sus baldosas y cómo ponerla al día cuando cambia la rejilla. */
+export interface Suelo {
+  baldosas: Mesh[];
+  /** Vuelve a leer la rejilla entre esos vértices (incluidos); sin argumentos, entera. */
+  actualizar(ix0?: number, iz0?: number, ix1?: number, iz1?: number): void;
+}
+
+/**
+ * El terreno en `teselas` × `teselas` baldosas (divisor de 160), para que three descarte las que no se ven. Cada baldosa
+ * copia sus vértices de la rejilla entera (las juntas coinciden) y se registra en el culling con su esfera.
+ */
+export function crearTerreno(teselas: number, culling: Culling, distancia: number): Suelo {
   const lado = CELDAS / teselas;
   const n = lado + 1;
   const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  const baldosas: Mesh[] = [];
-  for (let tz = 0; tz < teselas; tz++) {
-    for (let tx = 0; tx < teselas; tx++) {
-      const bp = new Float32Array(n * n * 3);
-      const bc = new Float32Array(n * n * 3);
-      for (let iz = 0; iz < n; iz++) {
-        for (let ix = 0; ix < n; ix++) {
-          const src = ((tz * lado + iz) * N1 + tx * lado + ix) * 3;
-          bp.set(pos.subarray(src, src + 3), (iz * n + ix) * 3);
-          bc.set(col.subarray(src, src + 3), (iz * n + ix) * 3);
-        }
-      }
-      const idx = new Uint16Array(lado * lado * 6);
-      let k = 0;
-      for (let iz = 0; iz < lado; iz++) {
-        for (let ix = 0; ix < lado; ix++) {
-          const v00 = iz * n + ix;
-          const v10 = v00 + 1;
-          const v01 = v00 + n;
-          const v11 = v01 + 1;
-          idx[k++] = v00;
-          idx[k++] = v01;
-          idx[k++] = v10;
-          idx[k++] = v10;
-          idx[k++] = v01;
-          idx[k++] = v11;
-        }
-      }
-      const g = new BufferGeometry();
-      g.setAttribute("position", new BufferAttribute(bp, 3));
-      g.setAttribute("color", new BufferAttribute(bc, 3));
-      g.setIndex(new BufferAttribute(idx, 1));
-      g.computeVertexNormals();
-      g.computeBoundingSphere();
-      const mesh = new Mesh(g, material);
-      mesh.receiveShadow = true;
-      baldosas.push(mesh);
+  const idx = new Uint16Array(lado * lado * 6);
+  let k = 0;
+  for (let iz = 0; iz < lado; iz++) {
+    for (let ix = 0; ix < lado; ix++) {
+      const v00 = iz * n + ix;
+      const v10 = v00 + 1;
+      const v01 = v00 + n;
+      const v11 = v01 + 1;
+      idx.set([v00, v01, v10, v10, v01, v11], k);
+      k += 6;
     }
   }
-  return baldosas;
+  const baldosas: Mesh[] = [];
+  for (let t = 0; t < teselas * teselas; t++) {
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(new Float32Array(n * n * 3), 3));
+    g.setAttribute("color", new BufferAttribute(new Float32Array(n * n * 3), 3));
+    g.setIndex(new BufferAttribute(idx, 1));
+    const mesh = new Mesh(g, material);
+    mesh.receiveShadow = true;
+    baldosas.push(mesh);
+  }
+  // Las baldosas en las que está cada fila (o columna) de vértices: dos en las juntas.
+  const de = (i: number): number[] => {
+    const a = Math.min(Math.floor(i / lado), teselas - 1);
+    const b = Math.max(Math.ceil(i / lado) - 1, 0);
+    return a === b ? [a] : [b, a];
+  };
+
+  const actualizar = (ix0 = 0, iz0 = 0, ix1 = CELDAS, iz1 = CELDAS): void => {
+    ix0 = Math.max(ix0, 0);
+    iz0 = Math.max(iz0, 0);
+    ix1 = Math.min(ix1, CELDAS);
+    iz1 = Math.min(iz1, CELDAS);
+    const tocadas = new Set<number>();
+    for (let iz = iz0; iz <= iz1; iz++) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const i = iz * N1 + ix;
+        const x = ix * PASO - MITAD;
+        const z = iz * PASO - MITAD;
+        const h = alturas[i];
+        const hx = alturas[iz * N1 + Math.min(ix + 1, CELDAS)] - alturas[iz * N1 + Math.max(ix - 1, 0)];
+        const hz = alturas[Math.min(iz + 1, CELDAS) * N1 + ix] - alturas[Math.max(iz - 1, 0) * N1 + ix];
+        const co = colorEn(x, z, h, Math.hypot(hx, hz) / (2 * PASO), pinturas[i]);
+        for (const tz of de(iz)) {
+          for (const tx of de(ix)) {
+            const b = tz * teselas + tx;
+            const j = ((iz - tz * lado) * n + ix - tx * lado) * 3;
+            const g = baldosas[b].geometry;
+            (g.attributes.position.array as Float32Array).set([x, h, z], j);
+            (g.attributes.color.array as Float32Array).set([co.r, co.g, co.b], j);
+            tocadas.add(b);
+          }
+        }
+      }
+    }
+    for (const b of tocadas) {
+      const m = baldosas[b];
+      const g = m.geometry;
+      g.attributes.position.needsUpdate = true;
+      g.attributes.color.needsUpdate = true;
+      g.computeVertexNormals();
+      g.computeBoundingSphere();
+      // La esfera puede crecer al esculpir: el culling la vuelve a leer.
+      culling.quitar(m);
+      culling.registrarMalla(m, distancia);
+    }
+  };
+  actualizar();
+  return { baldosas, actualizar };
 }
 
 /** Textura de profundidad (8 bits: -6 a +6 m) para que el mar sepa dónde es poco profundo y hacer espuma. */
 export const MAPA_LADO = 400;
 export function crearMapaProfundidad(): DataTexture {
   const n = 256;
-  const datos = new Uint8Array(n * n);
+  const t = new DataTexture(new Uint8Array(n * n), n, n, RedFormat, UnsignedByteType);
+  t.magFilter = LinearFilter;
+  t.minFilter = LinearFilter;
+  rellenarMapaProfundidad(t);
+  return t;
+}
+
+/** Vuelve a sacar el mapa de profundidad de la rejilla (tras cambiar el terreno). */
+export function rellenarMapaProfundidad(t: DataTexture): void {
+  const n = t.image.width;
+  const datos = t.image.data as Uint8Array;
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const x = ((i + 0.5) / n) * MAPA_LADO - MAPA_LADO / 2;
@@ -292,9 +395,5 @@ export function crearMapaProfundidad(): DataTexture {
       datos[j * n + i] = Math.round(clamp((h + 6) / 12, 0, 1) * 255);
     }
   }
-  const t = new DataTexture(datos, n, n, RedFormat, UnsignedByteType);
-  t.magFilter = LinearFilter;
-  t.minFilter = LinearFilter;
   t.needsUpdate = true;
-  return t;
 }
