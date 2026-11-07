@@ -8,7 +8,7 @@ criterio.
 
 ## 10.x
 
-### 10.8.0 · 2026-11-07
+### 10.9.0 · 2026-11-07
 
 - Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo
 - Jovaniverso: cualquier asset del editor puede ser una tragaperras jugable o un letrero (también un modelo `.glb`)
@@ -17,6 +17,14 @@ criterio.
 - Jovaniverso: el toldo del casino se ve (estaba bajo el suelo de la plaza)
 - Logros: jugar en 12 y en 24 tragaperras distintas, y a 6 y a 12 a la vez
 - Interno: los mundos guardados o publicados antes reciben el casino de la plaza una sola vez al arrancar
+
+### 10.8.1 · 2026-11-07
+
+- Interno: las pruebas del ▶️ Auto de la tragaperras ya no fallan de vez en cuando (el bote misterioso caía al azar en la primera tirada y paraba la sesión)
+
+### 10.8.0 · 2026-11-07
+
+- Jovaniverso: el optimizador de modelos del editor ya no deja los modelos con texturas de un color liso: los colores de la textura pasan a los vértices y el modelo conserva sus zonas de color (no los detalles finos, como letras o logos). Lo que brillaba deja de brillar
 
 ### 10.7.0 · 2026-11-07
 

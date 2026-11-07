@@ -801,7 +801,7 @@ export class PanelAssets implements Panel {
         h("p", {
           textContent: `El modelo tiene ${info.triangulos.toLocaleString("es-ES")} triángulos y pesa ${mb(glb.byteLength)} MB; el máximo es ${MAX_TRIANGULOS_GLB.toLocaleString("es-ES")} triángulos y 1 MB. Elige a cuántos triángulos reducirlo. Se conservan la forma y los colores por vértice, y las normales se recalculan.`,
         }),
-        ...(info.texturas ? [h("p", { textContent: "⚠ Tiene texturas: se quitan y el modelo se verá con el color liso de cada material." })] : []),
+        ...(info.texturas ? [h("p", { textContent: "⚠ Tiene texturas: sus colores pasan a los vértices del modelo y se pierde el detalle fino (letras, dibujos pequeños)." })] : []),
         ...(info.animado ? [h("p", { textContent: "⚠ Tiene huesos o animaciones: se queda quieto en su postura de reposo." })] : []),
         h("label", { className: "ed-vec" }, h("span", { textContent: "Triángulos" }), rango, num),
         aviso,
