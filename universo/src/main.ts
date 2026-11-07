@@ -3,6 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Tragas } from "./casino/dibujo";
+import type { MundoDoc } from "./editor/formato";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { iniciarPaseo } from "./paseo";
@@ -108,6 +109,14 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
+/** Pide el mundo publicado de este servidor y lo dibuja encima del de serie; si falla, el de serie sigue como estaba. */
+function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
+  if (!sesion.guildId) return Promise.resolve();
+  return api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
+    .then((r) => mundo.cargarMundo(r.doc))
+    .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
+}
+
 /** Botón del HUD que abre el editor de assets (carga perezosa: no entra en el paquete inicial). */
 function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string }): void {
   const b = document.createElement("button");
@@ -116,7 +125,7 @@ function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string })
   b.addEventListener("click", () => {
     b.disabled = true;
     import("./editor/assets")
-      .then((m) => m.abrirEditor(sesion, mundo))
+      .then((m) => m.abrirEditor(sesion, { pausar: (si) => mundo.pausar(si), recargar: () => void cargarObras(mundo, sesion) }))
       .catch((e: unknown) => aviso(e instanceof Error ? e.message : "No se ha podido abrir el editor."))
       .finally(() => (b.disabled = false));
   });
@@ -159,7 +168,8 @@ async function start(): Promise<void> {
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       iniciarPaseo(mundo, sesion);
-      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso);
+      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => void cargarObras(mundo, sesion));
+      if ((entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
       if (entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
         botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
@@ -176,6 +186,7 @@ async function start(): Promise<void> {
       if (import.meta.env.DEV && new URLSearchParams(location.search).has("editor")) {
         const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion");
         botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
+        void cargarObras(mundo, { session: dev.session, guildId: dev.guild_id });
       }
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {

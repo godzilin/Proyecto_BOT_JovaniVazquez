@@ -25,7 +25,7 @@ import {
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "../mundo/luz";
-import { type Forma, geometriaForma, type Pieza, type Vec3 } from "./formato";
+import { type Circulo, geometriaForma, geometriaMalla, type Malla, type Pieza, type Vec3 } from "./formato";
 
 export type Modo = "translate" | "rotate" | "scale";
 
@@ -43,8 +43,11 @@ export class Vista {
   private readonly orbita: OrbitControls;
   private readonly transform: TransformControls;
   private readonly grupo = new Group();
-  private readonly anillo: LineLoop;
-  private readonly geometrias = new Map<Forma, BufferGeometry>();
+  private readonly anillos = new Group();
+  private readonly circulo: BufferGeometry;
+  private readonly lineaCirculo = new LineBasicMaterial({ color: 0xffd86b });
+  private readonly geometrias = new Map<string, BufferGeometry>();
+  private malla: { datos: Malla; mesh: Mesh } | null = null;
   private meshes: Mesh[] = [];
   private modelo: Object3D | null = null;
   private pendiente = 0;
@@ -63,9 +66,8 @@ export class Vista {
     this.escena.add(new GridHelper(20, 20, 0x8890a0, 0x58606e));
 
     const puntos = Array.from({ length: 64 }, (_, i) => new Vector3(Math.cos((i / 64) * 2 * Math.PI), 0.01, Math.sin((i / 64) * 2 * Math.PI)));
-    this.anillo = new LineLoop(new BufferGeometry().setFromPoints(puntos), new LineBasicMaterial({ color: 0xffd86b }));
-    this.anillo.visible = false;
-    this.escena.add(this.anillo);
+    this.circulo = new BufferGeometry().setFromPoints(puntos);
+    this.escena.add(this.anillos);
 
     this.camara.position.set(3, 2.5, 4);
     this.orbita = new OrbitControls(this.camara, r.domElement);
@@ -107,15 +109,32 @@ export class Vista {
     this.pedir();
   }
 
-  private geometria(f: Forma): BufferGeometry {
-    let g = this.geometrias.get(f);
-    if (!g) this.geometrias.set(f, (g = geometriaForma(f)));
+  private geometria(p: Pieza): BufferGeometry {
+    const k = p.forma === "prisma" ? `prisma:${p.lados}:${p.arriba}:${p.abajo}:${p.fase}` : p.forma;
+    let g = this.geometrias.get(k);
+    if (!g) this.geometrias.set(k, (g = geometriaForma(p)));
     return g;
   }
 
+  /** La malla hecha de un asset: con sus colores por vértice y sin entrar en `meshes`, así que el ratón no la elige. */
+  private ponerMalla(datos: Malla | undefined): void {
+    if (this.malla && this.malla.datos !== datos) {
+      this.grupo.remove(this.malla.mesh);
+      this.malla.mesh.geometry.dispose();
+      (this.malla.mesh.material as MeshLambertMaterial).dispose();
+      this.malla = null;
+    }
+    if (datos && !this.malla) {
+      const mesh = new Mesh(geometriaMalla(datos), new MeshLambertMaterial({ flatShading: true, vertexColors: true }));
+      this.grupo.add(mesh);
+      this.malla = { datos, mesh };
+    }
+  }
+
   /** Pone las piezas en la escena: si hay las mismas que antes se actualizan, si no se rehacen. */
-  mostrarPiezas(piezas: Pieza[], elegida: number): void {
+  mostrarPiezas(piezas: Pieza[], elegida: number, malla?: Malla): void {
     this.quitarModelo();
+    this.ponerMalla(malla);
     if (this.meshes.length !== piezas.length) {
       this.transform.detach();
       this.vaciar();
@@ -124,7 +143,7 @@ export class Vista {
     }
     piezas.forEach((p, i) => {
       const m = this.meshes[i];
-      m.geometry = this.geometria(p.forma);
+      m.geometry = this.geometria(p);
       (m.material as MeshLambertMaterial).color.setHex(p.color);
       m.position.set(...p.pos);
       m.rotation.set(p.rot[0], p.rot[1], p.rot[2], "YXZ");
@@ -136,6 +155,7 @@ export class Vista {
   mostrarModelo(modelo: Object3D): void {
     this.transform.detach();
     this.vaciar();
+    this.ponerMalla(undefined);
     this.quitarModelo();
     this.modelo = modelo.clone(true);
     this.grupo.add(this.modelo);
@@ -146,6 +166,7 @@ export class Vista {
   limpiar(): void {
     this.transform.detach();
     this.vaciar();
+    this.ponerMalla(undefined);
     this.quitarModelo();
     this.pedir();
   }
@@ -184,16 +205,23 @@ export class Vista {
     return { pos: m.position.toArray(), rot: [m.rotation.x, m.rotation.y, m.rotation.z], esc: m.scale.toArray() };
   }
 
-  colision(radio: number | null): void {
-    this.anillo.visible = radio !== null;
-    if (radio !== null) this.anillo.scale.set(radio, 1, radio);
+  /** Un anillo en y=0 por cada círculo de colisión. */
+  colision(circulos: Circulo[] | null): void {
+    this.anillos.clear();
+    for (const [x, z, r] of circulos ?? []) {
+      const a = new LineLoop(this.circulo, this.lineaCirculo);
+      a.position.set(x, 0, z);
+      a.scale.set(r, 1, r);
+      this.anillos.add(a);
+    }
     this.pedir();
   }
 
-  /** Radio que cubre el asset en x y z, centrado en el origen. */
-  radioEnvolvente(): number {
+  /** Círculo [x, z, radio] que cubre el asset en x y z, sacado de su caja envolvente. */
+  cajaEnvolvente(): Circulo | null {
     const c = new Box3().setFromObject(this.grupo);
-    return c.isEmpty() ? 0 : Math.max(Math.abs(c.min.x), Math.abs(c.max.x), Math.abs(c.min.z), Math.abs(c.max.z));
+    if (c.isEmpty()) return null;
+    return [(c.min.x + c.max.x) / 2, (c.min.z + c.max.z) / 2, Math.max(c.max.x - c.min.x, c.max.z - c.min.z) / 2];
   }
 
   /** Encuadra la pieza elegida o, si no hay, todo el asset. */
@@ -231,7 +259,10 @@ export class Vista {
     this.transform.dispose();
     this.orbita.dispose();
     this.vaciar();
+    this.ponerMalla(undefined);
     this.quitarModelo();
+    this.circulo.dispose();
+    this.lineaCirculo.dispose();
     this.geometrias.forEach((g) => g.dispose());
     this.escena.traverse((o) => {
       const x = o as Mesh | Line;

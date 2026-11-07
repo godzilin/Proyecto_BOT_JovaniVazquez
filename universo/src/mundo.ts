@@ -19,14 +19,17 @@ import { crearCielo } from "./mundo/cielo";
 import { Culling, mallasPorCeldas } from "./mundo/culling";
 import { crearCanteras, crearFaro, crearMogan, crearMuelle, crearRoques } from "./mundo/hitos";
 import { Jugador } from "./mundo/jugador";
-import { Lugares } from "./mundo/lugares";
+import { Lugares, fijarZonas } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
 import { crearPueblo } from "./mundo/pueblo";
 import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, heightAt, sueloEn } from "./mundo/terreno";
+import { CELDA_OBRA, CELDA_VEGETACION, DIST_OBRA } from "./mundo/medidas";
+import { Obras } from "./mundo/obras";
 import { crearVegetacion } from "./mundo/vegetacion";
+import type { MundoDoc } from "./editor/formato";
 
 export interface Informe {
   meters: number;
@@ -57,16 +60,15 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
+  /** Dibuja el mundo publicado desde el editor encima del de serie, sustituyendo el que hubiera. */
+  cargarMundo(doc: MundoDoc): void;
   /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
   pausar(si: boolean): void;
   detener(): void;
 }
 
-// Tamaños medidos con docs/medir_universo.py; con ?debug=1&celda=..&vegetacion=..&teselas=.. se prueban otros.
-const CELDA_OBRA = 128; // lado en metros de las celdas de construcciones (la isla mide ~240 m: 4 celdas con algo)
-const CELDA_VEGETACION = 96; // más pequeñas encogen la pasada de sombras pero disparan las llamadas (64 m: 125 en la plaza)
+// Tamaños medidos con docs/medir_universo.py (los de obras, en mundo/medidas.ts); con ?debug=1&celda=..&vegetacion=..&teselas=.. se prueban otros.
 const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
-const DIST_OBRA = 330; // dentro de la niebla (a 330 m tapa ~75 %)
 const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
 
@@ -121,10 +123,12 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     culling.registrarMalla(v.malla, v.distancia);
   }
   const piezas = [...crearPueblo(), ...crearFaro(), ...crearMuelle(), ...crearRoques(), ...crearCanteras(), ...crearMogan()];
-  for (const c of mallasPorCeldas(piezas, param("celda", CELDA_OBRA), new MeshLambertMaterial({ vertexColors: true, flatShading: true }))) {
+  const materialObra = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  for (const c of mallasPorCeldas(piezas, param("celda", CELDA_OBRA), materialObra)) {
     escena.add(c);
     culling.registrarMalla(c, DIST_OBRA);
   }
+  const obras = new Obras(escena, culling, materialObra);
   escena.add(jugador.objeto);
   camara.proteger(jugador.objeto);
   camara.enlazarSombra(sol.shadow);
@@ -305,10 +309,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       saltosPend += i.jumps;
       lugares.devolver(i.places);
     },
+    cargarMundo(doc) {
+      obras.cargar(doc);
+      fijarZonas(doc.zonas);
+    },
     pausar(si) {
       pausado = si;
     },
     detener() {
+      obras.vaciar();
       renderer.setAnimationLoop(null);
       controles.destruir();
       window.removeEventListener("resize", ajustar);

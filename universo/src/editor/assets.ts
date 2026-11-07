@@ -11,13 +11,19 @@ import {
   type Forma,
   ID,
   MAX_ASSETS,
+  MAX_CIRCULOS,
+  MAX_DISTANCIA,
+  MAX_LADOS,
   MAX_NOMBRE,
   MAX_PIEZAS,
   MAX_TRIANGULOS_GLB,
+  MIN_DISTANCIA,
+  MIN_LADOS,
   type MundoDoc,
   type Pieza,
-  TRIANGULOS,
+  triangulosMalla,
   triangulosModelo,
+  triangulosPieza,
   type Vec3,
 } from "./formato";
 import { type Modo, Vista } from "./vista";
@@ -26,11 +32,18 @@ const GRADOS = Math.PI / 180;
 const AUTOGUARDADO_MS = 20_000;
 const MAX_HISTORIAL = 100;
 const MAX_COLISION = 40;
+const MAX_DESPLAZAMIENTO = 60;
 const MODOS: [Modo, string, string][] = [
   ["translate", "Mover (W)", "w"],
   ["rotate", "Girar (E)", "e"],
   ["scale", "Escalar (R)", "r"],
 ];
+
+/** Lo que el editor necesita del mundo: pausarlo mientras está abierto y, si lo hay, recargarlo al publicar. */
+export interface Mundo {
+  pausar(si: boolean): void;
+  recargar?(): void;
+}
 
 let abierto = false;
 
@@ -38,7 +51,7 @@ let abierto = false;
  * Abre el editor a pantalla completa. Se resuelve cuando el borrador está cargado; el editor sigue
  * abierto hasta que el administrador lo cierra. Si no se puede cargar, lanza el error del servidor.
  */
-export async function abrirEditor(sesion: Sesion, mundo: { pausar(si: boolean): void } | null): Promise<void> {
+export async function abrirEditor(sesion: Sesion, mundo: Mundo | null): Promise<void> {
   if (abierto) return;
   abierto = true;
   try {
@@ -105,15 +118,17 @@ class Editor {
   private readonly campos: { campo: "pos" | "rot" | "esc"; i: number; input: HTMLInputElement }[] = [];
   private readonly forma = h("select");
   private readonly color = h("input", { type: "color" });
-  private readonly colisionOn = h("input", { type: "checkbox" });
-  private readonly colisionR = h("input", { type: "number", min: "0", max: String(MAX_COLISION), step: "0.05" });
+  private readonly listaColision = h("div", { className: "ed-lista" });
+  private readonly distancia = h("input", { type: "number", min: String(MIN_DISTANCIA), max: String(MAX_DISTANCIA), step: "10", placeholder: "de serie" });
   private readonly propsCaja = h("div", { className: "ed-props" });
+  private readonly propsPrisma = h("div", { className: "ed-props" });
+  private readonly camposPrisma: { campo: "lados" | "arriba" | "abajo" | "fase"; input: HTMLInputElement }[] = [];
   private readonly archivo = h("input", { type: "file", accept: ".glb", hidden: true });
   private mensaje = "";
 
   constructor(
     private readonly sesion: Sesion,
-    private readonly mundo: { pausar(si: boolean): void } | null,
+    private readonly mundo: Mundo | null,
     b: { doc: MundoDoc; rev: number; version: number },
   ) {
     this.doc = b.doc;
@@ -219,7 +234,13 @@ class Editor {
 
   private derecha(): HTMLElement {
     for (const f of FORMAS) this.forma.append(h("option", { value: f, textContent: f }));
-    this.forma.onchange = () => this.editar((p) => (p.forma = this.forma.value as Forma));
+    this.forma.onchange = () =>
+      this.editar((p) => {
+        p.forma = this.forma.value as Forma;
+        // Cada pieza guarda solo los campos de su forma: el servidor rechaza los de un prisma en otra.
+        if (p.forma === "prisma") Object.assign(p, { lados: p.lados ?? 6, arriba: p.arriba ?? 1, abajo: p.abajo ?? 1, fase: p.fase ?? 0 });
+        else for (const k of ["lados", "arriba", "abajo", "fase"] as const) delete p[k];
+      });
     this.color.oninput = () => this.editar((p) => (p.color = parseInt(this.color.value.slice(1), 16)), false);
     this.color.onchange = () => this.commit();
 
@@ -240,30 +261,40 @@ class Editor {
       h("label", { className: "ed-vec" }, h("span", { textContent: "Color" }), this.color),
     );
 
-    this.colisionOn.onchange = () => {
+    const prisma: [string, "lados" | "arriba" | "abajo" | "fase", string][] = [
+      ["Lados", "lados", "1"],
+      ["Tapa de arriba", "arriba", "0.05"],
+      ["Tapa de abajo", "abajo", "0.05"],
+      ["Fase (°)", "fase", "5"],
+    ];
+    for (const [titulo, campo, paso] of prisma) {
+      const input = h("input", { type: "number", step: paso });
+      input.onchange = () => this.editarPrisma(campo, input);
+      this.camposPrisma.push({ campo, input });
+      this.propsPrisma.append(h("label", { className: "ed-vec" }, h("span", { textContent: titulo }), input));
+    }
+    this.propsCaja.append(this.propsPrisma);
+
+    this.distancia.onchange = () => {
       const a = this.asset;
       if (!a) return;
-      a.colision = this.colisionOn.checked ? Math.max(this.redondearRadio(this.vista.radioEnvolvente()), 0.1) : null;
-      this.commit();
-    };
-    this.colisionR.onchange = () => {
-      const a = this.asset;
-      const v = parseFloat(this.colisionR.value);
-      if (!a || a.colision === null || Number.isNaN(v)) return this.refrescar();
-      a.colision = Math.min(Math.max(v, 0), MAX_COLISION);
+      const v = parseFloat(this.distancia.value);
+      if (Number.isNaN(v)) delete a.distancia;
+      else a.distancia = Math.min(Math.max(v, MIN_DISTANCIA), MAX_DISTANCIA);
       this.commit();
     };
     const colision = h(
       "div",
       { className: "ed-colision" },
       h("h2", { textContent: "Colisión" }),
+      this.listaColision,
       h(
         "div",
         { className: "ed-fila" },
-        h("label", { className: "ed-etiqueta" }, this.colisionOn, " Sólido"),
-        this.colisionR,
-        this.boton("ajustar", "Ajustar", () => this.ajustarColision(), "El radio sale de la caja envolvente en x y z"),
+        this.boton("circulo", "Añadir círculo", () => this.anadirCirculo()),
+        this.boton("ajustar", "Ajustar", () => this.ajustarColision(), "Deja un solo círculo, sacado de la caja envolvente en x y z"),
       ),
+      h("label", { className: "ed-vec", title: "Metros hasta donde se dibuja; vacío, la de las construcciones" }, h("span", { textContent: "Distancia (m)" }), this.distancia),
     );
     return h("aside", { className: "ed-panel ed-der" }, h("h2", { textContent: "Piezas" }), this.listaPiezas, this.propsCaja, colision);
   }
@@ -284,11 +315,24 @@ class Editor {
   }
 
   private triangulos(a: Asset): number | null {
-    return a.tipo === "piezas" ? a.piezas.reduce((n, p) => n + TRIANGULOS[p.forma], 0) : (this.triangulosGlb.get(a.glb) ?? null);
+    if (a.tipo === "glb") return this.triangulosGlb.get(a.glb) ?? null;
+    return a.piezas.reduce((n, p) => n + triangulosPieza(p), a.malla ? triangulosMalla(a.malla) : 0);
   }
 
-  private redondearRadio(r: number): number {
-    return Math.min(Math.round(r * 100) / 100, MAX_COLISION);
+  private editarPrisma(campo: "lados" | "arriba" | "abajo" | "fase", input: HTMLInputElement): void {
+    const v = parseFloat(input.value);
+    const p = this.pieza;
+    if (!p || p.forma !== "prisma" || Number.isNaN(v)) return this.refrescar();
+    if (campo === "lados") p.lados = Math.min(Math.max(Math.round(v), MIN_LADOS), MAX_LADOS);
+    else if (campo === "fase") p.fase = Math.min(Math.max(v, -720), 720) * GRADOS;
+    else p[campo] = Math.min(Math.max(v, 0), 1);
+    // El servidor pide alguna tapa con radio.
+    if (!p.arriba && !p.abajo) p[campo === "abajo" ? "abajo" : "arriba"] = 0.05;
+    this.commit();
+  }
+
+  private redondear2(r: number, max: number): number {
+    return Math.min(Math.max(Math.round(r * 100) / 100, -max), max);
   }
 
   /** Cierra un cambio: entra en el historial, marca el borrador como sucio y lo vuelve a dibujar. */
@@ -347,7 +391,7 @@ class Editor {
       this.vista.colision(null);
     } else if (a.tipo === "piezas") {
       this.glbMostrado = null;
-      this.vista.mostrarPiezas(a.piezas, this.piezaSel);
+      this.vista.mostrarPiezas(a.piezas, this.piezaSel, a.malla);
       this.vista.colision(a.colision);
     } else {
       if (this.glbMostrado !== a.glb) this.cargarModelo(a.glb);
@@ -405,7 +449,8 @@ class Editor {
     });
     const a = this.asset;
     const vacio = !a ? "Elige un asset." : a.tipo === "glb" ? "Un modelo GLB no se edita por piezas." : "Sin piezas.";
-    this.listaPiezas.replaceChildren(...(items.length ? items : [h("p", { className: "ed-vacio", textContent: vacio })]));
+    const malla = a?.tipo === "piezas" && a.malla ? [h("p", { className: "ed-vacio", textContent: `Malla hecha: ${triangulosMalla(a.malla)} triángulos (no se edita pieza a pieza)` })] : [];
+    this.listaPiezas.replaceChildren(...(items.length ? items : malla.length ? [] : [h("p", { className: "ed-vacio", textContent: vacio })]), ...malla);
   }
 
   private pintarProps(): void {
@@ -416,13 +461,42 @@ class Editor {
         if (document.activeElement !== input) input.value = numero(p[campo][i] / (campo === "rot" ? GRADOS : 1));
       }
       this.forma.value = p.forma;
+      this.propsPrisma.hidden = p.forma !== "prisma";
+      for (const { campo, input } of this.camposPrisma) {
+        if (document.activeElement !== input) input.value = numero(p.forma !== "prisma" ? 0 : (p[campo] ?? 0) / (campo === "fase" ? GRADOS : 1));
+      }
       this.color.value = `#${p.color.toString(16).padStart(6, "0")}`;
     }
+    this.pintarColision();
+  }
+
+  private pintarColision(): void {
     const a = this.asset;
-    this.colisionOn.disabled = this.colisionR.disabled = !a;
-    this.colisionOn.checked = a?.colision != null;
-    this.colisionR.disabled = a?.colision == null;
-    if (document.activeElement !== this.colisionR) this.colisionR.value = a?.colision != null ? numero(a.colision) : "";
+    const circulos = a?.colision ?? [];
+    this.listaColision.replaceChildren(
+      ...(circulos.length ? [] : [h("p", { className: "ed-vacio", textContent: "Sin colisión: se atraviesa." })]),
+      ...circulos.map((c, i) => {
+        const campo = (j: number, titulo: string, min: number, max: number): HTMLInputElement => {
+          const input = h("input", { type: "number", step: "0.05", min: String(min), max: String(max), title: titulo, value: numero(c[j]) });
+          input.onchange = () => {
+            const v = parseFloat(input.value);
+            if (Number.isNaN(v)) return this.pintarColision();
+            c[j] = Math.min(Math.max(Math.round(v * 100) / 100, min), max);
+            this.commit();
+          };
+          return input;
+        };
+        return h(
+          "div",
+          { className: "ed-fila" },
+          campo(0, "x", -MAX_DESPLAZAMIENTO, MAX_DESPLAZAMIENTO),
+          campo(1, "z", -MAX_DESPLAZAMIENTO, MAX_DESPLAZAMIENTO),
+          campo(2, "radio", 0, MAX_COLISION),
+          h("button", { className: "ed-b", textContent: "×", title: "Quitar círculo", onclick: () => this.quitarCirculo(i) }),
+        );
+      }),
+    );
+    if (document.activeElement !== this.distancia) this.distancia.value = a?.distancia !== undefined ? numero(a.distancia) : "";
   }
 
   private pintarEstado(): void {
@@ -452,6 +526,8 @@ class Editor {
     puedo("deshacer", this.hi > 0);
     puedo("rehacer", this.hi < this.hist.length - 1);
     for (const c of ["duplicar", "renombrar", "borrar", "ajustar"]) puedo(c, !!a);
+    puedo("circulo", !!a && (a.colision?.length ?? 0) < MAX_CIRCULOS);
+    this.distancia.disabled = !a;
     puedo("guardar", !this.guardando);
     for (const [m, b] of this.botonesModo) b.setAttribute("aria-pressed", String(m === this.modo));
   }
@@ -491,7 +567,8 @@ class Editor {
     const piezas = this.piezas;
     if (!piezas) return;
     if (piezas.length >= MAX_PIEZAS) return this.avisar(`Un asset puede tener ${MAX_PIEZAS} piezas como mucho.`);
-    piezas.push({ forma, pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0xc8c8d0 });
+    const prisma = forma === "prisma" ? { lados: 6, arriba: 1, abajo: 1, fase: 0 } : {};
+    piezas.push({ forma, pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0xc8c8d0, ...prisma });
     this.piezaSel = piezas.length - 1;
     this.commit();
   }
@@ -526,10 +603,27 @@ class Editor {
     this.commit();
   }
 
-  private ajustarColision(): void {
+  private anadirCirculo(): void {
     const a = this.asset;
     if (!a) return;
-    a.colision = this.redondearRadio(this.vista.radioEnvolvente());
+    (a.colision ??= []).push([0, 0, 0.5]);
+    this.commit();
+  }
+
+  private quitarCirculo(i: number): void {
+    const a = this.asset;
+    if (!a?.colision) return;
+    a.colision.splice(i, 1);
+    if (!a.colision.length) a.colision = null;
+    this.commit();
+  }
+
+  /** Deja un solo círculo, sacado de la caja envolvente en x y z. */
+  private ajustarColision(): void {
+    const a = this.asset;
+    const c = this.vista.cajaEnvolvente();
+    if (!a || !c) return;
+    a.colision = [[this.redondear2(c[0], MAX_DESPLAZAMIENTO), this.redondear2(c[1], MAX_DESPLAZAMIENTO), Math.min(Math.max(this.redondear2(c[2], MAX_COLISION), 0), MAX_COLISION)]];
     this.commit();
   }
 
@@ -685,6 +779,7 @@ class Editor {
     try {
       this.version = (await api.publicar(this.sesion, this.rev)).version;
       this.avisar(`Mundo publicado: versión ${this.version}.`, undefined, false);
+      this.mundo?.recargar?.();
     } catch (e) {
       this.fallo(e);
     }
