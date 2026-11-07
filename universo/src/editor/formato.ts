@@ -39,11 +39,17 @@ export interface Malla {
 }
 /** Círculo de colisión [x, z, radio] en las coordenadas del asset. */
 export type Circulo = [number, number, number];
+/**
+ * Lo que hace un asset además de verse. `traga`: una tragaperras jugable, con la pantalla y la botonera en su sitio del marco de
+ * la máquina (`casino/sitio.ts`). `letrero`: un letrero con su panel (centro en `pos`, `ancho` × `alto` m, mirando a +z).
+ */
+export type Funcion = { tipo: "traga" } | { tipo: "letrero"; pos: Vec3; ancho: number; alto: number };
 interface AssetComun {
   nombre: string;
   colision: Circulo[] | null;
   /** Metros hasta donde se dibuja; sin ella, la de las construcciones. */
   distancia?: number;
+  funcion?: Funcion;
 }
 export type Asset = (AssetComun & { tipo: "piezas"; piezas: Pieza[]; malla?: Malla }) | (AssetComun & { tipo: "glb"; glb: string });
 export interface Objeto {
@@ -53,6 +59,15 @@ export interface Objeto {
   esc: Vec3;
   /** Multiplica los colores del objeto. */
   tinte?: number;
+  /** Lo propio de un objeto con función: `n` en una tragaperras; `titulo` y `botes` en un letrero. */
+  datos?: Datos;
+}
+export interface Datos {
+  /** Número de la tragaperras, de 1 a `MAX_TRAGAS`: el servidor guarda con él su calor, su barra y sus logros. */
+  n?: number;
+  titulo?: string;
+  /** Claves de los botes que enseña el letrero (`bot/services/universo_botes.py`), que rotan si hay varios. */
+  botes?: string[];
 }
 export interface Zona {
   x: number;
@@ -97,6 +112,10 @@ export const MAX_LADOS = 32;
 export const MAX_TRIANGULOS_MALLA = 2000;
 export const MAX_CIRCULOS = 16;
 export const MAX_TELEPORTES = 24;
+export const MAX_TRAGAS = 24;
+export const MAX_BOTES_LETRERO = 8;
+export const MAX_TITULO = 40;
+export const MAX_LADO_LETRERO = 40;
 export const MIN_TINTE = 0.3;
 export const MAX_TINTE = 2.0;
 export const MIN_DISTANCIA = 20.0;

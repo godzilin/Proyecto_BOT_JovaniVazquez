@@ -14,10 +14,11 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 "zonas"        {"zonas": {"<lugar>": {"x": float, "z": float, "r": float}}}
 "teleportes"   {"teleportes": [{"nombre": str, "x": float, "z": float}, ...]}
 "a/<id>"       {"nombre": str, "tipo": "piezas", "piezas": [Pieza, ...], "malla"?: Malla,
-                "colision": [[x, z, r], ...] | null, "distancia"?: float}
-               {"nombre": str, "tipo": "glb", "glb": "<sha256>", "colision": ..., "distancia"?: ...}
+                "colision": [[x, z, r], ...] | null, "distancia"?: float, "funcion"?: Funcion}
+               {"nombre": str, "tipo": "glb", "glb": "<sha256>", "colision": ..., "distancia"?: ...,
+                "funcion"?: ...}
 "c/<cx>/<cz>"  {"objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z],
-                             "esc": [x, y, z], "tinte"?: float}],
+                             "esc": [x, y, z], "tinte"?: float, "datos"?: Datos}],
                 "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}}
 ```
 
@@ -40,6 +41,15 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 - `distancia` es hasta dónde se dibuja (lo pequeño desaparece antes); sin ella, la de
   las construcciones. `tinte` multiplica los colores de un objeto (la vegetación varía
   de tono de un árbol a otro).
+- `funcion` dice qué hace un asset además de verse (`FUNCTIONS`): `{"tipo": "traga"}` es una
+  tragaperras jugable (la pantalla y la botonera van en su sitio del marco de la máquina,
+  `casino/sitio.ts`) y `{"tipo": "letrero", "pos": [x, y, z], "ancho": m, "alto": m}` es un
+  letrero con su panel en ese rectángulo (centro en `pos`, mirando a +z). Así cualquier asset,
+  también un GLB, puede ser una máquina o un letrero.
+- `datos` es lo propio de cada objeto con función: `n`, el número de la tragaperras (de 1 a
+  `MAX_SLOTS`; con él guarda el servidor el calor, la barra y los logros de cada máquina, así
+  que no se repite en el mundo), y `titulo` y `botes` del letrero: el texto y las claves de los
+  botes que enseña (`bot.services.universo_botes`; uno que ya no exista no se pinta).
 - `zonas` mueve los lugares de los logros que son un círculo (`EDITABLE_ZONES`). No se
   crean ni se borran: cada clave es un logro (`PLACES` de `bot.services.universo`).
 - `teleportes` son los sitios del panel «Viajar» del menú (Tab): un nombre y un punto (x, z)
@@ -71,7 +81,9 @@ import re
 import struct
 import sys
 from array import array
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 #: Versión del formato. Una página con otra no edita (recarga al desplegar).
@@ -125,6 +137,20 @@ TERRAIN_STEP = TERRAIN_EXTENT // TERRAIN_CELLS
 TERRAIN_PAINTS = 13
 #: Vértices de terreno por lado de una celda (con los dos bordes, que repite la de al lado).
 CELL_TERRAIN_SIDE = CELL // TERRAIN_STEP + 1
+
+#: Lo que puede hacer un asset además de verse (`funcion`).
+FUNCTIONS = ("traga", "letrero")
+#: Tragaperras con número del mundo: el servidor solo deja jugar de la 1 a esta.
+MAX_SLOTS = 24
+#: Botes que enseña un letrero como mucho, largo de su título y lado de su panel.
+MAX_SIGN_POTS = 8
+MAX_SIGN_TITLE = 40
+MAX_SIGN_SIDE = 40.0
+
+#: El casino de la plaza como datos del editor (assets y objetos, formato del `MundoDoc`): lo
+#: lee el mundo de serie de la página (`mundo/serie.ts`) y `add_casino` lo añade a los mundos
+#: guardados antes de que las tragaperras fueran objetos.
+CASINO_FILE = Path(__file__).resolve().parent.parent / "assets" / "casino_plaza.json"
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
 _KEY = re.compile(r"zonas|teleportes|a/([a-z0-9_-]{1,40})|c/(-?\d{1,3})/(-?\d{1,3})")
@@ -263,11 +289,13 @@ def _mesh(value: object, what: str) -> dict[str, list[int]]:
 
 
 def _asset(value: object, what: str, glbs: dict[str, int]) -> dict[str, Any]:
-    keys = {"nombre", "tipo", "piezas", "malla", "glb", "colision", "distancia"}
+    keys = {"nombre", "tipo", "piezas", "malla", "glb", "colision", "distancia", "funcion"}
     a = _object(value, keys, what)
     name = _name(a.get("nombre"), what)
     kind = a.get("tipo")
     common: dict[str, Any] = {"colision": _collision(a.get("colision"), f"«{name}»")}
+    if "funcion" in a:
+        common["funcion"] = _function(a["funcion"], f"«{name}»")
     if "distancia" in a:
         common["distancia"] = _number(
             a["distancia"], MIN_DISTANCE, MAX_DISTANCE, f"«{name}»: la distancia"
@@ -292,6 +320,51 @@ def _asset(value: object, what: str, glbs: dict[str, int]) -> dict[str, Any]:
             raise MundoError(f"«{name}» usa un modelo que no se ha subido.")
         return {"nombre": name, "tipo": "glb", "glb": sha, **common}
     raise MundoError(f"«{name}»: el tipo tiene que ser «piezas» o «glb».")
+
+
+def _function(value: object, what: str) -> dict[str, Any]:
+    f = _object(value, {"tipo", "pos", "ancho", "alto"}, f"{what}: la función")
+    kind = f.get("tipo")
+    if kind == "traga":
+        if set(f) != {"tipo"}:
+            raise MundoError(f"{what}: una tragaperras no lleva panel.")
+        return {"tipo": "traga"}
+    if kind == "letrero":
+        return {
+            "tipo": "letrero",
+            "pos": _vector(
+                f.get("pos"), -MAX_PIECE_OFFSET, MAX_PIECE_OFFSET, f"{what}: el centro del panel"
+            ),
+            "ancho": _number(f.get("ancho"), 0.1, MAX_SIGN_SIDE, f"{what}: el ancho del panel"),
+            "alto": _number(f.get("alto"), 0.1, MAX_SIGN_SIDE, f"{what}: el alto del panel"),
+        }
+    raise MundoError(f"{what}: la función tiene que ser una de {', '.join(FUNCTIONS)}.")
+
+
+def _data(value: object, what: str) -> dict[str, Any]:
+    d = _object(value, {"n", "titulo", "botes"}, f"{what}: los datos")
+    clean: dict[str, Any] = {}
+    if "n" in d:
+        n = d["n"]
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= MAX_SLOTS:
+            raise MundoError(f"{what}: el número de tragaperras va de 1 a {MAX_SLOTS}.")
+        clean["n"] = n
+    if "titulo" in d:
+        title = d["titulo"]
+        if not isinstance(title, str) or len(title) > MAX_SIGN_TITLE:
+            raise MundoError(f"{what}: el título tiene hasta {MAX_SIGN_TITLE} caracteres.")
+        clean["titulo"] = title.strip()
+    if "botes" in d:
+        pots = d["botes"]
+        if (
+            not isinstance(pots, list)
+            or len(pots) > MAX_SIGN_POTS
+            or not all(isinstance(k, str) and _ID.fullmatch(k) for k in pots)
+            or len(set(pots)) != len(pots)
+        ):
+            raise MundoError(f"{what}: un letrero enseña hasta {MAX_SIGN_POTS} botes distintos.")
+        clean["botes"] = list(pots)
+    return clean
 
 
 def asset_triangles(asset: dict[str, Any], glbs: dict[str, int]) -> int:
@@ -394,7 +467,7 @@ def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
     clean_objects = []
     for i, item in enumerate(objects):
         what = f"El objeto {i + 1} de la celda {cx}, {cz}"
-        o = _object(item, {"asset", "pos", "rot", "esc", "tinte"}, what)
+        o = _object(item, {"asset", "pos", "rot", "esc", "tinte", "datos"}, what)
         asset = o.get("asset")
         if not isinstance(asset, str) or not _ID.fullmatch(asset):
             raise MundoError(f"{what} usa un asset que no existe.")
@@ -410,11 +483,27 @@ def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
         }
         if "tinte" in o:
             obj["tinte"] = _number(o["tinte"], MIN_TINT, MAX_TINT, f"{what}: el tinte")
+        if "datos" in o and (data := _data(o["datos"], what)):
+            obj["datos"] = data
         clean_objects.append(obj)
+    _unique_slots(clean_objects)
     clean: dict[str, Any] = {"objetos": clean_objects}
     if "terreno" in d:
         clean["terreno"] = _terrain(d["terreno"], CELL_TERRAIN_SIDE)
     return clean
+
+
+def slot_numbers(objects: Iterable[dict[str, Any]]) -> list[int]:
+    """Los números de tragaperras (`datos.n`) de unos objetos limpios, en orden."""
+    return [o["datos"]["n"] for o in objects if "n" in o.get("datos", {})]
+
+
+def _unique_slots(objects: Iterable[dict[str, Any]]) -> None:
+    numbers = slot_numbers(objects)
+    repeated = sorted({n for n in numbers if numbers.count(n) > 1})
+    if repeated:
+        listed = ", ".join(map(str, repeated))
+        raise MundoError(f"Hay dos tragaperras con el mismo número ({listed}).")
 
 
 def validate_piece(
@@ -534,6 +623,7 @@ def validate_world(pieces: dict[str, Any], glbs: dict[str, int]) -> dict[str, di
     if used - assets:
         missing = ", ".join(sorted(used - assets))
         raise MundoError(f"Hay objetos que usan assets que no existen: {missing}.")
+    _unique_slots(o for k, t in clean.items() if k.startswith("c/") for o in t["objetos"])
     return clean
 
 
@@ -612,3 +702,40 @@ def _glb_triangles(gltf: dict[str, Any]) -> int:
     if not uses:
         return sum(per_mesh)
     return sum(per_mesh[m] for m in uses if 0 <= m < len(per_mesh))
+
+
+def has_slots(pieces: dict[str, dict[str, Any]]) -> bool:
+    """Si algún asset de unos trozos es una tragaperras."""
+    return any(
+        k.startswith("a/") and (t.get("funcion") or {}).get("tipo") == "traga"
+        for k, t in pieces.items()
+    )
+
+
+def add_casino(pieces: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Los trozos que cambian al poner el casino de la plaza (`CASINO_FILE`) en un mundo.
+
+    Para los mundos de antes de que las tragaperras fueran objetos: sin esto, el casino
+    desaparecería al desplegar. No toca un mundo que ya tenga alguna tragaperras ni un asset
+    que ya exista con la misma clave. Los objetos se suman a lo que ya tenga su celda.
+
+    Args:
+        pieces: Los trozos del mundo (clave → documento), sin los borrados.
+
+    Returns:
+        Clave → documento nuevo de cada trozo que cambia (vacío si no hace falta nada).
+    """
+    if has_slots(pieces):
+        return {}
+    casino = json.loads(CASINO_FILE.read_text(encoding="utf-8"))
+    changed: dict[str, dict[str, Any]] = {}
+    for key, asset in casino["assets"].items():
+        if f"a/{key}" not in pieces:
+            changed[f"a/{key}"] = asset
+    for obj in casino["objetos"]:
+        key = cell_key(obj["pos"][0], obj["pos"][2])
+        if key not in changed:
+            old = pieces.get(key, {"objetos": []})
+            changed[key] = {**old, "objetos": list(old.get("objetos", []))}
+        changed[key]["objetos"].append(obj)
+    return changed

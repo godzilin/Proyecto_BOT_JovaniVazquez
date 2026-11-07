@@ -54,6 +54,7 @@ async def main(db: Path, port: int) -> None:
         application_id=1,
         telemetry=SimpleNamespace(count=lambda *_a, **_k: None),
         get_guild=lambda guild_id: guild if guild_id == GUILD_ID else None,
+        get_cog=lambda _name: None,  # sin juegos: los letreros salen sin cifras
     )
     cog = Universo(bot, client_secret="local", port=port)  # type: ignore[arg-type]
     app = cog.build_app()

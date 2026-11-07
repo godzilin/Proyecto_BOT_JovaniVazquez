@@ -1896,6 +1896,12 @@ class Loteria(commands.Cog):
         )
 
 
+async def jackpots(bot: commands.Bot, guild_id: int) -> dict[str, int]:
+    """El bote anunciado de cada lotería de bote (`Loteria.jackpots`), o `{}` sin el cog."""
+    cog = find_cog(bot, Loteria)
+    return {} if cog is None else await cog.jackpots(guild_id)
+
+
 async def pending(bot: commands.Bot, guild_id: int, user_id: int) -> list[Pending]:
     """Los boletos de alguien que esperan sorteo (para `saldo`), uno por sorteo, o `[]`."""
     cog = find_cog(bot, Loteria)

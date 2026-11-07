@@ -60,6 +60,10 @@ export interface Contexto {
   tactil: boolean;
   /** `f` se llama cada fotograma, con la cámara y el culling ya al día y antes de dibujar. */
   enganchar(f: (dt: number, ahora: number) => void): void;
+  /** El mundo que se está dibujando (el de serie, el publicado o el borrador del editor). */
+  doc(): MundoDoc;
+  /** `f` se llama cada vez que se carga otro mundo (`cargarMundo`), con él. */
+  alCargar(f: (doc: MundoDoc) => void): void;
 }
 
 export interface Mundo {
@@ -138,6 +142,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let suelo: Suelo | null = null;
   let profundidad: ReturnType<typeof crearMapaProfundidad> | null = null;
   const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  let docActual: MundoDoc;
+  const alCargar: ((doc: MundoDoc) => void)[] = [];
   if (PRUEBAS) {
     // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) pintada en una textura que se
     // repite (una sola llamada, sin parpadeo de líneas a lo lejos), y la pista, como datos.
@@ -162,14 +168,16 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     const suelo = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ map: rejilla }));
     suelo.receiveShadow = true;
     escena.add(suelo);
-    obras.cargar(pistaDoc());
+    docActual = pistaDoc();
+    obras.cargar(docActual);
   } else {
     suelo = crearTerreno(param("teselas", TESELAS), culling, DIST_TERRENO);
     escena.add(...suelo.baldosas);
     profundidad = crearMapaProfundidad();
     mar = crearMar(profundidad);
     escena.add(mar.malla);
-    obras.cargar(mundoDeSerie());
+    docActual = mundoDeSerie();
+    obras.cargar(docActual);
   }
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
@@ -210,6 +218,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     calidad,
     tactil,
     enganchar: (f) => ganchos.push(f),
+    doc: () => docActual,
+    alCargar: (f) => alCargar.push(f),
   };
 
   let ultimo = performance.now();
@@ -393,6 +403,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
         if (profundidad) rellenarMapaProfundidad(profundidad);
       }
       obras.cargar(doc);
+      docActual = doc;
+      for (const f of alCargar) f(doc);
       fijarZonas(doc.zonas);
       if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
     },

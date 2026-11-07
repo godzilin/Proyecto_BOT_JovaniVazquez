@@ -1,10 +1,9 @@
 // Lo que se dibuja en 2D para las máquinas: el pintor de pantallas (la escena de la tragaperras del bot, ver escena.ts)
-// y el atlas de letrero, visores, etiquetas de botones y números, que es una sola textura para todo el casino.
+// el atlas de visores, etiquetas de botones y números, que es una sola textura para todas las máquinas, y el panel de cada letrero.
 
 import type { Escena } from "./escena";
 
 export interface Tragas {
-  machines: number;
   strips: string[];
   symbols: Record<string, string>;
   stills: unknown[];
@@ -45,13 +44,13 @@ export interface Rect {
   w: number;
   h: number;
 }
+// Sitio para `MAX_TRAGAS` (24) máquinas: 8 filas de 3 visores, las 5 etiquetas y 2 filas de 16 números.
 export const ATLAS_W = 1024;
-export const ATLAS_H = 512;
-export const LETRERO: Rect = { x: 0, y: 0, w: 1024, h: 128 };
-export const visorDe = (i: number): Rect => ({ x: (i % 3) * 341, y: 128 + Math.floor(i / 3) * 96, w: 341, h: 96 });
+export const ATLAS_H = 1024;
+export const visorDe = (i: number): Rect => ({ x: (i % 3) * 341, y: Math.floor(i / 3) * 96, w: 341, h: 96 });
 export const ETIQUETAS = ["GIRAR", "½", "×2", "AUTO", "PARAR"] as const;
-export const etiquetaDe = (k: number): Rect => ({ x: k * 200, y: 320, w: 200, h: 64 });
-export const numeroDe = (i: number): Rect => ({ x: i * 64, y: 384, w: 64, h: 64 });
+export const etiquetaDe = (k: number): Rect => ({ x: k * 200, y: 768, w: 200, h: 64 });
+export const numeroDe = (i: number): Rect => ({ x: (i % 16) * 64, y: 832 + Math.floor(i / 16) * 64, w: 64, h: 64 });
 
 export interface DatosVisor {
   apuesta: string;
@@ -83,14 +82,53 @@ function texto(g: CanvasRenderingContext2D, s: string, x: number, y: number, tam
   g.fillText(s, x, y);
 }
 
-export function dibujarLetrero(g: CanvasRenderingContext2D, bote: string): void {
-  const r = LETRERO;
-  const grad = g.createLinearGradient(0, r.y, 0, r.y + r.h);
+/** Un bote para los letreros, como lo manda el servidor (`/api/botes`). */
+export interface Bote {
+  clave: string;
+  nombre: string;
+  emoji: string;
+  texto: string;
+}
+
+/** Texto que cabe en `ancho`: baja el tamaño hasta que entra (y nunca de `minimo`). */
+function ajustado(g: CanvasRenderingContext2D, s: string, tam: number, ancho: number, minimo = 10): number {
+  g.font = `700 ${tam}px ${FUENTE}`;
+  const w = g.measureText(s).width;
+  return w <= ancho ? tam : Math.max(minimo, Math.floor((tam * ancho) / w));
+}
+
+/**
+ * El panel de un letrero en un lienzo de `w` × `h`. Sin bote, el título solo y centrado (un cartel cualquiera). Con bote, a la
+ * izquierda el título (o «BOTE») y el nombre del bote y a la derecha la cifra; `bote` es `null` si aún no se sabe.
+ */
+export function dibujarLetrero(g: CanvasRenderingContext2D, w: number, h: number, titulo: string, bote: Bote | null, conBote: boolean): void {
+  const r = { x: 0, y: 0, w, h };
+  g.clearRect(0, 0, w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, "#1c1660");
   grad.addColorStop(1, "#0b0a2c");
-  placa(g, r, grad, "#e2b441", 14);
-  texto(g, "BOTE COMÚN", 44, r.y + 74, 40, "#e2b441");
-  texto(g, bote, r.w - 44, r.y + 92, 86, "#fff2b8", "right");
+  const borde = Math.max(4, Math.round(h * 0.11));
+  placa(g, r, grad, "#e2b441", Math.min(14, h / 4));
+  const m = Math.max(borde * 2, Math.round(h * 0.34)); // margen a los lados
+  if (!conBote) {
+    const t = titulo || " ";
+    const tam = ajustado(g, t, Math.round(h * 0.6), w - 2 * m);
+    texto(g, t, w / 2, h / 2 + tam * 0.36, tam, "#fff2b8", "center");
+    return;
+  }
+  const cifra = bote?.texto ?? "…";
+  const tamCifra = ajustado(g, cifra, Math.round(h * 0.67), w * 0.62 - m);
+  g.font = `700 ${tamCifra}px ${FUENTE}`;
+  const anchoCifra = g.measureText(cifra).width;
+  const izq = w - 2 * m - anchoCifra - h * 0.25;
+  const arriba = titulo || "BOTE";
+  const tamArriba = ajustado(g, arriba, Math.round(h * 0.31), izq);
+  texto(g, arriba, m, h * 0.5, tamArriba, "#e2b441");
+  if (bote) {
+    const tamNombre = ajustado(g, bote.nombre, Math.round(h * 0.2), izq);
+    texto(g, bote.nombre, m, h * 0.5 + tamNombre * 1.2, tamNombre, "#b8b0f0");
+  }
+  texto(g, cifra, w - m, h / 2 + tamCifra * 0.36, tamCifra, "#fff2b8", "right");
 }
 
 export function dibujarVisor(g: CanvasRenderingContext2D, i: number, d: DatosVisor): void {
@@ -145,8 +183,10 @@ export function dibujarEtiqueta(g: CanvasRenderingContext2D, k: number): void {
   }
 }
 
-export function dibujarNumero(g: CanvasRenderingContext2D, i: number): void {
+/** El número `n` de la máquina en el hueco `i` del atlas. */
+export function dibujarNumero(g: CanvasRenderingContext2D, i: number, n: number): void {
   const r = numeroDe(i);
+  g.clearRect(r.x, r.y, r.w, r.h);
   g.fillStyle = "#14141b";
   g.beginPath();
   g.arc(r.x + 32, r.y + 32, 29, 0, Math.PI * 2);
@@ -154,5 +194,5 @@ export function dibujarNumero(g: CanvasRenderingContext2D, i: number): void {
   g.lineWidth = 4;
   g.strokeStyle = "#e2b441";
   g.stroke();
-  texto(g, String(i + 1), r.x + 32, r.y + 45, 38, "#ffffff", "center");
+  texto(g, String(n), r.x + 32, r.y + 45, n > 9 ? 32 : 38, "#ffffff", "center");
 }

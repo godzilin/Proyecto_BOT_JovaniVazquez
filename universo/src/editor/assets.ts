@@ -28,6 +28,7 @@ import {
   triangulosPieza,
   type Vec3,
 } from "./formato";
+import { CamposFuncion } from "./funciones";
 import { Seleccion } from "./grupo";
 import type { Anfitrion, Panel } from "./panel";
 import { type Modo, Vista } from "./vista";
@@ -114,6 +115,7 @@ export class PanelAssets implements Panel {
   private readonly forma = h("select");
   private readonly color = h("input", { type: "color" });
   private readonly listaColision = h("div", { className: "ed-lista" });
+  private readonly funcion = new CamposFuncion(() => this.commit());
   private readonly distancia = h("input", { type: "number", min: String(MIN_DISTANCIA), max: String(MAX_DISTANCIA), step: "10", placeholder: "de serie" });
   private readonly propsCaja = h("div", { className: "ed-props" });
   private readonly propsPrisma = h("div", { className: "ed-props" });
@@ -299,7 +301,7 @@ export class PanelAssets implements Panel {
       ),
       h("label", { className: "ed-vec", title: "Metros hasta donde se dibuja; vacío, la de las construcciones" }, h("span", { textContent: "Distancia (m)" }), this.distancia),
     );
-    return h("aside", { className: "ed-panel ed-der ed-assets" }, h("h2", { textContent: "Piezas" }), this.listaPiezas, this.propsCaja, colision);
+    return h("aside", { className: "ed-panel ed-der ed-assets" }, h("h2", { textContent: "Piezas" }), this.listaPiezas, this.propsCaja, colision, this.funcion.el);
   }
 
   // ---------------------------------------------------------------- datos
@@ -516,6 +518,8 @@ export class PanelAssets implements Panel {
       }),
     );
     if (document.activeElement !== this.distancia) this.distancia.value = a?.distancia !== undefined ? numero(a.distancia) : "";
+    this.funcion.pintar(a);
+    this.vista.guia(a?.funcion);
   }
 
   private pintarEstado(): void {
@@ -797,7 +801,7 @@ export class PanelAssets implements Panel {
         h("p", {
           textContent: `El modelo tiene ${info.triangulos.toLocaleString("es-ES")} triángulos y pesa ${mb(glb.byteLength)} MB; el máximo es ${MAX_TRIANGULOS_GLB.toLocaleString("es-ES")} triángulos y 1 MB. Elige a cuántos triángulos reducirlo. Se conservan la forma y los colores por vértice, y las normales se recalculan.`,
         }),
-        ...(info.texturas ? [h("p", { textContent: "⚠ Tiene texturas: se quitan y el modelo se verá con el color liso de cada material." })] : []),
+        ...(info.texturas ? [h("p", { textContent: "⚠ Tiene texturas: sus colores pasan a los vértices del modelo y se pierde el detalle fino (letras, dibujos pequeños)." })] : []),
         ...(info.animado ? [h("p", { textContent: "⚠ Tiene huesos o animaciones: se queda quieto en su postura de reposo." })] : []),
         h("label", { className: "ed-vec" }, h("span", { textContent: "Triángulos" }), rango, num),
         aviso,

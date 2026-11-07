@@ -681,22 +681,22 @@ async def test_cada_maquina_de_la_plaza_tiene_su_calor_y_su_barra(world: World) 
     assert slots.bonus(GUILD_ID, USER_ID, 3).spins == 0
 
 
-async def test_la_plaza_pone_ritmo_y_tope_de_maquinas(world: World) -> None:
-    from bot.services.universo_tragas import MAX_AT_ONCE
+async def test_la_plaza_pone_ritmo_y_deja_jugar_a_muchas_a_la_vez(world: World) -> None:
+    from bot.services.universo_editor import MAX_SLOTS
 
     session = await login(world)
     assert (await spin(world, session, machine=1))[0] == 200
     status, body = await spin(world, session, machine=1)
     assert status == 400 and "girando" in body["error"]
-    for machine in range(2, MAX_AT_ONCE + 1):
+    # Sin tope de máquinas a la vez: también las que se ponen con el editor, hasta la 24.
+    for machine in (*range(2, 7), MAX_SLOTS):
         assert (await spin(world, session, machine=machine))[0] == 200
-    status, body = await spin(world, session, machine=MAX_AT_ONCE + 1)
-    assert status == 400 and str(MAX_AT_ONCE) in body["error"]
-    assert (await spin(world, session, machine=99))[0] == 400
+    assert (await spin(world, session, machine=MAX_SLOTS + 1))[0] == 400
     assert (await spin(world, session, machine="1"))[0] == 400
     await settle(world)
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
-    assert profile.stats["universo_slots_at_once"] == MAX_AT_ONCE
+    assert profile.stats["universo_slots_at_once"] == 7
+    assert {"universo_slots_at_once_6", "universo_slots_all"} <= set(profile.unlocked)
 
 
 async def test_sin_saldo_la_plaza_avisa_y_no_cobra(world: World) -> None:
@@ -720,3 +720,21 @@ async def test_parar_el_auto_tras_la_primera_cuenta_para_los_logros(world: World
     assert profile.stats["universo_slots_auto"] == 1
     if not body["auto_stop"]:
         assert profile.stats["universo_slots_regret"] == 1
+
+
+async def test_los_letreros_saben_los_botes_de_cada_juego(world: World) -> None:
+    from bot.services.universo_botes import POTS
+
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    response = await world.web.get(f"/api/botes?guild_id={GUILD_ID}", headers=headers)
+    assert response.status == 200
+    body = await response.json()
+    assert [b["clave"] for b in body["catalogo"]] == [p.key for p in POTS]
+    botes = {b["clave"]: b for b in body["botes"]}
+    # Con el bot real cargado, cada juego contesta por su función puente.
+    assert set(botes) == {p.key for p in POTS}
+    assert all(b["texto"] and b["nombre"] for b in botes.values())
+    assert (await spin(world, session, machine=1))[0] == 200
+    sin = await world.web.get(f"/api/botes?guild_id={GUILD_ID}")
+    assert sin.status == 401

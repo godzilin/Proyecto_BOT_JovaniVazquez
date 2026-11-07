@@ -1666,6 +1666,12 @@ class Poker(commands.Cog, name="Póker"):
         )
 
 
+async def pot(bot: commands.Bot, guild_id: int) -> int | None:
+    """El 💎 Bote del póker del servidor, o `None` sin el cog (letreros del Jovaniverso)."""
+    cog = find_cog(bot, Poker)
+    return None if cog is None else await cog.economy.poker_pot(guild_id, seed=POT_SEED)
+
+
 async def setup(bot: BotClient) -> None:  # type: ignore[override]
     """Registra el cog con la economía y el club del bot."""
     await bot.add_cog(
