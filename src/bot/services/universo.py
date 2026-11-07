@@ -269,12 +269,14 @@ def on_summit(x_dm: int, z_dm: int) -> bool:
 MAX_SPEED = 12
 #: Saltos por segundo que se aceptan: un salto dura casi un segundo en el aire.
 MAX_JUMPS_PER_SECOND = 2
+#: Deslizamientos por segundo que se aceptan: el impulso se recarga en un segundo.
+MAX_SLIDES_PER_SECOND = 1
 
 
-def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, list[str]]:
-    """Lo que cuenta de un informe de paseo de la página: metros, saltos y lugares.
+def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, int, list[str]]:
+    """Lo que cuenta de un informe de paseo: metros, saltos, deslizamientos y lugares.
 
-    La página no es de fiar: los metros y los saltos se recortan a lo que da tiempo a
+    La página no es de fiar: los metros, saltos y deslizamientos se recortan a lo que da tiempo a
     hacer en `elapsed` segundos (desde el informe anterior) y los lugares se filtran.
     """
 
@@ -291,5 +293,6 @@ def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, list
     return (
         count(body.get("meters"), seconds * MAX_SPEED),
         count(body.get("jumps"), seconds * MAX_JUMPS_PER_SECOND),
+        count(body.get("slides"), seconds * MAX_SLIDES_PER_SECOND),
         seen,
     )

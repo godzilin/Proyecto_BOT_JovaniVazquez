@@ -12,6 +12,8 @@ export class Controles {
   /** Movimiento deseado en pantalla: x a la derecha, y hacia delante; longitud 0..1. */
   mover = { x: 0, y: 0 };
   correr = false;
+  /** Mantenido (C o el botón ⤓): agacharse, o deslizarse si se corre. */
+  agachar = false;
   /** Se pone a true al pulsar saltar; el jugador lo consume. */
   saltar = false;
   /** Se pone a true con la tecla V o el botón 👁; la cámara lo consume. */
@@ -29,6 +31,8 @@ export class Controles {
   private joy: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
   private joyVista: { base: HTMLElement; mando: HTMLElement };
   private botonSalto: HTMLElement;
+  private botonAgachar: HTMLElement;
+  private agacharTactil = false;
   private botonVista: HTMLElement;
   private punto: HTMLElement;
 
@@ -58,6 +62,26 @@ export class Controles {
     for (const ev of ["pointerup", "pointercancel", "pointerleave"]) salto.addEventListener(ev, () => salto.classList.remove("activo"));
     capa.append(salto);
     this.botonSalto = salto;
+
+    const agachar = document.createElement("button");
+    agachar.className = "boton-agachar";
+    agachar.type = "button";
+    agachar.setAttribute("aria-label", "Agacharse (corriendo, deslizarse)");
+    agachar.textContent = "⤓";
+    agachar.hidden = !this.tactil;
+    agachar.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.agacharTactil = true;
+      agachar.classList.add("activo");
+    });
+    for (const ev of ["pointerup", "pointercancel", "pointerleave"])
+      agachar.addEventListener(ev, () => {
+        this.agacharTactil = false;
+        agachar.classList.remove("activo");
+      });
+    capa.append(agachar);
+    this.botonAgachar = agachar;
 
     const vista = document.createElement("button");
     vista.className = "boton-vista";
@@ -105,6 +129,7 @@ export class Controles {
     this.soltarRaton();
     this.punto.remove();
     this.botonSalto.remove();
+    this.botonAgachar.remove();
     this.botonVista.remove();
     this.joyVista.base.remove();
   }
@@ -140,6 +165,7 @@ export class Controles {
     this.mover.x = x;
     this.mover.y = y;
     this.correr = correr;
+    this.agachar = this.agacharTactil || t.has("KeyC");
   }
 
   consumirCamara(): { dYaw: number; dPitch: number; zoom: number } {
@@ -177,7 +203,7 @@ export class Controles {
       e.preventDefault();
     }
     if (e.code === "KeyV" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.cambiarVista = true;
-    if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right))$/.test(e.code)) {
+    if (/^(Key[WASDC]|Arrow(Up|Down|Left|Right)|Shift(Left|Right))$/.test(e.code)) {
       this.teclas.add(e.code);
       e.preventDefault();
     }

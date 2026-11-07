@@ -10,13 +10,15 @@ Protocolo (todo en little-endian):
 
 - Página → servidor, binario: `u8 tipo=1, i16 x, i16 y, i16 z, u8 giro, u8 animación`.
   Posiciones en decímetros; el giro, de 0 a 255 por vuelta entera. La animación: 0
-  quieto, 1 andar, 2 correr, 3 saltar y de 4 en adelante los gestos, que se compran en
-  la tienda (`bot.services.universo.GESTURES`).
+  quieto, 1 andar, 2 correr, 3 saltar, de 4 a 10 los gestos, que se compran en la
+  tienda (`bot.services.universo.GESTURES`), y las posturas de moverse (`MOVES`: 11
+  agachado, 12 deslizándose), que son de todos.
 - Servidor → página, binario: `u8 tipo=1, u8 n` y `n` veces `u8 hueco` más la pose de
   arriba sin el tipo (9 bytes por jugador). Va también la pose propia; la página la
   ignora por su hueco.
-- Servidor → página, JSON (lo raro): `bienvenida` (tu hueco y quién hay), `entra` y
-  `sale`. El hueco (0-254) es el identificador corto de cada jugador en la sala.
+- Servidor → página, JSON (lo raro): `bienvenida` (tu hueco, tu id para teñir tu robot
+  del mismo color que te ven los demás, y quién hay), `entra` y `sale`. El hueco
+  (0-254) es el identificador corto de cada jugador en la sala.
 
 Lo que llega de la página no es de fiar: se descarta lo que no mide 9 bytes, lo que
 llega a más de `MAX_POSES_PER_SECOND` y lo que se sale del mundo (`WORLD_DM`). Un
@@ -63,6 +65,8 @@ MAX_BACKLOG_BYTES = 32 * 1024
 ELSEWHERE = "Has abierto el Jovaniverso en otro sitio: sigues allí."
 #: Primera animación que es un gesto.
 FIRST_GESTURE = 4
+#: Posturas de moverse (agachado y deslizándose): no se compran ni avisan como gesto.
+MOVES = frozenset({11, 12})
 #: Segundos mínimos entre dos gestos que cuentan para los logros de un jugador.
 GESTURE_SECONDS = 1.0
 #: A cuántos decímetros alguien está «cerca» al hacer un gesto.
@@ -116,7 +120,7 @@ def parse_pose(data: bytes, gestures: frozenset[int] = frozenset()) -> bytes | N
     kind, x, y, z, _yaw, anim = _POSE.unpack(data)
     if kind != POSE or abs(x) > WORLD_DM or abs(z) > WORLD_DM or not MIN_Y_DM <= y <= MAX_Y_DM:
         return None
-    if anim >= FIRST_GESTURE and anim not in gestures:
+    if anim >= FIRST_GESTURE and anim not in gestures and anim not in MOVES:
         return data[1:-1] + b"\x00"
     return data[1:]
 
@@ -205,6 +209,7 @@ class Salas:
                 {
                     "t": "bienvenida",
                     "slot": free,
+                    "id": str(user_id),
                     "jugadores": [_card(p) for p in others],
                 }
             )
@@ -238,6 +243,7 @@ class Salas:
         anim = pose[-1]
         if (
             anim >= FIRST_GESTURE
+            and anim not in MOVES
             and anim != before
             and self.on_gesture is not None
             and now - player.gestured >= GESTURE_SECONDS
