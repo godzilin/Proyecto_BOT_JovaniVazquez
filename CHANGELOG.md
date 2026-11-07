@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.2.1 · 2026-11-07
+
+- Jovaniverso: los demás jugadores ya no se mueven a tirones; se ven andar fluidos aunque la conexión vaya a trompicones (a cambio, un cuarto de segundo de retraso)
+
 ### 10.2.0 · 2026-11-07
 
 - Jovaniverso: las tragaperras de la plaza enseñan a todos lo que se juega en ellas; si alguien juega a tres máquinas, los demás ven girar las tres (sin su saldo)

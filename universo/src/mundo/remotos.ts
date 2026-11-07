@@ -1,7 +1,8 @@
 // Los demás jugadores de la isla: el mismo robot que el tuyo, con su propio color y su nombre encima. Aquí vive todo
 // lo que cuesta por jugador y sus topes: solo se dibujan los TOPE más cercanos, a más de LEJOS metros no se animan ni
-// llevan nombre, y solo los de más cerca proyectan sombra. Se interpola ~RETRASO ms en el pasado entre las dos
-// últimas poses, así que 10 poses por segundo se ven fluidas. Nada de esto reserva memoria en cada fotograma.
+// llevan nombre, y solo los de más cerca proyectan sombra. Se dibuja RETRASO ms en el pasado sobre las últimas poses
+// (`Estela`), así que 10 poses por segundo se ven fluidas aunque la red se salte una. Nada de esto reserva memoria en
+// cada fotograma.
 import {
   AnimationAction,
   AnimationMixer,
@@ -18,6 +19,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
+import { Estela } from "./estela";
 import { gestoDe } from "./gestos";
 import { PASO_ANDAR, PASO_CORRER } from "./jugador";
 import { MATERIAL_CUERPO, type PlantillaRobot } from "./robot";
@@ -26,29 +28,14 @@ import { clamp } from "./ruido";
 const TOPE = 12; // robots dibujados a la vez
 const LEJOS = 60; // m: más allá, pose quieta y sin nombre
 const SOMBRAS = 2; // los que proyectan sombra
-const RETRASO = 150; // ms
-const SALTO_MAX = 8; // m: más que esto es un teletransporte, no se interpola
+const RETRASO = 250; // ms: dos ticks y medio, para que un tick perdido o con retraso no pare al robot
 const ALTO_NOMBRE = 2.45;
 const NOMBRES = ["Idle", "Walking", "Running", "Jump"] as const;
-const TAU = Math.PI * 2;
 
 class Remoto {
   id = "";
   nombre = "";
-  tienePose = false;
-  // Las dos últimas poses y el instante (ms) en que llegaron.
-  pt = 0;
-  px = 0;
-  py = 0;
-  pz = 0;
-  pyaw = 0;
-  panim = 0;
-  nt = 0;
-  nx = 0;
-  ny = 0;
-  nz = 0;
-  nyaw = 0;
-  nanim = 0;
+  readonly estela = new Estela();
   d2 = 0;
   // Se crean la primera vez que hay que dibujarlo.
   objeto: Group | null = null;
@@ -118,37 +105,13 @@ export class Remotos {
   /** Pose recibida (metros y radianes). Si llega antes que su `entra`, espera a saber quién es. */
   pose(slot: number, x: number, y: number, z: number, yaw: number, anim: number, ahora: number): void {
     if (slot === this.miSlot) return;
-    const r = this.obtener(slot);
-    if (!r.tienePose || Math.hypot(x - r.nx, z - r.nz) > SALTO_MAX || Math.abs(y - r.ny) > SALTO_MAX) {
-      r.px = x;
-      r.py = y;
-      r.pz = z;
-      r.pyaw = yaw;
-      r.panim = anim;
-      r.pt = ahora;
-      r.tienePose = true;
-    } else {
-      r.px = r.nx;
-      r.py = r.ny;
-      r.pz = r.nz;
-      r.pyaw = r.nyaw;
-      r.panim = r.nanim;
-      r.pt = r.nt;
-    }
-    r.nx = x;
-    r.ny = y;
-    r.nz = z;
-    r.nyaw = yaw;
-    r.nanim = anim;
-    r.nt = ahora;
-    // Tras una pausa (quieto, sin poses) el tramo no puede durar lo que duró la pausa: se supone el ritmo normal.
-    if (r.nt - r.pt > 250) r.pt = r.nt - 100;
+    this.obtener(slot).estela.meter(x, y, z, yaw, anim, ahora);
   }
 
   /** Coloca, anima y enseña a los TOPE más cercanos a (cx, cz); el resto se oculta. */
   actualizar(dt: number, ahora: number, cx: number, cz: number, sombras: boolean): void {
     const orden = this.orden;
-    for (const r of orden) r.d2 = r.tienePose && r.nombre ? (r.nx - cx) ** 2 + (r.nz - cz) ** 2 : Infinity;
+    for (const r of orden) r.d2 = !r.estela.vacia && r.nombre ? (r.estela.ultimaX - cx) ** 2 + (r.estela.ultimaZ - cz) ** 2 : Infinity;
     orden.sort(porCercania);
     const t = ahora - RETRASO;
     for (let i = 0; i < orden.length; i++) {
@@ -161,12 +124,10 @@ export class Remotos {
       const o = r.objeto as Group;
       const sprite = r.sprite as Sprite;
       o.visible = true;
-      const span = Math.max(r.nt - r.pt, 1);
-      const a = clamp((t - r.pt) / span, 0, 1);
-      o.position.set(r.px + (r.nx - r.px) * a, r.py + (r.ny - r.py) * a, r.pz + (r.nz - r.pz) * a);
-      let dy = r.nyaw - r.pyaw;
-      dy -= TAU * Math.round(dy / TAU);
-      o.rotation.y = r.pyaw + dy * a;
+      const e = r.estela;
+      e.muestrear(t);
+      o.position.set(e.x, e.y, e.z);
+      o.rotation.y = e.yaw;
       const cerca = r.d2 < LEJOS * LEJOS;
       sprite.visible = cerca;
       if (cerca) {
@@ -174,7 +135,7 @@ export class Remotos {
         const k = clamp(Math.sqrt(r.d2) / 12, 0.6, 2.6);
         sprite.scale.set(2.4 * k, 0.6 * k, 1);
         sprite.position.y = ALTO_NOMBRE + 0.12 * k;
-        this.animar(r, dt, a, span);
+        this.animar(r, dt);
       }
       const proyecta = sombras && i < SOMBRAS;
       for (const m of r.meshes) m.castShadow = proyecta;
@@ -191,8 +152,8 @@ export class Remotos {
     return r;
   }
 
-  private animar(r: Remoto, dt: number, a: number, span: number): void {
-    const quiero = a < 0.5 ? r.panim : r.nanim;
+  private animar(r: Remoto, dt: number): void {
+    const quiero = r.estela.anim;
     const q = quiero > 10 ? 0 : quiero;
     if (q !== r.actual) {
       const de = r.acciones[r.actual];
@@ -201,7 +162,7 @@ export class Remotos {
       hacia.crossFadeFrom(de, q === 3 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
       r.actual = q;
     }
-    const v = Math.hypot(r.nx - r.px, r.nz - r.pz) / (span / 1000);
+    const v = r.estela.v;
     r.acciones[1].timeScale = clamp(v / PASO_ANDAR, 0.4, 3);
     r.acciones[2].timeScale = clamp(v / PASO_CORRER, 0.5, 3);
     (r.mixer as AnimationMixer).update(dt);
