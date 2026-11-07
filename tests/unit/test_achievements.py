@@ -359,6 +359,8 @@ PRODUCED_STATS = {
     "universo_slots_jackpot", "universo_slots_at_once", "universo_slots_regret",
     *(f"universo_slots_machine_{m}" for m in range(1, 7)),
     "universo_dance_canarias",
+    # 🎤 Jovani: el botón 🌌 Jovaniverso de los paneles (`universo_teaser_stats`)
+    "universo_teasers", "universo_teaser_slots",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
     *(f"jovani_look_{key}" for key in (
         "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",

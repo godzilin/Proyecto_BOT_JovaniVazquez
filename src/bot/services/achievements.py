@@ -589,6 +589,11 @@ UNIVERSO_DAYS_STAT = "universo_days"
 UNIVERSO_MET_PREFIX = "universo_met_"
 #: Personas distintas con las que has coincidido; se calcula en `with_derived`.
 UNIVERSO_PEOPLE_STAT = "universo_people"
+#: Prefijo de cada panel en que se ha pulsado el botón 🌌 Jovaniverso
+#: (`universo_teaser_coin`, el módulo del panel).
+UNIVERSO_TEASER_PREFIX = "universo_teaser_"
+#: Paneles distintos con el botón pulsado; se calcula en `with_derived`.
+UNIVERSO_TEASERS_STAT = "universo_teasers"
 #: Prefijo de cada gesto del robot hecho en el universo (`universo_gesture_baile`).
 UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
 #: Tiradas en cada tragaperras de la plaza (`universo_slots_machine_3`).
@@ -2766,6 +2771,20 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", "universo_canarias", [
         (1, "universo_canarias", "Gofio en órbita",
          "Entra en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
+    # El botón 🌌 Jovaniverso de los paneles (cogs/universo.py: universo_teaser_stats).
+    # Pulsarlo no cuesta nada, pero en 25 paneles distintos hay que usar medio bot.
+    a += _tiers("jovani", UNIVERSO_TEASERS_STAT, [
+        (1, "universo_teasers_1", "Lo vi en el tráiler",
+         "Pulsa el botón 🌌 Jovaniverso de un juego o panel.", C),
+        (10, "universo_teasers_10", "Maratón de avances",
+         "Pulsa el botón 🌌 Jovaniverso en 10 juegos o paneles distintos.", C),
+        (25, "universo_teasers_25", "Spoiler de la galaxia entera",
+         "Pulsa el botón 🌌 Jovaniverso en 25 juegos o paneles distintos.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", f"{UNIVERSO_TEASER_PREFIX}slots", [
+        (1, f"{UNIVERSO_TEASER_PREFIX}slots", "Déjà vu en la plaza",
+         "Pulsa el botón 🌌 Jovaniverso en la tragaperras, que ya está en el Jovaniverso.", C),
     ])  # fmt: skip
     # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la página
     # y el servidor los recorta a 12 m/s, así que cuestan tiempo de verdad: a 9 m/s
@@ -24100,6 +24119,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[JOVANI_DAYS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_DAY_PREFIX))
     full[JOVANI_LOOKS_STAT] = sum(1 for stat in stats if stat.startswith(JOVANI_LOOK_PREFIX))
     full[UNIVERSO_DAYS_STAT] = sum(1 for stat in stats if stat.startswith(UNIVERSO_DAY_PREFIX))
+    full[UNIVERSO_TEASERS_STAT] = sum(
+        1 for stat in stats if stat.startswith(UNIVERSO_TEASER_PREFIX)
+    )
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -25189,6 +25211,11 @@ def universo_stats(platform: str | None, *, when: datetime) -> StatDelta:
     if when.month == 5 and when.day == 30:
         add["universo_canarias"] = 1
     return StatDelta(add=add)
+
+
+def universo_teaser_stats(panel: str) -> StatDelta:
+    """Lo que suma pulsar el botón 🌌 Jovaniverso de un panel (`panel`, su módulo)."""
+    return StatDelta(add={f"{UNIVERSO_TEASER_PREFIX}{panel}": 1})
 
 
 def universo_meet_stats(met: Iterable[int], crowd: int) -> StatDelta:
