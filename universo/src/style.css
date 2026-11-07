@@ -616,6 +616,8 @@ body {
 
 .ed-version {
   justify-content: space-between;
+}
+
 /* Casino de la plaza: aviso para sentarse, botones de sonido y de levantarse, y el panel del resultado. */
 .casino-aviso {
   position: absolute;
@@ -698,4 +700,189 @@ body {
 .casino-menor {
   font-size: 0.75rem;
   opacity: 0.75;
+}
+
+/* Devtools (solo desarrolladores). */
+.dev-abrir {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.dev-panel {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 52px);
+  right: max(16px, env(safe-area-inset-right));
+  width: min(320px, calc(100vw - 32px));
+  max-height: calc(100dvh - 140px);
+  box-sizing: border-box;
+  padding: 8px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: #232840;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+
+.dev-panel[hidden],
+.dev-medidor[hidden],
+.dev-vuelo[hidden] {
+  display: none;
+}
+
+.dev-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dev-titulo,
+.dev-h {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.dev-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.dev-b {
+  padding: 4px 9px;
+  font: inherit;
+  color: var(--text);
+  background: #343a58;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dev-b:hover {
+  background: #424a70;
+}
+
+.dev-casilla,
+.dev-fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dev-fila input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.dev-fila-b {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dev-valor {
+  min-width: 3ch;
+  text-align: right;
+}
+
+.dev-num,
+.dev-texto {
+  min-width: 0;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: #1d2030;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.dev-num {
+  width: 5.5em;
+}
+
+.dev-texto {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dev-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.dev-item {
+  text-align: left;
+}
+
+.dev-nota,
+.dev-aviso {
+  margin: 0;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.dev-aviso {
+  color: var(--error);
+  opacity: 1;
+}
+
+.dev-medidor {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 52px);
+  left: max(12px, env(safe-area-inset-left));
+  padding: 4px 8px;
+  font: 0.72rem/1.35 ui-monospace, Consolas, monospace;
+  white-space: pre;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.dev-vuelo {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 56px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dev-vuelo-b {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  font-size: 1.4rem;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
 }
