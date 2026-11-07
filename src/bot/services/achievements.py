@@ -589,6 +589,23 @@ UNIVERSO_DAYS_STAT = "universo_days"
 UNIVERSO_MET_PREFIX = "universo_met_"
 #: Personas distintas con las que has coincidido; se calcula en `with_derived`.
 UNIVERSO_PEOPLE_STAT = "universo_people"
+#: Prefijo de cada gesto del robot hecho en el universo (`universo_gesture_baile`).
+UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
+#: Tiradas en cada tragaperras de la plaza (`universo_slots_machine_3`).
+UNIVERSO_SLOT_PREFIX = "universo_slots_machine_"
+#: Tragaperras de la plaza del Jovaniverso (`bot.services.universo_tragas.MACHINES`).
+UNIVERSO_SLOT_MACHINES = 6
+#: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
+#: `gesto_`), nombre y descripción.
+UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
+    ("saludo", "Miss Simpatía", "Saluda con la mano en el Jovaniverso."),
+    ("baile", "Tusa de hojalata", "Baila en el Jovaniverso."),
+    ("pulgar", "Pulgarcito", "Levanta el pulgar en el Jovaniverso."),
+    ("si", "Perrito del salpicadero", "Asiente con la cabeza en el Jovaniverso."),
+    ("no", "Doctor No", "Niega con la cabeza en el Jovaniverso."),
+    ("sentarse", "Escaño en el Senado", "Siéntate en el Jovaniverso."),
+    ("punetazo", "Puño americano", "Lanza un puñetazo en el Jovaniverso."),
+)
 #: Prefijo de cada lugar de Gran Canaria pisado en el universo (`universo_place_faro`).
 UNIVERSO_PLACE_PREFIX = "universo_place_"
 #: Lugares del mundo con su logro: clave (la de `bot.services.universo.PLACES`),
@@ -2805,6 +2822,100 @@ def _build_catalog() -> tuple[Achievement, ...]:
             for place, *_ in UNIVERSO_PLACES if place != "agua"
         ),
     ))  # fmt: skip
+    # Gestos del robot (`universo_gesture_stats`): se compran en la tienda y los cuenta
+    # el servidor al empezar cada uno (uno por segundo como mucho), así que hacerlos
+    # es una decisión y comprarlos, dinero: Comunes y Raros.
+    a += _tiers("jovani", "universo_gestures", [
+        (1, "universo_gestures_1", "Marcel Marceau de chapa",
+         "Haz un gesto en el Jovaniverso.", C),
+        (100, "universo_gestures_100", "Más gestos que un italiano",
+         "Haz 100 gestos en el Jovaniverso.", C),
+        (1_000, "universo_gestures_1k", "Guardia urbano de Triana",
+         "Haz 1.000 gestos en el Jovaniverso.", R),
+    ])  # fmt: skip
+    for gesture, name, text in UNIVERSO_GESTURES:
+        a += _tiers("jovani", f"{UNIVERSO_GESTURE_PREFIX}{gesture}", [
+            (1, f"{UNIVERSO_GESTURE_PREFIX}{gesture}", name, text, C),
+        ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_gestures_all", name="Chaplin de bolsillo",
+        description="Haz los 7 gestos del Jovaniverso.",
+        category="jovani", rarity=R,
+        conditions=tuple((f"{UNIVERSO_GESTURE_PREFIX}{g}", 1) for g, *_ in UNIVERSO_GESTURES),
+    ))  # fmt: skip
+    a += _tiers("jovani", "universo_wave_near", [
+        (1, "universo_wave_near", "Holi, holita, vecinito",
+         "Saluda con la mano en el Jovaniverso con alguien cerca.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_punch_near", [
+        (1, "universo_punch_near", "La bofetada de los Óscar",
+         "Lanza un puñetazo en el Jovaniverso con alguien cerca.", C, True),
+        (50, "universo_punch_near_50", "Bud Spencer de La Isleta",
+         "Lanza 50 puñetazos en el Jovaniverso con alguien cerca.", R, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_dance_max", [
+        (2, "universo_dance_2", "Baile agarrao",
+         "Baila en el Jovaniverso a la vez que otra persona cerca.", C),
+        (4, "universo_dance_4", "Coreografía de la Macarena",
+         "Bailad 4 personas juntas en el Jovaniverso.", R),
+        (8, "universo_dance_8", "Flashmob en la plaza",
+         "Bailad 8 personas juntas en el Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_sit_summit", [
+        (1, "universo_sit_summit", "El trono de las Nieves",
+         "Siéntate en la cima del Pico de las Nieves en el Jovaniverso.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_dance_canarias", [
+        (1, "universo_dance_canarias", "Baile de magos",
+         "Baila en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
+    ])  # fmt: skip
+    # Tragaperras de la plaza (`universo_slots_stats`, cogs/slots.py: Slots.plaza). Las
+    # tiradas cuestan dinero pero son rápidas: los escalones se miden como en `tragas`.
+    # Jugar a varias a la vez y el Auto son decisiones: Comunes.
+    a += _tiers("jovani", "universo_slots_spins", [
+        (1, "universo_slots_1", "Tragaperras con vistas",
+         "Juega una tirada en una tragaperras de la plaza del Jovaniverso.", C),
+        (100, "universo_slots_100", "Las Vegas de Tirajana",
+         "Juega 100 tiradas en las tragaperras de la plaza.", C),
+        (1_000, "universo_slots_1k", "Manivela de hierro",
+         "Juega 1.000 tiradas en las tragaperras de la plaza.", R),
+        (10_000, "universo_slots_10k", "El Bellagio de Vegueta",
+         "Juega 10.000 tiradas en las tragaperras de la plaza.", E),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_slots_all", name="Ruta de las tragas",
+        description=f"Juega en las {UNIVERSO_SLOT_MACHINES} tragaperras de la plaza.",
+        category="jovani", rarity=C,
+        conditions=tuple(
+            (f"{UNIVERSO_SLOT_PREFIX}{m}", 1) for m in range(1, UNIVERSO_SLOT_MACHINES + 1)
+        ),
+    ))  # fmt: skip
+    a += _tiers("jovani", "universo_slots_at_once", [
+        (2, "universo_slots_at_once_2", "Ambidiestro del rodillo",
+         "Juega a 2 tragaperras de la plaza a la vez.", C),
+        (3, "universo_slots_at_once_3", "Pulpo Paul de los rodillos",
+         "Juega a 3 tragaperras de la plaza a la vez.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_auto", [
+        (1, "universo_slots_auto_1", "Auto de fe",
+         "Juega una tirada con ▶️ Auto en la plaza.", C),
+        (100, "universo_slots_auto_100", "Autobombo",
+         "Juega 100 tiradas con ▶️ Auto en la plaza.", C),
+        (1_000, "universo_slots_auto_1k", "Auto sacramental",
+         "Juega 1.000 tiradas con ▶️ Auto en la plaza.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_regret", [
+        (1, "universo_slots_regret", "Autocrítica",
+         "Para a mano un ▶️ Auto de la plaza después de su primera tirada.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_audience", [
+        (1, "universo_slots_audience", "Ovación en el Pérez Galdós",
+         "Saca un premio gordo en la plaza con alguien más en el Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_slots_jackpot", [
+        (1, "universo_slots_jackpot", "Jovanazo al aire libre",
+         "Llévate el bote de la tragaperras en una máquina de la plaza.", E),
+    ])  # fmt: skip
 
     # 🍻 Beernight (cogs/beernight.py: beernight_drink_stats y beernight_close_stats) ----
     a.append(Achievement(
@@ -25108,6 +25219,58 @@ def universo_walk_stats(meters: int, jumps: int, places: Iterable[str]) -> StatD
     if jumps > 0:
         add["universo_jumps"] = jumps
     return StatDelta(add=add)
+
+
+def universo_gesture_stats(
+    gesture: str, *, near: int, together: int, summit: bool, when: datetime
+) -> StatDelta:
+    """Lo que suma empezar un gesto del robot en el Jovaniverso. Lo ve el servidor.
+
+    Args:
+        gesture: Clave del gesto (`UNIVERSO_GESTURES`).
+        near: Cuántos hay cerca (`bot.services.universo_sala.NEAR_DM`).
+        together: Cuántos hacen el mismo gesto cerca, contando a quien lo empieza.
+        summit: Si está en la cima del Pico de las Nieves.
+        when: Hora local.
+    """
+    add = {"universo_gestures": 1, f"{UNIVERSO_GESTURE_PREFIX}{gesture}": 1}
+    peak: dict[str, int] = {}
+    if near and gesture == "saludo":
+        add["universo_wave_near"] = 1
+    if near and gesture == "punetazo":
+        add["universo_punch_near"] = 1
+    if gesture == "sentarse" and summit:
+        add["universo_sit_summit"] = 1
+    if gesture == "baile":
+        peak["universo_dance_max"] = together
+        if (when.month, when.day) == (5, 30):
+            add["universo_dance_canarias"] = 1
+    return StatDelta(add=add, peak=peak)
+
+
+def universo_slots_stats(
+    machine: int, *, at_once: int, auto: bool, big_prize: bool, jackpot: bool, audience: int
+) -> StatDelta:
+    """Lo que suma una tirada en una tragaperras de la plaza del Jovaniverso.
+
+    Lo de la tirada en sí (premios, giros gratis, calor) ya lo cuenta `slots_stats`.
+
+    Args:
+        machine: Número de la máquina (de 1 a `UNIVERSO_SLOT_MACHINES`).
+        at_once: Máquinas en las que el miembro está jugando ahora, contando esta.
+        auto: Si la tirada es del ▶️ Auto.
+        big_prize: Si es un premio gordo (el bote o ×50 la apuesta).
+        jackpot: Si se ha llevado el bote.
+        audience: Cuántos más hay en la sala del Jovaniverso.
+    """
+    add = {"universo_slots_spins": 1, f"{UNIVERSO_SLOT_PREFIX}{machine}": 1}
+    if auto:
+        add["universo_slots_auto"] = 1
+    if big_prize and audience:
+        add["universo_slots_audience"] = 1
+    if jackpot:
+        add["universo_slots_jackpot"] = 1
+    return StatDelta(add=add, peak={"universo_slots_at_once": at_once})
 
 
 def image_stats(effect: str, extension: str, *, subject_is_author: bool | None) -> StatDelta:

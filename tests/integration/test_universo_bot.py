@@ -155,6 +155,9 @@ async def test_entrar_da_el_perfil_con_el_saldo_real_y_apunta_los_logros(world: 
     assert body["name"] == "Yeyo"
     assert body["balance"] == STARTING_BALANCE
     assert body["balance"] == await world.client.economy.balance(GUILD_ID, USER_ID)
+    # La fila de tragaperras de la plaza: una máquina parada por cada una.
+    assert len(body["tragas"]["stills"]) == body["tragas"]["machines"]
+    assert body["tragas"]["symbols"]
     # Los logros se apuntan después de contestar: se esperan aquí.
     await asyncio.gather(*world.cog._background)
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
@@ -381,3 +384,135 @@ async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
     garbage = await world.web.ws_connect("/api/sala")
     await garbage.send_bytes(b"\x01")
     assert (await garbage.receive()).type.name in {"CLOSE", "CLOSED", "CLOSING"}
+
+
+async def test_solo_se_ven_los_gestos_comprados_y_cuentan_para_los_logros(world: World) -> None:
+    tienda = world.client.get_cog("Tienda")
+    assert await tienda.give_key(GUILD_ID, USER_ID, "gesto_baile") is not None
+    session = await login(world)
+    entry = await world.web.post(
+        "/api/entrar",
+        json={"guild_id": str(GUILD_ID)},
+        headers={"Authorization": f"Bearer {session}"},
+    )
+    assert (await entry.json())["gestures"] == [5]
+    hello = {"t": "hola", "guild_id": str(GUILD_ID), "session": session}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json(hello)
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    player = world.cog.salas.present(GUILD_ID)[0]
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 0, 0, 4))  # saludo sin comprar
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 1, 0, 5))  # baile comprado
+    tick = await ana.receive_bytes(timeout=2)
+    assert tick[-1] == 5
+    assert player.gestures == frozenset({5})
+    await ana.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_gesture_baile"] == 1
+    assert "universo_gesture_saludo" not in profile.stats
+    assert "universo_gestures_1" in profile.unlocked
+
+
+# -- Tragaperras de la plaza ----------------------------------------------------------
+
+
+async def spin(world: World, session: str, **body: object) -> tuple[int, dict]:
+    payload = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID), "stake": 100, **body}
+    response = await world.web.post(
+        "/api/traga", json=payload, headers={"Authorization": f"Bearer {session}"}
+    )
+    return response.status, await response.json()
+
+
+async def settle(world: World) -> None:
+    """Espera a los logros que van después de contestar y los guarda."""
+    slots = world.client.get_cog("Tragaperras")
+    await asyncio.gather(*slots._background)
+    await world.client.get_cog("Achievements").flush()
+
+
+async def test_una_tirada_en_la_plaza_cobra_de_verdad_y_trae_la_animacion(
+    world: World,
+) -> None:
+    from bot.services.slots import HEAT_MAX
+
+    session = await login(world)
+    status, body = await spin(world, session, machine=2)
+    assert status == 200, body
+    assert body["balance"] == await world.client.economy.balance(GUILD_ID, USER_ID)
+    assert body["balance"] == STARTING_BALANCE - 100 + body["won"]
+    # La página pinta la misma animación que Discord: el último fotograma es el quieto.
+    assert body["states"] and "reels" in body["states"][-1]
+    assert body["heat_max"] == HEAT_MAX
+    await settle(world)
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_slots_spins"] == 1
+    assert profile.stats["universo_slots_machine_2"] == 1
+    assert "universo_slots_1" in profile.unlocked
+    # Una tirada de la plaza se ve entera: no cuenta como ⚡ Turbo.
+    assert "slots_turbo" not in profile.stats
+
+
+async def test_cada_maquina_de_la_plaza_tiene_su_calor_y_su_barra(world: World) -> None:
+    from bot.services.slots import SlotMachine, line_payout, spin_at
+
+    slots = world.client.get_cog("Tragaperras")
+    # Siempre la misma tirada con premio de línea: sube el calor de su máquina.
+    winning = next(
+        s
+        for s in (spin_at((a, b, c)) for a in range(30) for b in range(30) for c in range(30))
+        if line_payout(s, 100) > 0 and not s.is_jackpot and not s.triggers_free_spins
+    )
+    machine = MagicMock(spec=SlotMachine)
+    machine.spin.return_value = winning
+    slots.machine = machine
+    session = await login(world)
+    status, body = await spin(world, session, machine=1)
+    assert status == 200, body
+    assert slots.heat(GUILD_ID, USER_ID, 1) == 1
+    assert slots.heat(GUILD_ID, USER_ID, 3) == 0
+    assert slots.heat(GUILD_ID, USER_ID) == 0  # la de Discord, intacta
+    assert slots.bonus(GUILD_ID, USER_ID, 1).spins == 1
+    assert slots.bonus(GUILD_ID, USER_ID, 3).spins == 0
+
+
+async def test_la_plaza_pone_ritmo_y_tope_de_maquinas(world: World) -> None:
+    from bot.services.universo_tragas import MAX_AT_ONCE
+
+    session = await login(world)
+    assert (await spin(world, session, machine=1))[0] == 200
+    status, body = await spin(world, session, machine=1)
+    assert status == 400 and "girando" in body["error"]
+    for machine in range(2, MAX_AT_ONCE + 1):
+        assert (await spin(world, session, machine=machine))[0] == 200
+    status, body = await spin(world, session, machine=MAX_AT_ONCE + 1)
+    assert status == 400 and str(MAX_AT_ONCE) in body["error"]
+    assert (await spin(world, session, machine=99))[0] == 400
+    assert (await spin(world, session, machine="1"))[0] == 400
+    await settle(world)
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_slots_at_once"] == MAX_AT_ONCE
+
+
+async def test_sin_saldo_la_plaza_avisa_y_no_cobra(world: World) -> None:
+    session = await login(world)
+    status, body = await spin(world, session, machine=4, stake=STARTING_BALANCE * 10)
+    assert status == 400
+    assert body["error"]
+    assert await world.client.economy.balance(GUILD_ID, USER_ID) == STARTING_BALANCE
+
+
+async def test_parar_el_auto_tras_la_primera_cuenta_para_los_logros(world: World) -> None:
+    slots = world.client.get_cog("Tragaperras")
+    session = await login(world)
+    status, body = await spin(world, session, machine=5, auto=True)
+    assert status == 200, body
+    assert body["auto"] is True or body["auto_stop"]
+    assert (await spin(world, session, machine=5, parar=True))[0] == 200
+    assert slots.seats.seat(GUILD_ID, USER_ID, 5).auto is None
+    await settle(world)
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_slots_auto"] == 1
+    if not body["auto_stop"]:
+        assert profile.stats["universo_slots_regret"] == 1

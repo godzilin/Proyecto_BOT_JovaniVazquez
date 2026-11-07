@@ -63,8 +63,12 @@ async def painter() -> NodeScene:
 def test_la_clasica_carga_tragas_antes_que_su_propio_script() -> None:
     html = SCENE.read_text(encoding="utf-8")
     shared = html.index('<script src="../tragas.js"></script>')
-    assert shared < html.index("<script>")
+    # El código de la escena va en escena.js, sin scripts en línea (la página del
+    # Jovaniverso lo importa como módulo y el CSP de Discord no los deja).
+    assert shared < html.index('<script src="escena.js"></script>')
+    assert "<script>" not in html
     assert (Path(SCENE).parent.parent / "tragas.js").is_file()
+    assert (Path(SCENE).parent / "escena.js").is_file()
 
 
 @needs_node

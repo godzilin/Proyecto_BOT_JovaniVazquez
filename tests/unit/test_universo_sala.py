@@ -143,3 +143,43 @@ async def test_al_que_va_atrasado_se_le_saltan_ticks(salas: Salas) -> None:
 def test_el_tick_de_una_sala_llena_cabe_en_medio_kb() -> None:
     blob = snapshot([(slot, pose()[1:]) for slot in range(sala.MAX_PLAYERS)])
     assert len(blob) == 2 + 9 * sala.MAX_PLAYERS < 512
+
+
+async def test_un_gesto_sin_comprar_se_ve_como_quieto() -> None:
+    hits: list[int] = []
+    salas = Salas(clock=Clock(), on_gesture=lambda _g, _p, anim, _n: hits.append(anim))
+    try:
+        ana = await salas.join(1, 10, "Ana", FakeClient(), gestures=frozenset({5}))
+        salas.pose(1, ana, pose(anim=9))
+        assert ana.pose is not None and ana.pose[-1] == 0
+        salas.pose(1, ana, pose(anim=5))
+        assert ana.pose[-1] == 5
+        assert hits == [5]
+        assert parse_pose(pose(anim=200), frozenset({5})) == pose(anim=0)[1:]
+    finally:
+        await salas.close()
+
+
+async def test_el_gesto_avisa_al_empezar_con_quien_hay_cerca_y_no_mas_de_uno_por_segundo() -> None:
+    clock = Clock()
+    hits: list[tuple[int, list[int]]] = []
+    salas = Salas(
+        clock=clock,
+        on_gesture=lambda _g, p, anim, near: hits.append((anim, [o.user_id for o in near])),
+    )
+    try:
+        everything = frozenset(range(4, 11))
+        ana = await salas.join(1, 10, "Ana", FakeClient(), gestures=everything)
+        bea = await salas.join(1, 20, "Bea", FakeClient())
+        eva = await salas.join(1, 30, "Eva", FakeClient())
+        salas.pose(1, bea, pose(x=10 + sala.NEAR_DM, z=30))
+        salas.pose(1, eva, pose(x=10 + sala.NEAR_DM + 1, z=30))
+        salas.pose(1, ana, pose(anim=4))
+        salas.pose(1, ana, pose(x=11, anim=4))  # sigue el mismo gesto: no avisa
+        clock.now += 0.5
+        salas.pose(1, ana, pose(anim=6))  # otro gesto antes de un segundo: no cuenta
+        clock.now += 1.0
+        salas.pose(1, ana, pose(anim=5))
+        assert hits == [(4, [20]), (5, [20])]
+    finally:
+        await salas.close()

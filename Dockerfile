@@ -15,6 +15,12 @@ WORKDIR /opt/universo
 COPY universo/package.json universo/package-lock.json ./
 RUN npm ci
 COPY universo/ ./
+# Las tragaperras de la plaza pintan en directo la escena de la clásica del bot: la página la importa
+# de ../src/bot/assets (universo/src/casino/escena.ts), con sus símbolos y fuentes.
+COPY src/bot/assets/tragas.js /opt/src/bot/assets/
+COPY src/bot/assets/slots/ /opt/src/bot/assets/slots/
+COPY src/bot/assets/botes/fonts/luckiest-guy.woff /opt/src/bot/assets/botes/fonts/
+COPY src/bot/assets/memes/fonts/MontserratBold.ttf /opt/src/bot/assets/memes/fonts/
 RUN npm run build -- --outDir /opt/universo/dist
 
 FROM python:3.13-slim

@@ -86,6 +86,7 @@ from bot.services.achievements import (
     slots_respin_stats,
     slots_stats,
     slots_ticket_stats,
+    universo_slots_stats,
 )
 from bot.services.autoplay import (
     AUTOPLAY_MAX,
@@ -111,6 +112,7 @@ from bot.services.levels import TIMEZONE
 from bot.services.pets import bet_moment
 from bot.services.slots import (
     BONUS_FREE_SPINS,
+    BONUS_MAX,
     DOUBLE_MAX,
     FREE_SPINS,
     HEAT_DECAY_SECONDS,
@@ -118,6 +120,7 @@ from bot.services.slots import (
     HOT_MULTIPLIER,
     POT_CAP,
     POT_SEED,
+    REEL_STRIPS,
     SCATTER,
     SYMBOLS,
     BonusMeter,
@@ -126,6 +129,7 @@ from bot.services.slots import (
     Spin,
     WinTier,
     add_bonus,
+    bar_fill,
     bonus_bar,
     daily_stake,
     decayed_heat,
@@ -139,9 +143,23 @@ from bot.services.slots import (
     respin_price,
     win_tier,
 )
-from bot.services.slots_render import SlotsMedia
-from bot.services.slots_scene import DOUBLE_HISTORY, SlotsScene, double_suit, media_key
+from bot.services.slots_render import SYMBOL_FILES, SlotsMedia
+from bot.services.slots_scene import (
+    DOUBLE_HISTORY,
+    SlotsScene,
+    double_suit,
+    media_key,
+    spin_states,
+    still_state,
+)
 from bot.services.taxes import TAX_COLLECTOR
+from bot.services.telemetry import TimedLock
+from bot.services.universo_tragas import MACHINES as PLAZA_MACHINES
+from bot.services.universo_tragas import MAX_AT_ONCE as PLAZA_MAX_AT_ONCE
+from bot.services.universo_tragas import MIN_GAP_SECONDS as PLAZA_MIN_GAP
+from bot.services.universo_tragas import Auto as PlazaAuto
+from bot.services.universo_tragas import SeatError, Seats, auto_stop_text
+from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, edit, notify
 from bot.utils.responder import ContextResponder, InteractionResponder
 
@@ -1321,58 +1339,12 @@ class SlotMachineView(SwitchMixin, discord.ui.View):
 
     async def _track(self, play: SlotsPlay, *, autoplay: bool = False) -> None:
         """Logros de la tirada, después de enseñarla (antes destriparía el resultado)."""
-        if play.respin:
-            delta = slots_respin_stats(
-                price=play.paid_stake,
-                payout=play.payout,
-                jackpot=play.jackpot,
-                chain=play.respin_chain,
-            )
-        else:
-            delta = slots_stats(
-                play.spin,
-                stake=play.stake,
-                payout=play.payout,
-                jackpot=play.jackpot,
-                free=play.free,
-                hot=play.hot,
-                turbo=not play.media.gif,
-                session_spins=play.session_spins,
-                when=datetime.now(TIMEZONE),
-                autoplay=autoplay,
-                tier=play.tier,
-                mystery=play.mystery,
-                drought=play.settlement.drought,
-                daily=play.daily,
-                daily_streak=play.daily_streak,
-            )
-        if play.bonus_stake:
-            delta.merge(slots_bonus_stats(fill_spins=play.bonus_fill_spins))
-        delta.merge(
-            casino_stats(
-                stake=play.paid_stake,
-                net=play.net,
-                balance_after=play.balance,
-                tax_delta=play.settlement.bet.tax_delta,
-            )
-        )
-        await logros.casino_play(
-            self.cog.bot,
+        await self.cog.track(
+            play,
             self.guild_id,
             self.owner,
             getattr(self.message, "channel", None),
-            delta,
-            net=play.net,
-        )
-        await apuestas.record(
-            self.cog.bot,
-            self.guild_id,
-            self.owner,
-            game=GAME,
-            stake=play.paid_stake,
-            net=play.net,
-            balance_after=play.balance,
-            tax=play.settlement.bet.tax_delta,
+            autoplay=autoplay,
         )
 
     async def _spin(self, interaction: discord.Interaction) -> None:
@@ -1938,15 +1910,23 @@ class Slots(commands.Cog, name="Tragaperras"):
         self.coin = coin or (lambda: random.SystemRandom().random() < 0.5)
         # Lo que sube la barra de bonus en cada tirada; inyectable en pruebas.
         self.randbelow = randbelow or random.SystemRandom().randrange
-        # Calor (con la hora en que se tocó por última vez) y turbo por
-        # (servidor, miembro). Crecen como mucho hasta el número de miembros
-        # que han jugado. El calor se guarda también en `repository`.
-        self._heat: dict[tuple[int, int], int] = {}
-        self._heat_at: dict[tuple[int, int], float] = {}
-        self._bonus: dict[tuple[int, int], BonusMeter] = {}
+        # Calor (con la hora en que se tocó por última vez) y barra de bonus por
+        # (servidor, miembro, máquina): la 0 es la de Discord y las demás, las de
+        # la plaza del Jovaniverso. Crecen como mucho hasta los miembros que han
+        # jugado por las máquinas de la plaza. Se guardan también en `repository`.
+        self._heat: dict[tuple[int, int, int], int] = {}
+        self._heat_at: dict[tuple[int, int, int], float] = {}
+        self._bonus: dict[tuple[int, int, int], BonusMeter] = {}
+        # Una tirada a la vez por máquina: entre leer el calor y guardarlo se espera
+        # a la base de datos, y dos clics seguidos se pisarían.
+        self._locks: dict[tuple[int, int, int], TimedLock] = {}
         self._turbo: dict[tuple[int, int], bool] = {}
         # Máquinas abiertas: para jugar sus giros gratis si el bot se apaga.
         self.machines: set[SlotMachineView] = set()
+        # Las máquinas de la plaza del Jovaniverso (giros gratis y ▶️ Auto de cada una).
+        self.seats = Seats()
+        # Logros y anuncios de la plaza, que van después de contestar a la página.
+        self._background: set[asyncio.Future[None]] = set()
 
     async def cog_unload(self) -> None:
         """Al apagar, juega los giros gratis pendientes y cierra el dibujo."""
@@ -1958,31 +1938,33 @@ class Slots(commands.Cog, name="Tragaperras"):
                 logger.exception("No se pudieron jugar los giros gratis al apagar")
             view.stop()
         self.machines.clear()
+        if self._background:
+            await asyncio.gather(*self._background, return_exceptions=True)
         await self.renderer.close()
 
     # -- Estado por miembro ----------------------------------------------------------
 
-    def heat(self, guild_id: int, user_id: int) -> int:
-        """Calor de la máquina de un miembro (sin aplicar el enfriado pendiente)."""
-        return self._heat.get((guild_id, user_id), 0)
+    def heat(self, guild_id: int, user_id: int, machine: int = 0) -> int:
+        """Calor de una máquina de un miembro (sin aplicar el enfriado pendiente)."""
+        return self._heat.get((guild_id, user_id, machine), 0)
 
-    def bonus(self, guild_id: int, user_id: int) -> BonusMeter:
-        """Barra de bonus de la máquina de un miembro."""
-        return self._bonus.get((guild_id, user_id), BonusMeter())
+    def bonus(self, guild_id: int, user_id: int, machine: int = 0) -> BonusMeter:
+        """Barra de bonus de una máquina de un miembro."""
+        return self._bonus.get((guild_id, user_id, machine), BonusMeter())
 
-    async def load_heat(self, guild_id: int, user_id: int) -> None:
-        """Trae calor y barra de bonus guardados la primera vez que el miembro juega."""
-        key = (guild_id, user_id)
+    async def load_heat(self, guild_id: int, user_id: int, machine: int = 0) -> None:
+        """Trae calor y barra de bonus guardados la primera vez que se juega a esa máquina."""
+        key = (guild_id, user_id, machine)
         if key in self._bonus or self.repository is None:
             return
-        saved = await self.repository.load_heat(guild_id, user_id)
+        saved = await self.repository.load_heat(guild_id, user_id, machine)
         if saved is not None:
             self._heat[key], self._heat_at[key] = saved
-        self._bonus[key] = await self.repository.load_bonus(guild_id, user_id)
+        self._bonus[key] = await self.repository.load_bonus(guild_id, user_id, machine)
 
-    def cool_down(self, guild_id: int, user_id: int) -> int:
+    def cool_down(self, guild_id: int, user_id: int, machine: int = 0) -> int:
         """Aplica el enfriado por el tiempo sin jugar y devuelve los puntos perdidos."""
-        key = (guild_id, user_id)
+        key = (guild_id, user_id, machine)
         heat = self._heat.get(key, 0)
         since = self._heat_at.get(key)
         if not heat or since is None:
@@ -1995,13 +1977,24 @@ class Slots(commands.Cog, name="Tragaperras"):
         self._heat_at[key] = since + (heat - cooled) * HEAT_DECAY_SECONDS
         return heat - cooled
 
-    async def _save_heat(self, guild_id: int, user_id: int) -> None:
-        key = (guild_id, user_id)
+    async def _save_heat(self, guild_id: int, user_id: int, machine: int = 0) -> None:
+        key = (guild_id, user_id, machine)
         self._heat_at[key] = self.clock()
         if self.repository is not None:
             await self.repository.save_heat(
-                guild_id, user_id, self._heat.get(key, 0), self._heat_at[key], self.bonus(*key)
+                guild_id,
+                user_id,
+                self._heat.get(key, 0),
+                self._heat_at[key],
+                self.bonus(*key),
+                machine=machine,
             )
+
+    def _lock(self, key: tuple[int, int, int]) -> TimedLock:
+        """El candado de una máquina de un miembro, creado la primera vez."""
+        if (lock := self._locks.get(key)) is None:
+            lock = self._locks[key] = TimedLock("slots:Slots._locks")
+        return lock
 
     async def daily_status(self, guild_id: int, user_id: int) -> tuple[bool, int]:
         """`(si puede cobrar hoy el giro del día, racha que tendría al cobrarlo)`."""
@@ -2067,11 +2060,14 @@ class Slots(commands.Cog, name="Tragaperras"):
         daily_streak: int = 0,
         spin: Spin | None = None,
         ready: ReadyFn | None = None,
+        machine: int = 0,
     ) -> SlotsPlay:
         """Juega una tirada: decide los rodillos y mueve el dinero de forma atómica.
 
         Los rodillos se deciden antes de cobrar, pero solo se enseñan si el
         cobro sale bien. El calor solo cambia si la tirada se ha pagado.
+        Cada máquina tiene su calor y su barra de bonus, y juega una tirada a la
+        vez (`_lock`); el dibujo va fuera del candado.
 
         Args:
             stake: Apuesta; en un giro gratis, la que lo activó (no se cobra).
@@ -2080,41 +2076,41 @@ class Slots(commands.Cog, name="Tragaperras"):
                 los 🎟️ cuentan); 0 en el resto.
             spin: Los rodillos ya sorteados por adelantado; si no, se sortean aquí.
             ready: Lo pintado por adelantado de la máquina (`SlotMachineView._ready`).
+            machine: 0 la de Discord; las demás, las de la plaza del Jovaniverso.
 
         Raises:
             InsufficientFundsError: Si el saldo no cubre la apuesta.
             BalanceLimitError: Si el premio superaría el saldo máximo.
         """
-        key = (guild_id, user_id)
+        key = (guild_id, user_id, machine)
         daily = daily_streak > 0
         charged = not free and not daily
-        await self.load_heat(guild_id, user_id)
-        self.cool_down(guild_id, user_id)
-        if spin is None:
-            spin = self.machine.spin()
-        hot = self.heat(guild_id, user_id) >= HEAT_MAX
-        payout = line_payout(spin, stake, hot=hot)
-        settlement = await self.economy.play_slots(
-            guild_id,
-            user_id,
-            game=GAME,
-            stake=stake if charged else 0,
-            payout=payout,
-            share=pot_share(stake) if charged else 0,
-            jackpot=spin.is_jackpot,
-            seed=POT_SEED,
-            cap=POT_CAP,
-        )
-        heat = next_heat(
-            self.heat(guild_id, user_id), paid=payout > 0 or spin.is_jackpot, was_hot=hot
-        )
-        self._heat[key] = heat
-        bonus_stake = bonus_fill_spins = 0
-        if charged:
-            meter = self.bonus(guild_id, user_id)
-            self._bonus[key], bonus_stake = add_bonus(meter, spin, stake, self.randbelow)
-            bonus_fill_spins = meter.spins + 1 if bonus_stake else 0
-        await self._save_heat(guild_id, user_id)
+        async with self._lock(key):
+            await self.load_heat(*key)
+            self.cool_down(*key)
+            if spin is None:
+                spin = self.machine.spin()
+            hot = self.heat(*key) >= HEAT_MAX
+            payout = line_payout(spin, stake, hot=hot)
+            settlement = await self.economy.play_slots(
+                guild_id,
+                user_id,
+                game=GAME,
+                stake=stake if charged else 0,
+                payout=payout,
+                share=pot_share(stake) if charged else 0,
+                jackpot=spin.is_jackpot,
+                seed=POT_SEED,
+                cap=POT_CAP,
+            )
+            heat = next_heat(self.heat(*key), paid=payout > 0 or spin.is_jackpot, was_hot=hot)
+            self._heat[key] = heat
+            bonus_stake = bonus_fill_spins = 0
+            if charged:
+                meter = self.bonus(*key)
+                self._bonus[key], bonus_stake = add_bonus(meter, spin, stake, self.randbelow)
+                bonus_fill_spins = meter.spins + 1 if bonus_stake else 0
+            await self._save_heat(*key)
         media = await self._media(
             spin,
             turbo=turbo,
@@ -2227,6 +2223,255 @@ class Slots(commands.Cog, name="Tragaperras"):
             cost=price,
             respin_chain=chain,
         )
+
+    async def track(
+        self,
+        play: SlotsPlay,
+        guild_id: int,
+        user: discord.abc.User,
+        channel: object,
+        *,
+        autoplay: bool = False,
+        extra: StatDelta | None = None,
+    ) -> None:
+        """Logros y estadísticas del casino de una tirada, después de enseñarla.
+
+        Lo usan la máquina de Discord y las de la plaza del Jovaniverso.
+
+        Args:
+            extra: Lo que suma además la tirada (las de la plaza, `universo_slots_stats`).
+                Una tirada de la plaza llega sin dibujo pero se ha visto entera en la
+                página: no cuenta como ⚡ Turbo.
+        """
+        if play.respin:
+            delta = slots_respin_stats(
+                price=play.paid_stake,
+                payout=play.payout,
+                jackpot=play.jackpot,
+                chain=play.respin_chain,
+            )
+        else:
+            delta = slots_stats(
+                play.spin,
+                stake=play.stake,
+                payout=play.payout,
+                jackpot=play.jackpot,
+                free=play.free,
+                hot=play.hot,
+                turbo=not play.media.gif and extra is None,
+                session_spins=play.session_spins,
+                when=datetime.now(TIMEZONE),
+                autoplay=autoplay,
+                tier=play.tier,
+                mystery=play.mystery,
+                drought=play.settlement.drought,
+                daily=play.daily,
+                daily_streak=play.daily_streak,
+            )
+        if play.bonus_stake:
+            delta.merge(slots_bonus_stats(fill_spins=play.bonus_fill_spins))
+        if extra is not None:
+            delta.merge(extra)
+        delta.merge(
+            casino_stats(
+                stake=play.paid_stake,
+                net=play.net,
+                balance_after=play.balance,
+                tax_delta=play.settlement.bet.tax_delta,
+            )
+        )
+        await logros.casino_play(
+            self.bot,
+            guild_id,
+            user,
+            channel,
+            delta,
+            net=play.net,
+        )
+        await apuestas.record(
+            self.bot,
+            guild_id,
+            user,
+            game=GAME,
+            stake=play.paid_stake,
+            net=play.net,
+            balance_after=play.balance,
+            tax=play.settlement.bet.tax_delta,
+        )
+
+    # -- Plaza del Jovaniverso --------------------------------------------------------
+
+    async def plaza(
+        self,
+        guild_id: int,
+        member: discord.Member,
+        channel: object,
+        *,
+        machine: int,
+        stake: int,
+        auto: bool,
+        audience: int,
+    ) -> dict[str, Any]:
+        """Juega una tirada en una tragaperras de la plaza y dice cómo enseñarla.
+
+        Mismo dinero que `tragas` (`play`, con el calor y la barra de esa máquina) y
+        sin dibujo: la página pinta los fotogramas que salen de `spin_states`, los
+        mismos de la animación de Discord. Logros, anuncio y estadísticas van
+        después de contestar.
+
+        Args:
+            channel: Canal desde el que se abrió la Activity (logros y anuncios).
+            auto: Si la tirada es del ▶️ Auto (la primera lo arranca).
+            audience: Cuántos más hay en la sala del Jovaniverso.
+
+        Raises:
+            SeatError: Si no se puede jugar (máquina, ritmo, saldo o banca), con el
+                texto para la página.
+        """
+        now = time.monotonic()
+        self.seats.sweep(now)
+        user_id = member.id
+        turn = self.seats.begin(guild_id, user_id, machine, stake=stake, auto=auto, now=now)
+        try:
+            play = await self.play(
+                guild_id,
+                user_id,
+                stake=turn.stake,
+                free=turn.free,
+                turbo=False,
+                render=False,
+                session_spins=turn.session_spins,
+                machine=machine,
+            )
+        except (InsufficientFundsError, BalanceLimitError) as error:
+            ended = self.seats.stop(guild_id, user_id, machine)
+            if ended is not None and ended.spins:
+                reason = (
+                    StopReason.NO_FUNDS
+                    if isinstance(error, InsufficientFundsError)
+                    else StopReason.BANK_LIMIT
+                )
+                self._later(self._plaza_auto_end(guild_id, member, channel, ended, reason))
+            if isinstance(error, InsufficientFundsError):
+                raise SeatError(insufficient_text(error.balance, turn.stake)) from error
+            raise SeatError("La banca no puede pagar tanto. Baja la apuesta.") from error
+        ended = self.seats.finish(
+            guild_id,
+            user_id,
+            machine,
+            turn,
+            now=now,
+            net=play.net,
+            big_prize=play.big_prize,
+            triggers_free_spins=play.spin.triggers_free_spins,
+            bonus_stake=play.bonus_stake,
+        )
+        seat = self.seats.seat(guild_id, user_id, machine)
+        text = result_text(play)
+        if line := tax_note(play.settlement.bet.tax_delta, [play]):
+            text += f"\n{line}"
+        moment = bet_moment(stake=play.paid_stake, net=play.net, balance_after=play.balance)
+        if line := await renta.hint(self.bot, guild_id, user_id, moment):
+            text += f"\n{line}"
+        extra = universo_slots_stats(
+            machine,
+            at_once=len(self.seats.active(guild_id, user_id, now)),
+            auto=auto,
+            big_prize=play.big_prize,
+            jackpot=play.jackpot > 0,
+            audience=audience,
+        )
+        self._later(self._plaza_after(play, guild_id, member, channel, extra, auto, ended))
+        meter = self.bonus(guild_id, user_id, machine)
+        return {
+            "machine": machine,
+            "states": spin_states(play.spin, won=play.won, stake=play.stake),
+            "stops": list(play.spin.stops),
+            "stake": play.stake,
+            "bet": turn.bet,
+            "free": play.free,
+            "won": play.won,
+            "net": play.net,
+            "jackpot": play.jackpot,
+            "big_prize": play.big_prize,
+            "tier": play.tier,
+            "near_miss": play.spin.near_miss,
+            "free_won": play.spin.triggers_free_spins or bool(play.bonus_stake),
+            "balance": play.balance,
+            "balance_text": format_amount(play.balance),
+            "pot": play.settlement.pot,
+            "pot_text": format_amount(play.settlement.pot),
+            "heat": play.heat,
+            "heat_max": HEAT_MAX,
+            "bonus": meter.points,
+            "bonus_fill": bar_fill(meter.points, BONUS_MAX),
+            "free_spins": seat.free_spins,
+            "text": text,
+            "auto": seat.auto is not None,
+            "auto_stop": auto_stop_text(ended[0], ended[1].stake) if ended else None,
+        }
+
+    async def plaza_meta(self, guild_id: int) -> dict[str, Any]:
+        """Lo que necesita la página para montar la fila de máquinas al entrar.
+
+        Las tiras y los nombres de los símbolos de la escena (sin los PNG: la página
+        los descarga de sus `assets`), cómo está parada cada máquina y el bote.
+        """
+        return {
+            "machines": PLAZA_MACHINES,
+            "max_at_once": PLAZA_MAX_AT_ONCE,
+            "min_gap": PLAZA_MIN_GAP,
+            "strips": list(REEL_STRIPS),
+            "symbols": dict(SYMBOL_FILES),
+            "stills": [
+                still_state(self.machine.spin(), highlight=False) for _ in range(PLAZA_MACHINES)
+            ],
+            "pot_text": format_amount(await self.pot(guild_id)),
+        }
+
+    def plaza_stop(
+        self, guild_id: int, member: discord.Member, channel: object, machine: int
+    ) -> None:
+        """⏹️ Para a mano el Auto de una máquina de la plaza (si había uno)."""
+        ended = self.seats.stop(guild_id, member.id, machine)
+        if ended is not None and ended.spins:
+            reason = StopReason.MANUAL
+            self._later(self._plaza_auto_end(guild_id, member, channel, ended, reason))
+
+    async def _plaza_after(
+        self,
+        play: SlotsPlay,
+        guild_id: int,
+        member: discord.Member,
+        channel: object,
+        extra: StatDelta,
+        auto: bool,
+        ended: tuple[StopReason, PlazaAuto] | None,
+    ) -> None:
+        await self.track(play, guild_id, member, channel, autoplay=auto, extra=extra)
+        await self.shout(play, member, channel)
+        if ended is not None:
+            await self._plaza_auto_end(guild_id, member, channel, ended[1], ended[0])
+
+    async def _plaza_auto_end(
+        self,
+        guild_id: int,
+        member: discord.Member,
+        channel: object,
+        ended: PlazaAuto,
+        reason: StopReason,
+    ) -> None:
+        """Logros de una sesión de ▶️ Auto de la plaza que acaba de terminar."""
+        delta = slots_autoplay_stats(spins=ended.spins, net=ended.net, reason=reason)
+        if reason is StopReason.MANUAL and ended.spins == 1:
+            delta.add["universo_slots_regret"] = 1
+        await logros.track(self.bot, guild_id, member, channel, delta)
+
+    def _later(self, job: Awaitable[None]) -> None:
+        """Lanza algo que no hace falta para contestar a la página, sin perderlo de vista."""
+        task = asyncio.ensure_future(job)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     async def shout(self, play: SlotsPlay, user: discord.abc.User, channel: object) -> None:
         """Anuncia en el canal el bote y los premios enormes, para que se vea."""
@@ -2400,6 +2645,47 @@ class Slots(commands.Cog, name="Tragaperras"):
             send=send,
             send_error=ContextResponder(ctx).send_error,
         )
+
+
+async def plaza(
+    bot: commands.Bot,
+    guild_id: int,
+    member: discord.Member,
+    channel: object,
+    *,
+    machine: int,
+    stake: int,
+    auto: bool,
+    audience: int,
+) -> dict[str, Any] | None:
+    """Una tirada en una tragaperras de la plaza del Jovaniverso (`Slots.plaza`).
+
+    Returns:
+        Lo que necesita la página para enseñarla, o `None` si el cog no está cargado.
+
+    Raises:
+        SeatError: Si no se puede jugar, con el texto para la página.
+    """
+    cog = find_cog(bot, Slots)
+    if cog is None:
+        return None
+    return await cog.plaza(
+        guild_id, member, channel, machine=machine, stake=stake, auto=auto, audience=audience
+    )
+
+
+async def plaza_meta(bot: commands.Bot, guild_id: int) -> dict[str, Any] | None:
+    """La fila de máquinas de la plaza para la página (`Slots.plaza_meta`), o `None`."""
+    cog = find_cog(bot, Slots)
+    return None if cog is None else await cog.plaza_meta(guild_id)
+
+
+def plaza_stop(
+    bot: commands.Bot, guild_id: int, member: discord.Member, channel: object, machine: int
+) -> None:
+    """⏹️ Para el Auto de una tragaperras de la plaza; no hace nada sin el cog."""
+    if (cog := find_cog(bot, Slots)) is not None:
+        cog.plaza_stop(guild_id, member, channel, machine)
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]

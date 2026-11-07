@@ -207,7 +207,8 @@ function colorEn(x: number, z: number, h: number, pend: number): Color {
   return out.multiplyScalar(0.94 + fbm(x * 0.7, z * 0.7, 1) * 0.12);
 }
 
-export function crearTerreno(): Mesh {
+/** El terreno en `teselas` × `teselas` baldosas (divisor de 160), para que three descarte las que no se ven. */
+export function crearTerreno(teselas: number): Mesh[] {
   const pos = new Float32Array(N1 * N1 * 3);
   const col = new Float32Array(N1 * N1 * 3);
   for (let iz = 0; iz < N1; iz++) {
@@ -227,31 +228,51 @@ export function crearTerreno(): Mesh {
       col[i * 3 + 2] = co.b;
     }
   }
-  const idx = new Uint32Array(CELDAS * CELDAS * 6);
-  let k = 0;
-  for (let iz = 0; iz < CELDAS; iz++) {
-    for (let ix = 0; ix < CELDAS; ix++) {
-      const v00 = iz * N1 + ix;
-      const v10 = v00 + 1;
-      const v01 = v00 + N1;
-      const v11 = v01 + 1;
-      idx[k++] = v00;
-      idx[k++] = v01;
-      idx[k++] = v10;
-      idx[k++] = v10;
-      idx[k++] = v01;
-      idx[k++] = v11;
+  // Baldosas de CELDAS/teselas casillas por lado, con los vértices copiados de la rejilla entera (altura y color
+  // idénticos, así que las juntas coinciden) y cada una con su esfera para el culling.
+  const lado = CELDAS / teselas;
+  const n = lado + 1;
+  const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const baldosas: Mesh[] = [];
+  for (let tz = 0; tz < teselas; tz++) {
+    for (let tx = 0; tx < teselas; tx++) {
+      const bp = new Float32Array(n * n * 3);
+      const bc = new Float32Array(n * n * 3);
+      for (let iz = 0; iz < n; iz++) {
+        for (let ix = 0; ix < n; ix++) {
+          const src = ((tz * lado + iz) * N1 + tx * lado + ix) * 3;
+          bp.set(pos.subarray(src, src + 3), (iz * n + ix) * 3);
+          bc.set(col.subarray(src, src + 3), (iz * n + ix) * 3);
+        }
+      }
+      const idx = new Uint16Array(lado * lado * 6);
+      let k = 0;
+      for (let iz = 0; iz < lado; iz++) {
+        for (let ix = 0; ix < lado; ix++) {
+          const v00 = iz * n + ix;
+          const v10 = v00 + 1;
+          const v01 = v00 + n;
+          const v11 = v01 + 1;
+          idx[k++] = v00;
+          idx[k++] = v01;
+          idx[k++] = v10;
+          idx[k++] = v10;
+          idx[k++] = v01;
+          idx[k++] = v11;
+        }
+      }
+      const g = new BufferGeometry();
+      g.setAttribute("position", new BufferAttribute(bp, 3));
+      g.setAttribute("color", new BufferAttribute(bc, 3));
+      g.setIndex(new BufferAttribute(idx, 1));
+      g.computeVertexNormals();
+      g.computeBoundingSphere();
+      const mesh = new Mesh(g, material);
+      mesh.receiveShadow = true;
+      baldosas.push(mesh);
     }
   }
-  const g = new BufferGeometry();
-  g.setAttribute("position", new BufferAttribute(pos, 3));
-  g.setAttribute("color", new BufferAttribute(col, 3));
-  g.setIndex(new BufferAttribute(idx, 1));
-  g.computeVertexNormals();
-  g.computeBoundingSphere();
-  const mesh = new Mesh(g, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
-  mesh.receiveShadow = true;
-  return mesh;
+  return baldosas;
 }
 
 /** Textura de profundidad (8 bits: -6 a +6 m) para que el mar sepa dónde es poco profundo y hacer espuma. */

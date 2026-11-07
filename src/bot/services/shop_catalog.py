@@ -1177,6 +1177,28 @@ CATALOG += tuple(
 CATALOG += tuple(_box(box) for box in BOXES)
 CATALOG += tuple(_piece(piece) for piece in PIECES)
 CATALOG += tuple(_ong_gift(gift) for gift in ONG_GIFTS)
+#: Los gestos del robot del Jovaniverso (`bot.services.universo.GESTURES`, mismas
+#: claves). No se usan desde la mochila: con tenerlos, se hacen en `universo`. Uno por
+#: persona, cada uno en el pasillo de su broma, con IGIC general (contenido digital).
+# fmt: off
+_GESTURE = "Gesto del robot en el Jovaniverso (`universo`): "
+CATALOG += (
+    _t("gesto_saludo", "canarias", "👋", "Saludo de reina del Carnaval", 4_000,
+       _GESTURE + "saluda con la mano, como desde la carroza.", per_user=1),
+    _t("gesto_baile", "boricua", "💃", "Perreo robótico", 9_900,
+       _GESTURE + "baila sin parar hasta que te mueves.", per_user=1),
+    _t("gesto_pulgar", "espana", "👍", "Like de tu tía", 2_500,
+       _GESTURE + "levanta el pulgar.", per_user=1),
+    _t("gesto_si", "ventanilla", "✅", "Visto bueno", 2_500,
+       _GESTURE + "asiente con la cabeza.", per_user=1),
+    _t("gesto_no", "ventanilla", "❌", "Vuelva usted mañana", 2_500,
+       _GESTURE + "niega con la cabeza.", per_user=1),
+    _t("gesto_sentarse", "canarias", "🪑", "Esperando la guagua", 5_000,
+       _GESTURE + "se sienta en el suelo hasta que te mueves.", per_user=1),
+    _t("gesto_punetazo", "cotillon", "👊", "Bronca de verbena", 6_000,
+       _GESTURE + "lanza un puñetazo al aire. No hace daño a nadie.", per_user=1),
+)
+# fmt: on
 #: Lo que solo da la Rueda (`rueda_catalog`): oculto, en 🎉 Fiestas y verbenas.
 CATALOG += tuple(
     CatalogEntry(

@@ -124,6 +124,7 @@ from bot.services.achievements import (
     SPORTS_PICK_PREFIX,
     SPORTS_PICKS,
     TOPIC_KINDS_STAT,
+    UNIVERSO_GESTURES,
     UNIVERSO_PLACE_PREFIX,
     UNIVERSO_PLACES,
     UNLOCKED_STAT,
@@ -169,6 +170,7 @@ from bot.services.achievements import (
     sports_slip_stats,
     sports_void_stats,
     total_reward,
+    universo_gesture_stats,
     universo_stats,
     universo_walk_stats,
     with_derived,
@@ -349,6 +351,14 @@ PRODUCED_STATS = {
     # 🎤 Jovani: pasear por el Jovaniverso (`universo_walk_stats`)
     "universo_meters", "universo_jumps",
     "universo_people", "universo_crowd_max",
+    # 🎤 Jovani: gestos del robot (`universo_gesture_stats`)
+    "universo_gestures", *(f"universo_gesture_{g}" for g, *_ in UNIVERSO_GESTURES),
+    "universo_wave_near", "universo_punch_near", "universo_dance_max", "universo_sit_summit",
+    # 🎤 Jovani: tragaperras de la plaza (`universo_slots_stats` y el fin del ▶️ Auto)
+    "universo_slots_spins", "universo_slots_auto", "universo_slots_audience",
+    "universo_slots_jackpot", "universo_slots_at_once", "universo_slots_regret",
+    *(f"universo_slots_machine_{m}" for m in range(1, 7)),
+    "universo_dance_canarias",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),
     *(f"jovani_look_{key}" for key in (
         "pijama", "hacienda", "casino", "actualizado", "beernight", "dragon", "carnaval",
@@ -2772,3 +2782,29 @@ def test_los_metros_se_leen_en_km() -> None:
     assert format_value(350, "m") == "350 m"
     assert format_value(42_195, "m") == "42,2 km"
     assert format_value(1_000_000, "m") == "1.000,0 km"
+
+
+def test_los_gestos_del_universo_son_los_que_vende_la_tienda() -> None:
+    from bot.services.shop_catalog import CATALOG
+
+    by_key = {entry.key: entry for entry in CATALOG}
+    keys = {f"gesto_{g}" for g, *_ in UNIVERSO_GESTURES}
+    assert keys == set(universo_service.GESTURES.values())
+    assert all(by_key[key].per_user == 1 for key in keys)
+    assert len(BY_ID["universo_gestures_all"].conditions) == len(keys)
+
+
+def test_un_gesto_suma_lo_suyo_segun_quien_hay_cerca_y_donde() -> None:
+    noon = datetime(2026, 11, 6, 12, tzinfo=UTC)
+    alone = universo_gesture_stats("saludo", near=0, together=1, summit=False, when=noon)
+    assert alone.add == {"universo_gestures": 1, "universo_gesture_saludo": 1}
+    wave = universo_gesture_stats("saludo", near=2, together=1, summit=False, when=noon)
+    assert wave.add["universo_wave_near"] == 1
+    punch = universo_gesture_stats("punetazo", near=1, together=1, summit=False, when=noon)
+    assert punch.add["universo_punch_near"] == 1
+    sit = universo_gesture_stats("sentarse", near=0, together=1, summit=True, when=noon)
+    assert sit.add["universo_sit_summit"] == 1
+    canarias = datetime(2027, 5, 30, 12, tzinfo=UTC)
+    dance = universo_gesture_stats("baile", near=3, together=3, summit=False, when=canarias)
+    assert dance.peak == {"universo_dance_max": 3}
+    assert dance.add["universo_dance_canarias"] == 1

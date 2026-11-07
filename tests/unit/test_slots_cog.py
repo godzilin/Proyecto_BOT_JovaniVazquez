@@ -1095,7 +1095,7 @@ def test_mientras_gira_se_ve_el_cartel_de_premios() -> None:
 async def test_la_barra_de_bonus_llena_da_giros_gratis_a_la_apuesta_media(tmp_path: Path) -> None:
     cog = await make_cog(tmp_path, [LOSS], randbelow=lambda _n: 0)
     # Con la barra a uno del final, un punto más la llena.
-    cog._bonus[(GUILD_ID, OWNER_ID)] = BonusMeter(BONUS_MAX - 1, 50 * 9, 9)
+    cog._bonus[(GUILD_ID, OWNER_ID, 0)] = BonusMeter(BONUS_MAX - 1, 50 * 9, 9)
     view = make_view(cog)
 
     await view.play(make_interaction())

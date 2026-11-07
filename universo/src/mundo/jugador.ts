@@ -3,6 +3,7 @@
 import { AnimationAction, AnimationClip, AnimationMixer, Box3, Group, LoopOnce, Mesh, MeshStandardMaterial, Object3D, Vector3 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { empujar } from "./colision";
+import { GESTOS, gestoDe } from "./gestos";
 import { clamp } from "./ruido";
 import { SUELO_AGUA, PLAZA, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./terreno";
 import robotUrl from "../modelos/robot.glb?url";
@@ -28,8 +29,9 @@ export interface Entrada {
 
 export class Jugador {
   readonly objeto = new Group();
-  x = PLAZA.x + 4;
-  z = PLAZA.z + 6;
+  // Cada uno aparece en un punto algo distinto de la plaza para no salir unos encima de otros.
+  x = PLAZA.x + 4 + (Math.random() - 0.5) * 6;
+  z = PLAZA.z + 6 + (Math.random() - 0.5) * 6;
   y = 0;
   vy = 0;
   velH = 0;
@@ -44,6 +46,8 @@ export class Jugador {
   private mixer: AnimationMixer;
   private acciones: Record<string, AnimationAction> = {};
   private actual = "Idle";
+  /** Id (4-10) del gesto en marcha, o 0. */
+  private enGesto = 0;
   private tmp = { x: 0, z: 0 };
 
   private constructor(
@@ -171,7 +175,26 @@ export class Jugador {
       this.giro += d * (1 - Math.exp(-dt * 14));
     }
     this.colocar();
-    this.animar(dt);
+    this.animar(dt, e.fuerza > 0.02);
+  }
+
+  /** Hace un gesto (4-10) si estás en el suelo. Moverte o saltar lo corta. */
+  gesto(id: number): void {
+    const g = gestoDe(id);
+    if (!g || !this.suelo) return;
+    let a = this.acciones[g.clip];
+    if (!a) {
+      const clip = this.clips.find((c) => c.name === g.clip);
+      if (!clip) return;
+      a = this.acciones[g.clip] = this.mixer.clipAction(clip);
+      if (g.modo !== "bucle") {
+        a.setLoop(LoopOnce, 1);
+        a.clampWhenFinished = true;
+      }
+    }
+    if (this.actual === g.clip) a.reset().play();
+    else this.fundir(g.clip, 0.2);
+    this.enGesto = id;
   }
 
   private colocar(): void {
@@ -195,9 +218,19 @@ export class Jugador {
     this.actual = nombre;
   }
 
-  private animar(dt: number): void {
+  private animar(dt: number, mueve: boolean): void {
+    if (this.enGesto) {
+      const g = GESTOS[this.enGesto - 4];
+      const a = this.acciones[g.clip];
+      if (mueve || !this.suelo) this.enGesto = 0;
+      else if (g.modo === "una" && a.time >= a.getClip().duration) {
+        this.enGesto = 0;
+        this.fundir("Idle", 0.2);
+      }
+    }
     let quiero: string;
-    if (!this.suelo) quiero = "Jump";
+    if (this.enGesto) quiero = this.actual;
+    else if (!this.suelo) quiero = "Jump";
     else if (this.velH > 7) quiero = "Running";
     else if (this.velH > 0.4) quiero = "Walking";
     else quiero = "Idle";
@@ -208,9 +241,9 @@ export class Jugador {
     this.mixer.update(dt);
   }
 
-  /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar. */
+  /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar, 4-10 gestos. */
   get anim(): number {
-    return { Idle: 0, Walking: 1, Running: 2, Jump: 3 }[this.actual] ?? 0;
+    return this.enGesto || ({ Idle: 0, Walking: 1, Running: 2, Jump: 3 }[this.actual] ?? 0);
   }
 
   get posicion(): Vector3 {

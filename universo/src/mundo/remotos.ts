@@ -18,6 +18,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
+import { gestoDe } from "./gestos";
 import { PASO_ANDAR, PASO_CORRER } from "./jugador";
 import { MATERIAL_CUERPO, type PlantillaRobot } from "./robot";
 import { clamp } from "./ruido";
@@ -192,18 +193,31 @@ export class Remotos {
 
   private animar(r: Remoto, dt: number, a: number, span: number): void {
     const quiero = a < 0.5 ? r.panim : r.nanim;
-    const q = quiero >= NOMBRES.length ? 0 : quiero;
+    const q = quiero > 10 ? 0 : quiero;
     if (q !== r.actual) {
       const de = r.acciones[r.actual];
-      const hacia = r.acciones[q];
+      const hacia = r.acciones[q] ?? this.accionGesto(r, q);
       hacia.reset().play();
-      hacia.crossFadeFrom(de, q === 3 ? 0.1 : 0.22, false);
+      hacia.crossFadeFrom(de, q === 3 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
       r.actual = q;
     }
     const v = Math.hypot(r.nx - r.px, r.nz - r.pz) / (span / 1000);
     r.acciones[1].timeScale = clamp(v / PASO_ANDAR, 0.4, 3);
     r.acciones[2].timeScale = clamp(v / PASO_CORRER, 0.5, 3);
     (r.mixer as AnimationMixer).update(dt);
+  }
+
+  /** La acción de un gesto (4-10), creada la primera vez que ese jugador lo hace. */
+  private accionGesto(r: Remoto, q: number): AnimationAction {
+    const g = gestoDe(q) as NonNullable<ReturnType<typeof gestoDe>>;
+    const clip = this.plantilla.clips.find((c) => c.name === g.clip);
+    if (!clip) throw new Error(`Falta la animación ${g.clip}`);
+    const acc = (r.mixer as AnimationMixer).clipAction(clip);
+    if (g.modo !== "bucle") {
+      acc.setLoop(LoopOnce, 1);
+      acc.clampWhenFinished = true;
+    }
+    return (r.acciones[q] = acc);
   }
 
   private montar(r: Remoto): void {

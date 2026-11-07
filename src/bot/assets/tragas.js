@@ -94,7 +94,8 @@
 //   procesos dejaría de dar los mismos bytes. La escena pone window.exportFrame ??= (c) => c.toDataURL(...).
 "use strict";
 window.Tragas = (() => {
-  const T = { S: 2 };
+  // La página del Jovaniverso pinta a escala 1 (pone window.TRAGAS_S antes de cargar esto); Node y Chromium, a 2.
+  const T = { S: Number(globalThis.TRAGAS_S) || 2 };
   const TAU = Math.PI * 2;
   const CACHE = new Map();    // bombillas: se hacen la primera vez que se piden
 
