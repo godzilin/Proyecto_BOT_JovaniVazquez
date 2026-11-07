@@ -41,7 +41,7 @@ interface ErrorResponse {
 
 const FAILURE = "No se ha podido entrar en el Jovaniverso. Cierra la Activity y vuelve a abrirla.";
 const SIN_DISCORD = "Abre el Jovaniverso desde Discord para ver tu saldo";
-const AYUDA_ESCRITORIO = "WASD para moverte · Shift para correr · Espacio para saltar · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos";
+const AYUDA_ESCRITORIO = "WASD para moverte · Shift para correr · Espacio para saltar · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos · ⚙ para capturar el ratón y cambiar el campo de visión";
 const AYUDA_MOVIL = "Mueve el joystick para andar; empújalo hasta el borde para correr · 👁 para primera persona · 👋 para gestos";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;

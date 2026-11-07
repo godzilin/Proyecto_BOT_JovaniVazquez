@@ -8,6 +8,11 @@ criterio.
 
 ## 10.x
 
+### 10.1.0 · 2026-11-07
+
+- Jovaniverso: menú ⚙ de ajustes con campo de visión, sensibilidad de la cámara e invertir el eje vertical
+- Jovaniverso: en el ordenador, opción de capturar el ratón para girar la cámara sin arrastrar, con punto de mira para pulsar las tragaperras (Esc lo suelta)
+
 ### 10.0.0 · 2026-11-07
 
 - Jovaniverso: el editor del mundo ya no lo usa cualquier administrador de Discord, solo quien tenga permiso de editor

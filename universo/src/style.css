@@ -173,6 +173,99 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.boton-ajustes {
+  position: fixed;
+  right: calc(max(20px, env(safe-area-inset-right)) + 2 * (56px + 10px));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--text);
+  font-size: 1.6rem;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+  backdrop-filter: blur(4px);
+}
+
+.panel-ajustes {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 66px);
+  width: min(320px, calc(100% - 32px));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.panel-ajustes[hidden] {
+  display: none;
+}
+
+.panel-ajustes h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ajuste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.ajuste-casilla {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ajuste small {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.ajuste-cabeza {
+  display: flex;
+  justify-content: space-between;
+}
+
+.ajuste output {
+  color: var(--accent);
+}
+
+.ajuste input {
+  accent-color: var(--accent);
+}
+
+.punto-mira {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.punto-mira[hidden] {
+  display: none;
+}
+
 .panel-gestos {
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
@@ -276,6 +369,14 @@ body {
     bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px);
   }
   .panel-gestos {
+    bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px + 56px + 10px);
+  }
+  /* A la izquierda del 👁. */
+  .boton-ajustes {
+    right: calc(max(22px, env(safe-area-inset-right)) + 76px + 12px + 56px + 10px);
+    bottom: calc(max(28px, env(safe-area-inset-bottom)) + 10px);
+  }
+  .panel-ajustes {
     bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px + 14px + 56px + 10px);
   }
   .ayuda {
