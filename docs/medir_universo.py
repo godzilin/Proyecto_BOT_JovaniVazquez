@@ -157,7 +157,7 @@ def main() -> None:
     ap.add_argument("--capturas", type=Path, help="carpeta donde guardar las capturas")
     ap.add_argument("--json", type=Path, help="guarda las cifras en este archivo")
     ap.add_argument(
-        "--extra", default="", help="parámetros de URL extra, p. ej. &celda=48&teselas=10"
+        "--extra", default="", help="parámetros de URL extra, p. ej. &teselas=10"
     )
     ap.add_argument("--solo", choices=list(PERFILES), default="", help="mide solo este perfil")
     a = ap.parse_args()

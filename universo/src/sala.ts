@@ -25,12 +25,14 @@ interface Jugadores {
 /**
  * Abre la sala y devuelve la función que la cierra. Sin `sesion` (fuera de Discord) usa el saludo de desarrollo.
  * `avisar` recibe el texto de un `error` del servidor (por ejemplo, que has entrado desde otro sitio).
+ * `alMundo` se llama cuando alguien publica un mundo nuevo (`{t: "mundo", version}`).
  */
 export function iniciarSala(
   yo: PoseLocal,
   remotos: Remotos,
   sesion: Sesion | null,
   avisar: (texto: string) => void = () => {},
+  alMundo: () => void = () => {},
 ): () => void {
   const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/sala`;
   const buffer = new ArrayBuffer(9); // se reutiliza en cada envío
@@ -69,6 +71,7 @@ export function iniciarSala(
           remotos.bienvenida(m.slot as number, m.jugadores ?? []);
         } else if (m.t === "entra") remotos.entra(m.slot as number, m.id as string, m.nombre as string);
         else if (m.t === "sale") remotos.sale(m.slot as number);
+        else if (m.t === "mundo") alMundo();
         else if (m.t === "error") {
           error = true;
           console.info("Sala del Jovaniverso:", m.error);

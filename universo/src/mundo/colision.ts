@@ -8,8 +8,18 @@ export interface Circulo {
 
 export const circulos: Circulo[] = [];
 
-export function añadirCirculo(x: number, z: number, r: number): void {
-  circulos.push({ x, z, r });
+export function añadirCirculo(x: number, z: number, r: number): Circulo {
+  const c = { x, z, r };
+  circulos.push(c);
+  return c;
+}
+
+/** Saca del mundo los círculos que devolvió `añadirCirculo`. */
+export function quitarCirculos(lista: Circulo[]): void {
+  const fuera = new Set(lista);
+  let j = 0;
+  for (const c of circulos) if (!fuera.has(c)) circulos[j++] = c;
+  circulos.length = j;
 }
 
 /** Saca (x, z) de cualquier círculo que toque con un radio `r` propio; devuelve la posición corregida. */

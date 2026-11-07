@@ -56,6 +56,7 @@ from bot.repositories.slots import SlotsRepository
 from bot.repositories.sports import SportsRepository
 from bot.repositories.telemetry import TelemetryRepository
 from bot.repositories.todo import TodoRepository
+from bot.repositories.universo_mundo import UniversoMundoRepository
 from bot.repositories.welcome import WelcomeRepository
 from bot.repositories.work import WorkRepository
 from bot.services import node_scene
@@ -356,6 +357,8 @@ class BotClient(commands.Bot):
         # OAuth2 no se abre. El secreto no se registra nunca.
         self.client_secret = client_secret
         self.universo_port = universo_port
+        # Mundo editable del Jovaniverso: borrador, versiones publicadas y modelos GLB.
+        self.universo_mundo = UniversoMundoRepository(database_path)
         self._keep_warm_task: asyncio.Task[None] | None = None
         self._checkpoint_task: asyncio.Task[None] | None = None
         super().__init__(
@@ -447,6 +450,7 @@ class BotClient(commands.Bot):
         await self.last_seen.initialize()
         await self.moderation.initialize()
         await self.aspecto.initialize()
+        await self.universo_mundo.initialize()
 
         for extension in INITIAL_EXTENSIONS:
             await self.load_extension(extension)

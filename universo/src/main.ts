@@ -3,10 +3,12 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Tragas } from "./casino/dibujo";
-import { crearMundo } from "./mundo";
+import type { MundoDoc } from "./editor/formato";
+import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
+import { mundoDeSerie } from "./mundo/serie";
 
 interface ConfigResponse {
   client_id: string;
@@ -22,6 +24,8 @@ interface ProfileResponse {
   balance_text: string;
   version: string;
   gestures: number[];
+  admin?: boolean;
+  mundo?: number;
   /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
   tragas?: Tragas | null;
 }
@@ -106,6 +110,42 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
+/** Pide el mundo publicado de este servidor y lo dibuja en lugar del de serie; si no hay nada publicado o falla, el de serie sigue como estaba. */
+function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
+  if (!sesion.guildId) return Promise.resolve();
+  return api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
+    .then((r) => {
+      if (r.version > 0) mundo.cargarMundo(r.doc);
+    })
+    .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
+}
+
+/** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
+async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
+  try {
+    const r = await api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
+    mundo.cargarMundo(r.version > 0 ? r.doc : mundoDeSerie());
+  } catch (e) {
+    console.warn("No se ha podido cargar el mundo publicado.", e);
+    aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");
+  }
+}
+
+/** Botón del HUD que abre el editor (carga perezosa: no entra en el paquete inicial). */
+function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string }): void {
+  const b = document.createElement("button");
+  b.className = "ed-abrir";
+  b.textContent = "🛠 Editor";
+  b.addEventListener("click", () => {
+    b.disabled = true;
+    import("./editor/editor")
+      .then((m) => m.abrirEditor(sesion, { mundo, recargar: () => restaurarObras(mundo, sesion) }))
+      .catch((e: unknown) => aviso(e instanceof Error ? e.message : "No se ha podido abrir el editor."))
+      .finally(() => (b.disabled = false));
+  });
+  $("capa").append(b);
+}
+
 interface Entrada {
   profile: ProfileResponse;
   session: string;
@@ -142,8 +182,12 @@ async function start(): Promise<void> {
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       iniciarPaseo(mundo, sesion);
-      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso);
+      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => void cargarObras(mundo, sesion));
+      if ((entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
+      if (entrada.profile.admin && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
+        botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
+      }
       if (entrada.profile.tragas) {
         const nombre = entrada.profile.name;
         activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
@@ -152,6 +196,12 @@ async function start(): Promise<void> {
       iniciarSala(mundo.yo, mundo.remotos, null);
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
+      // Solo en desarrollo: `docs/editor_local.py` da una sesión de administrador sin Discord.
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("editor")) {
+        const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion");
+        botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
+        void cargarObras(mundo, { session: dev.session, guildId: dev.guild_id });
+      }
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);

@@ -16,17 +16,17 @@ import { Calidad } from "./mundo/calidad";
 import { Camara } from "./mundo/camara";
 import { Controles } from "./mundo/controles";
 import { crearCielo } from "./mundo/cielo";
-import { Culling, mallasPorCeldas } from "./mundo/culling";
-import { crearCanteras, crearFaro, crearMogan, crearMuelle, crearRoques } from "./mundo/hitos";
+import { Culling } from "./mundo/culling";
 import { Jugador } from "./mundo/jugador";
-import { Lugares } from "./mundo/lugares";
+import { Lugares, fijarZonas } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { crearPueblo } from "./mundo/pueblo";
 import { BAND, CANTERAS, DUNAS, FARO, MUELLE, NUBLO, PICO, PLAZA, crearMapaProfundidad, crearTerreno, heightAt, sueloEn } from "./mundo/terreno";
-import { crearVegetacion } from "./mundo/vegetacion";
+import { Obras } from "./mundo/obras";
+import { mundoDeSerie } from "./mundo/serie";
+import type { MundoDoc } from "./editor/formato";
 
 export interface Informe {
   meters: number;
@@ -37,6 +37,8 @@ export interface Informe {
 /** Lo que necesita un módulo que se cuelga del mundo (el casino): la escena, la cámara, el culling y un gancho por fotograma. */
 export interface Contexto {
   escena: Scene;
+  /** El dibujante del mundo: el editor de niveles pinta con él, en su canvas, mientras el bucle está en pausa. */
+  renderer: WebGLRenderer;
   camara: Camara;
   camara3: PerspectiveCamera;
   culling: Culling;
@@ -57,14 +59,15 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
+  /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes). */
+  cargarMundo(doc: MundoDoc): void;
+  /** Con `true` el bucle no pinta ni simula (el editor está encima); con `false` sigue. */
+  pausar(si: boolean): void;
   detener(): void;
 }
 
-// Tamaños medidos con docs/medir_universo.py; con ?debug=1&celda=..&vegetacion=..&teselas=.. se prueban otros.
-const CELDA_OBRA = 128; // lado en metros de las celdas de construcciones (la isla mide ~240 m: 4 celdas con algo)
-const CELDA_VEGETACION = 96; // más pequeñas encogen la pasada de sombras pero disparan las llamadas (64 m: 125 en la plaza)
+// Tamaños medidos con docs/medir_universo.py (los de obras, en mundo/medidas.ts); con ?debug=1&teselas=.. se prueban otros.
 const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
-const DIST_OBRA = 330; // dentro de la niebla (a 330 m tapa ~75 %)
 const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
 
@@ -114,15 +117,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   escena.add(mar.malla);
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
-  for (const v of crearVegetacion(param("vegetacion", CELDA_VEGETACION))) {
-    escena.add(v.malla);
-    culling.registrarMalla(v.malla, v.distancia);
-  }
-  const piezas = [...crearPueblo(), ...crearFaro(), ...crearMuelle(), ...crearRoques(), ...crearCanteras(), ...crearMogan()];
-  for (const c of mallasPorCeldas(piezas, param("celda", CELDA_OBRA), new MeshLambertMaterial({ vertexColors: true, flatShading: true }))) {
-    escena.add(c);
-    culling.registrarMalla(c, DIST_OBRA);
-  }
+  // El pueblo, los hitos y la vegetación son un mundo de datos más: lo publicado desde el editor lo sustituye.
+  const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  obras.cargar(mundoDeSerie());
   escena.add(jugador.objeto);
   camara.proteger(jugador.objeto);
   camara.enlazarSombra(sol.shadow);
@@ -148,6 +145,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   const ganchos: ((dt: number, ahora: number) => void)[] = [];
   const contexto: Contexto = {
     escena,
+    renderer,
     camara,
     camara3,
     culling,
@@ -164,9 +162,10 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let metrosFrac = 0;
   let saltosPend = 0;
   let metrosPend = 0;
+  let pausado = false;
 
   const fotograma = (ahora: number): void => {
-    if (document.hidden) {
+    if (document.hidden || pausado) {
       ultimo = ahora;
       return;
     }
@@ -302,7 +301,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       saltosPend += i.jumps;
       lugares.devolver(i.places);
     },
+    cargarMundo(doc) {
+      obras.cargar(doc);
+      fijarZonas(doc.zonas);
+    },
+    pausar(si) {
+      pausado = si;
+    },
     detener() {
+      obras.vaciar();
       renderer.setAnimationLoop(null);
       controles.destruir();
       window.removeEventListener("resize", ajustar);

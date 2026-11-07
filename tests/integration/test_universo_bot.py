@@ -68,17 +68,19 @@ async def load(tmp_path: Path, *, secret: str = "secreto") -> BotClient:
     await client.economy.repository.initialize()
     await client.achievements.initialize()
     await client.message_stats.initialize()
+    await client.universo_mundo.initialize()
     for extension in INITIAL_EXTENSIONS:
         await client.load_extension(extension)
     client._connection.application_id = APP_ID
     return client
 
 
-def member(user_id: int = USER_ID, *, bot: bool = False) -> MagicMock:
+def member(user_id: int = USER_ID, *, bot: bool = False, admin: bool = False) -> MagicMock:
     fake = MagicMock(spec=discord.Member)
     fake.id = user_id
     fake.bot = bot
     fake.display_name = "Yeyo"
+    fake.guild_permissions = discord.Permissions(administrator=admin)
     return fake
 
 

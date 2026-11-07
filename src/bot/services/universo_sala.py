@@ -265,6 +265,12 @@ class Salas:
         room = self.rooms.get(guild_id)
         return list(room.players.values()) if room else []
 
+    async def announce(self, guild_id: int, payload: dict[str, object]) -> None:
+        """Manda un aviso JSON a todos los de la sala de un servidor (sin sala, nada)."""
+        room = self.rooms.get(guild_id)
+        if room is not None:
+            await self._broadcast_str(room, json.dumps(payload))
+
     async def close(self) -> None:
         """Para todas las salas (al descargar el cog)."""
         tasks = [room.task for room in self.rooms.values() if room.task is not None]
