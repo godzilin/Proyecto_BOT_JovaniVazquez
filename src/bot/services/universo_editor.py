@@ -314,7 +314,8 @@ def _terrain(value: object) -> dict[str, str]:
         except (ValueError, binascii.Error):
             raise MundoError(f"El terreno: «{key}» no es base64.") from None
     if len(raw["alturas"]) != 2 * n or len(raw["colores"]) != n:
-        raise MundoError(f"El terreno tiene que ser una rejilla de {TERRAIN_SIDE} × {TERRAIN_SIDE}.")
+        side = TERRAIN_SIDE
+        raise MundoError(f"El terreno tiene que ser una rejilla de {side} × {side}.")
     heights = array("h", raw["alturas"])
     if sys.byteorder == "big":
         heights.byteswap()

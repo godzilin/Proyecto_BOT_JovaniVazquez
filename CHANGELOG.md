@@ -8,6 +8,12 @@ criterio.
 
 ## 10.x
 
+### 10.3.0 · 2026-11-07
+
+- Jovaniverso: el editor de niveles tiene editor de terreno: subir, bajar, aplanar, suavizar, pintar el color del suelo y sembrar vegetación, con los objetos siguiendo al suelo
+- Jovaniverso: en el editor se eligen varios objetos o piezas a la vez (Ctrl+clic, caja con Mayús) y se mueven, copian, pegan, alinean y ocultan juntos
+- Jovaniverso: el editor tiene un menú de ayuda (F1) con todos los atajos
+
 ### 10.2.1 · 2026-11-07
 
 - Jovaniverso: los demás jugadores ya no se mueven a tirones; se ven andar fluidos aunque la conexión vaya a trompicones (a cambio, un cuarto de segundo de retraso)

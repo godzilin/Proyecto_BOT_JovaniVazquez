@@ -715,6 +715,41 @@ body {
   margin: 0;
 }
 
+.ed-caja-ancha {
+  width: min(760px, 94vw);
+}
+
+.ed-caja h3 {
+  margin: 8px 0 4px;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+/* Ayuda del editor: atajo a la izquierda y qué hace a la derecha. */
+.ed-ayuda {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.ed-ayuda dt {
+  white-space: nowrap;
+}
+
+.ed-ayuda dd {
+  margin: 0;
+}
+
+.ed-ayuda kbd {
+  padding: 1px 5px;
+  font: inherit;
+  font-size: 0.8rem;
+  background: #3a4060;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
 .ed-version {
   justify-content: space-between;
 }
