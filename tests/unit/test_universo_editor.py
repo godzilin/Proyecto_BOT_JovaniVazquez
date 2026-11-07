@@ -50,7 +50,7 @@ def world(**cambios: object) -> dict:
                     {"forma": "esfera", "pos": [0, 3.1, 0], "rot": [0, 0, 0],
                      "esc": [0.5, 0.5, 0.5], "color": 0xFFE9A0},
                 ],
-                "colision": 0.3,
+                "colision": [[0, 0, 0.3]],
             }
         },
         "objetos": [{"asset": "farola", "pos": [-8, 8, 60], "rot": [0, 1.2, 0], "esc": [1, 1, 1]}],
@@ -67,7 +67,7 @@ def test_las_zonas_movibles_son_logros_que_existen() -> None:
 def test_un_mundo_bueno_sale_igual_y_en_float() -> None:
     clean = validate_world(world(), {})
     assert clean["objetos"][0]["pos"] == [-8.0, 8.0, 60.0]
-    assert clean["assets"]["farola"]["colision"] == 0.3
+    assert clean["assets"]["farola"]["colision"] == [[0.0, 0.0, 0.3]]
     assert asset_triangles(clean["assets"]["farola"], {}) == 48 + 168
 
 
@@ -159,3 +159,90 @@ def test_glb_cuenta_cada_uso_de_la_malla() -> None:
 def test_glb_malo_dice_por_que(data: bytes, texto: str) -> None:
     with pytest.raises(MundoError, match=texto):
         glb_summary(data)
+
+
+def test_un_prisma_cuenta_sus_lados_y_sus_tapas() -> None:
+    tejado = {"forma": "prisma", "pos": [0, 4, 0], "rot": [0, 0, 0], "esc": [6, 1.8, 5],
+              "color": 0xB5523A, "lados": 4, "arriba": 0, "abajo": 1, "fase": 0.785}  # fmt: skip
+    tronco = {**tejado, "lados": 6, "arriba": 0.6, "abajo": 1, "fase": 0}
+    doc = world()
+    doc["assets"]["farola"]["piezas"] = [tejado, tronco]
+    clean = validate_world(doc, {})
+    assert clean["assets"]["farola"]["piezas"][0]["fase"] == 0.785
+    assert asset_triangles(clean["assets"]["farola"], {}) == 8 + 24
+
+
+@pytest.mark.parametrize(
+    ("cambio", "texto"),
+    [
+        ({"lados": 2}, "lados"),
+        ({"arriba": 0, "abajo": 0}, "alguna tapa"),
+        ({"arriba": 1.5}, "entre"),
+    ],
+)
+def test_un_prisma_malo_no_vale(cambio: dict, texto: str) -> None:
+    doc = world()
+    pieza = {"forma": "prisma", "pos": [0, 0, 0], "rot": [0, 0, 0], "esc": [1, 1, 1],
+             "color": 0, "lados": 6, "arriba": 1, "abajo": 1, **cambio}  # fmt: skip
+    doc["assets"]["farola"]["piezas"] = [pieza]
+    with pytest.raises(MundoError, match=texto):
+        validate_world(doc, {})
+
+
+def test_los_campos_del_prisma_no_valen_en_otra_forma() -> None:
+    doc = world()
+    doc["assets"]["farola"]["piezas"][0]["lados"] = 6
+    with pytest.raises(MundoError, match="solo valen en un prisma"):
+        validate_world(doc, {})
+
+
+def test_una_malla_hecha_cuenta_sus_triangulos_y_puede_ir_sin_piezas() -> None:
+    malla = {"pos": [0, 0, 0, 1000, 0, 0, 0, 1000, 0], "color": [0x8A7F78] * 3}
+    doc = world()
+    doc["assets"]["farola"].update(piezas=[], malla=malla, distancia=110)
+    clean = validate_world(doc, {})
+    assert clean["assets"]["farola"]["malla"] == malla
+    assert clean["assets"]["farola"]["distancia"] == 110.0
+    assert asset_triangles(clean["assets"]["farola"], {}) == 1
+
+
+@pytest.mark.parametrize(
+    ("malla", "texto"),
+    [
+        ({"pos": [0] * 8, "color": [0] * 3}, "9 posiciones"),
+        ({"pos": [0] * 9, "color": [0] * 2}, "un color por vértice"),
+        ({"pos": [0.5] + [0] * 8, "color": [0] * 3}, "milímetros enteros"),
+        ({"pos": [10**6] + [0] * 8, "color": [0] * 3}, "milímetros enteros"),
+    ],
+)
+def test_una_malla_mala_no_vale(malla: dict, texto: str) -> None:
+    doc = world()
+    doc["assets"]["farola"]["malla"] = malla
+    with pytest.raises(MundoError, match=texto):
+        validate_world(doc, {})
+
+
+def test_un_asset_sin_piezas_ni_malla_no_vale() -> None:
+    doc = world()
+    doc["assets"]["farola"]["piezas"] = []
+    with pytest.raises(MundoError, match="piezas"):
+        validate_world(doc, {})
+
+
+def test_la_colision_son_circulos_con_tope() -> None:
+    doc = world()
+    doc["assets"]["farola"]["colision"] = [[0, 0, 1]] * 17
+    with pytest.raises(MundoError, match="círculos"):
+        validate_world(doc, {})
+    doc["assets"]["farola"]["colision"] = [[0, 1]]
+    with pytest.raises(MundoError, match=r"\[x, z, radio\]"):
+        validate_world(doc, {})
+
+
+def test_el_tinte_de_un_objeto_tiene_tope() -> None:
+    doc = world()
+    doc["objetos"][0]["tinte"] = 1.1
+    assert validate_world(doc, {})["objetos"][0]["tinte"] == 1.1
+    doc["objetos"][0]["tinte"] = 5
+    with pytest.raises(MundoError, match="tinte"):
+        validate_world(doc, {})

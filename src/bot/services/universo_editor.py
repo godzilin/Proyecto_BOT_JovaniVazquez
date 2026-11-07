@@ -13,19 +13,32 @@ Formato (`FORMAT`), un objeto JSON:
 {
   "v": 1,
   "assets": {
-    "<id>": {"nombre": str, "tipo": "piezas", "piezas": [Pieza, ...], "colision": float|null}
-    "<id>": {"nombre": str, "tipo": "glb", "glb": "<sha256>", "colision": float|null}
+    "<id>": {"nombre": str, "tipo": "piezas", "piezas": [Pieza, ...], "malla"?: Malla,
+             "colision": [[x, z, r], ...] | null, "distancia"?: float}
+    "<id>": {"nombre": str, "tipo": "glb", "glb": "<sha256>", "colision": ..., "distancia"?: ...}
   },
-  "objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z], "esc": [x, y, z]}],
+  "objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z], "esc": [x, y, z],
+               "tinte"?: float}],
   "zonas": {"<lugar>": {"x": float, "z": float, "r": float}}
 }
 ```
 
 - Una `Pieza` es `{"forma", "pos", "rot", "esc", "color"}`: una forma de `SHAPES` de
   1 m de lado, girada (radianes, orden YXZ como `geom.poner`), escalada y pintada con
-  un color `0xRRGGBB`. Sin texturas: color por vértice, como el resto del mundo.
-- `colision` es el radio en metros del círculo contra el que se empuja el jugador
-  (`mundo/colision.ts`), en el centro del objeto y escalado con él; `null`, se atraviesa.
+  un color `0xRRGGBB`. Sin texturas: color por vértice, como el resto del mundo. El
+  `prisma` lleva además `lados`, `arriba` y `abajo` (radio de cada tapa, de 0 a 1: con 0
+  es un cono o una pirámide) y `fase` (giro de sus lados, en radianes, antes de escalar:
+  así un tejado de cuatro aguas sigue a los ejes aunque la escala no sea igual en x y z).
+- `malla` es geometría ya hecha que no sale de formas básicas (una roca abollada, un
+  roque con degradado): `{"pos": [mm, ...], "color": [0xRRGGBB, ...]}`, triángulos
+  sueltos con las posiciones en milímetros enteros y un color por vértice. No se edita
+  pieza a pieza; se coloca como cualquier asset.
+- `colision` son los círculos (`[x, z, radio]` en metros, en las coordenadas del asset)
+  contra los que se empuja el jugador (`mundo/colision.ts`); giran y escalan con cada
+  objeto. `null`, se atraviesa.
+- `distancia` es hasta dónde se dibuja (lo pequeño desaparece antes); sin ella, la de
+  las construcciones. `tinte` multiplica los colores de un objeto (la vegetación varía
+  de tono de un árbol a otro).
 - `zonas` mueve los lugares de los logros que son un círculo (`EDITABLE_ZONES`). No se
   crean ni se borran: cada clave es un logro (`PLACES` de `bot.services.universo`).
 - Un GLB va aparte, por su resumen (`glb_summary`), y el mundo solo lo nombra.
@@ -56,8 +69,19 @@ MAX_NAME = 40
 #: Lo más que puede pesar y tener un GLB importado.
 MAX_GLB_BYTES = 1024 * 1024
 MAX_GLB_TRIANGLES = 6000
-#: Triángulos de cada forma básica, con los segmentos que usa la página.
-SHAPES = {"caja": 12, "cuna": 8, "cilindro": 48, "cono": 24, "esfera": 168}
+#: Triángulos de cada forma básica, con los segmentos que usa la página. El prisma
+#: depende de sus lados y tapas (`piece_triangles`).
+SHAPES = {
+    "caja": 12, "cuna": 8, "cilindro": 48, "cono": 24, "esfera": 168,
+    "icosaedro": 20, "dodecaedro": 36, "prisma": 0,
+}  # fmt: skip
+MIN_SIDES, MAX_SIDES = 3, 32
+#: Una `malla` hecha a mano: triángulos y alcance de sus posiciones (milímetros).
+MAX_MESH_TRIANGLES = 2000
+MAX_MESH_MM = 60_000
+MAX_CIRCLES = 16
+MIN_TINT, MAX_TINT = 0.3, 2.0
+MIN_DISTANCE, MAX_DISTANCE = 20.0, 600.0
 #: Lugares de logros que se pueden mover: los que son un círculo en `mundo/lugares.ts`.
 #: El resto depende de la altura o del agua y sigue en código.
 EDITABLE_ZONES = frozenset({"nublo", "dunas", "faro", "plaza", "drago", "canteras"})
@@ -127,53 +151,116 @@ def _name(value: object, what: str) -> str:
     return value.strip()
 
 
-def _collision(value: object, what: str) -> float | None:
-    return None if value is None else _number(value, 0, MAX_COLLISION, f"La colisión de {what}")
+def _color(value: object, what: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 0xFFFFFF:
+        raise MundoError(f"{what}: el color tiene que ser 0xRRGGBB.")
+    return value
 
 
-def _piece(value: object, what: str) -> tuple[dict[str, Any], int]:
-    p = _object(value, {"forma", "pos", "rot", "esc", "color"}, what)
+def _collision(value: object, what: str) -> list[list[float]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_CIRCLES:
+        raise MundoError(f"La colisión de {what} tiene que ser de 1 a {MAX_CIRCLES} círculos.")
+    circles = []
+    for c in value:
+        if not isinstance(c, list) or len(c) != 3:
+            raise MundoError(f"La colisión de {what}: cada círculo es [x, z, radio].")
+        circles.append(
+            [
+                _number(c[0], -MAX_PIECE_OFFSET, MAX_PIECE_OFFSET, f"La colisión de {what}: x"),
+                _number(c[1], -MAX_PIECE_OFFSET, MAX_PIECE_OFFSET, f"La colisión de {what}: z"),
+                _number(c[2], 0, MAX_COLLISION, f"La colisión de {what}: el radio"),
+            ]
+        )
+    return circles
+
+
+def piece_triangles(piece: dict[str, Any]) -> int:
+    """Triángulos de una pieza ya validada (el prisma, según sus lados y sus tapas)."""
+    if piece["forma"] != "prisma":
+        return SHAPES[piece["forma"]]
+    # Como `CylinderGeometry` de three: cada tapa con radio cuenta sus lados dos veces
+    # (la tapa y su mitad del costado); una tapa de radio 0 no se genera.
+    return 2 * piece["lados"] * ((piece["arriba"] > 0) + (piece["abajo"] > 0))
+
+
+def _piece(value: object, what: str) -> dict[str, Any]:
+    keys = {"forma", "pos", "rot", "esc", "color", "lados", "arriba", "abajo", "fase"}
+    p = _object(value, keys, what)
     shape = p.get("forma")
     if shape not in SHAPES:
         raise MundoError(f"{what}: la forma tiene que ser una de {', '.join(SHAPES)}.")
-    color = p.get("color")
-    if isinstance(color, bool) or not isinstance(color, int) or not 0 <= color <= 0xFFFFFF:
-        raise MundoError(f"{what}: el color tiene que ser 0xRRGGBB.")
-    piece = {
+    piece: dict[str, Any] = {
         "forma": shape,
         "pos": _vector(p.get("pos"), -MAX_PIECE_OFFSET, MAX_PIECE_OFFSET, f"{what}: la posición"),
         "rot": _vector(p.get("rot"), -MAX_ROTATION, MAX_ROTATION, f"{what}: el giro"),
         "esc": _vector(p.get("esc"), MIN_SCALE, MAX_SCALE, f"{what}: la escala"),
-        "color": color,
+        "color": _color(p.get("color"), what),
     }
-    return piece, SHAPES[shape]
+    prism = {"lados", "arriba", "abajo", "fase"}
+    if shape != "prisma":
+        if prism & set(p):
+            raise MundoError(f"{what}: lados, tapas y fase solo valen en un prisma.")
+        return piece
+    sides = p.get("lados")
+    if isinstance(sides, bool) or not isinstance(sides, int) or not MIN_SIDES <= sides <= MAX_SIDES:
+        raise MundoError(f"{what}: el prisma tiene de {MIN_SIDES} a {MAX_SIDES} lados.")
+    piece["lados"] = sides
+    piece["arriba"] = _number(p.get("arriba"), 0, 1, f"{what}: la tapa de arriba")
+    piece["abajo"] = _number(p.get("abajo"), 0, 1, f"{what}: la tapa de abajo")
+    if piece["arriba"] == 0 and piece["abajo"] == 0:
+        raise MundoError(f"{what}: el prisma necesita alguna tapa con radio.")
+    piece["fase"] = _number(p.get("fase", 0), -MAX_ROTATION, MAX_ROTATION, f"{what}: la fase")
+    return piece
+
+
+def _mesh(value: object, what: str) -> dict[str, list[int]]:
+    m = _object(value, {"pos", "color"}, f"{what}: la malla")
+    pos, colors = m.get("pos"), m.get("color")
+    if not isinstance(pos, list) or not isinstance(colors, list) or not pos or len(pos) % 9:
+        raise MundoError(f"{what}: la malla son triángulos (9 posiciones cada uno).")
+    if len(pos) // 9 > MAX_MESH_TRIANGLES or len(colors) != len(pos) // 3:
+        raise MundoError(
+            f"{what}: la malla tiene hasta {MAX_MESH_TRIANGLES} triángulos y un color por vértice."
+        )
+    if not all(
+        isinstance(v, int) and not isinstance(v, bool) and -MAX_MESH_MM <= v <= MAX_MESH_MM
+        for v in pos
+    ):
+        raise MundoError(f"{what}: las posiciones de la malla son milímetros enteros.")
+    return {"pos": pos, "color": [_color(c, f"{what}: la malla") for c in colors]}
 
 
 def _asset(value: object, what: str, glbs: dict[str, int]) -> dict[str, Any]:
-    a = _object(value, {"nombre", "tipo", "piezas", "glb", "colision"}, what)
+    keys = {"nombre", "tipo", "piezas", "malla", "glb", "colision", "distancia"}
+    a = _object(value, keys, what)
     name = _name(a.get("nombre"), what)
     kind = a.get("tipo")
+    common: dict[str, Any] = {"colision": _collision(a.get("colision"), f"«{name}»")}
+    if "distancia" in a:
+        common["distancia"] = _number(
+            a["distancia"], MIN_DISTANCE, MAX_DISTANCE, f"«{name}»: la distancia"
+        )
     if kind == "piezas":
         pieces = a.get("piezas")
-        if not isinstance(pieces, list) or not 1 <= len(pieces) <= MAX_PIECES:
+        mesh = _mesh(a["malla"], f"«{name}»") if "malla" in a else None
+        if not isinstance(pieces, list) or len(pieces) > MAX_PIECES or not (pieces or mesh):
             raise MundoError(f"«{name}» tiene que tener de 1 a {MAX_PIECES} piezas.")
-        checked = [_piece(p, f"«{name}», pieza {i + 1}") for i, p in enumerate(pieces)]
-        return {
+        clean = {
             "nombre": name,
             "tipo": "piezas",
-            "piezas": [p for p, _ in checked],
-            "colision": _collision(a.get("colision"), f"«{name}»"),
+            "piezas": [_piece(p, f"«{name}», pieza {i + 1}") for i, p in enumerate(pieces)],
+            **common,
         }
+        if mesh is not None:
+            clean["malla"] = mesh
+        return clean
     if kind == "glb":
         sha = a.get("glb")
         if not isinstance(sha, str) or sha not in glbs:
             raise MundoError(f"«{name}» usa un modelo que no se ha subido.")
-        return {
-            "nombre": name,
-            "tipo": "glb",
-            "glb": sha,
-            "colision": _collision(a.get("colision"), f"«{name}»"),
-        }
+        return {"nombre": name, "tipo": "glb", "glb": sha, **common}
     raise MundoError(f"«{name}»: el tipo tiene que ser «piezas» o «glb».")
 
 
@@ -181,7 +268,8 @@ def asset_triangles(asset: dict[str, Any], glbs: dict[str, int]) -> int:
     """Triángulos de un asset ya validado (`glbs`: resumen → triángulos)."""
     if asset["tipo"] == "glb":
         return glbs[asset["glb"]]
-    return sum(SHAPES[p["forma"]] for p in asset["piezas"])
+    mesh = len(asset["malla"]["pos"]) // 9 if "malla" in asset else 0
+    return mesh + sum(piece_triangles(p) for p in asset["piezas"])
 
 
 def glb_refs(doc: object) -> set[str]:
@@ -223,19 +311,20 @@ def validate_world(doc: object, glbs: dict[str, int]) -> dict[str, Any]:
     clean_objects = []
     for i, value in enumerate(objects):
         what = f"El objeto {i + 1}"
-        o = _object(value, {"asset", "pos", "rot", "esc"}, what)
+        o = _object(value, {"asset", "pos", "rot", "esc", "tinte"}, what)
         if o.get("asset") not in clean_assets:
             raise MundoError(f"{what} usa un asset que no existe.")
         pos = _vector(o.get("pos"), -WORLD_HALF, WORLD_HALF, f"{what}: la posición")
         _number(pos[1], MIN_Y, MAX_Y, f"{what}: la altura")
-        clean_objects.append(
-            {
-                "asset": o["asset"],
-                "pos": pos,
-                "rot": _vector(o.get("rot"), -MAX_ROTATION, MAX_ROTATION, f"{what}: el giro"),
-                "esc": _vector(o.get("esc"), MIN_SCALE, MAX_SCALE, f"{what}: la escala"),
-            }
-        )
+        obj = {
+            "asset": o["asset"],
+            "pos": pos,
+            "rot": _vector(o.get("rot"), -MAX_ROTATION, MAX_ROTATION, f"{what}: el giro"),
+            "esc": _vector(o.get("esc"), MIN_SCALE, MAX_SCALE, f"{what}: la escala"),
+        }
+        if "tinte" in o:
+            obj["tinte"] = _number(o["tinte"], MIN_TINT, MAX_TINT, f"{what}: el tinte")
+        clean_objects.append(obj)
     zones = d.get("zonas")
     if not isinstance(zones, dict):
         raise MundoError("Las zonas no son un objeto.")
