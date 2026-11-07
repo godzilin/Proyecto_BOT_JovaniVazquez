@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.8.1 · 2026-11-07
+
+- Interno: las pruebas del ▶️ Auto de la tragaperras ya no fallan de vez en cuando (el bote misterioso caía al azar en la primera tirada y paraba la sesión)
+
 ### 10.8.0 · 2026-11-07
 
 - Jovaniverso: el optimizador de modelos del editor ya no deja los modelos con texturas de un color liso: los colores de la textura pasan a los vértices y el modelo conserva sus zonas de color (no los detalles finos, como letras o logos). Lo que brillaba deja de brillar

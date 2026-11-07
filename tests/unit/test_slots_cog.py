@@ -7,6 +7,7 @@ dinero se mueve de verdad), rodillos trucados y un renderizador falso.
 from __future__ import annotations
 
 import asyncio
+import functools
 import itertools
 import random
 from collections.abc import Iterable
@@ -145,9 +146,15 @@ async def make_cog(
     await repository.initialize()
     slots_repository = SlotsRepository(tmp_path / "bot.db")
     await slots_repository.initialize()
+    economy = EconomyService(repository)
+    # El bote misterioso se sortea en lo más alto: con azar de verdad, a veces caía en la
+    # primera tirada, contaba como premio gordo y paraba el ▶️ Auto antes de tiempo.
+    economy.play_slots = functools.partial(  # type: ignore[method-assign]
+        economy.play_slots, draw_hit=lambda _low, high: high
+    )
     return Slots(
         MagicMock(),
-        economy=EconomyService(repository),
+        economy=economy,
         renderer=FakeRenderer(),  # type: ignore[arg-type]
         machine=RiggedMachine(sequence),
         casino_channel_ids=channels,
