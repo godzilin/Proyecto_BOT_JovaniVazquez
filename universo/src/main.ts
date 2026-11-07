@@ -8,6 +8,7 @@ import { crearMundo, type Mundo } from "./mundo";
 import { iniciarGestos } from "./mundo/gestos";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
+import { mundoDeSerie } from "./mundo/serie";
 
 interface ConfigResponse {
   client_id: string;
@@ -119,15 +120,26 @@ function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | 
     .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
 }
 
-/** Botón del HUD que abre el editor de assets (carga perezosa: no entra en el paquete inicial). */
+/** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
+async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
+  try {
+    const r = await api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
+    mundo.cargarMundo(r.version > 0 ? r.doc : mundoDeSerie());
+  } catch (e) {
+    console.warn("No se ha podido cargar el mundo publicado.", e);
+    aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");
+  }
+}
+
+/** Botón del HUD que abre el editor (carga perezosa: no entra en el paquete inicial). */
 function botonEditor(mundo: Mundo, sesion: { session: string; guildId: string }): void {
   const b = document.createElement("button");
   b.className = "ed-abrir";
   b.textContent = "🛠 Editor";
   b.addEventListener("click", () => {
     b.disabled = true;
-    import("./editor/assets")
-      .then((m) => m.abrirEditor(sesion, { pausar: (si) => mundo.pausar(si), recargar: () => void cargarObras(mundo, sesion) }))
+    import("./editor/editor")
+      .then((m) => m.abrirEditor(sesion, { mundo, recargar: () => restaurarObras(mundo, sesion) }))
       .catch((e: unknown) => aviso(e instanceof Error ? e.message : "No se ha podido abrir el editor."))
       .finally(() => (b.disabled = false));
   });

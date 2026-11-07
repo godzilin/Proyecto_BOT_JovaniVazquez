@@ -1,7 +1,7 @@
-// Editor de assets del Jovaniverso (solo administradores, solo ordenador): monta y edita assets de piezas o importa GLB, guarda el borrador y publica el mundo.
+// Modo «Assets» del editor del Jovaniverso (solo administradores, solo ordenador): monta y edita assets de piezas o importa GLB.
+// El borrador, guardar, publicar y deshacer son del editor entero (`borrador.ts`, `editor.ts`).
 import * as api from "./api";
-import { Conflicto, type Sesion, type Version } from "./api";
-import { dialogo, h, modal } from "./dom";
+import { dialogo, h } from "./dom";
 import {
   type Asset,
   cargarGlb,
@@ -26,12 +26,10 @@ import {
   triangulosPieza,
   type Vec3,
 } from "./formato";
+import type { Anfitrion, Panel } from "./panel";
 import { type Modo, Vista } from "./vista";
-import { mundoDeSerie } from "../mundo/serie";
 
 const GRADOS = Math.PI / 180;
-const AUTOGUARDADO_MS = 20_000;
-const MAX_HISTORIAL = 100;
 const MAX_COLISION = 40;
 const MAX_DESPLAZAMIENTO = 60;
 const MODOS: [Modo, string, string][] = [
@@ -39,34 +37,6 @@ const MODOS: [Modo, string, string][] = [
   ["rotate", "Girar (E)", "e"],
   ["scale", "Escalar (R)", "r"],
 ];
-
-/** Lo que el editor necesita del mundo: pausarlo mientras está abierto y, si lo hay, recargarlo al publicar. */
-export interface Mundo {
-  pausar(si: boolean): void;
-  recargar?(): void;
-}
-
-let abierto = false;
-
-/**
- * Abre el editor a pantalla completa. Se resuelve cuando el borrador está cargado; el editor sigue
- * abierto hasta que el administrador lo cierra. Si no se puede cargar, lanza el error del servidor.
- */
-export async function abrirEditor(sesion: Sesion, mundo: Mundo | null): Promise<void> {
-  if (abierto) return;
-  abierto = true;
-  try {
-    if (import.meta.env.DEV) comprobarFormas();
-    const b = await api.borrador(sesion);
-    // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío.
-    if (b.rev === 0 && b.version === 0) b.doc = mundoDeSerie();
-    if (b.doc.v !== FORMATO) throw new Error("El editor está desfasado: recarga la página.");
-    new Editor(sesion, mundo, b).iniciar();
-  } catch (e) {
-    abierto = false;
-    throw e;
-  }
-}
 
 function numero(n: number): string {
   return String(Math.round(n * 1000) / 1000);
@@ -91,31 +61,19 @@ function sacarId(nombre: string, existentes: Record<string, unknown>): string {
   return id;
 }
 
-class Editor {
-  private doc: MundoDoc;
-  private rev: number;
-  private version: number;
+export class PanelAssets implements Panel {
   private selId: string | null = null;
   private piezaSel = -1;
-  private sucio = false;
-  private guardando = false;
-  private conflicto = false;
-  private cambios = 0;
-  private hist: string[] = [];
-  private hi = 0;
   private modo: Modo = "translate";
   private glbMostrado: string | null = null;
   private enfocarAlCargar = false;
   private readonly triangulosGlb = new Map<string, number>();
-  private timer = 0;
-
-  private readonly raiz = h("div", { className: "ed" });
+  readonly elementos: HTMLElement[];
   private readonly vista: Vista;
+  private readonly contenedor = h("div", { className: "ed-vista" });
   private readonly listaAssets = h("div", { className: "ed-lista" });
   private readonly listaPiezas = h("div", { className: "ed-lista" });
   private readonly filtro = h("input", { type: "search", placeholder: "Filtrar assets", className: "ed-filtro" });
-  private readonly aviso = h("div", { className: "ed-aviso", hidden: true });
-  private readonly estado = h("footer", { className: "ed-estado" });
   private readonly botones = new Map<string, HTMLButtonElement>();
   private readonly botonesModo = new Map<Modo, HTMLButtonElement>();
   private readonly campos: { campo: "pos" | "rot" | "esc"; i: number; input: HTMLInputElement }[] = [];
@@ -129,39 +87,44 @@ class Editor {
   private readonly archivo = h("input", { type: "file", accept: ".glb", hidden: true });
   private mensaje = "";
 
-  constructor(
-    private readonly sesion: Sesion,
-    private readonly mundo: Mundo | null,
-    b: { doc: MundoDoc; rev: number; version: number },
-  ) {
-    this.doc = b.doc;
-    this.rev = b.rev;
-    this.version = b.version;
-    this.hist = [JSON.stringify(this.doc)];
+  constructor(private readonly a: Anfitrion) {
     this.selId = Object.keys(this.doc.assets)[0] ?? null;
-
-    this.raiz.append(this.arriba(), this.izquierda(), this.centro(), this.derecha(), this.estado, this.aviso, this.archivo);
-    // Las teclas escritas en un campo no llegan al mundo, que escucha en window.
-    this.raiz.addEventListener("keydown", (e) => e.stopPropagation());
-    this.raiz.addEventListener("keyup", (e) => e.stopPropagation());
-    document.body.append(this.raiz);
-    this.vista = new Vista(this.raiz.querySelector<HTMLElement>(".ed-vista")!);
+    this.elementos = [this.izquierda(), this.centro(), this.derecha()];
+    this.vista = new Vista(this.contenedor);
     this.vista.alElegir = (i) => this.elegirPieza(i);
     this.vista.alTransformar = (i, fin) => this.arrastrar(i, fin);
-  }
-
-  iniciar(): void {
-    this.mundo?.pausar(true);
-    window.addEventListener("keydown", this.alTecla, true);
-    window.addEventListener("keyup", this.alSoltarTecla, true);
     this.filtro.addEventListener("input", () => this.pintarAssets());
     this.archivo.addEventListener("change", () => void this.importar());
-    this.timer = window.setInterval(() => {
-      if (this.sucio && !this.guardando && !this.conflicto) void this.guardar();
-    }, AUTOGUARDADO_MS);
     this.dibujar();
     this.enfocarAlCargar = true;
     this.vista.enfocar(-1);
+  }
+
+  private get doc(): MundoDoc {
+    return this.a.b.doc;
+  }
+
+  activar(): void {
+    this.alCambiarDoc();
+    this.vista.pedir();
+  }
+
+  desactivar(): void {}
+
+  /** El documento ha cambiado desde fuera (deshacer, rehacer, recargar). */
+  alCambiarDoc(): void {
+    this.reajustarSeleccion();
+    this.glbMostrado = null;
+    this.dibujar();
+  }
+
+  /** Elige un asset desde otro modo (el «Editar este asset» del mundo). */
+  elegir(id: string): void {
+    if (this.doc.assets[id]) this.elegirAsset(id);
+  }
+
+  dispose(): void {
+    this.vista.dispose();
   }
 
   // ---------------------------------------------------------------- construcción de la pantalla
@@ -172,23 +135,10 @@ class Editor {
     return b;
   }
 
-  private arriba(): HTMLElement {
-    return h(
-      "header",
-      { className: "ed-arriba" },
-      h("h1", { textContent: "Editor de assets" }),
-      h("span", { className: "ed-hueco" }),
-      this.boton("guardar", "Guardar borrador", () => void this.guardar(), "Ctrl+S"),
-      this.boton("publicar", "Publicar", () => void this.publicar()),
-      this.boton("versiones", "Versiones", () => void this.verVersiones()),
-      this.boton("cerrar", "Cerrar", () => void this.cerrar()),
-    );
-  }
-
   private izquierda(): HTMLElement {
     return h(
       "aside",
-      { className: "ed-panel ed-izq" },
+      { className: "ed-panel ed-izq ed-assets" },
       h("h2", { textContent: "Assets" }),
       this.filtro,
       h(
@@ -201,6 +151,7 @@ class Editor {
         this.boton("borrar", "Borrar", () => void this.borrarAsset()),
       ),
       this.listaAssets,
+      this.archivo,
     );
   }
 
@@ -214,7 +165,7 @@ class Editor {
     const ajuste = h("input", { type: "checkbox", onchange: () => this.vista.ajuste(ajuste.checked) });
     return h(
       "main",
-      { className: "ed-centro" },
+      { className: "ed-centro ed-assets" },
       h(
         "div",
         { className: "ed-barra" },
@@ -224,14 +175,14 @@ class Editor {
         this.boton("espejo", "Espejo X", () => this.espejoX()),
         this.boton("borrar-pieza", "Borrar pieza", () => this.borrarPieza(), "Supr"),
         h("span", { className: "ed-sep" }),
-        this.boton("deshacer", "Deshacer", () => this.deshacer(), "Ctrl+Z"),
-        this.boton("rehacer", "Rehacer", () => this.rehacer(), "Ctrl+Y"),
+        this.boton("deshacer", "Deshacer", () => this.a.b.irA(this.a.b.hi - 1), "Ctrl+Z"),
+        this.boton("rehacer", "Rehacer", () => this.a.b.irA(this.a.b.hi + 1), "Ctrl+Y"),
         this.boton("enfocar", "Enfocar", () => this.vista.enfocar(this.piezaSel), "F"),
         h("span", { className: "ed-sep" }),
         ...modos,
         h("label", { className: "ed-etiqueta", title: "0,1 m, 15° y 0,1 de escala" }, ajuste, " Ajuste"),
       ),
-      h("div", { className: "ed-vista" }),
+      this.contenedor,
     );
   }
 
@@ -299,7 +250,7 @@ class Editor {
       ),
       h("label", { className: "ed-vec", title: "Metros hasta donde se dibuja; vacío, la de las construcciones" }, h("span", { textContent: "Distancia (m)" }), this.distancia),
     );
-    return h("aside", { className: "ed-panel ed-der" }, h("h2", { textContent: "Piezas" }), this.listaPiezas, this.propsCaja, colision);
+    return h("aside", { className: "ed-panel ed-der ed-assets" }, h("h2", { textContent: "Piezas" }), this.listaPiezas, this.propsCaja, colision);
   }
 
   // ---------------------------------------------------------------- datos
@@ -340,15 +291,7 @@ class Editor {
 
   /** Cierra un cambio: entra en el historial, marca el borrador como sucio y lo vuelve a dibujar. */
   private commit(): void {
-    const s = JSON.stringify(this.doc);
-    if (s !== this.hist[this.hi]) {
-      this.hist.length = this.hi + 1;
-      this.hist.push(s);
-      if (this.hist.length > MAX_HISTORIAL) this.hist.shift();
-      this.hi = this.hist.length - 1;
-      this.sucio = true;
-      this.cambios++;
-    }
+    this.a.b.commit();
     this.dibujar();
   }
 
@@ -359,8 +302,7 @@ class Editor {
     fn(p);
     if (cerrar) this.commit();
     else {
-      this.sucio = true;
-      this.cambios++;
+      this.a.b.marcarSucio();
       this.dibujar();
     }
   }
@@ -503,6 +445,11 @@ class Editor {
   }
 
   private pintarEstado(): void {
+    this.a.estado();
+  }
+
+  /** Las cifras del asset elegido para la barra de estado; deja al día los botones. */
+  estado(): string[] {
     const a = this.asset;
     const partes: string[] = [];
     if (a) {
@@ -512,10 +459,7 @@ class Editor {
         ...(a.tipo === "piezas" ? [`${a.piezas.length} / ${MAX_PIEZAS} piezas`] : []),
       );
     }
-    partes.push(this.guardando ? "Guardando…" : this.sucio ? "Sin guardar" : "Guardado");
-    partes.push(this.version ? `Publicada: versión ${this.version}` : "Sin publicar");
     if (this.mensaje) partes.push(this.mensaje);
-    this.estado.replaceChildren(...partes.map((t) => h("span", { textContent: t })));
 
     const tienePieza = !!this.pieza;
     const hayPiezas = !!this.piezas;
@@ -526,22 +470,17 @@ class Editor {
     puedo("dup-pieza", tienePieza);
     puedo("espejo", tienePieza);
     puedo("borrar-pieza", tienePieza);
-    puedo("deshacer", this.hi > 0);
-    puedo("rehacer", this.hi < this.hist.length - 1);
+    puedo("deshacer", this.a.b.hi > 0);
+    puedo("rehacer", this.a.b.hi < this.a.b.hist.length - 1);
     for (const c of ["duplicar", "renombrar", "borrar", "ajustar"]) puedo(c, !!a);
     puedo("circulo", !!a && (a.colision?.length ?? 0) < MAX_CIRCULOS);
     this.distancia.disabled = !a;
-    puedo("guardar", !this.guardando);
     for (const [m, b] of this.botonesModo) b.setAttribute("aria-pressed", String(m === this.modo));
+    return partes;
   }
 
-  private avisar(texto: string, accion?: { texto: string; fn: () => void }, error = true): void {
-    this.aviso.replaceChildren(h("span", { textContent: texto }));
-    if (accion) this.aviso.append(h("button", { className: "ed-b", textContent: accion.texto, onclick: accion.fn }));
-    this.aviso.append(h("button", { className: "ed-b", textContent: "×", title: "Cerrar aviso", onclick: () => (this.aviso.hidden = true) }));
-    this.aviso.setAttribute("role", error ? "alert" : "status");
-    this.aviso.classList.toggle("ed-ok", !error);
-    this.aviso.hidden = false;
+  private avisar(texto: string): void {
+    this.a.aviso(texto);
   }
 
   // ---------------------------------------------------------------- selección y piezas
@@ -630,26 +569,6 @@ class Editor {
     this.commit();
   }
 
-  // ---------------------------------------------------------------- historial
-
-  private deshacer(): void {
-    this.irA(this.hi - 1);
-  }
-
-  private rehacer(): void {
-    this.irA(this.hi + 1);
-  }
-
-  private irA(i: number): void {
-    if (i < 0 || i >= this.hist.length) return;
-    this.hi = i;
-    this.doc = JSON.parse(this.hist[i]) as MundoDoc;
-    this.sucio = true;
-    this.cambios++;
-    this.reajustarSeleccion();
-    this.dibujar();
-  }
-
   private reajustarSeleccion(): void {
     if (!this.asset) this.selId = Object.keys(this.doc.assets)[0] ?? null;
     if (!this.pieza) this.piezaSel = -1;
@@ -659,7 +578,7 @@ class Editor {
 
   private async nuevo(): Promise<void> {
     if (Object.keys(this.doc.assets).length >= MAX_ASSETS) return this.avisar(`El mundo puede tener ${MAX_ASSETS} assets como mucho.`);
-    const nombre = (await dialogo(this.raiz, "Nuevo asset", "Nombre del asset:", "Crear", ""))?.trim().slice(0, MAX_NOMBRE);
+    const nombre = (await dialogo(this.a.raiz, "Nuevo asset", "Nombre del asset:", "Crear", ""))?.trim().slice(0, MAX_NOMBRE);
     if (!nombre) return;
     const pieza: Pieza = { forma: "caja", pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0xc8c8d0 };
     this.anadirAsset(nombre, { nombre, tipo: "piezas", piezas: [pieza], colision: null });
@@ -682,12 +601,12 @@ class Editor {
     this.mensaje = "Subiendo modelo…";
     this.pintarEstado();
     try {
-      const r = await api.subirGlb(this.sesion, await f.arrayBuffer());
+      const r = await api.subirGlb(this.a.sesion, await f.arrayBuffer());
       this.triangulosGlb.set(r.sha256, r.triangles);
       const nombre = f.name.replace(/\.glb$/i, "").slice(0, MAX_NOMBRE) || "modelo";
       this.anadirAsset(nombre, { nombre, tipo: "glb", glb: r.sha256, colision: null });
     } catch (e) {
-      this.fallo(e);
+      this.a.fallo(e);
     } finally {
       this.mensaje = "";
       this.pintarEstado();
@@ -705,7 +624,7 @@ class Editor {
   private async renombrar(): Promise<void> {
     const a = this.asset;
     if (!a) return;
-    const nombre = (await dialogo(this.raiz, "Renombrar asset", "Nuevo nombre (el id no cambia):", "Renombrar", a.nombre))?.trim().slice(0, MAX_NOMBRE);
+    const nombre = (await dialogo(this.a.raiz, "Renombrar asset", "Nuevo nombre (el id no cambia):", "Renombrar", a.nombre))?.trim().slice(0, MAX_NOMBRE);
     if (!nombre) return;
     a.nombre = nombre;
     this.commit();
@@ -717,7 +636,7 @@ class Editor {
     if (!id || !a) return;
     const usos = this.doc.objetos.filter((o) => o.asset === id).length;
     if (usos) return this.avisar(`No se puede borrar «${a.nombre}»: ${usos === 1 ? "lo usa 1 objeto" : `lo usan ${usos} objetos`} del mundo.`);
-    if ((await dialogo(this.raiz, "Borrar asset", `¿Borrar «${a.nombre}»? Se puede deshacer hasta que cierres el editor.`, "Borrar")) === null) return;
+    if ((await dialogo(this.a.raiz, "Borrar asset", `¿Borrar «${a.nombre}»? Se puede deshacer hasta que cierres el editor.`, "Borrar")) === null) return;
     delete this.doc.assets[id];
     this.selId = Object.keys(this.doc.assets)[0] ?? null;
     this.piezaSel = -1;
@@ -725,157 +644,15 @@ class Editor {
     this.commit();
   }
 
-  // ---------------------------------------------------------------- servidor
-
-  private fallo(e: unknown): void {
-    const texto = e instanceof Error ? e.message : "Error desconocido.";
-    if (e instanceof Conflicto) {
-      this.conflicto = true;
-      this.avisar(`${texto} Al recargar se pierden los cambios sin guardar de esta pantalla.`, { texto: "Recargar", fn: () => void this.recargar() });
-    } else this.avisar(texto);
-  }
-
-  private async guardar(): Promise<boolean> {
-    if (this.guardando || this.conflicto) return false;
-    this.guardando = true;
-    this.pintarEstado();
-    const n = this.cambios;
-    try {
-      this.rev = (await api.guardar(this.sesion, this.rev, this.doc)).rev;
-      if (n === this.cambios) this.sucio = false;
-      this.aviso.hidden = true;
-      return true;
-    } catch (e) {
-      this.fallo(e);
-      return false;
-    } finally {
-      this.guardando = false;
-      this.pintarEstado();
-    }
-  }
-
-  private async recargar(): Promise<void> {
-    try {
-      const b = await api.borrador(this.sesion);
-      this.doc = b.doc;
-      this.rev = b.rev;
-      this.version = b.version;
-      this.hist = [JSON.stringify(b.doc)];
-      this.hi = 0;
-      this.sucio = false;
-      this.conflicto = false;
-      this.glbMostrado = null;
-      this.aviso.hidden = true;
-      this.reajustarSeleccion();
-      this.dibujar();
-    } catch (e) {
-      this.fallo(e);
-    }
-  }
-
-  private async publicar(): Promise<void> {
-    if (this.conflicto) return;
-    const ok = await dialogo(this.raiz, "Publicar el mundo", "Todos los jugadores verán este mundo en cuanto lo publiques. ¿Publicar?", "Publicar");
-    if (ok === null) return;
-    // Sin borrador guardado nunca no hay nada que publicar: se guarda aunque no haya cambios.
-    if ((this.sucio || this.rev === 0) && !(await this.guardar())) return;
-    try {
-      this.version = (await api.publicar(this.sesion, this.rev)).version;
-      this.avisar(`Mundo publicado: versión ${this.version}.`, undefined, false);
-      this.mundo?.recargar?.();
-    } catch (e) {
-      this.fallo(e);
-    }
-    this.pintarEstado();
-  }
-
-  private async verVersiones(): Promise<void> {
-    let lista: Version[];
-    try {
-      lista = (await api.versiones(this.sesion)).versiones;
-    } catch (e) {
-      return this.fallo(e);
-    }
-    const { fondo, caja } = modal(this.raiz, "Versiones publicadas");
-    const filas = lista.map((v) => {
-      const fecha = new Date(v.fecha);
-      const cuando = Number.isNaN(fecha.getTime()) ? v.fecha : fecha.toLocaleString("es-ES");
-      return h(
-        "div",
-        { className: "ed-fila ed-version" },
-        h("span", { textContent: `v${v.version} · ${v.autor} · ${cuando} · ${v.kb} KB` }),
-        h("button", {
-          className: "ed-b",
-          textContent: "Volver a esta",
-          onclick: () => {
-            fondo.remove();
-            void this.volverA(v.version);
-          },
-        }),
-      );
-    });
-    caja.append(
-      ...(filas.length ? filas : [h("p", { textContent: "Todavía no se ha publicado nada." })]),
-      h("div", { className: "ed-fila" }, h("button", { className: "ed-b", textContent: "Cerrar", onclick: () => fondo.remove() })),
-    );
-    caja.addEventListener("keydown", (e) => e.key === "Escape" && fondo.remove());
-  }
-
-  private async volverA(version: number): Promise<void> {
-    const ok = await dialogo(this.raiz, "Volver a una versión", `El borrador pasará a ser la versión ${version} y se perderán los cambios sin publicar. No se publica nada hasta que pulses Publicar.`, "Volver a esta");
-    if (ok === null) return;
-    try {
-      this.rev = (await api.volver(this.sesion, this.rev, version)).rev;
-    } catch (e) {
-      return this.fallo(e);
-    }
-    await this.recargar();
-  }
-
-  private async cerrar(): Promise<void> {
-    if (this.sucio) {
-      const ok = await dialogo(this.raiz, "Cambios sin guardar", "Hay cambios sin guardar y se perderán si cierras.", "Cerrar sin guardar");
-      if (ok === null) return;
-    }
-    clearInterval(this.timer);
-    window.removeEventListener("keydown", this.alTecla, true);
-    window.removeEventListener("keyup", this.alSoltarTecla, true);
-    this.vista.dispose();
-    this.raiz.remove();
-    this.mundo?.pausar(false);
-    abierto = false;
-  }
-
   // ---------------------------------------------------------------- teclado
 
-  private esCampoDeTexto(t: EventTarget | null): boolean {
-    if (t instanceof HTMLInputElement) return ["text", "number", "search"].includes(t.type);
-    return t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
-  }
-
-  private readonly alTecla = (e: KeyboardEvent): void => {
-    if (this.raiz.querySelector(".ed-fondo")) return;
-    const ctrl = e.ctrlKey || e.metaKey;
-    const k = e.key.toLowerCase();
-    if (ctrl && k === "s") {
-      e.preventDefault();
-      (document.activeElement as HTMLElement | null)?.blur(); // el valor a medio escribir entra antes de guardar
-      void this.guardar();
-      return;
-    }
-    if (this.esCampoDeTexto(e.target)) return;
-    e.stopPropagation(); // el mundo no se entera
-    if (ctrl && k === "z") this.irA(this.hi + (e.shiftKey ? 1 : -1));
-    else if (ctrl && k === "y") this.rehacer();
-    else if (ctrl && k === "d") this.duplicarPieza();
+  /** Atajos de este modo (el editor ya ha tratado Ctrl+S, Ctrl+Z y Ctrl+Y). */
+  tecla(_e: KeyboardEvent, k: string, ctrl: boolean): boolean {
+    if (ctrl && k === "d") this.duplicarPieza();
     else if (!ctrl && k === "delete") this.borrarPieza();
     else if (!ctrl && k === "f") this.vista.enfocar(this.piezaSel);
     else if (!ctrl && MODOS.some(([, , tecla]) => tecla === k)) this.cambiarModo(MODOS.find(([, , tecla]) => tecla === k)![0]);
-    else return;
-    e.preventDefault();
-  };
-
-  private readonly alSoltarTecla = (e: KeyboardEvent): void => {
-    if (!this.esCampoDeTexto(e.target)) e.stopPropagation();
-  };
+    else return false;
+    return true;
+  }
 }

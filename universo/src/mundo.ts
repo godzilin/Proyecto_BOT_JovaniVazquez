@@ -37,6 +37,8 @@ export interface Informe {
 /** Lo que necesita un módulo que se cuelga del mundo (el casino): la escena, la cámara, el culling y un gancho por fotograma. */
 export interface Contexto {
   escena: Scene;
+  /** El dibujante del mundo: el editor de niveles pinta con él, en su canvas, mientras el bucle está en pausa. */
+  renderer: WebGLRenderer;
   camara: Camara;
   camara3: PerspectiveCamera;
   culling: Culling;
@@ -143,6 +145,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   const ganchos: ((dt: number, ahora: number) => void)[] = [];
   const contexto: Contexto = {
     escena,
+    renderer,
     camara,
     camara3,
     culling,

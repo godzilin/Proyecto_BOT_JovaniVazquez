@@ -14,7 +14,8 @@ const euler = new Euler();
 const quat = new Quaternion();
 const uno = new Vector3();
 
-function matriz(o: Objeto): Matrix4 {
+/** La matriz de un objeto del documento (posición, giro YXZ y escala). */
+export function matriz(o: Objeto): Matrix4 {
   quat.setFromEuler(euler.set(o.rot[0], o.rot[1], o.rot[2], "YXZ"));
   return new Matrix4().compose(uno.set(...o.pos), quat, new Vector3(...o.esc));
 }

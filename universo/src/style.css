@@ -314,6 +314,48 @@ body {
   user-select: none;
 }
 
+.ed [hidden] {
+  display: none !important;
+}
+
+.ed-pestana {
+  padding: 4px 16px;
+}
+
+.ed-envuelve {
+  flex-wrap: wrap;
+}
+
+.ed-alerta {
+  color: #ffb36b;
+  font-weight: 600;
+}
+
+.ed-etiquetas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ed-etiqueta-zona {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  padding: 2px 8px;
+  font: inherit;
+  color: #1d2030;
+  background: #ffd86b;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.ed-etiqueta-zona[aria-pressed="true"] {
+  background: #6bffd8;
+}
+
 .ed input,
 .ed select {
   user-select: text;
