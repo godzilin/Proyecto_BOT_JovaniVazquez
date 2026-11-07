@@ -126,14 +126,17 @@ export class Recuadro {
   constructor(
     private readonly contenedor: HTMLElement,
     private readonly alTerminar: (rect: DOMRect, aditivo: boolean) => void,
+    /** Si devuelve falso, la caja no arranca (p. ej. otra herramienta se queda el Mayús+arrastrar). */
+    private readonly activo: () => boolean = () => true,
   ) {
     contenedor.addEventListener("pointerdown", this.alBajar, true);
   }
 
   private readonly alBajar = (e: PointerEvent): void => {
     this.reciente = false;
-    if (e.button !== 0 || !e.shiftKey) return;
+    if (e.button !== 0 || !e.shiftKey || !this.activo()) return;
     e.stopPropagation();
+    e.stopImmediatePropagation(); // si los controles de la cámara escuchan en este mismo elemento, stopPropagation no basta
     e.preventDefault();
     this.reciente = true;
     this.inicio = { x: e.clientX, y: e.clientY };
