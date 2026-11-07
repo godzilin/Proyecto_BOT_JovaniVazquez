@@ -13,6 +13,8 @@ export class Controles {
   correr = false;
   /** Se pone a true al pulsar saltar; el jugador lo consume. */
   saltar = false;
+  /** Se pone a true con la tecla V o el botón 👁; la cámara lo consume. */
+  cambiarVista = false;
   /** Giro y zoom acumulados desde la última lectura. */
   dYaw = 0;
   dPitch = 0;
@@ -24,6 +26,7 @@ export class Controles {
   private joy: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
   private joyVista: { base: HTMLElement; mando: HTMLElement };
   private botonSalto: HTMLElement;
+  private botonVista: HTMLElement;
 
   constructor(private lienzo: HTMLElement, capa: HTMLElement) {
     this.tactil = window.matchMedia("(pointer: coarse)").matches;
@@ -52,6 +55,18 @@ export class Controles {
     capa.append(salto);
     this.botonSalto = salto;
 
+    const vista = document.createElement("button");
+    vista.className = "boton-vista";
+    vista.type = "button";
+    vista.setAttribute("aria-label", "Cambiar entre primera y tercera persona");
+    vista.textContent = "👁";
+    vista.addEventListener("click", () => {
+      this.cambiarVista = true;
+      vista.blur(); // si no, la barra espaciadora (saltar) lo volvería a pulsar
+    });
+    capa.append(vista);
+    this.botonVista = vista;
+
     window.addEventListener("keydown", this.alBajarTecla);
     window.addEventListener("keyup", this.alSubirTecla);
     window.addEventListener("blur", this.soltarTodo);
@@ -75,6 +90,7 @@ export class Controles {
     window.removeEventListener("keyup", this.alSubirTecla);
     window.removeEventListener("blur", this.soltarTodo);
     this.botonSalto.remove();
+    this.botonVista.remove();
     this.joyVista.base.remove();
   }
 
@@ -123,6 +139,7 @@ export class Controles {
       if (!e.repeat) this.saltar = true;
       e.preventDefault();
     }
+    if (e.code === "KeyV" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.cambiarVista = true;
     if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right))$/.test(e.code)) {
       this.teclas.add(e.code);
       e.preventDefault();
