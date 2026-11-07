@@ -8,6 +8,11 @@ criterio.
 
 ## 9.x
 
+### 9.61.0 · 2026-11-07
+
+- Jovaniverso: editor del mundo para administradores, desde el ordenador: colocar, mover y borrar casas, árboles e hitos, mover las zonas de los logros y montar assets con formas básicas o modelos GLB, con borrador, publicación e historial de versiones
+- Jovaniverso: el pueblo, los hitos y la vegetación pasan a ser datos del editor; se ven igual que antes
+
 ### 9.60.0 · 2026-11-07
 
 - Jovaniverso: seis tragaperras en la plaza que se juegan dentro del mundo, en primera persona, con botones que se pulsan, sonido desde cada máquina y modo Auto

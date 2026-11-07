@@ -289,3 +289,27 @@ async def test_solo_el_editor_acepta_cuerpos_grandes(world: World) -> None:
         headers=auth(world),
     )
     assert too_big.status == 413
+
+
+async def test_el_mundo_publicado_va_comprimido_y_se_comprime_una_vez(world: World) -> None:
+    status, _saved = await save(world, mundo("arbol"))
+    assert status == 200
+    await world.web.post(
+        "/api/editor/publicar", json={"guild_id": str(GUILD_ID), "rev": 1}, headers=auth(world)
+    )
+    for _ in range(2):
+        response = await world.web.get(
+            "/api/mundo",
+            params={"guild_id": str(GUILD_ID)},
+            headers={**auth(world, PLAIN), "Accept-Encoding": "gzip"},
+        )
+        assert response.headers["Content-Encoding"] == "gzip"
+        assert (await response.json())["version"] == 1
+    assert world.cog._mundo_gz[GUILD_ID][0] == 1
+    plain = await world.web.get(
+        "/api/mundo",
+        params={"guild_id": str(GUILD_ID)},
+        headers={**auth(world, PLAIN), "Accept-Encoding": "identity"},
+    )
+    assert "Content-Encoding" not in plain.headers
+    assert (await plain.json())["version"] == 1

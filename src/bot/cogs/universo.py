@@ -81,6 +81,7 @@ las tragaperras (`renta.hint`, que pide el cog de la tragaperras).
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 import re
@@ -257,6 +258,9 @@ class Universo(commands.Cog, name="Universo"):
         # que empezó antes de publicar no guarda lo viejo.
         self._mundo: dict[int, tuple[int, str]] = {}
         self._mundo_epoch: dict[int, int] = {}
+        # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
+        # por publicación y fuera del bucle, no en cada entrada.
+        self._mundo_gz: dict[int, tuple[int, bytes]] = {}
 
     @property
     def is_open(self) -> bool:
@@ -779,8 +783,17 @@ async def _mundo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     guild, _member = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
     version, doc = await cog.mundo(guild.id)
+    text = f'{{"version":{version},"doc":{doc}}}'
+    if "gzip" not in request.headers.get("Accept-Encoding", ""):
+        return web.Response(text=text, content_type="application/json")
+    cached = cog._mundo_gz.get(guild.id)
+    if cached is None or cached[0] != version:
+        cached = (version, await asyncio.to_thread(gzip.compress, text.encode(), 6))
+        cog._mundo_gz[guild.id] = cached
     return web.Response(
-        text=f'{{"version":{version},"doc":{doc}}}', content_type="application/json"
+        body=cached[1],
+        content_type="application/json",
+        headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
     )
 
 
