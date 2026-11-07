@@ -1,5 +1,6 @@
-// Controles al estilo Roblox: teclado + arrastre de ratón en escritorio; joystick dinámico, botón de salto,
-// arrastre para la cámara y pellizco en móvil. Todo multitáctil por pointerId.
+// Controles al estilo Roblox: teclado + arrastre de ratón en escritorio (o el ratón capturado, si se activa en
+// ajustes); joystick dinámico, botón de salto, arrastre para la cámara y pellizco en móvil. Todo multitáctil por pointerId.
+import { ajustes } from "./ajustes";
 
 const RADIO_JOY = 56; // px que hay que empujar para el máximo
 const ZONA_MUERTA = 0.12;
@@ -19,6 +20,8 @@ export class Controles {
   dYaw = 0;
   dPitch = 0;
   zoom = 1;
+  /** Con `true` (sentado ante una máquina) el ratón no se captura y se suelta si lo estaba: hace falta el cursor. */
+  libre = false;
   readonly tactil: boolean;
 
   private teclas = new Set<string>();
@@ -27,6 +30,7 @@ export class Controles {
   private joyVista: { base: HTMLElement; mando: HTMLElement };
   private botonSalto: HTMLElement;
   private botonVista: HTMLElement;
+  private punto: HTMLElement;
 
   constructor(private lienzo: HTMLElement, capa: HTMLElement) {
     this.tactil = window.matchMedia("(pointer: coarse)").matches;
@@ -67,6 +71,14 @@ export class Controles {
     capa.append(vista);
     this.botonVista = vista;
 
+    // Punto de mira mientras el ratón está capturado: los clics (las máquinas del casino) apuntan al centro.
+    const punto = document.createElement("div");
+    punto.className = "punto-mira";
+    punto.hidden = true;
+    capa.append(punto);
+    this.punto = punto;
+
+    document.addEventListener("pointerlockchange", this.alCapturar);
     window.addEventListener("keydown", this.alBajarTecla);
     window.addEventListener("keyup", this.alSubirTecla);
     window.addEventListener("blur", this.soltarTodo);
@@ -89,6 +101,9 @@ export class Controles {
     window.removeEventListener("keydown", this.alBajarTecla);
     window.removeEventListener("keyup", this.alSubirTecla);
     window.removeEventListener("blur", this.soltarTodo);
+    document.removeEventListener("pointerlockchange", this.alCapturar);
+    this.soltarRaton();
+    this.punto.remove();
     this.botonSalto.remove();
     this.botonVista.remove();
     this.joyVista.base.remove();
@@ -96,6 +111,7 @@ export class Controles {
 
   /** Recalcula `mover` y `correr` a partir de teclas y joystick. Se llama cada fotograma. */
   actualizar(): void {
+    if (this.capturado && (this.libre || !ajustes.raton)) this.soltarRaton();
     const t = this.teclas;
     let x = (t.has("KeyD") || t.has("ArrowRight") ? 1 : 0) - (t.has("KeyA") || t.has("ArrowLeft") ? 1 : 0);
     let y = (t.has("KeyW") || t.has("ArrowUp") ? 1 : 0) - (t.has("KeyS") || t.has("ArrowDown") ? 1 : 0);
@@ -134,6 +150,27 @@ export class Controles {
     return r;
   }
 
+  /** ¿Está el ratón capturado por el mundo? */
+  get capturado(): boolean {
+    return document.pointerLockElement === this.lienzo;
+  }
+
+  soltarRaton(): void {
+    if (this.capturado) document.exitPointerLock();
+  }
+
+  private alCapturar = (): void => {
+    this.punto.hidden = !this.capturado;
+    this.punteros.clear();
+  };
+
+  /** Giro de cámara por píxeles movidos, con la sensibilidad y el eje vertical de los ajustes. */
+  private girar(dx: number, dy: number, k: number): void {
+    k *= ajustes.sensibilidad;
+    this.dYaw -= dx * k;
+    this.dPitch += (ajustes.invertirY ? -dy : dy) * k;
+  }
+
   private alBajarTecla = (e: KeyboardEvent): void => {
     if (e.code === "Space") {
       if (!e.repeat) this.saltar = true;
@@ -156,6 +193,11 @@ export class Controles {
   };
 
   private alBajar = (e: PointerEvent): void => {
+    if (this.capturado) return;
+    if (ajustes.raton && !this.libre && e.pointerType === "mouse" && e.button === 0) {
+      // Si el navegador (o Discord) no deja capturar, sigue valiendo arrastrar.
+      Promise.resolve(this.lienzo.requestPointerLock()).catch(() => undefined);
+    }
     this.lienzo.setPointerCapture(e.pointerId);
     const mitadIzquierda = e.clientX < window.innerWidth / 2;
     if (e.pointerType === "touch" && mitadIzquierda && !this.joy) {
@@ -171,6 +213,7 @@ export class Controles {
   };
 
   private alMover = (e: PointerEvent): void => {
+    if (this.capturado) return this.girar(e.movementX, e.movementY, 0.0025);
     const p = this.punteros.get(e.pointerId);
     if (!p) return;
     if (p.rol === "joy" && this.joy) {
@@ -193,9 +236,7 @@ export class Controles {
         if (antes > 1 && ahora > 1) this.zoom *= antes / ahora;
       }
     } else {
-      const k = e.pointerType === "touch" ? 0.006 : 0.0045;
-      this.dYaw -= (e.clientX - p.x) * k;
-      this.dPitch += (e.clientY - p.y) * k;
+      this.girar(e.clientX - p.x, e.clientY - p.y, e.pointerType === "touch" ? 0.006 : 0.0045);
     }
     p.x = e.clientX;
     p.y = e.clientY;

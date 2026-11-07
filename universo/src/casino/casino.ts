@@ -564,7 +564,9 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
   type Blanco = { tipo: "boton"; m: Maquina; k: number } | { tipo: "maquina"; m: Maquina };
   const apuntar = (e: PointerEvent): Blanco | null => {
     const r = ctx.lienzo.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
+    // Con el ratón capturado (ajustes) el cursor no se mueve: se apunta con el punto de mira, en el centro.
+    if (document.pointerLockElement === ctx.lienzo) ndc.set(0, 0);
+    else ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
     rayo.setFromCamera(ndc, ctx.camara3);
     const ojo = ctx.camara3.position;
     const dePie = (m: Maquina): boolean => {

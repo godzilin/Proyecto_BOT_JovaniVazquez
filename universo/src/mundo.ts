@@ -16,6 +16,7 @@ import {
   WebGLRenderer,
   NeutralToneMapping,
 } from "three";
+import { ajustes, iniciarAjustes } from "./mundo/ajustes";
 import { Calidad } from "./mundo/calidad";
 import { Camara } from "./mundo/camara";
 import { Controles } from "./mundo/controles";
@@ -173,13 +174,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   const ajustar = (): void => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     camara3.aspect = window.innerWidth / window.innerHeight;
-    // En vertical (móvil) se abre el campo vertical para que el ancho no se quede en un túnel.
-    const anchoMedio = Math.tan((25 * Math.PI) / 180) / camara3.aspect;
-    camara3.fov = Math.min(80, Math.max(55, (2 * Math.atan(anchoMedio) * 180) / Math.PI));
+    // En vertical (móvil) se abre el campo vertical para que el ancho no se quede en un túnel (con el FOV de serie, 55°: hasta 80°).
+    const fov = ajustes.fov;
+    const anchoMedio = Math.tan((((25 / 55) * fov) * Math.PI) / 180) / camara3.aspect;
+    camara3.fov = Math.min(Math.max(80, fov), Math.max(fov, (2 * Math.atan(anchoMedio) * 180) / Math.PI));
     camara3.updateProjectionMatrix();
   };
   ajustar();
   window.addEventListener("resize", ajustar);
+  iniciarAjustes(capa, tactil, ajustar);
 
   const ganchos: ((dt: number, ahora: number) => void)[] = [];
   const contexto: Contexto = {
@@ -215,6 +218,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     reloj += dt;
     calidad.medir(real);
 
+    controles.libre = camara.anclada; // sentado ante una máquina hace falta el cursor para los botones
     controles.actualizar();
     const cam = controles.consumirCamara();
     if (controles.cambiarVista) {
@@ -361,6 +365,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     },
     pausar(si) {
       pausado = si;
+      if (si) controles.soltarRaton();
     },
     detener() {
       obras.vaciar();
