@@ -2788,8 +2788,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, f"{UNIVERSO_TEASER_PREFIX}slots", "Déjà vu en la plaza",
          "Pulsa el botón 🌌 Jovaniverso en la tragaperras, que ya está en el Jovaniverso.", C),
     ])  # fmt: skip
-    # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la página
-    # y el servidor los recorta a 12 m/s, así que cuestan tiempo de verdad: a 9 m/s
+    # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la sala con las
+    # poses, sin dejar ir más rápido que la física, así que cuestan tiempo de verdad: a 9 m/s
     # corriendo, 42 km son 80 minutos y 1.000 km, más de 30 horas.
     a += _tiers("jovani", "universo_meters", [
         (100, "universo_meters_100", "Un pequeño paso para el robot",

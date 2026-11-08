@@ -30,9 +30,20 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 - Por ahora, las celdas llegan como mucho a ±`LIMITE_CELDAS` = 40 (±3,2 km), porque la red manda
   las posiciones en decímetros con `int16`. La altura sigue de −20 a 120 m.
 
-**Topes por trozo, no por mundo:** 1 MB y 4000 objetos por celda (la densidad es lo que pesa al
-dibujar). El mundo entero no tiene tope de objetos ni de celdas. Los assets tienen un tope de
-cordura (`MAX_ASSETS` = 2000) porque la página los descarga todos al entrar (ver «Después»).
+**Topes por trozo:** 1 MB y 4000 objetos por celda (la densidad es lo que pesa al dibujar). El
+mundo entero no tiene tope de objetos ni de celdas. Los assets tienen un tope de cordura
+(`MAX_ASSETS` = 2000) porque la página los descarga todos al entrar (ver «Fases»).
+
+**Tope del mundo entero (temporal, hasta la fase 2):** el borrador pesa como mucho
+`MAX_WORLD_BYTES` = 8 MB (la suma de sus trozos en JSON), porque hoy todo se baja entero: el bot
+guarda el mundo publicado entero en memoria por servidor (el texto y su gzip; `mem_limit` de 2 GB) y
+cada página lo descarga y lo monta entero al entrar. La isla de serie pesa ~170 KB
+(`docs/volcar_mundo_serie.py`); un mundo de 60 000 objetos, ~8 MB, que son ~700 KB con gzip por el
+túnel y ~250 ms de montar en un PC (`docs/medir_recarga.py`), más de un segundo en un móvil. Caben
+unas 50 islas de serie. Se comprueba al guardar (todo o nada, en la misma transacción) y el editor
+enseña en la barra de estado cuánto ocupa frente al tope. Un borrador que ya pasaba (de antes del
+tope) se sigue pudiendo editar y publicar: solo se rechaza un guardado que lo haga crecer. Con la
+fase 2 (cargar por cercanía) lo que pesa es lo cercano y este tope se sube o se quita.
 
 ## Guardar, publicar y versiones
 

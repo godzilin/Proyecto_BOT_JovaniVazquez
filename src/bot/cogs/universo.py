@@ -151,7 +151,14 @@ from bot.cogs import lottery as loteria
 from bot.cogs import poker
 from bot.cogs import shop as tienda
 from bot.cogs import slots as tragas
-from bot.repositories.universo_mundo import MAX_GLB_TOTAL, Change, Conflict, GlbFull, MissingAssets
+from bot.repositories.universo_mundo import (
+    MAX_GLB_TOTAL,
+    Change,
+    Conflict,
+    GlbFull,
+    MissingAssets,
+    WorldTooBig,
+)
 from bot.services.achievements import (
     StatDelta,
     universo_gesture_stats,
@@ -186,6 +193,7 @@ from bot.services.universo_editor import (
     FORMAT,
     MAX_ASSETS,
     MAX_GLB_BYTES,
+    MAX_WORLD_BYTES,
     MundoError,
     encode_piece,
     glb_refs,
@@ -805,11 +813,16 @@ class Universo(commands.Cog, name="Universo"):
 
         try:
             changes = await asyncio.to_thread(check)
-            return await repo.save(guild.id, changes, member.id, MAX_ASSETS)
+            return await repo.save(guild.id, changes, member.id, MAX_ASSETS, MAX_WORLD_BYTES)
         except MundoError as error:
             raise UniversoError(str(error)) from error
         except Conflict as error:
             raise UniversoError(REV_CONFLICT, 409) from error
+        except WorldTooBig as error:
+            raise UniversoError(
+                f"El mundo pesaría {_mb(error.size)} y caben {_mb(error.limit)} como mucho: "
+                "borra objetos o terreno antes de añadir más."
+            ) from error
         except MissingAssets as error:
             if not error.missing:
                 raise UniversoError(
@@ -1246,6 +1259,11 @@ def _pieces_text(pieces: dict[str, str]) -> str:
     return "{" + ",".join(f"{json.dumps(k)}:{doc}" for k, doc in sorted(pieces.items())) + "}"
 
 
+def _mb(size: int) -> str:
+    """Bytes en MB con un decimal y coma, para los avisos del editor."""
+    return f"{size / 1024 / 1024:.1f} MB".replace(".", ",")
+
+
 def _draft_text(pieces: dict[str, tuple[str, int]]) -> str:
     """Los trozos del borrador (`{clave: {doc, rev}}`), sin decodificar cada `doc`."""
     return (
@@ -1263,7 +1281,8 @@ async def _editor_borrador(request: web.Request) -> web.Response:
     pieces, version = await cog.draft_world(guild.id)
     # Los trozos ya están codificados: se pegan tal cual, sin pasar por `json`.
     return web.Response(
-        text=f'{{"version":{version},"trozos":{pieces}}}', content_type="application/json"
+        text=f'{{"version":{version},"tope":{MAX_WORLD_BYTES},"trozos":{pieces}}}',
+        content_type="application/json",
     )
 
 

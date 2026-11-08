@@ -38,7 +38,7 @@ def test_la_sala_deja_correr_a_la_velocidad_maxima_de_la_pagina() -> None:
     assert top == servicio.TOP_SPEED
     # Con margen para los empujones de las colisiones, pero sin dejar el doble.
     assert top * 10 < sala.RUN_DM_PER_SECOND <= top * 10 * 1.5
-    # Lo más que se sube: el gancho (vy hasta 14) y una ladera de pendiente 1,5 a tope.
-    assert max(14, 1.5 * top) * 10 <= sala.CLIMB_DM_PER_SECOND
+    # Lo más que se sube: el gancho (`GANCHO_VY`) y una ladera de pendiente 1,5 a tope.
+    assert max(number("GANCHO_VY", JUGADOR), 1.5 * top) * 10 <= sala.CLIMB_DM_PER_SECOND
     # Un gancho cada `GANCHO_RECARGA` segundos como mucho.
     assert servicio.TRICKS_PER_SECOND["grapples"] == 1 / number("GANCHO_RECARGA", JUGADOR)

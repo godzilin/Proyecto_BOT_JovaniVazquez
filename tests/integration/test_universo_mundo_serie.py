@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.services import universo as servicio
 from bot.services import universo_editor as editor
 from bot.services.universo import ZONES_DM
 
@@ -69,6 +70,30 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
         for k, z in mundo["zonas"].items()
     }
     assert serie == ZONES_DM
+
+
+def test_la_sala_cuenta_los_lugares_donde_los_pone_el_terreno(mundo: dict) -> None:
+    # La cima, Bandama y el muelle salen de fórmulas de `terreno.ts`: la sala los tiene en dm.
+    t = _cargar_script().evaluar(
+        "src/mundo/terreno.ts",
+        "{PICO: m.PICO, cima: m.terrenoEn(m.PICO.x, m.PICO.z), BAND: m.BAND, MUELLE: m.MUELLE}",
+    )
+
+    def dm(v: float) -> int:
+        return round(v * 10)
+
+    assert servicio.SUMMIT_DM[:2] == (dm(t["PICO"]["x"]), dm(t["PICO"]["z"]))
+    assert dm(t["cima"]) == servicio.SUMMIT_TOP_DM
+    bx, bz, inner, outer, floor = servicio.BANDAMA_DM
+    band = t["BAND"]
+    assert (bx, bz) == (dm(band["x"]), dm(band["z"]))
+    assert inner < dm(band["radio"]) < outer and floor < dm(band["alt"])
+    px, pz, dx, dz, length, width, py = servicio.PIER_DM
+    pier = t["MUELLE"]
+    assert (px, pz) == (round(pier["x0"] * 10, 1), round(pier["z0"] * 10, 1))
+    assert (dx, dz) == (round(pier["dx"], 5), round(pier["dz"], 5))
+    assert (length, width) == (dm(pier["largo"]), dm(pier["ancho"]))
+    assert py < dm(pier["alt"])
 
 
 def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:

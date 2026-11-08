@@ -70,6 +70,17 @@ GLB_GRACE = timedelta(days=1)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
+def _draft_bytes(connection: sqlite3.Connection, guild_id: int) -> int:
+    """Bytes de todos los trozos del borrador (como `len(doc.encode())`, no en caracteres)."""
+    return int(
+        connection.execute(
+            "SELECT COALESCE(SUM(length(CAST(doc AS BLOB))), 0) "
+            "FROM universo_trozos_borrador WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()[0]
+    )
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -92,6 +103,19 @@ class MissingAssets(Exception):
     def __init__(self, missing: Iterable[str]) -> None:
         self.missing = sorted(missing)
         super().__init__(", ".join(self.missing))
+
+
+class WorldTooBig(Exception):
+    """El guardado haría crecer el borrador por encima de su tope; no se ha guardado nada.
+
+    Attributes:
+        size: Lo que pesaría el borrador entero (bytes de sus trozos en JSON).
+        limit: Lo que se permite.
+    """
+
+    def __init__(self, size: int, limit: int) -> None:
+        self.size, self.limit = size, limit
+        super().__init__(f"{size} > {limit}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,7 +404,12 @@ class UniversoMundoRepository:
         return {r["clave"]: (r["doc"], int(r["rev"])) for r in rows}
 
     async def save(
-        self, guild_id: int, changes: dict[str, Change], author_id: int, max_assets: int
+        self,
+        guild_id: int,
+        changes: dict[str, Change],
+        author_id: int,
+        max_assets: int,
+        max_bytes: int | None = None,
     ) -> dict[str, int]:
         """Guarda unos trozos del borrador, todos o ninguno.
 
@@ -390,21 +419,31 @@ class UniversoMundoRepository:
         Raises:
             Conflict: Si algún trozo ya no tiene el `rev` que se creía.
             MissingAssets: Si quedaría algún objeto sin su asset o más de `max_assets`.
+            WorldTooBig: Si el borrador pasaría de `max_bytes` y además crece: uno que ya
+                pasaba (guardado antes del tope) se puede seguir editando sin engordar.
         """
-        return await self._run(self._save_sync, guild_id, changes, author_id, max_assets)
+        return await self._run(self._save_sync, guild_id, changes, author_id, max_assets, max_bytes)
 
     def _save_sync(
-        self, guild_id: int, changes: dict[str, Change], author_id: int, max_assets: int
+        self,
+        guild_id: int,
+        changes: dict[str, Change],
+        author_id: int,
+        max_assets: int,
+        max_bytes: int | None,
     ) -> dict[str, int]:
         def work(connection: sqlite3.Connection) -> dict[str, int]:
             revs = {}
+            before = after = _draft_bytes(connection, guild_id)
             for key, change in changes.items():
                 row = connection.execute(
-                    "SELECT rev FROM universo_trozos_borrador WHERE guild_id = ? AND clave = ?",
+                    "SELECT rev, length(CAST(doc AS BLOB)) AS bytes "
+                    "FROM universo_trozos_borrador WHERE guild_id = ? AND clave = ?",
                     (guild_id, key),
                 ).fetchone()
                 if (int(row["rev"]) if row else 0) != change.rev:
                     raise Conflict(key)
+                after += len(change.doc.encode()) - (int(row["bytes"]) if row else 0)
                 revs[key] = change.rev + 1
                 connection.execute(
                     "INSERT INTO universo_trozos_borrador "
@@ -415,6 +454,8 @@ class UniversoMundoRepository:
                     (guild_id, key, change.doc, _refs(change.refs), revs[key], author_id, _now()),
                 )
             _check_refs(connection, guild_id, "universo_trozos_borrador", max_assets)
+            if max_bytes is not None and after > max_bytes and after > before:
+                raise WorldTooBig(after, max_bytes)
             return revs
 
         return self._transaction(work)

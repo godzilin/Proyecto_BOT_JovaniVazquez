@@ -90,6 +90,14 @@ from typing import Any
 FORMAT = 2
 #: Lo más que puede pesar un trozo en JSON.
 MAX_PIECE_BYTES = 1024 * 1024
+#: Lo más que puede pesar el borrador entero (la suma de sus trozos en JSON). El mundo publicado
+#: se guarda entero en la memoria del bot por servidor (`_mundo` y `_mundo_gz` del cog) y cada
+#: página lo baja y lo monta entero al entrar. La isla de serie pesa ~170 KB y 60 000 objetos,
+#: ~8 MB: ~700 KB con gzip y ~250 ms de montar en un PC (`docs/medir_recarga.py`), más de 1 s en
+#: un móvil. Así caben unas 50 islas de serie sin que la entrada se haga eterna.
+#: shortcut: tope del mundo entero porque se baja entero; con la fase 2 de mundo-celdas.md (cargar
+#: por cercanía) pesa lo que hay cerca y este tope se sube o se quita.
+MAX_WORLD_BYTES = 8 * 1024 * 1024
 #: Topes por trozo, no por mundo: la densidad es lo que pesa al dibujar. Lo que se dibuja de
 #: verdad lo limita el presupuesto de la Biblia; esto solo impide tumbar la página o el servidor.
 MAX_CELL_OBJECTS = 4000

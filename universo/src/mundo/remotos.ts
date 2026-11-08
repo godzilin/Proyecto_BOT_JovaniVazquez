@@ -20,7 +20,7 @@ import {
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { Estela } from "./estela";
 import { gestoDe } from "./gestos";
-import { PASO_ANDAR, PASO_CORRER, POSTURAS } from "./jugador";
+import { ANIMS, PASO_ANDAR, PASO_CORRER, POSTURAS } from "./jugador";
 import { MATERIAL_CUERPO, colorCuerpo, tonoDe, type PlantillaRobot } from "./robot";
 import { clamp } from "./ruido";
 
@@ -145,12 +145,12 @@ export class Remotos {
 
   private animar(r: Remoto, dt: number): void {
     const quiero = r.estela.anim;
-    const q = quiero > 12 ? 0 : quiero;
+    const q = quiero > ANIMS.Deslizar ? ANIMS.Idle : quiero;
     if (q !== r.actual) {
       const de = r.acciones[r.actual];
       const hacia = r.acciones[q] ?? this.accionExtra(r, q);
       hacia.reset().play();
-      hacia.crossFadeFrom(de, q === 3 || q === 12 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
+      hacia.crossFadeFrom(de, q === ANIMS.Jump || q === ANIMS.Deslizar ? 0.1 : q > ANIMS.Jump ? 0.2 : 0.22, false);
       r.actual = q;
     }
     const v = r.estela.v;

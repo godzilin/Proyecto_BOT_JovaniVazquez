@@ -271,7 +271,7 @@ ZONES_DM: dict[str, tuple[int, int, int]] = {
 }
 #: Cima del Pico de las Nieves en la isla de serie (`PICO` de `universo/src/mundo/terreno.ts`):
 #: centro x, z y radio, en decímetros. Con el terreno esculpido, la cima es su punto más alto
-#: (`world_places`).
+#: (`world_places`). Esta, `BANDAMA_DM` y `PIER_DM` las vigila `test_universo_mundo_serie.py`.
 SUMMIT_DM = (-50, 80, 100)
 #: Altura del suelo en la cima de serie (`terrenoEn(PICO)`), en dm.
 SUMMIT_TOP_DM = 497

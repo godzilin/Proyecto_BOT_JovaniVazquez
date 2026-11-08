@@ -41,7 +41,8 @@ async function llamar<T>(s: Sesion, metodo: string, ruta: string, cuerpo?: unkno
 
 const q = (s: Sesion): string => `?guild_id=${encodeURIComponent(s.guildId)}`;
 
-export const borrador = (s: Sesion) => llamar<{ version: number; trozos: Record<string, TrozoBorrador> }>(s, "GET", `borrador${q(s)}`);
+/** `tope`: bytes que puede pesar el borrador entero (`MAX_WORLD_BYTES` del servidor). */
+export const borrador = (s: Sesion) => llamar<{ version: number; tope?: number; trozos: Record<string, TrozoBorrador> }>(s, "GET", `borrador${q(s)}`);
 /** Guarda unos trozos (clave, `rev` que se cree, texto JSON o `null` para borrarlo), todos o ninguno. Devuelve el `rev` nuevo de cada uno. */
 export const guardar = (s: Sesion, trozos: [string, number, string | null][]) =>
   llamar<{ revs: Record<string, number> }>(

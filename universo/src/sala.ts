@@ -22,6 +22,9 @@ export interface PoseLocal {
   colorear(id: string): void;
 }
 
+/** Tipo del mensaje binario de pose y lo que mide una pose (la tuya y la de cada jugador del tick). Los vigila `test_universo_protocolo_ts.py`. */
+export const POSE = 1;
+export const POSE_BYTES = 9;
 const ESPERAS = [1000, 2000, 5000, 10000]; // ms; después, cada 10 s
 const TAU = Math.PI * 2;
 
@@ -44,7 +47,7 @@ export function iniciarSala(
   alMundo: (version: number) => void = () => {},
 ): () => void {
   const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/sala`;
-  const buffer = new ArrayBuffer(9); // se reutiliza en cada envío
+  const buffer = new ArrayBuffer(POSE_BYTES); // se reutiliza en cada envío
   const vista = new DataView(buffer);
   let ws: WebSocket | null = null;
   let intento = 0;
@@ -98,11 +101,11 @@ export function iniciarSala(
         return;
       }
       const d = new DataView(e.data as ArrayBuffer);
-      if (d.byteLength < 2 || d.getUint8(0) !== 1) return;
-      const n = Math.min(d.getUint8(1), Math.floor((d.byteLength - 2) / 9));
+      if (d.byteLength < 2 || d.getUint8(0) !== POSE) return;
+      const n = Math.min(d.getUint8(1), Math.floor((d.byteLength - 2) / POSE_BYTES));
       const ahora = performance.now();
       for (let i = 0; i < n; i++) {
-        const o = 2 + i * 9;
+        const o = 2 + i * POSE_BYTES;
         remotos.pose(
           d.getUint8(o),
           d.getInt16(o + 1, true) / 10,
@@ -143,7 +146,7 @@ export function iniciarSala(
     uz = z;
     ug = g;
     ua = a;
-    vista.setUint8(0, 1);
+    vista.setUint8(0, POSE);
     vista.setInt16(1, x, true);
     vista.setInt16(3, y, true);
     vista.setInt16(5, z, true);

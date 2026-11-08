@@ -45,6 +45,9 @@ export class Borrador {
   sucio = false;
   guardando = false;
   conflicto = false;
+  /** Lo que pesa el borrador (los trozos de `actual` en JSON) y lo que permite el servidor (0 si no lo dice). */
+  bytes = 0;
+  tope = 0;
   /** `hist[i]` lleva lo que cambió al pasar del estado i - 1 al i; el 0 es el de partida y no lleva nada. */
   hist: Paso[] = [];
   hi = 0;
@@ -69,7 +72,7 @@ export class Borrador {
   /** `semilla`: el mundo con el que empezar si el servidor no tiene nada; queda sucio para que se guarde. */
   constructor(
     private readonly sesion: Sesion,
-    b: { version: number; trozos: Record<string, TrozoBorrador> },
+    b: { version: number; tope?: number; trozos: Record<string, TrozoBorrador> },
     private readonly g: Ganchos,
     semilla?: MundoDoc,
   ) {
@@ -79,7 +82,8 @@ export class Borrador {
   }
 
   /** Deja el borrador como lo tiene el servidor (o como la semilla) y devuelve el documento. */
-  private cargar(b: { trozos: Record<string, TrozoBorrador> }, semilla?: MundoDoc): MundoDoc {
+  private cargar(b: { tope?: number; trozos: Record<string, TrozoBorrador> }, semilla?: MundoDoc): MundoDoc {
+    this.tope = b.tope ?? 0;
     const docs: Record<string, unknown> = {};
     this.revs = new Map();
     for (const [k, t] of Object.entries(b.trozos)) {
@@ -88,6 +92,8 @@ export class Borrador {
     }
     const doc = semilla ?? deTrozos(docs);
     this.actual = aTrozos(doc);
+    this.bytes = 0;
+    for (const v of this.actual.values()) this.bytes += codificador.encode(v).length;
     // El servidor se compara con el documento ya partido y no con su texto: lo que solo cambia de forma no se vuelve a mandar.
     this.guardado = semilla ? new Map() : new Map(this.actual);
     this.pendientes = semilla ? new Set(this.actual.keys()) : new Set();
@@ -128,8 +134,7 @@ export class Borrador {
       if (a === v) continue;
       paso.antes.set(k, a);
       paso.despues.set(k, v);
-      if (v === null) this.actual.delete(k);
-      else this.actual.set(k, v);
+      this.poner(k, v);
       this.pendientes.add(k);
     }
     if (paso.despues.size === 0) return false;
@@ -139,6 +144,17 @@ export class Borrador {
     this.hi = this.hist.length - 1;
     this.marcarSucio();
     return true;
+  }
+
+  /** Cambia un trozo de `actual` llevando la cuenta de `bytes` (solo codifica ese trozo). */
+  private poner(k: string, v: string | null): void {
+    const a = this.actual.get(k);
+    if (a !== undefined) this.bytes -= codificador.encode(a).length;
+    if (v === null) this.actual.delete(k);
+    else {
+      this.actual.set(k, v);
+      this.bytes += codificador.encode(v).length;
+    }
   }
 
   /** Un paso intermedio (arrastrar, elegir un color): no entra en el historial hasta el `commit`. */
@@ -238,8 +254,7 @@ export class Borrador {
     this.hi = i;
     const docs: Record<string, unknown> = {};
     for (const [k, v] of cambios) {
-      if (v === null) this.actual.delete(k);
-      else this.actual.set(k, v);
+      this.poner(k, v);
       this.pendientes.add(k);
       docs[k] = v === null ? null : JSON.parse(v);
     }

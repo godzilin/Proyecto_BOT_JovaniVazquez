@@ -8,6 +8,11 @@ criterio.
 
 ## 10.x
 
+### 10.10.6 · 2026-11-08
+
+- Jovaniverso: el mundo del editor tiene un tope de 8 MB y la barra enseña cuánto ocupa
+- Interno: pruebas que vigilan que la página y la sala usan las mismas poses, animaciones y lugares
+
 ### 10.10.5 · 2026-11-08
 
 - Jovaniverso: el paseo lo cuenta el servidor y nadie va más rápido que la física

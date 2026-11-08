@@ -18,7 +18,7 @@ from test_universo_bot import GUILD_ID, USER_ID, World, fake_discord, load, memb
 
 from bot.cogs.universo import MAX_EDITOR_BYTES, MUNDO_CACHE
 from bot.repositories import universo_mundo as mundo_repo
-from bot.services.universo_editor import FORMAT
+from bot.services.universo_editor import FORMAT, MAX_WORLD_BYTES
 
 ADMIN = USER_ID
 PLAIN = 777
@@ -148,7 +148,8 @@ async def test_quien_no_es_admin_recibe_403_en_cada_ruta(world: World) -> None:
 
 
 async def test_guardar_publicar_y_leer_lo_publicado(world: World) -> None:
-    assert await get(world, "/api/editor/borrador") == {"version": 0, "trozos": {}}
+    empty = {"version": 0, "tope": MAX_WORLD_BYTES, "trozos": {}}
+    assert await get(world, "/api/editor/borrador") == empty
     # Antes de publicar, el mundo público está vacío.
     assert await get(world, "/api/mundo", PLAIN) == {"version": 0, "trozos": {}}
 
@@ -268,6 +269,25 @@ async def test_un_glb_se_sube_y_se_baja_por_su_contenido(world: World) -> None:
     status, error = await save(world, {"a/modelo": {**modelo, "glb": "f" * 64}}, {"a/modelo": 1})
     assert status == 400
     assert "no se ha subido" in error["error"]
+
+
+async def test_un_mundo_que_no_cabe_da_un_error_claro(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # El cog del bot es otro módulo que el importado aquí (discord.py carga la extensión aparte).
+    monkeypatch.setitem(world.cog.save_world.__globals__, "MAX_WORLD_BYTES", 1024 * 1024)
+    assert (await save(world, {"a/a": piezas("a")}))[0] == 200
+    # Cuatro celdas de 4000 objetos son ~1,2 MB: las tres primeras caben, la cuarta no.
+    statuses = []
+    for x in (1, 90, 170, 250):
+        cell = mundo("a", x=x)
+        key = next(k for k in cell if k.startswith("c/"))
+        cell[key]["objetos"] *= 4000  # type: ignore[index, operator]
+        status, answer = await save(world, {key: cell[key]})
+        statuses.append(status)
+    assert statuses == [200, 200, 200, 400]
+    assert "y caben 1,0 MB como mucho" in answer["error"]  # type: ignore[operator]
+    assert "c/3/0" not in (await get(world, "/api/editor/borrador"))["trozos"]  # type: ignore[operator]
 
 
 async def test_un_glb_que_no_cabe_da_un_error_claro(

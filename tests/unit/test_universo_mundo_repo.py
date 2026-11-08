@@ -18,6 +18,7 @@ from bot.repositories.universo_mundo import (
     GlbFull,
     MissingAssets,
     UniversoMundoRepository,
+    WorldTooBig,
 )
 
 CELL = '{"objetos":[{"asset":"pino"}]}'
@@ -79,6 +80,35 @@ async def test_no_se_guarda_un_objeto_sin_su_asset(repo: UniversoMundoRepository
     with pytest.raises(MissingAssets) as many:
         await repo.save(1, {"a/roca": put(0, PINO)}, 10, 1)
     assert many.value.missing == []
+
+
+async def test_el_borrador_no_crece_por_encima_de_su_tope(repo: UniversoMundoRepository) -> None:
+    tope = len(PINO) + len(CELL)
+    # Justo en el tope, entra.
+    await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99, tope)
+    # Un byte más, no; y no se guarda nada de la tanda, tampoco lo que adelgaza.
+    vacia = '{"objetos":[]}'
+    with pytest.raises(WorldTooBig) as big:
+        await repo.save(1, {"c/0/0": put(1, vacia), "c/1/0": put(0, CELL + " ")}, 10, 99, tope)
+    assert (big.value.size, big.value.limit) == (len(PINO) + len(vacia) + len(CELL) + 1, tope)
+    assert await repo.draft(1) == {"a/pino": (PINO, 1), "c/0/0": (CELL, 1)}
+    # Cada servidor cuenta lo suyo.
+    await repo.save(2, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99, tope)
+
+
+async def test_un_mundo_que_ya_pasaba_del_tope_se_edita_sin_crecer(
+    repo: UniversoMundoRepository,
+) -> None:
+    await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99)
+    tope = len(PINO)  # el tope llegó después: el borrador ya pasa
+    # Lo mismo de largo, o más corto, vale.
+    await repo.save(1, {"c/0/0": put(1, CELL, "pino")}, 10, 99, tope)
+    await repo.save(1, {"a/pino": put(1, '{"nombre":"P"}')}, 10, 99, tope)
+    # Crecer, aunque sea un byte, no.
+    with pytest.raises(WorldTooBig):
+        await repo.save(1, {"a/pino": put(2, '{"nombre":"Pi"}')}, 10, 99, tope)
+    # Y se puede seguir publicando lo que hay.
+    assert await repo.publish(1, 10) == 1
 
 
 async def test_publicar_apunta_solo_lo_que_cambia(repo: UniversoMundoRepository) -> None:
