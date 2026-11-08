@@ -40,7 +40,10 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
   El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
   Con `v` igual a la versión publicada (`mundo` de `/api/entrar`) el navegador lo guarda
-  para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché.
+  para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché. Con
+  `desde=M`, la versión que ya tiene la página: `{version, desde, trozos}` con solo los
+  trozos que cambiaron después de M (`null` el que se borró), con la misma caché; si M ya
+  no se conserva, el mundo entero, sin `desde`.
 - `GET /api/glb/{sha}`: un modelo GLB por el SHA-256 de su contenido, sin sesión (es
   contenido que no cambia: `immutable`). Sale tal cual de su archivo (`glb_path`), sin pasar
   por la base.
@@ -460,6 +463,10 @@ class Universo(commands.Cog, name="Universo"):
         # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
         # por publicación y fuera del bucle, no en cada entrada.
         self._mundo_gz: dict[int, tuple[int, bytes]] = {}
+        # Lo que cambió desde cada versión (`/api/mundo?desde=`), por servidor y versión de
+        # partida: tras publicar, todas las páginas piden lo mismo. Va con la versión a la
+        # que llega, el texto y su gzip (cuando alguien lo pide comprimido).
+        self._mundo_desde: dict[tuple[int, int], tuple[int, str, bytes | None]] = {}
         # Botes de cada servidor para los letreros (`pots`), con su hora.
         self._botes: dict[int, tuple[float, list[dict[str, str]]]] = {}
         # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
@@ -660,6 +667,31 @@ class Universo(commands.Cog, name="Universo"):
             if self._mundo_epoch.get(guild_id, 0) == epoch:
                 self._lugares[guild_id] = cached
         return cached
+
+    async def mundo_desde(self, guild_id: int, since: int) -> tuple[int, str] | None:
+        """Lo publicado después de `since` (versión y trozos ya codificados, `null` los borrados).
+
+        `None` si hace falta el mundo entero: `since` ya no se conserva o no es anterior.
+        """
+        version, _pieces = await self.mundo(guild_id)
+        if since > version:
+            return None
+        if since == version:
+            return version, "{}"
+        cached = self._mundo_desde.get((guild_id, since))
+        if cached is not None and cached[0] == version:
+            return version, cached[1]
+        found = await self.bot.universo_mundo.published_since(guild_id, since)
+        if found is None:
+            return None
+        version, pieces = found
+        for key in [
+            k for k, c in self._mundo_desde.items() if k[0] == guild_id and c[0] != version
+        ]:
+            del self._mundo_desde[key]
+        text = _changes_text(pieces)
+        self._mundo_desde[(guild_id, since)] = (version, text, None)
+        return version, text
 
     async def permisos(self, guild_id: int, user_id: int) -> set[str]:
         """Los permisos de un miembro: todos si es desarrollador, si no los que le dieron."""
@@ -1264,6 +1296,11 @@ async def _editor_glb(request: web.Request) -> web.Response:
 async def _mundo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     guild, _member = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
+    since = request.query.get("desde", "")
+    if since.isdigit() and int(since) > 0:
+        found = await cog.mundo_desde(guild.id, int(since))
+        if found is not None:
+            return await _mundo_desde(request, guild.id, int(since), *found)
     version, pieces = await cog.mundo(guild.id)
     # Con `v` igual a la versión publicada (la que da `/api/entrar`), lo que hay en esa URL
     # ya no cambia (las versiones solo crecen): se guarda para siempre, solo en el navegador
@@ -1283,6 +1320,38 @@ async def _mundo(request: web.Request) -> web.Response:
         body=cached[1],
         content_type="application/json",
         headers={**headers, "Content-Encoding": "gzip"},
+    )
+
+
+async def _mundo_desde(
+    request: web.Request, guild_id: int, since: int, version: int, pieces: str
+) -> web.Response:
+    """`/api/mundo?desde=`: solo lo cambiado, con la caché de `/api/mundo` y su gzip guardado."""
+    cog = request.app[_COG_KEY]
+    cache = MUNDO_CACHE if request.query.get("v") == str(version) else "no-cache"
+    headers = {"Cache-Control": cache, "Vary": "Accept-Encoding"}
+    text = f'{{"version":{version},"desde":{since},"trozos":{pieces}}}'
+    if "gzip" not in request.headers.get("Accept-Encoding", ""):
+        return web.Response(text=text, content_type="application/json", headers=headers)
+    cached = cog._mundo_desde.get((guild_id, since))
+    data = cached[2] if cached is not None and cached[0] == version else None
+    if data is None:
+        data = await asyncio.to_thread(gzip.compress, text.encode(), 6)
+        if cached is not None and cached[0] == version:
+            cog._mundo_desde[(guild_id, since)] = (version, cached[1], data)
+    return web.Response(
+        body=data,
+        content_type="application/json",
+        headers={**headers, "Content-Encoding": "gzip"},
+    )
+
+
+def _changes_text(pieces: dict[str, str]) -> str:
+    """Los trozos cambiados como un objeto JSON: cada uno tal cual, `null` el que se borró."""
+    return (
+        "{"
+        + ",".join(f"{json.dumps(k)}:{doc or 'null'}" for k, doc in sorted(pieces.items()))
+        + "}"
     )
 
 

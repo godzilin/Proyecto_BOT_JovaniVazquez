@@ -3,7 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
-import { deTrozos } from "./editor/trozos";
+import { deTrozos, parchear } from "./editor/trozos";
 import type { MundoDoc } from "./editor/formato";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
@@ -129,42 +129,76 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
-/** El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). */
+/**
+ * El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). Con `desde`, solo los que cambiaron después de esa
+ * versión (`null` los borrados).
+ */
 interface MundoPublicado {
   version: number;
+  desde?: number;
   trozos: Record<string, unknown>;
 }
 
+/** Lo publicado que tiene la página (su versión y su documento), para pedir después solo lo que cambie. */
+let publicado: { version: number; doc: MundoDoc } | null = null;
+/** Tras el aviso de la sala, cada página espera al azar hasta esto antes de pedir: así no llegan todas al NAS a la vez. */
+const RETARDO_AVISO_MS = 3000;
+
 /**
  * Baja el mundo publicado de este servidor. Con `version` (la de `/api/entrar` o la del aviso de la sala) la URL se
- * guarda para siempre en el navegador (`MUNDO_CACHE` del cog) y volver a entrar no lo descarga otra vez.
+ * guarda para siempre en el navegador (`MUNDO_CACHE` del cog) y volver a entrar no lo descarga otra vez. Con `desde`, solo lo
+ * cambiado desde esa versión (si el servidor aún la tiene; si no, entero).
  */
-function bajarMundo(sesion: { session: string; guildId: string }, version?: number): Promise<MundoPublicado> {
-  const v = version ? `&v=${version}` : "";
+function bajarMundo(sesion: { session: string; guildId: string }, version?: number, desde?: number): Promise<MundoPublicado> {
+  const v = (version ? `&v=${version}` : "") + (desde ? `&desde=${desde}` : "");
   return api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}${v}`, undefined, sesion.session);
+}
+
+/** Apunta lo publicado que se va a ver y devuelve su documento (`null` si nunca se publicó nada). */
+function guardarPublicado(r: MundoPublicado): MundoDoc | null {
+  publicado = r.version > 0 ? { version: r.version, doc: deTrozos(r.trozos) } : null;
+  return publicado?.doc ?? null;
 }
 
 /** El mundo publicado, o `null` si no hay nada publicado o falla (entonces se queda el de serie). */
 function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number): Promise<MundoDoc | null> {
   if (!sesion.guildId) return Promise.resolve(null);
   return bajarMundo({ session: sesion.session, guildId: sesion.guildId }, version)
-    .then((r) => (r.version > 0 ? deTrozos(r.trozos) : null))
+    .then(guardarPublicado)
     .catch((e: unknown) => {
       console.warn("No se ha podido cargar el mundo publicado.", e);
       return null;
     });
 }
 
-/** Alguien ha publicado otro mundo: se dibuja en lugar del de ahora. */
-function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }, version?: number): void {
-  void pedirMundo(sesion, version).then((doc) => doc && mundo.cargarMundo(doc));
+/** Alguien ha publicado otro mundo: se baja solo lo que cambió desde el que se tiene y se rehacen esas celdas. */
+function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }, version: number): void {
+  const guildId = sesion.guildId;
+  if (!guildId) return;
+  window.setTimeout(() => {
+    const base = publicado;
+    if (base && base.version >= version) return; // ya llegó con otro aviso
+    bajarMundo({ session: sesion.session, guildId }, version, base?.version).then(
+      (r) => {
+        if (publicado !== base) return; // mientras tanto llegó otro
+        if (base && r.desde === base.version) {
+          const doc = parchear(base.doc, r.trozos);
+          publicado = { version: r.version, doc };
+          mundo.actualizarMundo(base.doc, doc, Object.keys(r.trozos));
+        } else {
+          const doc = guardarPublicado(r);
+          if (doc) mundo.cargarMundo(doc);
+        }
+      },
+      (e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e),
+    );
+  }, Math.random() * RETARDO_AVISO_MS);
 }
 
 /** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
 async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
   try {
-    const r = await bajarMundo(sesion);
-    mundo.cargarMundo(r.version > 0 ? deTrozos(r.trozos) : mundoDeSerie());
+    mundo.cargarMundo(guardarPublicado(await bajarMundo(sesion)) ?? mundoDeSerie());
   } catch (e) {
     console.warn("No se ha podido cargar el mundo publicado.", e);
     aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");

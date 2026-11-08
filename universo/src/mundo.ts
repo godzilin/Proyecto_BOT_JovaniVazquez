@@ -27,12 +27,13 @@ import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
+import { CELDAS, crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, MITAD, PASO, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
 import { Obras } from "./mundo/obras";
 import { PRUEBAS } from "./mundo/modo";
 import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
 import { mundoDeSerie } from "./mundo/serie";
-import type { MundoDoc, Teleporte } from "./editor/formato";
+import { CELDA, type MundoDoc, type Teleporte } from "./editor/formato";
+import { coordsDeClave } from "./editor/trozos";
 import { SITIOS_ISLA, puntoDe, teleportesDeSerie } from "./mundo/teleportes";
 
 /** Lo del paseo que la sala no ve en las poses (los metros, saltos, deslizamientos y lugares los cuenta ella). */
@@ -74,6 +75,11 @@ export interface Mundo {
   /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes), terreno incluido. */
   cargarMundo(doc: MundoDoc): void;
   /**
+   * Lo publicado cambió solo en esos trozos (`claves`) y `doc` es el mundo nuevo (`parchear` de `antes`). Si se está viendo
+   * `antes`, se rehace solo lo de esas celdas (obras, colisiones, culling y terreno); si no, o si es mucho, se carga entero.
+   */
+  actualizarMundo(antes: MundoDoc, doc: MundoDoc, claves: string[]): void;
+  /**
    * El editor ha esculpido o pintado la rejilla del terreno (`terreno.ts`) entre esos vértices: se rehace esa parte de la
    * malla. Con `mar`, también el mapa de profundidad del mar (al acabar el trazo; es más caro).
    */
@@ -95,6 +101,9 @@ export interface Mundo {
 const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
 const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
+// Con más celdas cambiadas se monta entero. Rehacer celdas sale siempre más barato (docs/medir_recarga.py: 24 de 300 celdas,
+// 53 ms contra 245 entero; 12 de 14, 6 contra 16), así que el tope es solo para cambios que tocan casi todo.
+const MAX_CELDAS_PARCIAL = 64;
 
 /**
  * Monta el mundo una sola vez: con el publicado que traiga `inicial` (se pide a la vez que el login) o, si da `null`, con
@@ -371,6 +380,22 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     };
   }
 
+  /** Lo que sigue al documento que se ve, se cargue entero o por celdas. */
+  const fijarDoc = (doc: MundoDoc): void => {
+    docActual = doc;
+    for (const f of alCargar) f(doc);
+    if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
+  };
+  const cargarMundo = (doc: MundoDoc): void => {
+    if (fijarTerreno(doc.terreno)) {
+      suelo?.actualizar();
+      if (profundidad) rellenarMapaProfundidad(profundidad);
+    }
+    obras.cargar(doc);
+    calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
+    fijarDoc(doc);
+  };
+
   return {
     contexto,
     yo: jugador,
@@ -406,16 +431,26 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       t.speed = Math.max(t.speed, i.speed);
       t.chain = Math.max(t.chain, i.chain);
     },
-    cargarMundo(doc) {
+    cargarMundo,
+    actualizarMundo(antes, doc, claves) {
+      const celdas = claves.filter((k) => k.startsWith("c/"));
+      if (docActual !== antes || celdas.length > MAX_CELDAS_PARCIAL || !obras.actualizar(doc, celdas)) return cargarMundo(doc);
       if (fijarTerreno(doc.terreno)) {
-        suelo?.actualizar();
+        // Los vértices de las celdas cambiadas (y uno más: el color mira la pendiente); si aparece o se va todo el terreno, entero.
+        const caja = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const k of celdas) {
+          const [cx, cz] = coordsDeClave(k) as [number, number];
+          const [ix, iz] = [(cx * CELDA + MITAD) / PASO, (cz * CELDA + MITAD) / PASO];
+          [caja[0], caja[1]] = [Math.min(caja[0], ix - 1), Math.min(caja[1], iz - 1)];
+          [caja[2], caja[3]] = [Math.max(caja[2], ix + CELDA / PASO + 1), Math.max(caja[3], iz + CELDA / PASO + 1)];
+        }
+        const [ix0, iz0, ix1, iz1] = caja.map((v) => Math.min(Math.max(v, 0), CELDAS));
+        if (!antes.terreno || !doc.terreno) suelo?.actualizar();
+        else if (ix0 <= ix1 && iz0 <= iz1) suelo?.actualizar(ix0, iz0, ix1, iz1);
         if (profundidad) rellenarMapaProfundidad(profundidad);
       }
-      obras.cargar(doc);
-      calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
-      docActual = doc;
-      for (const f of alCargar) f(doc);
-      if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
+      calidad.callar(2);
+      fijarDoc(doc);
     },
     retocarTerreno(ix0, iz0, ix1, iz1, conMar) {
       suelo?.actualizar(ix0, iz0, ix1, iz1);

@@ -356,8 +356,8 @@ export class PanelAssets implements Panel {
   }
 
   /** Cierra un cambio: entra en el historial, marca el borrador como sucio y lo vuelve a dibujar. */
-  private commit(): void {
-    this.a.b.commit();
+  private commit(id = this.selId): void {
+    this.a.b.commit({ assets: id ? [id] : [] });
     this.dibujar();
   }
 
@@ -817,6 +817,7 @@ export class PanelAssets implements Panel {
   }
 
   private async optimizarAsset(): Promise<void> {
+    const id = this.selId; // mientras se optimiza se puede elegir otro
     const a = this.asset;
     if (a?.tipo !== "glb") return;
     this.mensaje = "Descargando modelo…";
@@ -835,7 +836,7 @@ export class PanelAssets implements Panel {
       const r = await api.subirGlb(this.a.sesion, nuevo);
       this.triangulosGlb.set(r.sha256, r.triangles);
       a.glb = r.sha256;
-      this.commit();
+      this.commit(id);
     } catch (e) {
       this.a.fallo(e);
     } finally {
@@ -853,12 +854,13 @@ export class PanelAssets implements Panel {
   }
 
   private async renombrar(): Promise<void> {
+    const id = this.selId;
     const a = this.asset;
     if (!a) return;
     const nombre = (await dialogo(this.a.raiz, "Renombrar asset", "Nuevo nombre (el id no cambia):", "Renombrar", a.nombre))?.trim().slice(0, MAX_NOMBRE);
     if (!nombre) return;
     a.nombre = nombre;
-    this.commit();
+    this.commit(id);
   }
 
   private async borrarAsset(): Promise<void> {

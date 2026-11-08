@@ -23,6 +23,25 @@ function aBase64(b: Uint8Array): string {
 /** Clave de la celda donde cae el punto (x, z) del mundo (`cell_key`). */
 export const claveCelda = (x: number, z: number): string => `c/${Math.floor(x / CELDA)}/${Math.floor(z / CELDA)}`;
 
+// La celda como un número (sin crear textos) para recorrer muchos objetos: (cx + B) · 2B + (cz + B), lejos de cualquier tope.
+const B = 1 << 20;
+/** La celda de (x, z) como número; `claveDeNumero` la devuelve a su clave. */
+export const numeroCelda = (x: number, z: number): number => (Math.floor(x / CELDA) + B) * 2 * B + Math.floor(z / CELDA) + B;
+const cxDe = (n: number): number => Math.floor(n / (2 * B)) - B;
+const czDe = (n: number): number => (n % (2 * B)) - B;
+export const claveDeNumero = (n: number): string => `c/${cxDe(n)}/${czDe(n)}`;
+const CLAVE_CELDA = /^c\/(-?\d+)\/(-?\d+)$/;
+/** La celda (cx, cz) de una clave `c/<cx>/<cz>`, o `null` si no es de celda. */
+export function coordsDeClave(clave: string): [number, number] | null {
+  const m = CLAVE_CELDA.exec(clave);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+/** El número de una clave `c/<cx>/<cz>`, o `null` si no es de celda. */
+export function numeroDeClave(clave: string): number | null {
+  const c = coordsDeClave(clave);
+  return c ? (c[0] + B) * 2 * B + c[1] + B : null;
+}
+
 interface Celda {
   objetos: Objeto[];
   terreno?: Terreno;
@@ -31,8 +50,8 @@ interface Celda {
 // El terreno cambia pocas veces y cada commit parte el documento: se reusa el último corte si no ha cambiado.
 let corte: { alturas: string; colores: string; celdas: Map<string, Terreno> } | undefined;
 
-/** Parte el terreno de la isla en las 16 celdas de la -2 a la 1 (`_split_terrain`). */
-function partirTerreno(t: Terreno): Map<string, Terreno> {
+/** Parte el terreno de la isla en las 16 celdas de la -2 a la 1 (`_split_terrain`). Con el mismo terreno, el mismo `Map`. */
+export function partirTerreno(t: Terreno): Map<string, Terreno> {
   if (corte && corte.alturas === t.alturas && corte.colores === t.colores) return corte.celdas;
   const h = aBytes(t.alturas);
   const c = aBytes(t.colores);
@@ -54,23 +73,86 @@ function partirTerreno(t: Terreno): Map<string, Terreno> {
   return celdas;
 }
 
+/** Los trozos `zonas` y `teleportes` (`null` el que no sale). Una lista de teleportes vacía sí sale: «ninguno», no «los de serie». */
+export function trozosSueltos(doc: MundoDoc): [string, string | null][] {
+  return [
+    ["zonas", Object.keys(doc.zonas).length > 0 ? JSON.stringify({ zonas: doc.zonas }) : null],
+    ["teleportes", doc.teleportes ? JSON.stringify({ teleportes: doc.teleportes }) : null],
+  ];
+}
+
+/** El JSON de una celda con esos objetos (en su orden) y ese terreno; `null` si no lleva nada. */
+export function trozoCelda(objetos: Objeto[], terreno?: Terreno): string | null {
+  if (terreno) return JSON.stringify({ objetos, terreno });
+  return objetos.length ? JSON.stringify({ objetos }) : null;
+}
+
 /** Parte el mundo en trozos (clave → JSON). Los vacíos no salen: sin zonas, sin objetos ni terreno en una celda. */
 export function aTrozos(doc: MundoDoc): Map<string, string> {
   const trozos = new Map<string, string>();
-  if (Object.keys(doc.zonas).length > 0) trozos.set("zonas", JSON.stringify({ zonas: doc.zonas }));
-  // Una lista vacía sí sale: quiere decir «ningún teleporte», no «los de serie».
-  if (doc.teleportes) trozos.set("teleportes", JSON.stringify({ teleportes: doc.teleportes }));
+  for (const [k, v] of trozosSueltos(doc)) if (v !== null) trozos.set(k, v);
   for (const [id, asset] of Object.entries(doc.assets)) trozos.set(`a/${id}`, JSON.stringify(asset));
-  const celdas = new Map<string, Celda>();
-  const celda = (clave: string): Celda => {
-    let c = celdas.get(clave);
-    if (!c) celdas.set(clave, (c = { objetos: [] }));
-    return c;
-  };
-  for (const o of doc.objetos) celda(claveCelda(o.pos[0], o.pos[2])).objetos.push(o);
-  if (doc.terreno) for (const [clave, t] of partirTerreno(doc.terreno)) celda(clave).terreno = t;
-  for (const [clave, c] of celdas) trozos.set(clave, JSON.stringify(c));
+  const celdas = new Map<string, Objeto[]>();
+  for (const o of doc.objetos) {
+    const clave = claveCelda(o.pos[0], o.pos[2]);
+    const l = celdas.get(clave);
+    if (l) l.push(o);
+    else celdas.set(clave, [o]);
+  }
+  const terreno = doc.terreno ? partirTerreno(doc.terreno) : new Map<string, Terreno>();
+  for (const clave of terreno.keys()) if (!celdas.has(clave)) celdas.set(clave, []);
+  for (const [clave, objetos] of celdas) trozos.set(clave, trozoCelda(objetos, terreno.get(clave)) as string);
   return trozos;
+}
+
+/**
+ * El mundo `doc` con esos trozos cambiados (clave → documento, o `null` si ya no está), sin tocar `doc` ni volver a juntar lo
+ * demás: los objetos de las demás celdas y los assets que no cambian son los mismos. Da lo mismo que `deTrozos` de todos los
+ * trozos con esos cambiados, salvo el orden de los objetos (las celdas cambiadas van al final) y, si se quita el terreno de
+ * todas las celdas que lo traían y alguna no lo traía, que la isla se queda con la fórmula en vez de quedarse sin terreno.
+ */
+export function parchear(doc: MundoDoc, cambios: Record<string, unknown>): MundoDoc {
+  const nuevo: MundoDoc = { ...doc };
+  const celdas = new Map<number, Celda | null>();
+  for (const [clave, t] of Object.entries(cambios)) {
+    if (clave === "zonas") nuevo.zonas = t ? (t as { zonas: Record<string, Zona> }).zonas : {};
+    else if (clave === "teleportes") {
+      if (t) nuevo.teleportes = (t as { teleportes: Teleporte[] }).teleportes;
+      else delete nuevo.teleportes;
+    } else if (clave.startsWith("a/")) {
+      if (nuevo.assets === doc.assets) nuevo.assets = { ...doc.assets };
+      if (t) nuevo.assets[clave.slice(2)] = t as Asset;
+      else delete nuevo.assets[clave.slice(2)];
+    } else {
+      const n = numeroDeClave(clave);
+      if (n !== null) celdas.set(n, (t as Celda | null) ?? null);
+    }
+  }
+  if (!celdas.size) return nuevo;
+  nuevo.objetos = doc.objetos.filter((o) => !celdas.has(numeroCelda(o.pos[0], o.pos[2])));
+  const terreno = new Map(doc.terreno ? partirTerreno(doc.terreno) : []);
+  let otroTerreno = false;
+  for (const [n, c] of celdas) {
+    if (c) for (const o of c.objetos) nuevo.objetos.push(o);
+    const clave = claveDeNumero(n);
+    const viejo = terreno.get(clave);
+    if (c?.terreno) {
+      if (viejo?.alturas === c.terreno.alturas && viejo.colores === c.terreno.colores) continue;
+      terreno.set(clave, c.terreno);
+    } else if (!terreno.delete(clave)) continue;
+    otroTerreno = true;
+  }
+  if (otroTerreno) {
+    const t = juntarTerreno(
+      [...terreno].map(([clave, t]): [number, number, Terreno] => {
+        const n = numeroDeClave(clave) as number;
+        return [cxDe(n), czDe(n), t];
+      }),
+    );
+    if (t) nuevo.terreno = t;
+    else delete nuevo.terreno;
+  }
+  return nuevo;
 }
 
 /**
@@ -87,7 +169,7 @@ export function deTrozos(trozos: Record<string, unknown>): MundoDoc {
     else if (clave === "teleportes") doc.teleportes = (t as { teleportes: Teleporte[] }).teleportes;
     else if (clave.startsWith("a/")) doc.assets[clave.slice(2)] = t as Asset;
     else {
-      const m = /^c\/(-?\d+)\/(-?\d+)$/.exec(clave);
+      const m = CLAVE_CELDA.exec(clave);
       if (!m) continue;
       const c = t as Celda;
       for (const o of c.objetos) doc.objetos.push(o);

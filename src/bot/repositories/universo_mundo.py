@@ -478,6 +478,36 @@ class UniversoMundoRepository:
             connection.close()
         return int(version), {r["clave"]: r["doc"] for r in rows if r["doc"]}
 
+    async def published_since(self, guild_id: int, since: int) -> tuple[int, dict[str, str]] | None:
+        """Lo que cambió desde la versión `since` hasta la última: `(version, {clave: doc})`.
+
+        Un trozo borrado sale con `doc` vacío. `None` si `since` ya no se conserva (o no
+        existe): entonces hace falta el mundo entero.
+        """
+        return await self._run(self._published_since_sync, guild_id, since)
+
+    def _published_since_sync(self, guild_id: int, since: int) -> tuple[int, dict[str, str]] | None:
+        connection = self._connect()
+        try:
+            known = connection.execute(
+                "SELECT 1 FROM universo_mundo_publicaciones WHERE guild_id = ? AND version = ?",
+                (guild_id, since),
+            ).fetchone()
+            if known is None:
+                return None
+            version = connection.execute(
+                "SELECT MAX(version) FROM universo_mundo_publicaciones WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchone()[0]
+            # La poda solo quita filas de antes de la versión más vieja que se conserva, así
+            # que las de después de `since` están todas.
+            rows = connection.execute(
+                _latest_sql("AND version > ?"), (guild_id, since, guild_id)
+            ).fetchall()
+        finally:
+            connection.close()
+        return int(version), {r["clave"]: r["doc"] for r in rows}
+
     async def versions(self, guild_id: int) -> list[tuple[int, int, str, int]]:
         """Versiones publicadas, de la más nueva a la más vieja.
 
