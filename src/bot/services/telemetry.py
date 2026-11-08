@@ -54,6 +54,8 @@ son los acordados:
 - `tarea`: cada vuelta de cada tarea programada (`tasks.loop`), con su duración.
 - `conexion_inicial`: del arranque del proceso a la primera conexión con Discord.
 - `bot_mensaje` y `reaccion_bot`: mensajes del bot y reacciones a ellos, por canal.
+- `universo_disp`: cómo va el Jovaniverso en cada dispositivo (`/api/medidas`), por
+  «medida · plataforma» (`fps · mobile`), con el valor en los campos de `ms`.
 
 Privacidad: el único dato por persona es el `user_id` en `UserKey`, que se
 borra a los 90 días y nunca sale en el informe (se seudonimiza como u1, u2...).

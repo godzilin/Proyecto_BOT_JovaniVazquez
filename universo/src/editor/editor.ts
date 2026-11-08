@@ -174,6 +174,7 @@ class Editor implements Anfitrion {
     const partes = [...(this.paneles[this.activa]?.estado() ?? [])];
     partes.push(b.guardando ? "Guardando…" : b.sucio ? "Sin guardar" : "Guardado");
     partes.push(b.version ? `Publicada: versión ${b.version}` : "Sin publicar");
+    partes.push(`Mundo: ${mb(b.bytes)} MB`);
     this.barra.replaceChildren(...partes.map((t) => h("span", { textContent: t, className: t.startsWith("⚠") ? "ed-alerta" : "" })));
     this.botones.get("guardar")!.disabled = b.guardando;
   }
@@ -309,4 +310,9 @@ class Editor implements Anfitrion {
   private readonly alSoltarTecla = (e: KeyboardEvent): void => {
     if (!this.esCampoDeTexto(e.target)) e.stopPropagation();
   };
+}
+
+/** Bytes en MB con un decimal y coma, como los avisos del servidor. */
+function mb(bytes: number): string {
+  return (bytes / 1024 / 1024).toFixed(1).replace(".", ",");
 }

@@ -1,21 +1,28 @@
-// Dibuja el mundo publicado desde el editor (`MundoDoc`): cada asset se monta una vez; los muy repetidos van instanciados por celdas
-// y el resto se funde por celdas, todo con culling. Sin documento (o vacío) no añade ni una malla. Los círculos de colisión de cada
-// asset pasan al mundo con la posición, el giro en y y la escala de cada objeto.
-// Lo dibujado va por regiones (la celda de dibujo de cada grupo de assets, o el grupo entero si es un GLB), para que `actualizar`
-// rehaga solo las regiones de unas celdas del documento cuando se publica un cambio pequeño.
-import { BufferGeometry, Color, Euler, InstancedMesh, Matrix4, Mesh, type Material, type Object3D, Quaternion, type Scene, Vector3 } from "three";
-import { type Asset, cargarGlb, geometriaAsset, type MundoDoc, type Objeto } from "../editor/formato";
-import { numeroCelda, numeroDeClave } from "../editor/trozos";
+// Dibuja lo fijo del mundo (los objetos del editor) de las celdas cargadas (`docs/mundo-celdas.md`): llegan y se van por celdas de datos
+// (`ponerCelda`, `quitarCelda`) y se dibujan por regiones de una rejilla propia, medida con docs/medir_universo.py: en cada celda de
+// `CELDA_VEGETACION` los assets repetidos 8 veces o más (y los GLB) van instanciados, uno por grupo; el resto se funde por celdas de
+// `CELDA_OBRA`, una malla por distancia. Cambiar una celda de datos solo marca las regiones que toca, que se rehacen por tandas
+// (`trabajar`) para no dar tirones. Los círculos de colisión van por celda de datos, con la posición, el giro en y y la escala de cada
+// objeto.
+import { type BufferAttribute, BufferGeometry, Color, Euler, InstancedMesh, Matrix4, Mesh, type Material, type Object3D, Quaternion, type Scene, Vector3 } from "three";
+import { type Asset, CELDA, cargarGlb, geometriaAsset, type Objeto } from "../editor/formato";
 import { añadirCirculo, type Circulo, quitarCirculos } from "./colision";
-import { celdaDe, type Culling } from "./culling";
+import type { Culling } from "./culling";
 import { fundir } from "./geom";
 import { CELDA_OBRA, CELDA_VEGETACION, DIST_OBRA } from "./medidas";
 
-/** Desde cuántos objetos iguales compensa una malla instanciada en lugar de copias fundidas. */
-const INSTANCIAR = 8;
+/**
+ * Desde cuántos objetos iguales en una celda de vegetación compensa una malla instanciada en lugar de copias fundidas. Con 8, un
+ * mundo sintético de 60 objetos por celda pasaba de 120 llamadas; con 16 se queda en ~90 (docs/medir_universo.py --recorrido).
+ */
+const INSTANCIAR = 16;
+const B = 1 << 20;
+const num = (ix: number, iz: number): number => (ix + B) * 2 * B + iz + B;
+const coords = (n: number): [number, number] => [Math.floor(n / (2 * B)) - B, (n % (2 * B)) - B];
 
-/** La celda de dibujo de lado `lado` de un objeto, en número (`celdaDe` sin crear un texto). */
-const numero = (o: Objeto, lado: number): number => Math.floor(o.pos[0] / lado) * 65536 + Math.floor(o.pos[2] / lado);
+function soltarCopia(this: { array: unknown }): void {
+  this.array = null;
+}
 
 const euler = new Euler();
 const quat = new Quaternion();
@@ -32,25 +39,28 @@ interface Grupo {
   id: number;
   asset: Asset;
   distancia: number;
-  /** Objetos del mundo que lo usan, y si por eso va instanciado (los GLB siempre lo van, todos juntos). */
-  n: number;
-  instanciado: boolean;
+  /** Objetos cargados que lo usan: sin ninguno se suelta su geometría. */
+  usos: number;
   geo?: BufferGeometry;
 }
 
-/** Lo dibujado de una región: sus mallas y sus círculos. `viva` en falso cuando se quita (un GLB que llega tarde no se añade). */
+/** Lo dibujado de una región. `viva` en falso cuando se quita (un GLB que llega tarde no se añade). */
 interface Region {
   mallas: (Mesh | InstancedMesh)[];
-  circulos: Circulo[];
   viva: boolean;
 }
 
 export class Obras {
-  private regiones = new Map<string, Region>();
-  /** El grupo de cada asset usado, y los grupos por su contenido. */
+  private assets = new Map<string, Asset>();
+  private celdas = new Map<number, Objeto[]>();
+  private circulos = new Map<number, Circulo[]>();
+  /** El grupo de cada asset, y los grupos por su contenido. */
   private grupos = new Map<string, Grupo>();
   private porContenido = new Map<string, Grupo>();
-  private doc: MundoDoc | null = null;
+  private regionesV = new Map<number, Region>();
+  private regionesO = new Map<number, Region>();
+  private suciasV = new Set<number>();
+  private suciasO = new Set<number>();
 
   constructor(
     private readonly escena: Scene,
@@ -58,141 +68,231 @@ export class Obras {
     private readonly material: Material,
   ) {}
 
-  /** Sustituye todo lo dibujado por el contenido de `doc`. */
-  cargar(doc: MundoDoc): void {
-    this.vaciar();
-    this.doc = doc;
-    for (const [g, n] of this.contar(doc)) {
-      g.n = n;
-      g.instanciado = g.asset.tipo === "glb" || n >= INSTANCIAR;
-    }
-    this.montar(doc);
+  /** Un asset que usan (o van a usar) las celdas cargadas. Si cambia, se rehacen las regiones de los objetos que lo usan. */
+  ponerAsset(id: string, a: Asset): void {
+    const antes = this.assets.get(id);
+    if (antes === a) return;
+    this.assets.set(id, a);
+    if (antes) this.cambiarAsset(id);
   }
 
-  /**
-   * `doc` es el mundo de antes con esas claves de trozo cambiadas (`parchear`) y los mismos assets: se rehacen solo las regiones de
-   * esas celdas. Devuelve `false` (sin tocar nada) si no se puede y hay que `cargar` entero: otros assets, o un grupo que pasa de
-   * suelto a instanciado o al revés.
-   */
-  actualizar(doc: MundoDoc, claves: Iterable<string>): boolean {
-    const antes = this.doc;
-    if (!antes || doc.assets !== antes.assets) return false;
-    const celdas = new Set<number>();
-    for (const k of claves) {
-      const n = numeroDeClave(k);
-      if (n !== null) celdas.add(n);
+  quitarAsset(id: string): void {
+    if (this.assets.delete(id)) this.cambiarAsset(id);
+  }
+
+  tieneAsset(id: string): boolean {
+    return this.assets.has(id);
+  }
+
+  /** Los objetos de la celda de datos (cx, cz); sustituye a los que tuviera. */
+  ponerCelda(cx: number, cz: number, objetos: Objeto[]): void {
+    this.quitarCelda(cx, cz);
+    const n = num(cx, cz);
+    this.celdas.set(n, objetos);
+    const circulos: Circulo[] = [];
+    for (const o of objetos) {
+      const a = this.assets.get(o.asset);
+      if (a?.colision) this.colisiones(circulos, a, o);
+      const g = this.grupoDe(o.asset);
+      if (g) g.usos++;
     }
-    const cuentas = this.contar(doc);
-    for (const [g, n] of cuentas) if (g.asset.tipo !== "glb" && n >= INSTANCIAR !== g.instanciado) return false;
-    for (const [g, n] of cuentas) g.n = n;
-    const afectadas = new Set<string>();
-    // Las celdas de dibujo afectadas, en números: así `montar` no tiene que sacar la clave de región de todos los objetos.
-    const cerca = new Set<number>();
-    for (const d of [antes, doc]) {
-      for (const o of d.objetos) {
-        if (!celdas.has(numeroCelda(o.pos[0], o.pos[2]))) continue;
-        const g = this.grupos.get(o.asset);
-        if (!g) continue;
-        afectadas.add(this.region(g, o));
-        cerca.add(numero(o, g.instanciado ? CELDA_VEGETACION : CELDA_OBRA));
+    this.circulos.set(n, circulos);
+    this.marcar(cx, cz);
+  }
+
+  quitarCelda(cx: number, cz: number): void {
+    const n = num(cx, cz);
+    const objetos = this.celdas.get(n);
+    if (!objetos) return;
+    this.celdas.delete(n);
+    quitarCirculos(this.circulos.get(n) ?? []);
+    this.circulos.delete(n);
+    for (const o of objetos) {
+      const g = this.grupos.get(o.asset);
+      if (g && --g.usos <= 0) {
+        g.geo?.dispose(); // three la vuelve a subir si una región que aún no se ha rehecho la dibuja
+        g.geo = undefined;
       }
     }
-    const circulos: Circulo[] = [];
-    for (const k of afectadas) {
-      const r = this.regiones.get(k);
-      if (!r) continue;
-      this.quitar(r);
-      circulos.push(...r.circulos);
-      this.regiones.delete(k);
-    }
-    quitarCirculos(circulos);
-    this.doc = doc;
-    this.montar(doc, afectadas, (g, o) => g.asset.tipo === "glb" || cerca.has(numero(o, g.instanciado ? CELDA_VEGETACION : CELDA_OBRA)));
-    return true;
+    this.marcar(cx, cz);
   }
 
-  /** Quita de la escena, del culling y de las colisiones todo lo que se cargó. El material es compartido y no se libera. */
-  vaciar(): void {
-    const circulos: Circulo[] = [];
-    for (const r of this.regiones.values()) {
-      this.quitar(r);
-      circulos.push(...r.circulos);
+  /** Cuántas regiones quedan por rehacer. */
+  get pendientes(): number {
+    return this.suciasV.size + this.suciasO.size;
+  }
+
+  /** Rehace las regiones marcadas hasta `hasta` (ms de `performance.now`; `Infinity`, todas). Dice si queda alguna. */
+  trabajar(hasta: number): boolean {
+    const cuentas = new Map<number, Map<Grupo, number>>();
+    for (const v of [...this.suciasV]) {
+      if (performance.now() > hasta) return true;
+      this.suciasV.delete(v);
+      this.montarV(v);
     }
-    quitarCirculos(circulos);
-    this.regiones.clear();
+    for (const o of [...this.suciasO]) {
+      if (performance.now() > hasta) return true;
+      this.suciasO.delete(o);
+      this.montarO(o, cuentas);
+    }
+    return false;
+  }
+
+  /** Quita de la escena, del culling y de las colisiones todo lo cargado. El material es compartido y no se libera. */
+  vaciar(): void {
+    for (const r of [...this.regionesV.values(), ...this.regionesO.values()]) this.quitar(r);
+    for (const c of this.circulos.values()) quitarCirculos(c);
+    this.regionesV.clear();
+    this.regionesO.clear();
+    this.circulos.clear();
+    this.celdas.clear();
+    this.suciasV.clear();
+    this.suciasO.clear();
     for (const g of this.porContenido.values()) g.geo?.dispose();
     this.grupos.clear();
     this.porContenido.clear();
-    this.doc = null;
+    this.assets.clear();
   }
 
-  /** Los objetos de cada grupo en `doc` (crea los grupos de los assets que aún no tenían). */
-  private contar(doc: MundoDoc): Map<Grupo, number> {
-    const cuentas = new Map<Grupo, number>();
-    for (const o of doc.objetos) {
-      const g = this.grupoDe(doc, o.asset);
-      if (g) cuentas.set(g, (cuentas.get(g) ?? 0) + 1);
+  /** Mallas montadas ahora (las pruebas y las devtools). */
+  get mallas(): number {
+    let n = 0;
+    for (const r of [...this.regionesV.values(), ...this.regionesO.values()]) n += r.mallas.length;
+    return n;
+  }
+
+  private cambiarAsset(id: string): void {
+    const g = this.grupos.get(id);
+    this.grupos.delete(id);
+    for (const [n, objetos] of this.celdas) {
+      if (!objetos.some((o) => o.asset === id)) continue;
+      const [cx, cz] = coords(n);
+      if (g) g.usos -= objetos.filter((o) => o.asset === id).length;
+      const nuevo = this.grupoDe(id);
+      if (nuevo) nuevo.usos += objetos.filter((o) => o.asset === id).length;
+      // Los círculos del asset pueden haber cambiado: se rehacen los de la celda.
+      quitarCirculos(this.circulos.get(n) ?? []);
+      const circulos: Circulo[] = [];
+      for (const o of objetos) {
+        const a = this.assets.get(o.asset);
+        if (a?.colision) this.colisiones(circulos, a, o);
+      }
+      this.circulos.set(n, circulos);
+      this.marcar(cx, cz);
     }
-    return cuentas;
   }
 
-  private grupoDe(doc: MundoDoc, id: string): Grupo | undefined {
+  /** Marca las regiones que toca la celda de datos (cx, cz): las de vegetación que la cortan y las de obra de alrededor. */
+  private marcar(cx: number, cz: number): void {
+    const [x0, z0, x1, z1] = [cx * CELDA, cz * CELDA, (cx + 1) * CELDA, (cz + 1) * CELDA];
+    const rango = (a: number, b: number, lado: number): [number, number] => [Math.floor(a / lado), Math.ceil(b / lado) - 1];
+    const [vx0, vx1] = rango(x0, x1, CELDA_VEGETACION);
+    const [vz0, vz1] = rango(z0, z1, CELDA_VEGETACION);
+    for (let i = vx0; i <= vx1; i++) for (let j = vz0; j <= vz1; j++) this.suciasV.add(num(i, j));
+    // Que un grupo vaya suelto depende de cuántos haya en su celda de vegetación: se marcan las de obra que la cortan.
+    const [ox0, ox1] = rango(vx0 * CELDA_VEGETACION, (vx1 + 1) * CELDA_VEGETACION, CELDA_OBRA);
+    const [oz0, oz1] = rango(vz0 * CELDA_VEGETACION, (vz1 + 1) * CELDA_VEGETACION, CELDA_OBRA);
+    for (let i = ox0; i <= ox1; i++) for (let j = oz0; j <= oz1; j++) this.suciasO.add(num(i, j));
+  }
+
+  /** Los objetos cargados dentro del cuadrado de lado `lado` (ix, iz). */
+  private objetosEn(ix: number, iz: number, lado: number): Objeto[] {
+    const [x0, z0, x1, z1] = [ix * lado, iz * lado, (ix + 1) * lado, (iz + 1) * lado];
+    const out: Objeto[] = [];
+    for (let cx = Math.floor(x0 / CELDA); cx * CELDA < x1; cx++) {
+      for (let cz = Math.floor(z0 / CELDA); cz * CELDA < z1; cz++) {
+        for (const o of this.celdas.get(num(cx, cz)) ?? []) {
+          if (o.pos[0] >= x0 && o.pos[0] < x1 && o.pos[2] >= z0 && o.pos[2] < z1) out.push(o);
+        }
+      }
+    }
+    return out;
+  }
+
+  private grupoDe(id: string): Grupo | undefined {
     let g = this.grupos.get(id);
     if (g) return g;
-    const a = doc.assets[id];
+    const a = this.assets.get(id);
     if (!a) return undefined;
     const clave = JSON.stringify([a.tipo === "glb" ? a.glb : [a.piezas, a.malla], a.distancia]);
     g = this.porContenido.get(clave);
     if (!g) {
-      g = { id: this.porContenido.size, asset: a, distancia: a.distancia ?? DIST_OBRA, n: 0, instanciado: false };
+      g = { id: this.porContenido.size, asset: a, distancia: a.distancia ?? DIST_OBRA, usos: 0 };
       this.porContenido.set(clave, g);
     }
     this.grupos.set(id, g);
     return g;
   }
 
-  /** La región de un objeto: el GLB entero, la celda de vegetación de su grupo instanciado o la celda de obra de su distancia. */
-  private region(g: Grupo, o: Objeto): string {
-    if (g.asset.tipo === "glb") return `g${g.id}`;
-    if (g.instanciado) return `i${g.id}:${celdaDe(o.pos[0], o.pos[2], CELDA_VEGETACION)}`;
-    return `s${g.distancia}:${celdaDe(o.pos[0], o.pos[2], CELDA_OBRA)}`;
-  }
-
-  /** Monta las regiones de `doc` (solo las de `solo`, si se da; `previo` descarta antes, sin sacar la clave). */
-  private montar(doc: MundoDoc, solo?: Set<string>, previo?: (g: Grupo, o: Objeto) => boolean): void {
-    const porRegion = new Map<string, Objeto[]>();
-    for (const o of doc.objetos) {
-      const g = this.grupos.get(o.asset);
-      if (!g || (previo && !previo(g, o))) continue;
-      const k = this.region(g, o);
-      if (solo && !solo.has(k)) continue;
-      const l = porRegion.get(k);
-      if (l) l.push(o);
-      else porRegion.set(k, [o]);
+  /** Cuántos objetos de cada grupo hay en una celda de vegetación (para saber si van instanciados). */
+  private cuenta(v: number, memo: Map<number, Map<Grupo, number>>): Map<Grupo, number> {
+    let c = memo.get(v);
+    if (c) return c;
+    c = new Map();
+    const [i, j] = coords(v);
+    for (const o of this.objetosEn(i, j, CELDA_VEGETACION)) {
+      const g = this.grupoDe(o.asset);
+      if (g) c.set(g, (c.get(g) ?? 0) + 1);
     }
-    for (const [k, objetos] of porRegion) this.montarRegion(doc, k, objetos);
+    memo.set(v, c);
+    return c;
   }
 
-  private montarRegion(doc: MundoDoc, k: string, objetos: Objeto[]): void {
-    const r: Region = { mallas: [], circulos: [], viva: true };
-    this.regiones.set(k, r);
-    for (const o of objetos) this.colisiones(r, doc.assets[o.asset], o);
-    const g = this.grupos.get(objetos[0].asset) as Grupo;
-    if (g.asset.tipo === "glb") {
-      const sha = g.asset.glb;
-      cargarGlb(sha).then(
-        (modelo) => r.viva && this.instanciarModelo(r, modelo, objetos, g.distancia),
-        (e: unknown) => console.warn(`No se ha podido cargar el modelo ${sha}`, e),
-      );
-    } else if (g.instanciado) this.instanciar(r, this.geometria(g), objetos, g.distancia);
-    else {
-      // Suelta: las copias de todos los grupos con esta distancia en esta celda, fundidas en una malla.
-      const malla = new Mesh(fundir(objetos.map((o) => this.copia(this.geometria(this.grupos.get(o.asset) as Grupo), o))), this.material);
+  /** Una región de vegetación: una malla instanciada por cada grupo repetido 8 veces o más, y los GLB. */
+  private montarV(v: number): void {
+    const viejo = this.regionesV.get(v);
+    if (viejo) this.quitar(viejo);
+    this.regionesV.delete(v);
+    const [i, j] = coords(v);
+    const porGrupo = new Map<Grupo, Objeto[]>();
+    for (const o of this.objetosEn(i, j, CELDA_VEGETACION)) {
+      const g = this.grupoDe(o.asset);
+      if (!g) continue;
+      const l = porGrupo.get(g);
+      if (l) l.push(o);
+      else porGrupo.set(g, [o]);
+    }
+    const r: Region = { mallas: [], viva: true };
+    for (const [g, objetos] of porGrupo) {
+      if (g.asset.tipo === "glb") {
+        const sha = g.asset.glb;
+        cargarGlb(sha).then(
+          (modelo) => r.viva && this.instanciarModelo(r, modelo, objetos, g.distancia),
+          (e: unknown) => console.warn(`No se ha podido cargar el modelo ${sha}`, e),
+        );
+      } else if (objetos.length >= INSTANCIAR) this.instanciar(r, this.geometria(g), objetos, g.distancia);
+    }
+    this.regionesV.set(v, r);
+  }
+
+  /** Una región de obra: los objetos sueltos (los que no van instanciados), fundidos en una malla por distancia. */
+  private montarO(n: number, memo: Map<number, Map<Grupo, number>>): void {
+    const viejo = this.regionesO.get(n);
+    if (viejo) this.quitar(viejo);
+    this.regionesO.delete(n);
+    const [i, j] = coords(n);
+    const porDistancia = new Map<number, BufferGeometry[]>();
+    for (const o of this.objetosEn(i, j, CELDA_OBRA)) {
+      const g = this.grupoDe(o.asset);
+      if (!g || g.asset.tipo === "glb") continue;
+      const v = num(Math.floor(o.pos[0] / CELDA_VEGETACION), Math.floor(o.pos[2] / CELDA_VEGETACION));
+      if ((this.cuenta(v, memo).get(g) ?? 0) >= INSTANCIAR) continue;
+      const l = porDistancia.get(g.distancia);
+      const copia = this.copia(this.geometria(g), o);
+      if (l) l.push(copia);
+      else porDistancia.set(g.distancia, [copia]);
+    }
+    const r: Region = { mallas: [], viva: true };
+    for (const [distancia, copias] of porDistancia) {
+      const malla = new Mesh(fundir(copias), this.material);
       malla.castShadow = true;
       malla.receiveShadow = true;
       malla.geometry.computeBoundingSphere();
-      this.añadir(r, malla, g.distancia);
+      // Nadie vuelve a leer las copias fundidas (las colisiones van aparte): en cuanto están en la GPU se suelta su copia en memoria.
+      for (const a of Object.values(malla.geometry.attributes)) (a as BufferAttribute).onUpload(soltarCopia);
+      this.añadir(r, malla, distancia);
     }
+    this.regionesO.set(n, r);
   }
 
   private geometria(g: Grupo): BufferGeometry {
@@ -260,7 +360,7 @@ export class Obras {
     });
   }
 
-  private colisiones(r: Region, a: Asset, o: Objeto): void {
+  private colisiones(circulos: Circulo[], a: Asset, o: Objeto): void {
     if (!a.colision) return;
     const cos = Math.cos(o.rot[1]);
     const sin = Math.sin(o.rot[1]);
@@ -268,7 +368,7 @@ export class Obras {
     for (const [cx, cz, rc] of a.colision) {
       const x = cx * o.esc[0];
       const z = cz * o.esc[2];
-      r.circulos.push(añadirCirculo(o.pos[0] + x * cos + z * sin, o.pos[2] - x * sin + z * cos, rc * radio));
+      circulos.push(añadirCirculo(o.pos[0] + x * cos + z * sin, o.pos[2] - x * sin + z * cos, rc * radio));
     }
   }
 }

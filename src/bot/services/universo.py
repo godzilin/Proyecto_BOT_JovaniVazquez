@@ -17,7 +17,8 @@ sesiones. La página vuelve a hacer login sola al abrirse, así que da igual.
 
 También dice dónde están los lugares de los logros en el mundo publicado
 (`world_places`, que la sala mira en cada pose), filtra lo que la página cuenta del paseo
-y la sala no ve (`walk_report`, solo para logros) y monta las listas del menú del
+y la sala no ve (`walk_report`, solo para logros), recorta las medidas de la página para la
+telemetría (`device_report`) y monta las listas del menú del
 tabulador (`player_list` y `backpack_list`), que solo leen.
 
 No mueve dinero ni guarda datos.
@@ -29,11 +30,10 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import re
 import secrets
-import sys
 import time
-from array import array
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -42,7 +42,7 @@ import aiohttp
 
 from bot.services.economy import format_amount
 from bot.services.levels import calculate_level_progress
-from bot.services.universo_editor import CELL, CELL_TERRAIN_SIDE, TERRAIN_STEP
+from bot.services.universo_editor import CELL, CELL_TERRAIN_SIDE, TERRAIN_STEP, split_summary
 
 #: Base de la API de Discord para el login.
 DISCORD_API = "https://discord.com/api/v10"
@@ -271,7 +271,7 @@ ZONES_DM: dict[str, tuple[int, int, int]] = {
 }
 #: Cima del Pico de las Nieves en la isla de serie (`PICO` de `universo/src/mundo/terreno.ts`):
 #: centro x, z y radio, en decímetros. Con el terreno esculpido, la cima es su punto más alto
-#: (`world_places`).
+#: (`world_places`). Esta, `BANDAMA_DM` y `PIER_DM` las vigila `test_universo_mundo_serie.py`.
 SUMMIT_DM = (-50, 80, 100)
 #: Altura del suelo en la cima de serie (`terrenoEn(PICO)`), en dm.
 SUMMIT_TOP_DM = 497
@@ -325,32 +325,26 @@ class Places:
         return found
 
 
-def world_places(pieces: Mapping[str, str]) -> Places:
-    """Los lugares de un mundo publicado (`{clave: doc}`, ya validado; `{}`, la isla de serie).
+def world_places(zonas: str, summaries: Mapping[str, str] | None = None) -> Places:
+    """Los lugares de un mundo publicado (`""` y sin resúmenes, la isla de serie).
 
-    Las zonas salen del trozo `zonas` y la cima, del punto más alto del terreno esculpido; lo
-    que el mundo no trae, de serie. Decodifica el terreno de cada celda: se llama en un hilo.
+    Las zonas salen del texto del trozo `zonas` y la cima, del punto más alto de los terrenos
+    esculpidos, que dan los resúmenes de las celdas (`cell_summary`: clave → resumen). Lo que el
+    mundo no trae, de serie. No lee ningún trozo del mundo.
     """
     zones = dict(ZONES_DM)
-    if raw := pieces.get("zonas"):
-        for key, zone in json.loads(raw).get("zonas", {}).items():
+    if zonas:
+        for key, zone in json.loads(zonas).get("zonas", {}).items():
             if key in zones:
                 zones[key] = (round(zone["x"] * 10), round(zone["z"] * 10), round(zone["r"] * 10))
     sx, sz, radius = SUMMIT_DM
     top_cm = SUMMIT_TOP_DM * 10
     sculpted: tuple[int, int, int] | None = None
-    for key, raw in pieces.items():
-        if not key.startswith("c/"):
+    for key, summary in (summaries or {}).items():
+        if not key.startswith("c/") or not summary:
             continue
-        terrain = json.loads(raw).get("terreno")
-        if not terrain:
-            continue
-        heights = array("h", base64.b64decode(terrain["alturas"]))
-        if sys.byteorder == "big":
-            heights.byteswap()
-        high = max(heights)
+        high, i, _samples = split_summary(summary)
         if sculpted is None or high > sculpted[0]:
-            i = heights.index(high)
             _, cx, cz = key.split("/")
             sculpted = (
                 high,
@@ -366,7 +360,7 @@ def world_places(pieces: Mapping[str, str]) -> Places:
 
 
 #: Los lugares de la isla de serie, para la sala de un servidor sin mundo publicado.
-SERIE_PLACES = world_places({})
+SERIE_PLACES = world_places("")
 
 
 #: Trucos de piloto (`universo/src/mundo/jugador.ts`) que se aceptan por segundo: correr
@@ -433,6 +427,91 @@ def walk_report(body: dict[str, object], elapsed: float) -> Walk:
         speed=count(body.get("speed"), TOP_SPEED),
         chain=count(body.get("chain"), seconds * MAX_CHAIN_PER_SECOND),
     )
+
+
+#: Medidas de la página (`/api/medidas`, `universo/src/medidas.ts`): topes de cada campo.
+#: Un tramo son los fotogramas desde el informe anterior (cada 5 min o al ocultarse).
+MAX_TRAMO_SECONDS = 900
+MAX_FPS = 240
+MAX_CALLS = 5000
+MAX_TRIANGLES = 20_000_000
+MAX_ENTRY_MS = 300_000
+MAX_CHANGES = 50
+#: Lo que se acepta de `devicePixelRatio` por la calidad adaptativa (`mundo/calidad.ts`).
+RATIO_RANGE = (0.25, 4.0)
+#: Tramos de la entrada: momento (ms desde que se abrió la página) en que acabó cada uno.
+ENTRY_STEPS = ("login", "api", "mundo", "frame")
+#: Familias de GPU que la página puede decir (`familiaGpu` en `medidas.ts`); lo demás, «otra».
+GPU_FAMILIES = frozenset(
+    {"adreno", "mali", "powervr", "apple", "intel", "nvidia", "amd", "xclipse", "software"}
+)
+#: Pantallas, redondeadas a 100 px y con tope: así no identifican a nadie.
+SCREEN_STEP = 100
+MAX_SCREEN = 4000
+
+
+def _measure(value: object, high: float, low: float = 0.0) -> float | None:
+    """Un número de la página recortado a `[low, high]`, o `None` si no es un número."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return min(max(float(value), low), high)
+
+
+def device_report(body: dict[str, object]) -> list[tuple[str, float | None, int]]:
+    """Lo que cuenta la telemetría de un tramo de medidas de la página.
+
+    Devuelve `(medida, valor, eventos)` para `TelemetryService.count` (el valor va en los
+    campos de `ms`). Solo cifras: la GPU, de una lista cerrada, y la pantalla, redondeada.
+    La página no es de fiar: cada campo se recorta a su tope y lo que no es un número se
+    ignora. Sin fotogramas, no hay nada del dibujo (la pestaña estuvo oculta).
+    """
+    rows: list[tuple[str, float | None, int]] = []
+
+    def add(name: str, value: float | None) -> None:
+        if value is not None:
+            rows.append((name, value, 1))
+
+    seconds = _measure(body.get("segundos"), MAX_TRAMO_SECONDS)
+    frames = _measure(body.get("fotogramas"), MAX_FPS * MAX_TRAMO_SECONDS)
+    if seconds and frames and seconds >= 1:
+        fps = min(frames / seconds, MAX_FPS)
+        rows.append(("tramo", None, 1))
+        add("fps", fps)
+        low = _measure(body.get("fps_p5"), fps)
+        add("fps_p5", low)
+        calls_max = _measure(body.get("llamadas_max"), MAX_CALLS)
+        tris_max = _measure(body.get("triangulos_max"), MAX_TRIANGLES)
+        add("llamadas_max", calls_max)
+        add("triangulos_max", tris_max)
+        if calls_max is not None:
+            add("llamadas", _measure(body.get("llamadas"), calls_max))
+        if tris_max is not None:
+            add("triangulos", _measure(body.get("triangulos"), tris_max))
+        ratio = _measure(body.get("ratio"), RATIO_RANGE[1], RATIO_RANGE[0])
+        top = _measure(body.get("ratio_max"), RATIO_RANGE[1], RATIO_RANGE[0])
+        if ratio is not None:
+            add("ratio", ratio * 100)
+            if top is not None and ratio < top - 0.01:
+                rows.append(("resolucion_baja", None, 1))
+        if body.get("sombras") is False:
+            rows.append(("sin_sombras", None, 1))
+    for name in ("bajadas", "subidas", "reconexiones"):
+        n = int(_measure(body.get(name), MAX_CHANGES) or 0)
+        if n:
+            rows.append((name, None, n))
+    entry = body.get("entrada")
+    if isinstance(entry, dict):
+        for step in ENTRY_STEPS:
+            add(f"entrada_{step}", _measure(entry.get(step), MAX_ENTRY_MS))
+    gpu = body.get("gpu")
+    if isinstance(gpu, str):
+        rows.append((f"gpu:{gpu if gpu in GPU_FAMILIES else 'otra'}", None, 1))
+    width = _measure(body.get("ancho"), MAX_SCREEN, SCREEN_STEP)
+    height = _measure(body.get("alto"), MAX_SCREEN, SCREEN_STEP)
+    if width is not None and height is not None:
+        size = [int(round(v / SCREEN_STEP) * SCREEN_STEP) for v in (width, height)]
+        rows.append((f"pantalla:{size[0]}x{size[1]}", None, 1))
+    return rows
 
 
 #: Filas de la pestaña «Jugadores» del menú: los que están dentro van siempre; del resto,

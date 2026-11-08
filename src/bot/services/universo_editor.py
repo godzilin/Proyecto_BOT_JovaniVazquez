@@ -93,8 +93,6 @@ MAX_PIECE_BYTES = 1024 * 1024
 #: Topes por trozo, no por mundo: la densidad es lo que pesa al dibujar. Lo que se dibuja de
 #: verdad lo limita el presupuesto de la Biblia; esto solo impide tumbar la página o el servidor.
 MAX_CELL_OBJECTS = 4000
-#: Tope de cordura: la página descarga todos los assets al entrar (fase 2: bajo demanda).
-MAX_ASSETS = 2000
 MAX_PIECES = 300
 MAX_NAME = 40
 #: Lo más que puede pesar y tener un GLB importado.
@@ -118,9 +116,9 @@ MIN_DISTANCE, MAX_DISTANCE = 20.0, 600.0
 EDITABLE_ZONES = frozenset({"nublo", "dunas", "faro", "plaza", "drago", "canteras"})
 #: Lado de una celda en metros: la isla esculpible (320 m centrados en 0) son 4 × 4 celdas.
 CELL = 80
-#: Celdas a cada lado del 0 (±3,2 km).
-#: shortcut: la red manda posiciones en dm con int16; para ir más allá, fase 3 de mundo-celdas.md.
-CELL_LIMIT = 40
+#: Celdas a cada lado del 0 (±40 km, 80 km de lado). La sala acepta poses hasta ahí
+#: (`universo_sala.WORLD_DM`) y la página no pasa de ahí (`LIMITE_CELDAS` de `mundo/borde.ts`).
+CELL_LIMIT = 500
 MIN_Y, MAX_Y = -20.0, 120.0
 MIN_SCALE, MAX_SCALE = 0.02, 60.0
 MAX_ROTATION = 4 * math.pi
@@ -375,6 +373,44 @@ def asset_triangles(asset: dict[str, Any], glbs: dict[str, int]) -> int:
     return mesh + sum(piece_triangles(p) for p in asset["piezas"])
 
 
+#: Cada cuántos vértices de la rejilla de una celda se muestrea su resumen (cada 20 m).
+SUMMARY_STEP = 10
+
+
+def cell_summary(doc: dict[str, Any]) -> str:
+    """El resumen de una celda limpia: lo que la página dibuja de lejos y la cima de los logros.
+
+    Sin terreno, `""`. Con él, `"<top_cm>,<top_index>,<b64>"`: la altura máxima de su rejilla en
+    cm, el índice (fila a fila) de su primer vértice con esa altura y el base64 de las alturas
+    (int16 little-endian, cm) muestreadas cada `SUMMARY_STEP` vértices, fila a fila desde -x -z.
+    """
+    terrain = doc.get("terreno")
+    if not terrain:
+        return ""
+    heights = array("h", base64.b64decode(terrain["alturas"]))
+    if sys.byteorder == "big":
+        heights.byteswap()
+    top = max(heights)
+    side = CELL_TERRAIN_SIDE
+    samples = array(
+        "h",
+        (
+            heights[iz * side + ix]
+            for iz in range(0, side, SUMMARY_STEP)
+            for ix in range(0, side, SUMMARY_STEP)
+        ),
+    )
+    if sys.byteorder == "big":
+        samples.byteswap()
+    return f"{top},{heights.index(top)},{base64.b64encode(samples.tobytes()).decode()}"
+
+
+def split_summary(summary: str) -> tuple[int, int, str]:
+    """Un resumen no vacío (`cell_summary`) en `(top_cm, top_index, base64 de las muestras)`."""
+    top, index, samples = summary.split(",", 2)
+    return int(top), int(index), samples
+
+
 def _terrain(value: object, side: int) -> dict[str, str]:
     t = _object(value, {"alturas", "colores"}, "El terreno")
     n = side * side
@@ -618,8 +654,6 @@ def validate_world(pieces: dict[str, Any], glbs: dict[str, int]) -> dict[str, di
         clean[key], refs = validate_piece(key, doc, glbs)
         used |= refs
     assets = {key[2:] for key in clean if key.startswith("a/")}
-    if len(assets) > MAX_ASSETS:
-        raise MundoError(f"El mundo puede tener {MAX_ASSETS} assets como mucho.")
     if used - assets:
         missing = ", ".join(sorted(used - assets))
         raise MundoError(f"Hay objetos que usan assets que no existen: {missing}.")

@@ -31,7 +31,7 @@ def test_triangulos_de_cada_forma_coinciden() -> None:
 def test_topes_y_version_coinciden() -> None:
     assert number("FORMATO") == py.FORMAT
     assert number("MAX_PIEZAS") == py.MAX_PIECES
-    assert number("MAX_ASSETS") == py.MAX_ASSETS
+    assert number("MAX_OBJETOS_CELDA") == py.MAX_CELL_OBJECTS
     assert number("MAX_TRIANGULOS_GLB") == py.MAX_GLB_TRIANGLES
     assert number("MAX_NOMBRE") == py.MAX_NAME
     assert number("MIN_LADOS") == py.MIN_SIDES

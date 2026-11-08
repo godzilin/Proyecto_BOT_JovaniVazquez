@@ -2739,7 +2739,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Mira `jovani` un viernes 13.", C, True),
     ])  # fmt: skip
 
-    # 🎤 Jovani: el Jovaniverso (cogs/universo.py: universo_stats). Entrar se puede
+    # 🎤 Jovani: el Jovaniverso (cogs/universo/sesion.py: universo_stats). Entrar se puede
     # repetir a propósito, así que cuentan los días distintos. La plataforma la dice la
     # página, así que sus logros son Comunes.
     a += _tiers("jovani", UNIVERSO_DAYS_STAT, [
@@ -2774,7 +2774,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "universo_canarias", "Gofio en órbita",
          "Entra en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
     ])  # fmt: skip
-    # El botón 🌌 Jovaniverso de los paneles (cogs/universo.py: universo_teaser_stats).
+    # El botón 🌌 Jovaniverso de los paneles (cogs/universo/__init__.py: universo_teaser_stats).
     # Pulsarlo no cuesta nada, pero en 25 paneles distintos hay que usar medio bot.
     a += _tiers("jovani", UNIVERSO_TEASERS_STAT, [
         (1, "universo_teasers_1", "Lo vi en el tráiler",
@@ -2788,8 +2788,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, f"{UNIVERSO_TEASER_PREFIX}slots", "Déjà vu en la plaza",
          "Pulsa el botón 🌌 Jovaniverso en la tragaperras, que ya está en el Jovaniverso.", C),
     ])  # fmt: skip
-    # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la página
-    # y el servidor los recorta a 12 m/s, así que cuestan tiempo de verdad: a 9 m/s
+    # Pasear por Gran Canaria (`universo_walk_stats`). Los metros los cuenta la sala con las
+    # poses, sin dejar ir más rápido que la física, así que cuestan tiempo de verdad: a 9 m/s
     # corriendo, 42 km son 80 minutos y 1.000 km, más de 30 horas.
     a += _tiers("jovani", "universo_meters", [
         (100, "universo_meters_100", "Un pequeño paso para el robot",

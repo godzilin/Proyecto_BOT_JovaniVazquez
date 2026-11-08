@@ -21,6 +21,7 @@ from bot.services.universo import (
     UniversoError,
     backpack_list,
     bearer,
+    device_report,
     platform_of,
     player_list,
     snowflake,
@@ -274,22 +275,28 @@ def test_los_lugares_salen_de_las_zonas_y_del_terreno_publicados() -> None:
     import json
     from array import array
 
-    from bot.services.universo_editor import CELL_TERRAIN_SIDE
+    from bot.services.universo_editor import CELL_TERRAIN_SIDE, cell_summary
 
-    serie = world_places({})
+    def summary(peak: int, at: int = 5 * CELL_TERRAIN_SIDE + 7) -> str:
+        heights = array("h", [100] * CELL_TERRAIN_SIDE**2)
+        heights[at] = peak
+        terreno = {"alturas": base64.b64encode(heights.tobytes()).decode(), "colores": ""}
+        return cell_summary({"objetos": [], "terreno": terreno})
+
+    serie = world_places("")
     assert serie.at(-80, 80, 600) == ["plaza"]
     assert serie.at(-50, 497, 80) == ["nieves"]
     assert serie.at(-50, 300, 80) == []  # dentro de la montaña no es la cima
-    # El editor mueve la plaza y esculpe un pico de 60 m en (-66, -150), en la celda -1/-2.
-    heights = array("h", [100] * CELL_TERRAIN_SIDE**2)
-    heights[5 * CELL_TERRAIN_SIDE + 7] = 6_000
-    terreno = {"alturas": base64.b64encode(heights.tobytes()).decode(), "colores": ""}
+    # El editor mueve la plaza y esculpe un pico de 60 m en (-66, -150), en la celda -1/-2; otra
+    # celda más baja, sin terreno o que no es una celda no lo desplazan.
     places = world_places(
+        json.dumps({"zonas": {"plaza": {"x": 30, "z": -20, "r": 4.5}}}),
         {
-            "zonas": json.dumps({"zonas": {"plaza": {"x": 30, "z": -20, "r": 4.5}}}),
-            "c/-1/-2": json.dumps({"objetos": [], "terreno": terreno}),
-            "a/casa": json.dumps({"nombre": "Casa"}),
-        }
+            "c/-1/-2": summary(6_000),
+            "c/3/3": summary(5_000),
+            "c/0/0": "",
+            "a/casa": summary(9_000),
+        },
     )
     assert places.at(-80, 80, 600) == []
     assert places.at(300, 80, -200) == ["plaza"]
@@ -302,3 +309,56 @@ def test_los_lugares_salen_de_las_zonas_y_del_terreno_publicados() -> None:
     assert places.at(-870, 10, -870) == ["muelle"]
     assert places.at(-870, 0, -870) == []  # bajo la cubierta
     assert places.at(0, -3, 0) == ["agua"]
+
+
+def test_las_medidas_de_la_pagina_se_recortan_y_solo_dan_cifras() -> None:
+    rows = {
+        name: (value, events)
+        for name, value, events in device_report(
+            {
+                "segundos": 300,
+                "fotogramas": 300 * 1000,  # 1000 fps: imposible
+                "fps_p5": 500,
+                "llamadas": 9999,
+                "llamadas_max": 90,
+                "triangulos": 1e12,
+                "triangulos_max": True,  # un booleano no es un número
+                "ratio": 1.0,
+                "ratio_max": 1.5,
+                "sombras": False,
+                "bajadas": 3,
+                "subidas": 0,
+                "reconexiones": 10_000,
+                "entrada": {"login": 1200, "api": -5, "mundo": "rápido", "frame": 1e9},
+                "gpu": "ANGLE (Qualcomm, Adreno (TM) 640, OpenGL ES 3.2)",
+                "ancho": 412,
+                "alto": 99_999,
+            }
+        )
+    }
+    assert rows["tramo"] == (None, 1)
+    assert rows["fps"] == (240, 1)
+    assert rows["fps_p5"] == (240, 1)  # nunca más que la media
+    assert rows["llamadas_max"] == (90, 1)
+    assert rows["llamadas"] == (90, 1)  # nunca más que el máximo
+    assert "triangulos_max" not in rows and "triangulos" not in rows
+    assert rows["ratio"] == (100, 1)
+    assert rows["resolucion_baja"] == (None, 1)
+    assert rows["sin_sombras"] == (None, 1)
+    assert rows["bajadas"] == (None, 3)
+    assert "subidas" not in rows
+    assert rows["reconexiones"] == (None, 50)
+    assert rows["entrada_login"] == (1200, 1)
+    assert rows["entrada_api"] == (0, 1)
+    assert "entrada_mundo" not in rows
+    assert rows["entrada_frame"] == (300_000, 1)
+    # La GPU, de una lista cerrada; la pantalla, redondeada y con tope.
+    assert "gpu:otra" in rows
+    assert "pantalla:400x4000" in rows
+    assert all(len(name) < 40 for name in rows)
+
+
+def test_sin_fotogramas_no_hay_medidas_del_dibujo() -> None:
+    names = [name for name, _, _ in device_report({"segundos": 0, "sombras": False, "gpu": "mali"})]
+    assert names == ["gpu:mali"]
+    assert device_report({"fotogramas": "x", "entrada": [1, 2]}) == []

@@ -3,15 +3,15 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
-import { deTrozos, parchear } from "./editor/trozos";
-import type { MundoDoc } from "./editor/formato";
+import { fijarBorde } from "./mundo/borde";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
+import { entrada as momentos, iniciarMedidas } from "./medidas";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
-import { mundoDeSerie } from "./mundo/serie";
+import { type Fuente, fuenteServidor } from "./mundo/cercania";
 
 interface ConfigResponse {
   client_id: string;
@@ -129,76 +129,52 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
-/**
- * El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). Con `desde`, solo los que cambiaron después de esa
- * versión (`null` los borrados).
- */
-interface MundoPublicado {
-  version: number;
-  desde?: number;
-  trozos: Record<string, unknown>;
-}
-
-/** Lo publicado que tiene la página (su versión y su documento), para pedir después solo lo que cambie. */
-let publicado: { version: number; doc: MundoDoc } | null = null;
+/** La versión del mundo publicado que se está viendo (0: el de serie), para no volver a pedir la misma tras un aviso de la sala. */
+let versionVista = 0;
 /** Tras el aviso de la sala, cada página espera al azar hasta esto antes de pedir: así no llegan todas al NAS a la vez. */
 const RETARDO_AVISO_MS = 3000;
 
 /**
- * Baja el mundo publicado de este servidor. Con `version` (la de `/api/entrar` o la del aviso de la sala) la URL se
- * guarda para siempre en el navegador (`MUNDO_CACHE` del cog) y volver a entrar no lo descarga otra vez. Con `desde`, solo lo
- * cambiado desde esa versión (si el servidor aún la tiene; si no, entero).
+ * La fuente del mundo publicado (su índice), o `null` si no hay nada publicado o falla (entonces se queda el de serie). El borde del
+ * mundo sale de las celdas del índice; con `ampliar` (otra publicación mientras se juega) solo crece.
  */
-function bajarMundo(sesion: { session: string; guildId: string }, version?: number, desde?: number): Promise<MundoPublicado> {
-  const v = (version ? `&v=${version}` : "") + (desde ? `&desde=${desde}` : "");
-  return api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}${v}`, undefined, sesion.session);
-}
-
-/** Apunta lo publicado que se va a ver y devuelve su documento (`null` si nunca se publicó nada). */
-function guardarPublicado(r: MundoPublicado): MundoDoc | null {
-  publicado = r.version > 0 ? { version: r.version, doc: deTrozos(r.trozos) } : null;
-  return publicado?.doc ?? null;
-}
-
-/** El mundo publicado, o `null` si no hay nada publicado o falla (entonces se queda el de serie). */
-function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number): Promise<MundoDoc | null> {
+function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number, ampliar = false): Promise<Fuente | null> {
   if (!sesion.guildId) return Promise.resolve(null);
-  return bajarMundo({ session: sesion.session, guildId: sesion.guildId }, version)
-    .then(guardarPublicado)
-    .catch((e: unknown) => {
+  return fuenteServidor({ session: sesion.session, guildId: sesion.guildId }, version).then(
+    (f) => {
+      versionVista = f?.indice.version ?? 0;
+      fijarBorde(f ? f.indice.trozos.keys() : [], ampliar);
+      return f;
+    },
+    (e: unknown) => {
       console.warn("No se ha podido cargar el mundo publicado.", e);
       return null;
-    });
+    },
+  );
 }
 
-/** Alguien ha publicado otro mundo: se baja solo lo que cambió desde el que se tiene y se rehacen esas celdas. */
-function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }, version: number): void {
-  const guildId = sesion.guildId;
-  if (!guildId) return;
+/**
+ * Alguien ha publicado otro mundo (o lo bajado ya no está en el servidor: `version` 0, el de ahora): se pide el índice nuevo y la página
+ * vuelve a bajar solo los trozos cercanos cuya versión ha cambiado.
+ */
+function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }, version: number, espera = RETARDO_AVISO_MS): void {
+  if (!sesion.guildId) return;
   window.setTimeout(() => {
-    const base = publicado;
-    if (base && base.version >= version) return; // ya llegó con otro aviso
-    bajarMundo({ session: sesion.session, guildId }, version, base?.version).then(
-      (r) => {
-        if (publicado !== base) return; // mientras tanto llegó otro
-        if (base && r.desde === base.version) {
-          const doc = parchear(base.doc, r.trozos);
-          publicado = { version: r.version, doc };
-          mundo.actualizarMundo(base.doc, doc, Object.keys(r.trozos));
-        } else {
-          const doc = guardarPublicado(r);
-          if (doc) mundo.cargarMundo(doc);
-        }
-      },
-      (e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e),
-    );
-  }, Math.random() * RETARDO_AVISO_MS);
+    if (version && versionVista >= version) return; // ya llegó con otro aviso
+    void pedirMundo(sesion, version || undefined, true).then((f) => {
+      if (f) mundo.cargarPublicado(f);
+    });
+  }, Math.random() * espera);
 }
 
 /** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
 async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
   try {
-    mundo.cargarMundo(guardarPublicado(await bajarMundo(sesion)) ?? mundoDeSerie());
+    const f = await fuenteServidor(sesion);
+    versionVista = f?.indice.version ?? 0;
+    fijarBorde(f ? f.indice.trozos.keys() : []);
+    if (f) mundo.cargarPublicado(f);
+    else mundo.cargarSerie();
   } catch (e) {
     console.warn("No se ha podido cargar el mundo publicado.", e);
     aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");
@@ -232,6 +208,7 @@ interface Entrada {
   session: string;
   guildId: string | null;
   channelId: string | null;
+  platform: string;
 }
 
 async function entrar(): Promise<Entrada> {
@@ -247,12 +224,14 @@ async function entrar(): Promise<Entrada> {
   });
   const { access_token, session } = await api<TokenResponse>("/api/token", { code });
   await sdk.commands.authenticate({ access_token });
+  momentos.login = performance.now();
   const profile = await api<ProfileResponse>(
     "/api/entrar",
     { guild_id: sdk.guildId, channel_id: sdk.channelId, platform: sdk.platform },
     session,
   );
-  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId };
+  momentos.api = performance.now();
+  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId, platform: sdk.platform };
 }
 
 async function start(): Promise<void> {
@@ -267,7 +246,7 @@ async function start(): Promise<void> {
         : Promise.resolve(null);
     // El mundo publicado se pide en cuanto el login dice su versión, mientras se monta lo demás, y el mundo se monta una
     // sola vez con él (o con el de serie). Hasta entonces sigue la pantalla de carga. El extraplano no tiene.
-    const inicial: Promise<MundoDoc | null> = PRUEBAS
+    const inicial: Promise<Fuente | null> = PRUEBAS
       ? Promise.resolve(null)
       : enDiscord
         ? entrando.then(
@@ -277,7 +256,11 @@ async function start(): Promise<void> {
         : params.has("editor")
           ? dev.then((d) => (d ? pedirMundo({ session: d.session, guildId: d.guild_id }) : null))
           : Promise.resolve(null);
-    const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa"), inicial), entrando]);
+    const montado = crearMundo($("mundo"), $("capa"), inicial).then((m) => {
+      momentos.mundo = performance.now();
+      return m;
+    });
+    const [mundo, entrada] = await Promise.all([montado, entrando]);
     if (entrada) {
       if (PRUEBAS && !entrada.profile.dev) {
         irAMundo(false); // el extraplano es solo de los desarrolladores
@@ -287,10 +270,15 @@ async function start(): Promise<void> {
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       menuEnPildora(iniciarMenu($("capa"), mundo, sesion));
       // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
-      if (!PRUEBAS) iniciarPaseo(mundo, sesion);
+      if (!PRUEBAS) {
+        iniciarPaseo(mundo, sesion);
+        iniciarMedidas(mundo, sesion, entrada.platform);
+      }
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, (version) => {
         if (!PRUEBAS) cargarObras(mundo, sesion, version);
       });
+      // Si el servidor ya no tiene las celdas del índice que se tiene (se podó esa versión), se pide el de ahora.
+      if (!PRUEBAS) mundo.alCaducar(() => cargarObras(mundo, sesion, 0, 500));
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
       if (!PRUEBAS && entrada.profile.editor && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
         botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });

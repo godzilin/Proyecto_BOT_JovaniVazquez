@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.services import universo as servicio
 from bot.services import universo_editor as editor
 from bot.services.universo import ZONES_DM
 
@@ -41,7 +42,6 @@ def test_el_servidor_acepta_el_mundo_de_serie(mundo: dict) -> None:
     assert max(len(editor.encode_piece(t).encode()) for t in limpio.values()) < (
         editor.MAX_PIECE_BYTES // 4
     )
-    assert sum(k.startswith("a/") for k in limpio) < editor.MAX_ASSETS // 2
     densa = max(len(t["objetos"]) for k, t in limpio.items() if k.startswith("c/"))
     assert densa < editor.MAX_CELL_OBJECTS // 4
     assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"])
@@ -71,6 +71,30 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
     assert serie == ZONES_DM
 
 
+def test_la_sala_cuenta_los_lugares_donde_los_pone_el_terreno(mundo: dict) -> None:
+    # La cima, Bandama y el muelle salen de fórmulas de `terreno.ts`: la sala los tiene en dm.
+    t = _cargar_script().evaluar(
+        "src/mundo/terreno.ts",
+        "{PICO: m.PICO, cima: m.terrenoEn(m.PICO.x, m.PICO.z), BAND: m.BAND, MUELLE: m.MUELLE}",
+    )
+
+    def dm(v: float) -> int:
+        return round(v * 10)
+
+    assert servicio.SUMMIT_DM[:2] == (dm(t["PICO"]["x"]), dm(t["PICO"]["z"]))
+    assert dm(t["cima"]) == servicio.SUMMIT_TOP_DM
+    bx, bz, inner, outer, floor = servicio.BANDAMA_DM
+    band = t["BAND"]
+    assert (bx, bz) == (dm(band["x"]), dm(band["z"]))
+    assert inner < dm(band["radio"]) < outer and floor < dm(band["alt"])
+    px, pz, dx, dz, length, width, py = servicio.PIER_DM
+    pier = t["MUELLE"]
+    assert (px, pz) == (round(pier["x0"] * 10, 1), round(pier["z0"] * 10, 1))
+    assert (dx, dz) == (round(pier["dx"], 5), round(pier["dz"], 5))
+    assert (length, width) == (dm(pier["largo"]), dm(pier["ancho"]))
+    assert py < dm(pier["alt"])
+
+
 def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:
     assert mundo["assets"]["roca"]["colision"] is None
     assert mundo["assets"]["roca-grande"]["colision"]
@@ -81,17 +105,6 @@ def test_la_pagina_parte_el_mundo_igual_que_el_servidor(mundo: dict) -> None:
     # `aTrozos` y `deTrozos` de la página contra `split_world` (`docs/comparar_trozos.py`).
     spec = importlib.util.spec_from_file_location(
         "comparar_trozos", RAIZ / "docs" / "comparar_trozos.py"
-    )
-    assert spec and spec.loader
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
-    modulo.main()
-
-
-def test_rehacer_las_celdas_publicadas_deja_lo_mismo_que_montar_entero(mundo: dict) -> None:
-    # `Obras.actualizar` de 1, 4, 12 y 24 celdas contra `Obras.cargar` (`docs/medir_recarga.py`).
-    spec = importlib.util.spec_from_file_location(
-        "medir_recarga", RAIZ / "docs" / "medir_recarga.py"
     )
     assert spec and spec.loader
     modulo = importlib.util.module_from_spec(spec)

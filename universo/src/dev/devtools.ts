@@ -3,8 +3,9 @@ import { BufferAttribute, BufferGeometry, LineBasicMaterial, LineSegments, MeshB
 import type { Fog, FogExp2 } from "three";
 import type { Asset, MundoDoc, Objeto } from "../editor/formato";
 import type { Mundo } from "../mundo";
-import { BORDE as LIMITE_XZ } from "../mundo/borde";
-import { circulos } from "../mundo/colision";
+import { borde, dentro } from "../mundo/borde";
+import { fuenteServidor } from "../mundo/cercania";
+import { todosLosCirculos } from "../mundo/colision";
 import { PRUEBAS, irAMundo } from "../mundo/modo";
 import { pistaDoc } from "../mundo/pista";
 import { mundoDeSerie } from "../mundo/serie";
@@ -151,10 +152,10 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
     boton("Ir", () => {
       const x = inX.valueAsNumber;
       const z = inZ.valueAsNumber;
-      if (Number.isFinite(x) && Number.isFinite(z) && Math.abs(x) <= LIMITE_XZ && Math.abs(z) <= LIMITE_XZ) {
+      if (Number.isFinite(x) && Number.isFinite(z) && dentro(x, z)) {
         yo.teletransportar(x, z);
         aviso.textContent = "";
-      } else aviso.textContent = `X y Z tienen que ser números entre -${LIMITE_XZ} y ${LIMITE_XZ}.`;
+      } else aviso.textContent = `X tiene que estar entre ${borde.x0} y ${borde.x1}, y Z entre ${borde.z0} y ${borde.z1}.`;
     }),
   );
   tp.append(filaXZ);
@@ -182,6 +183,7 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
   const rehacerAnillos = (): void => {
     quitarAnillos();
     materialAnillos ??= new LineBasicMaterial({ color: 0xff2bd6, depthTest: false });
+    const circulos = todosLosCirculos();
     const pos = new Float32Array(circulos.length * SEG_ANILLO * 6);
     let k = 0;
     for (const c of circulos) {
@@ -458,10 +460,14 @@ function iniciarAssets(padre: HTMLElement, mundo: Mundo, sesion: { session: stri
   pintar();
 
   if (sesion) {
-    fetch(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, { headers: { Authorization: `Bearer ${sesion.session}` } })
-      .then((r) => (r.ok ? (r.json() as Promise<{ version: number; trozos: Record<string, Asset> }>) : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((r) => {
-        for (const [clave, a] of Object.entries(r.trozos)) if (clave.startsWith("a/")) assets[clave.slice(2)] = a; // el publicado gana en ids repetidos
+    // Los assets publicados, del índice y por lotes (el mundo ya no se baja entero).
+    fuenteServidor(sesion)
+      .then(async (f) => {
+        const claves = f ? [...f.indice.trozos.keys()].filter((k) => k.startsWith("a/")) : [];
+        for (let i = 0; i < claves.length; i += 64) {
+          const docs = await f!.trozos(claves.slice(i, i + 64));
+          for (const [clave, a] of Object.entries(docs)) assets[clave.slice(2)] = a as Asset; // el publicado gana en ids repetidos
+        }
         pintar();
       })
       .catch((e: unknown) => console.warn("Devtools: sin los assets publicados.", e));

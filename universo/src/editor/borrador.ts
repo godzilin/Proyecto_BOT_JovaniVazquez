@@ -9,7 +9,7 @@ import { aTrozos, claveDeNumero, deTrozos, numeroCelda, numeroDeClave, parchear,
 
 const AUTOGUARDADO_MS = 20_000;
 export const MAX_HISTORIAL = 50;
-/** Bytes de un guardado como mucho; el servidor acepta 8 MB por petición (`MAX_EDITOR_BYTES`). Cada tanda va todo o nada. */
+/** Bytes de un guardado como mucho; el servidor acepta 8 MB por petición (`MAX_EDITOR_BYTES`). Cada tanda va todo o nada; un guardado grande va en varias. */
 const MAX_TANDA = 4 * 1024 * 1024;
 /** Trozos de un guardado como mucho (`MAX_SAVE_PIECES` del servidor). */
 const MAX_TROZOS = 5000;
@@ -45,6 +45,8 @@ export class Borrador {
   sucio = false;
   guardando = false;
   conflicto = false;
+  /** Lo que pesa el borrador (los trozos de `actual` en JSON): solo un dato para la barra, el mundo no tiene tope. */
+  bytes = 0;
   /** `hist[i]` lleva lo que cambió al pasar del estado i - 1 al i; el 0 es el de partida y no lleva nada. */
   hist: Paso[] = [];
   hi = 0;
@@ -88,6 +90,8 @@ export class Borrador {
     }
     const doc = semilla ?? deTrozos(docs);
     this.actual = aTrozos(doc);
+    this.bytes = 0;
+    for (const v of this.actual.values()) this.bytes += codificador.encode(v).length;
     // El servidor se compara con el documento ya partido y no con su texto: lo que solo cambia de forma no se vuelve a mandar.
     this.guardado = semilla ? new Map() : new Map(this.actual);
     this.pendientes = semilla ? new Set(this.actual.keys()) : new Set();
@@ -128,8 +132,7 @@ export class Borrador {
       if (a === v) continue;
       paso.antes.set(k, a);
       paso.despues.set(k, v);
-      if (v === null) this.actual.delete(k);
-      else this.actual.set(k, v);
+      this.poner(k, v);
       this.pendientes.add(k);
     }
     if (paso.despues.size === 0) return false;
@@ -139,6 +142,17 @@ export class Borrador {
     this.hi = this.hist.length - 1;
     this.marcarSucio();
     return true;
+  }
+
+  /** Cambia un trozo de `actual` llevando la cuenta de `bytes` (solo codifica ese trozo). */
+  private poner(k: string, v: string | null): void {
+    const a = this.actual.get(k);
+    if (a !== undefined) this.bytes -= codificador.encode(a).length;
+    if (v === null) this.actual.delete(k);
+    else {
+      this.actual.set(k, v);
+      this.bytes += codificador.encode(v).length;
+    }
   }
 
   /** Un paso intermedio (arrastrar, elegir un color): no entra en el historial hasta el `commit`. */
@@ -238,8 +252,7 @@ export class Borrador {
     this.hi = i;
     const docs: Record<string, unknown> = {};
     for (const [k, v] of cambios) {
-      if (v === null) this.actual.delete(k);
-      else this.actual.set(k, v);
+      this.poner(k, v);
       this.pendientes.add(k);
       docs[k] = v === null ? null : JSON.parse(v);
     }
