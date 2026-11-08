@@ -1,5 +1,7 @@
-// Las tragaperras de la plaza: pantallas, luces, botones físicos, sentarse en primera persona, tiradas contra el servidor,
-// ▶️ Auto, sonido y el HUD. Se carga con import() al acercarse a la plaza (ver entrada.ts).
+// Las tragaperras y los letreros del mundo: pantallas, luces, botones físicos, sentarse en primera persona, tiradas contra el
+// servidor, ▶️ Auto, sonido y el HUD. Se carga con import() al acercarse a alguna (ver entrada.ts). Las máquinas son objetos del
+// editor (`especiales` de sitio.ts): `colocar` las vuelve a montar cada vez que cambia el mundo, conservando por número lo que
+// lleva cada una (apuesta, Auto, la tirada que gira).
 import {
   CanvasTexture,
   Color,
@@ -19,35 +21,37 @@ import {
   BoxGeometry,
 } from "three";
 import type { BufferGeometry, Object3D } from "three";
+import type { MundoDoc } from "../editor/formato";
 import { fundir } from "../mundo/geom";
-import { PLAZA } from "../mundo/terreno";
 import type { Contexto } from "../mundo";
 import type { Sesion } from "../paseo";
 import {
   ATLAS_H,
   ATLAS_W,
   ETIQUETAS,
-  LETRERO,
   PANTALLA_H,
   PANTALLA_W,
   Pintor,
   dibujarEtiqueta,
-  dibujarLetrero,
   dibujarNumero,
   dibujarVisor,
   etiquetaDe,
   numeroDe,
   visorDe,
 } from "./dibujo";
-import type { DatosVisor, Rect, Tragas } from "./dibujo";
+import type { Bote, DatosVisor, Rect, Tragas } from "./dibujo";
+import { Letreros } from "./letreros";
 import { Reproduccion, girando } from "./repro";
 import type { Estado, Suceso } from "./repro";
-import { ALTO_LETRERO, ARCO, CUBIERTA, MAQUINAS, PANTALLA, PUESTOS, aMundo, asiento, frenteDe, matrizDe } from "./sitio";
+import { CUBIERTA, PANTALLA, type Puesto, aMundo, asiento, especiales, frenteDe } from "./sitio";
 import { Sonido } from "./sonido";
 import type { Manejo, Zumbido } from "./sonido";
 
 export interface ConfigCasino {
-  tragas: Tragas;
+  /** `null` si la tragaperras del bot no está cargada: entonces las máquinas no se montan (los letreros, sí). */
+  tragas: Tragas | null;
+  /** Los botes para los letreros, de `/api/entrar`. */
+  botes: Bote[];
   /** `null` en las pruebas locales (`?debug` fuera de Discord): el servidor de pruebas no pide sesión. */
   sesion: Sesion | null;
   /** Para poner el saldo en la píldora del HUD. */
@@ -92,11 +96,11 @@ const LUZ_AUTO = 28;
 const ALCANCE_BOTON = 3.8; // m desde la cámara
 const ALCANCE_TOQUE = 6;
 const DISTANCIA_PANTALLAS = 45; // más lejos no se pintan
-const DISTANCIA_LUCES = 90; // más lejos no se dibujan ni las luces, ni los botones, ni los letreros
+const DISTANCIA_LUCES = 90; // más lejos no se dibujan ni las luces ni los botones
 const MAX_PINTADAS = 4;
 const APUESTA_INICIAL = 100;
 const APUESTA_MAX = 10_000_000;
-const LEJOS_AUTO = 45; // m al centro de la plaza: más lejos el Auto se para
+const LEJOS_AUTO = 45; // m a la máquina: más lejos su Auto se para
 const COLORES_CARTEL: Record<string, number> = { big: 0xffd24a, mega: 0xff7a2a, epic: 0xff3aa0 };
 const TEXTO_AVISO = "Toca la máquina o pulsa E para jugar";
 const TEXTO_AVISO_TACTIL = "Toca la máquina para jugar";
@@ -105,7 +109,11 @@ const rad = (g: number): number => (g * Math.PI) / 180;
 const limitar = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v));
 
 interface Maquina {
+  /** Su hueco en el atlas y en las mallas instanciadas (el orden de `maquinas`). */
   i: number;
+  /** Su número para el servidor. */
+  n: number;
+  puesto: Puesto;
   g: CanvasRenderingContext2D;
   tex: CanvasTexture;
   malla: Mesh;
@@ -140,14 +148,20 @@ export function limpiarTexto(texto: string): { linea: string; menor: boolean }[]
 
 // -- El módulo ---------------------------------------------------------------------------------------------------------
 
-export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<void> {
+export interface Casino {
+  /** Monta las máquinas y los letreros de `doc` (y quita los que ya no están). */
+  colocar(doc: MundoDoc): void;
+}
+
+export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<Casino> {
   const { tragas, sesion } = cfg;
   const sonido = new Sonido(ctx.tactil);
   void sonido.cargar();
-  const pintor = await Pintor.crear(tragas);
-  const largo = tragas.strips.map((s) => s.length);
+  const pintor = tragas ? await Pintor.crear(tragas) : null;
+  const largo = tragas ? tragas.strips.map((s) => s.length) : [];
+  const letreros = new Letreros(ctx, sesion, cfg.botes);
 
-  // Atlas: letrero, visores, etiquetas y números en una sola textura (una llamada de dibujo).
+  // Atlas: visores, etiquetas y números en una sola textura (una llamada de dibujo).
   const lienzoAtlas = document.createElement("canvas");
   lienzoAtlas.width = ATLAS_W;
   lienzoAtlas.height = ATLAS_H;
@@ -157,16 +171,14 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
   atlas.minFilter = LinearFilter;
   atlas.generateMipmaps = false;
   atlas.anisotropy = 4;
-  let bote = tragas.pot_text;
+  let bote = tragas?.pot_text ?? "";
   ETIQUETAS.forEach((_, k) => dibujarEtiqueta(ga, k));
-  for (let i = 0; i < MAQUINAS; i++) dibujarNumero(ga, i);
-  dibujarLetrero(ga, bote);
 
-  const maquinas: Maquina[] = [];
-  const objetos: Object3D[] = [];
+  let maquinas: Maquina[] = [];
+  let objetos: Object3D[] = [];
   const aviso = document.createElement("div");
 
-  // Planos del atlas: letrero, 6 visores, 30 etiquetas y 6 números, todos en una malla.
+  // Planos del atlas: un visor, cinco etiquetas, el número y AUTO por máquina, todos en una malla.
   const plano = (w: number, h: number, m: Matrix4, r: Rect): BufferGeometry => {
     const g = new PlaneGeometry(w, h);
     const uv = g.getAttribute("uv");
@@ -175,22 +187,11 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
   };
   const tumbado = new Matrix4().makeRotationX(-Math.PI / 2); // plano acostado en la botonera, con el texto leyéndose desde delante
   const botonera = (i: number): Matrix4 =>
-    matrizDe(PUESTOS[i], new Matrix4()).multiply(new Matrix4().makeTranslation(0, CUBIERTA.y, CUBIERTA.z)).multiply(new Matrix4().makeRotationX(CUBIERTA.inclinacion));
+    maquinas[i].puesto.matriz.clone().multiply(new Matrix4().makeTranslation(0, CUBIERTA.y, CUBIERTA.z)).multiply(new Matrix4().makeRotationX(CUBIERTA.inclinacion));
   const enBotonera = (i: number, x: number, z: number): Matrix4 => botonera(i).multiply(new Matrix4().makeTranslation(x, SUPERFICIE, z)).multiply(tumbado);
-  const enMaquina = (i: number, x: number, y: number, z: number): Matrix4 => matrizDe(PUESTOS[i], new Matrix4()).multiply(new Matrix4().makeTranslation(x, y, z));
+  const enMaquina = (i: number, x: number, y: number, z: number): Matrix4 => maquinas[i].puesto.matriz.clone().multiply(new Matrix4().makeTranslation(x, y, z));
 
-  const planos: BufferGeometry[] = [plano(7, 0.875, matrizDe(ARCO, new Matrix4()).multiply(new Matrix4().makeTranslation(0, ALTO_LETRERO, 0.09)), LETRERO)];
-  for (let i = 0; i < MAQUINAS; i++) {
-    planos.push(plano(0.71, 0.2, enBotonera(i, 0, -0.16), visorDe(i)));
-    planos.push(plano(0.16, 0.16, enMaquina(i, -0.66, 2.425, 0.352), numeroDe(i)));
-    planos.push(plano(0.3, 0.096, enMaquina(i, 0.4, 2.425, 0.352), etiquetaDe(3)));
-    BOTONES.forEach((b, k) => planos.push(plano(k === 0 ? 0.28 : 0.2, k === 0 ? 0.0896 : 0.064, enBotonera(i, b.x, Z_ETIQUETA), etiquetaDe(k))));
-  }
-  for (const g of planos) g.deleteAttribute("normal");
-  const carteles = new Mesh(fundir(planos), new MeshBasicMaterial({ map: atlas, toneMapped: false }));
-  objetos.push(carteles);
-
-  // Botones: un InstancedMesh con las 30 tapas. Color por vértice (arriba claro, canto oscuro) por instancia.
+  // Botones: un InstancedMesh con las tapas de todas. Color por vértice (arriba claro, canto oscuro) por instancia.
   const tapa = new CylinderGeometry(0.075, 0.085, 0.05, 16);
   {
     const n = tapa.getAttribute("normal");
@@ -198,39 +199,79 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     for (let k = 0; k < n.count; k++) c.push(...(n.getY(k) > 0.5 ? [1, 1, 1] : n.getY(k) < -0.5 ? [0.4, 0.4, 0.4] : [0.72, 0.72, 0.72]));
     tapa.setAttribute("color", new Float32BufferAttribute(c, 3));
   }
-  const botones = new InstancedMesh(tapa, new MeshBasicMaterial({ vertexColors: true, toneMapped: false }), MAQUINAS * BOTONES.length);
-  objetos.push(botones);
+  const materialBotones = new MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  const bombilla = new IcosahedronGeometry(0.03, 0);
+  const materialBombillas = new MeshBasicMaterial({ toneMapped: false });
+  const materialCarteles = new MeshBasicMaterial({ map: atlas, toneMapped: false });
+  let botones = new InstancedMesh(tapa, materialBotones, 0);
+  let bombillas = new InstancedMesh(bombilla, materialBombillas, 0);
+  const caja = new BoxGeometry(1.8, 2.8, 1.9);
+  /** Lo que se recuerda de cada número entre montajes: la máquina sigue igual aunque se mueva en el editor. */
+  const porNumero = new Map<number, Maquina>();
+
+  /** Rehace las mallas comunes (planos del atlas, botones y bombillas) para las máquinas de `maquinas`. */
+  const montarComunes = (): void => {
+    for (const o of objetos) {
+      ctx.escena.remove(o);
+      ctx.culling.quitar(o);
+      if ((o as InstancedMesh).isInstancedMesh) (o as InstancedMesh).dispose();
+      else (o as Mesh).geometry.dispose();
+    }
+    objetos = [];
+    const total = maquinas.length;
+    if (!total) return;
+    const planos: BufferGeometry[] = [];
+    for (let i = 0; i < total; i++) {
+      dibujarNumero(ga, i, maquinas[i].n);
+      planos.push(plano(0.71, 0.2, enBotonera(i, 0, -0.16), visorDe(i)));
+      planos.push(plano(0.16, 0.16, enMaquina(i, -0.66, 2.425, 0.352), numeroDe(i)));
+      planos.push(plano(0.3, 0.096, enMaquina(i, 0.4, 2.425, 0.352), etiquetaDe(3)));
+      BOTONES.forEach((b, k) => planos.push(plano(k === 0 ? 0.28 : 0.2, k === 0 ? 0.0896 : 0.064, enBotonera(i, b.x, Z_ETIQUETA), etiquetaDe(k))));
+    }
+    for (const g of planos) g.deleteAttribute("normal");
+    atlas.needsUpdate = true;
+    objetos.push(new Mesh(fundir(planos), materialCarteles));
+    botones = new InstancedMesh(tapa, materialBotones, total * BOTONES.length);
+    objetos.push(botones);
+    bombillas = new InstancedMesh(bombilla, materialBombillas, total * BOMBILLAS);
+    objetos.push(bombillas);
+    colocarBombillas();
+    pintarBotones(performance.now()); // antes de registrar: el culling toma la esfera de las instancias ya colocadas
+    for (const o of objetos) {
+      ctx.escena.add(o);
+      ctx.culling.registrarMalla(o as Mesh, DISTANCIA_LUCES);
+    }
+  };
 
   // Bombillas: icosaedros pequeños; el color de cada una cambia solo cuando cambia el estado de su máquina.
-  const bombillas = new InstancedMesh(new IcosahedronGeometry(0.03, 0), new MeshBasicMaterial({ toneMapped: false }), MAQUINAS * BOMBILLAS);
-  objetos.push(bombillas);
   const m4 = new Matrix4();
-  for (let i = 0; i < MAQUINAS; i++) {
-    for (let k = 0; k < BOMBILLAS; k++) {
-      let x = 0;
-      let y = 2.425;
-      let z = 0.37;
-      let e = 1;
-      if (k < 24) {
-        x = k < 12 ? -0.6 : 0.6;
-        y = PANTALLA.y - 0.45 + (0.9 * ((k % 12) + 0.5)) / 12;
-        z = 0.362;
-      } else if (k < 28) {
-        x = -0.42 + (k - 24) * 0.18;
-      } else {
-        x = 0.7;
-        e = 2.2;
+  const colocarBombillas = (): void => {
+    for (let i = 0; i < maquinas.length; i++) {
+      for (let k = 0; k < BOMBILLAS; k++) {
+        let x = 0;
+        let y = 2.425;
+        let z = 0.37;
+        let e = 1;
+        if (k < 24) {
+          x = k < 12 ? -0.6 : 0.6;
+          y = PANTALLA.y - 0.45 + (0.9 * ((k % 12) + 0.5)) / 12;
+          z = 0.362;
+        } else if (k < 28) {
+          x = -0.42 + (k - 24) * 0.18;
+        } else {
+          x = 0.7;
+          e = 2.2;
+        }
+        m4.copy(enMaquina(i, x, y, z)).scale(new Vector3(e, e, e));
+        bombillas.setMatrixAt(i * BOMBILLAS + k, m4);
+        bombillas.setColorAt(i * BOMBILLAS + k, new Color(0x20202a));
       }
-      m4.copy(enMaquina(i, x, y, z)).scale(new Vector3(e, e, e));
-      bombillas.setMatrixAt(i * BOMBILLAS + k, m4);
-      bombillas.setColorAt(i * BOMBILLAS + k, new Color(0x20202a));
     }
-  }
-  bombillas.computeBoundingSphere();
+    bombillas.computeBoundingSphere();
+  };
 
-  // Pantallas y cajas de toque.
-  const caja = new BoxGeometry(1.8, 2.8, 1.9);
-  for (let i = 0; i < MAQUINAS; i++) {
+  /** Una máquina nueva (su pantalla, su caja de toque y su estado); `colocarMaquina` la pone en su sitio. */
+  const crearMaquina = (p: Puesto): Maquina => {
     const lienzo = document.createElement("canvas");
     lienzo.width = PANTALLA_W;
     lienzo.height = PANTALLA_H;
@@ -240,20 +281,15 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     tex.minFilter = LinearFilter;
     tex.generateMipmaps = false;
     const malla = new Mesh(new PlaneGeometry(PANTALLA.w, PANTALLA.h), new MeshBasicMaterial({ map: tex, toneMapped: false }));
-    const p = PUESTOS[i];
-    malla.position.copy(aMundo(i, 0, PANTALLA.y, PANTALLA.z + 0.012));
-    malla.rotation.y = p.yaw;
-    malla.updateMatrixWorld();
     ctx.escena.add(malla);
-    ctx.culling.registrar(malla, { radio: 0.8, distancia: DISTANCIA_PANTALLAS, ocultar: true });
     // No va en la escena: solo sirve para el rayo del toque.
     const cajaToque = new Mesh(caja);
-    cajaToque.position.copy(aMundo(i, 0, 1.4, 0.35));
-    cajaToque.rotation.y = p.yaw;
-    cajaToque.updateMatrixWorld();
     const visor: DatosVisor = { apuesta: "", gratis: 0, bonus: 0, calor: 0, calorMax: 5 };
-    maquinas.push({
-      i,
+    const stills = tragas!.stills;
+    return {
+      i: 0,
+      n: p.n,
+      puesto: p,
       g,
       tex,
       malla,
@@ -264,7 +300,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       repro: null,
       resp: null,
       ajena: false,
-      quieto: tragas.stills[i] as Estado,
+      quieto: stills[(p.n - 1) % stills.length] as Estado,
       pintado: -2,
       sucio: true,
       vista: false,
@@ -274,13 +310,61 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       zumbido: null,
       tension: null,
       pulso: BOTONES.map(() => 0),
-      pos: aMundo(i, 0, 1.4, 0.5),
+      pos: new Vector3(),
+    };
+  };
+
+  /** Pone la pantalla, la caja de toque y el punto del sonido de `m` donde dice su puesto. */
+  const colocarMaquina = (m: Maquina): void => {
+    const p = m.puesto;
+    p.matriz.clone().multiply(new Matrix4().makeTranslation(0, PANTALLA.y, PANTALLA.z + 0.012)).decompose(m.malla.position, m.malla.quaternion, m.malla.scale);
+    m.malla.updateMatrixWorld();
+    ctx.culling.quitar(m.malla);
+    ctx.culling.registrar(m.malla, { radio: 0.8, distancia: DISTANCIA_PANTALLAS, ocultar: true });
+    p.matriz.clone().multiply(new Matrix4().makeTranslation(0, 1.4, 0.35)).decompose(m.caja.position, m.caja.quaternion, m.caja.scale);
+    m.caja.updateMatrixWorld();
+    aMundo(p, 0, 1.4, 0.5, m.pos);
+    m.sucio = true;
+  };
+
+  const quitarMaquina = (m: Maquina): void => {
+    parar(m);
+    m.zumbido?.parar();
+    m.tension?.parar();
+    ctx.escena.remove(m.malla);
+    ctx.culling.quitar(m.malla);
+    m.malla.geometry.dispose();
+    (m.malla.material as MeshBasicMaterial).dispose();
+    m.tex.dispose();
+    if (sentada === m.i) levantar();
+  };
+
+  /** Las máquinas pasan a ser las de `puestos`: las que siguen se mueven, las nuevas se crean y las que ya no están se quitan. */
+  const montar = (puestos: Puesto[]): void => {
+    const sentadaN = sentada === null ? null : maquinas[sentada]?.n;
+    const siguen = new Set(puestos.map((p) => p.n));
+    for (const [n, m] of porNumero) {
+      if (siguen.has(n)) continue;
+      quitarMaquina(m);
+      porNumero.delete(n);
+    }
+    maquinas = puestos.map((p, i) => {
+      const m = porNumero.get(p.n) ?? crearMaquina(p);
+      porNumero.set(p.n, m);
+      m.i = i;
+      m.puesto = p;
+      colocarMaquina(m);
+      return m;
     });
-  }
-  for (const o of objetos) {
-    ctx.escena.add(o);
-    ctx.culling.registrarMalla(o as Mesh, DISTANCIA_LUCES);
-  }
+    sentada = sentadaN === null ? null : (maquinas.find((m) => m.n === sentadaN)?.i ?? null);
+    if (sentadaN !== null && sentada === null) levantar();
+    montarComunes();
+    maquinas.forEach((m) => {
+      escribirVisor(m);
+      luces(m, m.quieto, 0);
+    });
+    pintarBotones(performance.now());
+  };
 
   // -- Botones y luces ---------------------------------------------------------------------------------------------
 
@@ -332,7 +416,6 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     dibujarVisor(ga, m.i, m.visor);
     atlas.needsUpdate = true;
   };
-  maquinas.forEach(escribirVisor);
 
   // -- HUD ---------------------------------------------------------------------------------------------------------
 
@@ -390,7 +473,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
   // -- Tiradas -----------------------------------------------------------------------------------------------------
 
   const pos = (m: Maquina): Vector3 => m.pos;
-  const tocar = (m: Maquina, nombre: string, opciones?: { volumen?: number; prioridad?: boolean }): Manejo | null => sonido.poner(nombre, m.i + 1, pos(m), opciones);
+  const tocar = (m: Maquina, nombre: string, opciones?: { volumen?: number; prioridad?: boolean }): Manejo | null => sonido.poner(nombre, m.n, pos(m), opciones);
 
   const pedir = async (cuerpo: Record<string, unknown>): Promise<Respuesta> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -412,8 +495,8 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     botonesSucios = true;
     m.sucio = true;
     tocar(m, "auto");
-    pedir({ machine: m.i + 1, parar: true }).catch(() => undefined);
-    if (motivo) mostrar(`Máquina ${m.i + 1}`, motivo);
+    pedir({ machine: m.n, parar: true }).catch(() => undefined);
+    if (motivo) mostrar(`Máquina ${m.n}`, motivo);
   };
 
   const girar = async (m: Maquina, desdeAuto: boolean): Promise<void> => {
@@ -423,13 +506,13 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     sonido.activar();
     tocar(m, "girar");
     try {
-      const r = await pedir({ machine: m.i + 1, stake: m.apuesta, auto: desdeAuto });
+      const r = await pedir({ machine: m.n, stake: m.apuesta, auto: desdeAuto });
       m.zumbido?.parar();
       m.resp = r;
       m.ajena = false;
       ultima = r;
       m.repro = new Reproduccion(r.states, largo, performance.now());
-      m.zumbido = sonido.zumbido(m.i + 1, pos(m));
+      m.zumbido = sonido.zumbido(m.n, pos(m));
     } catch (error) {
       m.ocupada = false;
       botonesSucios = true;
@@ -439,7 +522,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
         return;
       }
       if (m.auto) parar(m);
-      mostrar(`Máquina ${m.i + 1}`, texto, true);
+      mostrar(`Máquina ${m.n}`, texto, true);
     }
   };
 
@@ -462,22 +545,21 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     escribirVisor(m);
     if (r.pot_text !== bote) {
       bote = r.pot_text;
-      dibujarLetrero(ga, bote);
-      atlas.needsUpdate = true;
+      letreros.poner("tragas", bote);
     }
     if (m.ajena) {
       m.ajena = false;
       return;
     }
     cfg.saldo(r.balance_text);
-    mostrar(`Máquina ${m.i + 1}`, r.text);
+    mostrar(`Máquina ${m.n}`, r.text);
     if (r.won > 0 && "vibrate" in navigator) navigator.vibrate(r.won >= m.apuesta * 5 ? [60, 40, 90] : 40);
     if (!r.auto && m.auto) {
       m.auto = false;
       tocar(m, "auto");
-      if (r.auto_stop) mostrar(`Máquina ${m.i + 1}: Auto parado`, r.auto_stop);
+      if (r.auto_stop) mostrar(`Máquina ${m.n}: Auto parado`, r.auto_stop);
     } else if (r.auto_stop) {
-      mostrar(`Máquina ${m.i + 1}: Auto parado`, r.auto_stop);
+      mostrar(`Máquina ${m.n}: Auto parado`, r.auto_stop);
     }
     m.siguiente = ahora + 700;
     botonesSucios = true;
@@ -516,15 +598,15 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
   // La tirada de otro jugador (sala.ts): se ve y se oye en su máquina igual que la tuya.
   window.addEventListener("jv:traga", (e) => {
     const r = (e as CustomEvent<Respuesta>).detail;
-    const m = maquinas[r.machine - 1];
-    if (!m || m.ocupada) return; // la tuya manda
+    const m = porNumero.get(r.machine);
+    if (!m || m.ocupada || !maquinas.includes(m)) return; // la tuya manda
     m.zumbido?.parar();
     m.tension?.parar();
     m.tension = null;
     m.resp = r;
     m.ajena = true;
     m.repro = new Reproduccion(r.states, largo, performance.now());
-    m.zumbido = sonido.zumbido(m.i + 1, pos(m));
+    m.zumbido = sonido.zumbido(m.n, pos(m));
     m.sucio = true;
   });
 
@@ -535,7 +617,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     sonido.activar();
     const c3 = ctx.camara3;
     const mitadAncha = Math.tan(rad(c3.fov / 2)) * c3.aspect;
-    const a = asiento(i, limitar(0.85 + 0.72 / mitadAncha, 2.2, 2.8));
+    const a = asiento(maquinas[i].puesto, limitar(0.85 + 0.72 / mitadAncha, 2.2, 2.8));
     ctx.yo.teletransportar(a.pos.x, a.pos.z);
     ctx.camara.anclar(a.pos, a.yaw, c3.aspect < 1 ? 0 : 0.1, { yaw: 1.15, pitchMin: -0.75, pitchMax: 0.85 });
     sentada = i;
@@ -548,15 +630,17 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     botonLevantar.hidden = true;
   };
   botonLevantar.addEventListener("click", levantar);
+  window.addEventListener("jv:viaje", levantar); // un teleporte del menú te saca del asiento
   window.addEventListener("resize", () => sentada !== null && sentar(sentada));
 
   const cercana = (): number | null => {
     let mejor: number | null = null;
     let d2 = 4;
-    for (let i = 0; i < MAQUINAS; i++) {
-      const f = frenteDe(i);
-      const dx = ctx.yo.x - (PUESTOS[i].x + f.x * 1.2);
-      const dz = ctx.yo.z - (PUESTOS[i].z + f.z * 1.2);
+    for (let i = 0; i < maquinas.length; i++) {
+      const p = maquinas[i].puesto;
+      const f = frenteDe(p);
+      const dx = ctx.yo.x - (p.x + f.x * 1.2);
+      const dz = ctx.yo.z - (p.z + f.z * 1.2);
       if (dx * dx + dz * dz < d2) [mejor, d2] = [i, dx * dx + dz * dz];
     }
     return mejor;
@@ -594,9 +678,11 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     rayo.setFromCamera(ndc, ctx.camara3);
     const ojo = ctx.camara3.position;
     const dePie = (m: Maquina): boolean => {
-      const f = frenteDe(m.i);
-      return (ojo.x - PUESTOS[m.i].x) * f.x + (ojo.z - PUESTOS[m.i].z) * f.z > 0.2; // delante de la máquina, no detrás
+      const p = m.puesto;
+      const f = frenteDe(p);
+      return (ojo.x - p.x) * f.x + (ojo.z - p.z) * f.z > 0.2; // delante de la máquina, no detrás
     };
+    if (!maquinas.length) return null;
     for (const h of rayo.intersectObject(botones)) {
       if (h.distance > ALCANCE_BOTON || h.instanceId === undefined) break;
       const m = maquinas[Math.floor(h.instanceId / BOTONES.length)];
@@ -667,10 +753,11 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       aviso.textContent = ctx.tactil ? TEXTO_AVISO_TACTIL : TEXTO_AVISO;
     }
 
-    const lejos = Math.hypot(ctx.yo.x - PLAZA.x, ctx.yo.z - PLAZA.z) > LEJOS_AUTO;
+    letreros.tick(ahora);
+    const lejos = (m: Maquina): boolean => Math.hypot(ctx.yo.x - m.puesto.x, ctx.yo.z - m.puesto.z) > LEJOS_AUTO;
     if (ahora - ultimaLejania > 500) {
       ultimaLejania = ahora;
-      if (lejos) for (const m of maquinas) parar(m, "Te has alejado de la plaza: el Auto se ha parado.");
+      for (const m of maquinas) if (m.auto && lejos(m)) parar(m, "Te has alejado de la máquina: el Auto se ha parado.");
     }
 
     const pendientesPintar: Maquina[] = [];
@@ -684,7 +771,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
         const idx = r.indice(ahora - r.t0);
         m.zumbido?.ajustar(girando(r.estados[idx]) / 3);
         if (r.hecha(ahora)) terminar(m, ahora);
-      } else if (m.auto && !m.ocupada && ahora >= m.siguiente && !document.hidden && !lejos) {
+      } else if (m.auto && !m.ocupada && ahora >= m.siguiente && !document.hidden && !lejos(m)) {
         void girar(m, true);
       }
       if (visible && m.repro) {
@@ -697,7 +784,7 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       const t = r ? ahora - r.t0 : 0;
       const idx = r ? r.indice(t) : -1;
       const estado = r ? (m.i === sentada ? r.interpolado(t) : r.estados[idx]) : m.quieto;
-      pintor.pintar(estado, m.g);
+      pintor?.pintar(estado, m.g);
       m.tex.needsUpdate = true;
       m.sucio = false;
       m.pintado = idx;
@@ -710,13 +797,13 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
     }
   };
   ctx.enganchar(tick);
-  maquinas.forEach((m) => luces(m, m.quieto, 0));
-  pintarBotones(performance.now());
 
   const jv = (window as unknown as { __jv?: Record<string, unknown> }).__jv;
   if (jv) {
     jv.casino = {
-      maquinas,
+      get maquinas() {
+        return maquinas;
+      },
       sonidos: sonido.registro,
       sonido,
       sentar,
@@ -724,10 +811,12 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       pulsar: (i: number, k: number) => pulsar(maquinas[i], k),
       girar: (i: number) => pulsar(maquinas[i], 0),
       ultima: () => ultima,
+      letreros: () => letreros.estado(),
       /** Dónde está de pie quien se acerca a la máquina `i` (a 2,2 m) y hacia dónde ha de mirar. */
       puesto: (i: number) => {
-        const f = frenteDe(i);
-        return { x: PUESTOS[i].x + f.x * 2.2, z: PUESTOS[i].z + f.z * 2.2, yaw: PUESTOS[i].yaw };
+        const p = maquinas[i].puesto;
+        const f = frenteDe(p);
+        return { x: p.x + f.x * 2.2, z: p.z + f.z * 2.2, yaw: p.yaw };
       },
       pantallaDeMaquina: (i: number) => {
         const v = maquinas[i].caja.position.clone().project(ctx.camara3);
@@ -743,8 +832,16 @@ export async function montarCasino(ctx: Contexto, cfg: ConfigCasino): Promise<vo
       estado: () => ({
         sentada,
         bote,
-        maquinas: maquinas.map((m) => ({ i: m.i, ocupada: m.ocupada, auto: m.auto, apuesta: m.apuesta, visible: m.vista, repro: m.repro !== null })),
+        maquinas: maquinas.map((m) => ({ i: m.i, n: m.n, ocupada: m.ocupada, auto: m.auto, apuesta: m.apuesta, visible: m.vista, repro: m.repro !== null })),
       }),
     };
   }
+
+  return {
+    colocar(doc) {
+      const { tragas: puestos, letreros: lista } = especiales(doc);
+      montar(tragas ? puestos : []);
+      letreros.colocar(lista);
+    },
+  };
 }

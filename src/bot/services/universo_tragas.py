@@ -1,15 +1,18 @@
 """Reglas de las tragaperras de la plaza del Jovaniverso (la Activity).
 
-La plaza tiene una fila de `MACHINES` máquinas clásicas, numeradas de 1 en adelante
-(la 0 es la de Discord, `tragas`). Cada una tiene su calor y su barra de bonus, que
+Las tragaperras del mundo son objetos del editor (un asset con `funcion` `traga`, ver
+`bot.services.universo_editor`) con su número, de 1 a `MAX_SLOTS` (la 0 es la de Discord,
+`tragas`); el mundo de serie trae `MACHINES` en la plaza. Cada una tiene su calor y su
+barra de bonus, que
 guarda el cog de la tragaperras (`Slots.play(machine=...)`), y sus giros gratis
 pendientes, que viven aquí, en memoria, como en la máquina de Discord viven en su
 vista.
 
 La página no decide nada: pide cada tirada y el servidor comprueba con `Seats`:
 
-- que la máquina existe y que el miembro no juega a más de `MAX_AT_ONCE` a la vez
-  (una máquina cuenta como suya mientras ha tirado hace menos de `ACTIVE_SECONDS`);
+- que el número de máquina vale (de 1 a `MAX_SLOTS`; dónde esté no lo mira). Se puede jugar
+  a todas a la vez: una máquina cuenta como tuya mientras has tirado en ella hace menos de
+  `ACTIVE_SECONDS`, y eso solo sirve para el logro de jugar a varias a la vez;
 - que no tira más rápido que `MIN_GAP_SECONDS` en la misma máquina (lo que dura la
   tirada más corta), así que el Auto no puede ir más deprisa que a mano;
 - el ▶️ Auto, con las reglas de `bot.services.autoplay`: `AUTOPLAY_MAX` tiradas,
@@ -17,7 +20,7 @@ La página no decide nada: pide cada tirada y el servidor comprueba con `Seats`:
   Lo lleva la página (pide la siguiente cuando acaba de enseñar la anterior), y si
   se cierra la Activity simplemente deja de pedir: nada gira sin nadie delante.
 
-Todo con tope: como mucho `MACHINES` asientos por miembro, y los que llevan
+Todo con tope: como mucho `MAX_SLOTS` asientos por miembro, y los que llevan
 `IDLE_SECONDS` sin tirar se olvidan (`sweep`). Los giros gratis olvidados se pierden,
 igual que los de una máquina de Discord que caduca sin jugarlos.
 """
@@ -29,11 +32,10 @@ from dataclasses import dataclass
 from bot.services.achievements import UNIVERSO_SLOT_MACHINES
 from bot.services.autoplay import AUTOPLAY_MAX, LOSS_LIMIT_MULTIPLIER, StopReason, stop_text
 from bot.services.slots import BONUS_FREE_SPINS, FREE_SPINS
+from bot.services.universo_editor import MAX_SLOTS
 
-#: Máquinas de la fila de la plaza (de la 1 a la `MACHINES`); sus logros las cuentan.
+#: Máquinas de la plaza del mundo de serie (de la 1 a la `MACHINES`); sus logros las cuentan.
 MACHINES = UNIVERSO_SLOT_MACHINES
-#: Máquinas a la vez por miembro (una a mano y dos en Auto, o tres en Auto).
-MAX_AT_ONCE = 3
 #: Una máquina sigue siendo «tuya» mientras has tirado en ella hace menos de esto.
 ACTIVE_SECONDS = 20.0
 #: Segundos mínimos entre dos tiradas de la misma máquina: lo que dura la más corta.
@@ -114,18 +116,15 @@ class Seats:
             auto: Si la tirada es del ▶️ Auto (la primera lo arranca).
 
         Raises:
-            SeatError: Máquina que no existe, demasiadas a la vez o demasiado rápido.
+            SeatError: Máquina que no existe o demasiado rápido.
         """
-        if not 1 <= machine <= MACHINES:
+        if not 1 <= machine <= MAX_SLOTS:
             raise SeatError("Esa máquina no existe.")
         if stake < 1:
             raise SeatError("La apuesta mínima es 1 Y$.")
         seat = self._seats.get((guild_id, user_id, machine))
         if seat is not None and now - seat.last_at < MIN_GAP_SECONDS:
             raise SeatError("La máquina aún está girando.")
-        busy = self.active(guild_id, user_id, now)
-        if machine not in busy and len(busy) >= MAX_AT_ONCE:
-            raise SeatError(f"Como mucho {MAX_AT_ONCE} máquinas a la vez.")
         seat = self._seats.setdefault((guild_id, user_id, machine), Seat())
         seat.last_at = now
         if auto and seat.auto is not None:

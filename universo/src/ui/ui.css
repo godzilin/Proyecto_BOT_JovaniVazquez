@@ -1,0 +1,327 @@
+/*
+ * Sistema de interfaz del Jovaniverso (`ui/`): las fichas de diseño y las piezas comunes de los paneles.
+ *
+ * Líneas de diseño (las mismas para todo panel nuevo; detalle en la Biblia, «Jovaniverso: interfaz»):
+ * - Colores, espacios, radios y grosores salen siempre de las variables `--jv-*`; nada de valores sueltos.
+ * - Un panel es una `.jv-ventana`: fondo oscuro translúcido, filete fino de `--jv-linea` y dos escuadras de
+ *   `--jv-acento` en las esquinas opuestas. Debajo del título va una línea con degradado; cada sección
+ *   abre con su rótulo y una línea que corre hasta el borde.
+ * - El acento (amarillo) es para lo que importa: cifras de dinero, la pestaña elegida y lo tuyo. El
+ *   segundo acento (turquesa) dice «en vivo» (quién está dentro). Nada depende solo del color: lleva texto.
+ * - Las filas se separan con una línea de puntos; las cifras van alineadas a la derecha y con números de
+ *   ancho fijo.
+ * - En el móvil la ventana ocupa la pantalla entera; los botones miden al menos 44 px de alto.
+ * - Sin animaciones largas: 120 ms como mucho y ninguna con `prefers-reduced-motion`.
+ */
+:root {
+  --jv-fondo: rgba(16, 13, 42, 0.9);
+  --jv-fondo-fila: rgba(255, 255, 255, 0.035);
+  --jv-velo: rgba(6, 5, 20, 0.45);
+  --jv-linea: rgba(160, 150, 255, 0.28);
+  --jv-linea-fuerte: rgba(200, 190, 255, 0.6);
+  --jv-texto: #eceaff;
+  --jv-tenue: rgba(236, 234, 255, 0.62);
+  --jv-acento: #ffd86b;
+  --jv-vivo: #6bffd8;
+  --jv-error: #ff9a9a;
+  --jv-esp-1: 4px;
+  --jv-esp-2: 8px;
+  --jv-esp-3: 12px;
+  --jv-esp-4: 16px;
+  --jv-esp-5: 24px;
+  --jv-radio: 14px;
+  --jv-radio-p: 8px;
+  --jv-grosor: 1px;
+  --jv-escuadra: 16px;
+  --jv-tiempo: 120ms;
+}
+
+/* La píldora del nombre abre el menú (en el móvil es la única forma). */
+.pildora.jv-abre {
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pildora.jv-abre::before {
+  content: "☰";
+  margin-right: var(--jv-esp-2);
+  color: var(--jv-tenue);
+}
+
+.jv-velo {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(var(--jv-esp-4), env(safe-area-inset-top)) var(--jv-esp-4) max(var(--jv-esp-4), env(safe-area-inset-bottom));
+  background: var(--jv-velo);
+  pointer-events: auto;
+  touch-action: manipulation;
+  z-index: 20;
+}
+
+.jv-velo[hidden] {
+  display: none;
+}
+
+.jv-ventana {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: min(78vh, 640px);
+  display: flex;
+  flex-direction: column;
+  color: var(--jv-texto);
+  background: var(--jv-fondo);
+  border: var(--jv-grosor) solid var(--jv-linea);
+  border-radius: var(--jv-radio);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* Las dos escuadras de las esquinas. */
+.jv-ventana::before,
+.jv-ventana::after {
+  content: "";
+  position: absolute;
+  width: var(--jv-escuadra);
+  height: var(--jv-escuadra);
+  pointer-events: none;
+}
+
+.jv-ventana::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--jv-acento);
+  border-left: 2px solid var(--jv-acento);
+  border-top-left-radius: var(--jv-radio);
+}
+
+.jv-ventana::after {
+  right: -1px;
+  bottom: -1px;
+  border-right: 2px solid var(--jv-acento);
+  border-bottom: 2px solid var(--jv-acento);
+  border-bottom-right-radius: var(--jv-radio);
+}
+
+.jv-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jv-esp-2) var(--jv-esp-4);
+  padding: var(--jv-esp-3) var(--jv-esp-4) 0;
+  /* La línea de debajo del título: fuerte en el centro, se apaga hacia los bordes. */
+  background: linear-gradient(90deg, transparent, var(--jv-linea-fuerte), transparent) bottom / 100% var(--jv-grosor) no-repeat;
+}
+
+.jv-titulo {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.jv-pestanas {
+  display: flex;
+  gap: var(--jv-esp-1);
+  margin-left: auto;
+}
+
+.jv-pestana {
+  min-height: 44px;
+  padding: 0 var(--jv-esp-3);
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--jv-tenue);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--jv-tiempo), border-color var(--jv-tiempo);
+}
+
+.jv-pestana[aria-selected="true"] {
+  color: var(--jv-acento);
+  border-bottom-color: var(--jv-acento);
+}
+
+.jv-cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--jv-esp-3) var(--jv-esp-4) var(--jv-esp-4);
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.jv-seccion {
+  display: flex;
+  align-items: center;
+  gap: var(--jv-esp-2);
+  margin: var(--jv-esp-4) 0 var(--jv-esp-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jv-tenue);
+}
+
+.jv-seccion:first-child {
+  margin-top: 0;
+}
+
+/* La línea que corre desde el rótulo hasta el borde. */
+.jv-seccion::after {
+  content: "";
+  flex: 1;
+  height: var(--jv-grosor);
+  background: var(--jv-linea);
+}
+
+.jv-lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jv-fila {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--jv-esp-3);
+  min-height: 40px;
+  padding: var(--jv-esp-1) var(--jv-esp-2);
+  border-bottom: var(--jv-grosor) dotted var(--jv-linea);
+}
+
+.jv-fila:last-child {
+  border-bottom: 0;
+}
+
+.jv-fila.tuya {
+  background: var(--jv-fondo-fila);
+  border-radius: var(--jv-radio-p);
+}
+
+.jv-icono {
+  width: 1.6em;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+.jv-nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jv-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--jv-esp-2);
+}
+
+.jv-cifra {
+  font-variant-numeric: tabular-nums;
+  color: var(--jv-acento);
+  text-align: right;
+}
+
+.jv-ficha {
+  display: inline-block;
+  padding: 1px var(--jv-esp-2);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--jv-tenue);
+  border: var(--jv-grosor) solid var(--jv-linea);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.jv-ficha.vivo {
+  color: var(--jv-vivo);
+  border-color: currentColor;
+}
+
+.jv-ficha.acento {
+  color: var(--jv-acento);
+  border-color: currentColor;
+}
+
+.jv-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--jv-esp-2);
+}
+
+.jv-boton {
+  min-height: 44px;
+  padding: var(--jv-esp-2) var(--jv-esp-3);
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--jv-texto);
+  text-align: left;
+  background: var(--jv-fondo-fila);
+  border: var(--jv-grosor) solid var(--jv-linea);
+  border-radius: var(--jv-radio-p);
+  cursor: pointer;
+  transition: border-color var(--jv-tiempo);
+}
+
+.jv-boton:hover {
+  border-color: var(--jv-acento);
+}
+
+.jv-pestana:focus-visible,
+.jv-boton:focus-visible {
+  outline: 2px solid var(--jv-acento);
+  outline-offset: 2px;
+}
+
+.jv-vacio,
+.jv-error {
+  margin: var(--jv-esp-3) 0;
+  font-size: 0.9rem;
+  color: var(--jv-tenue);
+}
+
+.jv-error {
+  color: var(--jv-error);
+}
+
+.jv-pie {
+  padding: var(--jv-esp-2) var(--jv-esp-4);
+  font-size: 0.75rem;
+  color: var(--jv-tenue);
+  border-top: var(--jv-grosor) solid var(--jv-linea);
+}
+
+@media (pointer: coarse) {
+  .jv-velo {
+    padding: 0;
+  }
+  .jv-ventana {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .jv-ventana::before,
+  .jv-ventana::after {
+    border-radius: 0;
+  }
+  .jv-pie {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jv-pestana,
+  .jv-boton {
+    transition: none;
+  }
+}

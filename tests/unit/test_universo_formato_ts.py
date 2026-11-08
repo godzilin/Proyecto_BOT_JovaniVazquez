@@ -38,9 +38,15 @@ def test_topes_y_version_coinciden() -> None:
     assert number("MAX_LADOS") == py.MAX_SIDES
     assert number("MAX_TRIANGULOS_MALLA") == py.MAX_MESH_TRIANGLES
     assert number("MAX_CIRCULOS") == py.MAX_CIRCLES
+    assert number("MAX_TELEPORTES") == py.MAX_TELEPORTS
     assert number("TERRENO_LADO") == py.TERRAIN_EXTENT
     assert number("TERRENO_CELDAS") == py.TERRAIN_CELLS
     assert number("TERRENO_PINTURAS") == py.TERRAIN_PAINTS
+    assert number("CELDA") == py.CELL
+    assert number("MAX_TRAGAS") == py.MAX_SLOTS
+    assert number("MAX_BOTES_LETRERO") == py.MAX_SIGN_POTS
+    assert number("MAX_TITULO") == py.MAX_SIGN_TITLE
+    assert number("MAX_LADO_LETRERO") == py.MAX_SIGN_SIDE
 
 
 def test_tinte_y_distancia_coinciden() -> None:

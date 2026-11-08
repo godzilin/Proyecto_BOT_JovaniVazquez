@@ -1,7 +1,7 @@
 // Modo «Mundo» del editor: el editor de niveles. Se pinta dentro de la propia isla, con el dibujante y la escena del mundo (en pausa) y su
 // propia cámara, y solo cuando algo cambia. Los objetos elegidos (hasta `TOPE_SEL`, con la multiselección de `grupo.ts`) salen de las obras
 // y se pintan sueltos bajo un solo gizmo; al cambiar la selección las obras se rehacen con el borrador (con retardo, nunca en cada
-// movimiento del ratón). También mueve las zonas de los logros, que se eligen de una en una.
+// movimiento del ratón). También mueve las zonas de los logros, que se eligen de una en una, y pone los teleportes del menú (Viajar).
 import {
   Box3,
   Box3Helper,
@@ -26,13 +26,15 @@ import { MapControls } from "three/addons/controls/MapControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import type { Mundo } from "../mundo";
 import { zonasDeSerie } from "../mundo/lugares";
+import { teleportesDeSerie } from "../mundo/teleportes";
 import { matriz } from "../mundo/obras";
 import { PRUEBAS } from "../mundo/modo";
 import { PLAZA, sueloEn } from "../mundo/terreno";
 import { ArrastreGrupo, Recuadro, Seleccion as Conjunto } from "./grupo";
 import { PincelTerreno } from "./pincel";
-import { cargarGlb, geometriaAsset, type MundoDoc, type Objeto, type Vec3 } from "./formato";
+import { cargarGlb, geometriaAsset, MAX_NOMBRE, MAX_TELEPORTES, type MundoDoc, type Objeto, type Teleporte, type Vec3 } from "./formato";
 import { h } from "./dom";
+import { avisosFunciones, prepararObjeto, PropsFuncion } from "./funciones";
 import type { Anfitrion, Panel } from "./panel";
 
 type ModoGizmo = "translate" | "rotate" | "scale";
@@ -41,8 +43,7 @@ const GRADOS = Math.PI / 180;
 /** Presupuesto de la Biblia («Jovaniverso: rendimiento imperativo») en la peor vista. */
 const MAX_LLAMADAS = 120;
 const MAX_TRIANGULOS = 250_000;
-// Los mismos topes que el servidor (`universo_editor.py`).
-const MAX_OBJETOS = 20_000;
+// Sin tope de objetos del mundo: el servidor pone uno por celda (`MAX_CELL_OBJECTS`) y avisa al guardar.
 /** Cada objeto elegido se pinta suelto (una llamada de dibujo): no se eligen más a la vez. */
 const TOPE_SEL = 300;
 const MITAD = 260;
@@ -159,6 +160,7 @@ export class PanelMundo implements Panel {
   private readonly filtro = h("input", { type: "search", placeholder: "Filtrar assets", className: "ed-filtro" });
   private readonly listaAssets = h("div", { className: "ed-lista" });
   private readonly irA = h("div", { className: "ed-fila ed-envuelve" });
+  private readonly listaTeleportes = h("div", { className: "ed-lista" });
   private readonly verZonas = h("input", { type: "checkbox" });
   private readonly ajuste = h("input", { type: "checkbox" });
   private readonly botones = new Map<string, HTMLButtonElement>();
@@ -172,6 +174,7 @@ export class PanelMundo implements Panel {
   private readonly tituloZona = h("h2");
   private readonly camposZona: { campo: "x" | "z" | "r"; input: HTMLInputElement }[] = [];
   private readonly vacio = h("p", { className: "ed-vacio" });
+  private readonly funcion: PropsFuncion;
 
   constructor(
     private readonly a: Anfitrion,
@@ -182,6 +185,7 @@ export class PanelMundo implements Panel {
     this.padre = this.renderer.domElement.parentElement;
 
     this.pincel = new PincelTerreno(a, mundo, this.ctx.escena, { pedir: () => this.pedir(), rehacerObras: () => this.cargarObras() });
+    this.funcion = new PropsFuncion(a.sesion, () => this.doc, () => this.commit(), (t) => a.aviso(t));
     this.elementos = [this.izquierda(), this.centro(), this.derecha()];
     this.contenedor.append(this.etiquetas);
     this.ancla.rotation.order = "YXZ";
@@ -261,6 +265,10 @@ export class PanelMundo implements Panel {
       this.pincel.panel,
       h("h2", { textContent: "Ir a" }),
       this.irA,
+      h("h2", { textContent: "Teleportes" }),
+      h("p", { className: "ed-vacio", textContent: "Los sitios del menú «Viajar»: se aparece en el centro de la vista, a ras de suelo." }),
+      this.listaTeleportes,
+      h("button", { className: "ed-b", textContent: "Añadir en el centro de la vista", onclick: () => this.anadirTeleporte() }),
     );
   }
 
@@ -326,6 +334,7 @@ export class PanelMundo implements Panel {
         this.boton("aliny", "Alinear Y", () => this.alinear(1), "Pone la altura de todos como la del último elegido"),
         this.boton("alinz", "Alinear Z", () => this.alinear(2), "Pone la z de todos como la del último elegido"),
       ),
+      this.funcion.el,
     );
     for (const [campo, titulo, paso] of [["x", "x", "0.5"], ["z", "z", "0.5"], ["r", "Radio (m)", "1"]] as const) {
       const input = h("input", { type: "number", step: paso });
@@ -350,6 +359,7 @@ export class PanelMundo implements Panel {
       ...Object.entries(zonas).map(([clave, z]) => h("button", { className: "ed-b", textContent: nombreZona(clave), onclick: () => this.mirar(z.x, z.z) })),
       h("button", { className: "ed-b", textContent: "Jugador", onclick: () => this.mirar(this.ctx.yo.x, this.ctx.yo.z) }),
     );
+    this.pintarTeleportes();
   }
 
   private pintarAssets(): void {
@@ -375,6 +385,7 @@ export class PanelMundo implements Panel {
     this.avisoVarios.hidden = n < 2;
     this.avisoVarios.textContent = `${n} objetos elegidos. Los cambios valen para todos; un campo con «—» es que no coinciden.`;
     const libre = (input: HTMLElement): boolean => document.activeElement !== input;
+    this.funcion.pintar(n === 1 ? os[0] : null);
     if (n) {
       // El valor si todos lo comparten; si no, `null`.
       const comun = (f: (o: Objeto) => string): string | null => {
@@ -414,6 +425,7 @@ export class PanelMundo implements Panel {
     if (this.ocultos.size) partes.push(`${this.ocultos.size} ocultos`);
     if (this.colocando) partes.push(`Colocando: ${this.doc.assets[this.colocando]?.nombre ?? this.colocando}`);
     if (this.herramienta === "terreno") partes.push(...this.pincel.estado());
+    partes.push(...avisosFunciones(this.doc));
     for (const [k, b] of this.botonesHerramienta) b.setAttribute("aria-pressed", String(k === this.herramienta));
     const objeto = n > 0;
     for (const c of ["suelo", "duplicar", "borrar", "editar", "alinx", "aliny", "alinz", "espacio", "enfocar"]) this.botones.get(c)!.disabled = !objeto && !(c === "enfocar" && this.zona);
@@ -822,7 +834,10 @@ export class PanelMundo implements Panel {
   private cambiarAsset(id: string): void {
     const os = this.elegidos;
     if (!os.length || !this.doc.assets[id]) return;
-    for (const o of os) o.asset = id;
+    for (const o of os) {
+      o.asset = id;
+      this.preparar(o);
+    }
     this.elegirYa();
     this.commit();
   }
@@ -834,6 +849,72 @@ export class PanelMundo implements Panel {
     z[campo] = campo === "r" ? limitar(v, 1, MAX_RADIO) : limitar(v, -MITAD, MITAD);
     this.ancla.position.set(z.x, sueloEn(z.x, z.z), z.z);
     this.pintarAnillos();
+    this.commit();
+  }
+
+  // ---------------------------------------------------------------- teleportes
+
+  /** Los del documento o, si no trae, los de serie (se copian al documento en el primer cambio). */
+  private get teleportes(): Teleporte[] {
+    return (this.doc.teleportes ??= teleportesDeSerie());
+  }
+
+  private pintarTeleportes(): void {
+    const lista = this.doc.teleportes ?? teleportesDeSerie();
+    this.listaTeleportes.replaceChildren(
+      ...lista.map((t, i) => {
+        const nombre = h("input", { type: "text", value: t.nombre, maxLength: MAX_NOMBRE });
+        nombre.style.cssText = "flex: 1; min-width: 0";
+        nombre.onchange = () => {
+          const v = nombre.value.trim();
+          if (!v) return void (nombre.value = t.nombre);
+          this.teleportes[i].nombre = v;
+          this.commitTeleportes();
+        };
+        return h(
+          "div",
+          { className: "ed-fila" },
+          nombre,
+          h("button", { className: "ed-b", textContent: "Ir", title: "Mira este teleporte", onclick: () => this.mirar(t.x, t.z, 25) }),
+          h("button", { className: "ed-b", textContent: "Aquí", title: "Lo mueve al centro de la vista", onclick: () => this.moverTeleporte(i) }),
+          h("button", { className: "ed-b", textContent: "✕", title: "Borrar", onclick: () => this.borrarTeleporte(i) }),
+        );
+      }),
+    );
+  }
+
+  /** El centro de la vista (lo que miran los controles), o `null` fuera del mundo. */
+  private centroVista(): [number, number] | null {
+    const { x, z } = this.controles.target;
+    if (Math.abs(x) > MITAD || Math.abs(z) > MITAD) {
+      this.a.aviso("Ahí queda fuera del mundo.");
+      return null;
+    }
+    return [redondear(x, 100), redondear(z, 100)];
+  }
+
+  private anadirTeleporte(): void {
+    if (this.teleportes.length >= MAX_TELEPORTES) return this.a.aviso(`Puede haber ${MAX_TELEPORTES} teleportes como mucho.`);
+    const p = this.centroVista();
+    if (!p) return;
+    this.teleportes.push({ nombre: `Teleporte ${this.teleportes.length + 1}`, x: p[0], z: p[1] });
+    this.commitTeleportes();
+  }
+
+  private moverTeleporte(i: number): void {
+    const p = this.centroVista();
+    if (!p) return;
+    [this.teleportes[i].x, this.teleportes[i].z] = p;
+    this.commitTeleportes();
+  }
+
+  private borrarTeleporte(i: number): void {
+    this.teleportes.splice(i, 1);
+    this.commitTeleportes();
+  }
+
+  private commitTeleportes(): void {
+    this.pintarTeleportes();
     this.commit();
   }
 
@@ -869,14 +950,12 @@ export class PanelMundo implements Panel {
   private duplicar(): boolean {
     const lista = this.conPrincipalAlFinal();
     if (!lista.length) return false;
-    if (this.doc.objetos.length + lista.length > MAX_OBJETOS) {
-      this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
-      return true;
-    }
     const nuevos = lista.map((i) => {
       const copia = structuredClone(this.doc.objetos[i]);
       copia.pos[0] = limitar(copia.pos[0] + 1, -MITAD, MITAD);
-      return this.doc.objetos.push(copia) - 1;
+      const nuevo = this.doc.objetos.push(copia) - 1;
+      this.preparar(copia);
+      return nuevo;
     });
     this.sel.poner(nuevos);
     this.elegir(true);
@@ -910,10 +989,6 @@ export class PanelMundo implements Panel {
   private pegar(): boolean {
     const items = portapapeles.filter((p) => this.doc.assets[p.objeto.asset]);
     if (!items.length) return false;
-    if (this.doc.objetos.length + items.length > MAX_OBJETOS) {
-      this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
-      return true;
-    }
     const caja = new Box3();
     const v = new Vector3();
     for (const { objeto } of items) caja.expandByPoint(v.set(...objeto.pos));
@@ -925,7 +1000,9 @@ export class PanelMundo implements Panel {
       const x = limitar(o.pos[0] + dx, -MITAD, MITAD);
       const z = limitar(o.pos[2] + dz, -MITAD, MITAD);
       o.pos = [redondear(x, 100), redondear(limitar(sueloEn(x, z) + sobre, MIN_Y, MAX_Y)), redondear(z, 100)];
-      return this.doc.objetos.push(o) - 1;
+      const i = this.doc.objetos.push(o) - 1;
+      this.preparar(o);
+      return i;
     });
     this.sel.poner(nuevos);
     this.zona = null;
@@ -970,6 +1047,11 @@ export class PanelMundo implements Panel {
     if (o) this.a.editarAsset(o.asset);
   }
 
+  /** Número libre para una tragaperras nueva (o datos de serie para un letrero); avisa si ya no quedan números. */
+  private preparar(o: Objeto): void {
+    if (!prepararObjeto(this.doc, o)) this.a.aviso("Ya están usados todos los números de tragaperras: esta queda sin número y no se juega.");
+  }
+
   private colocar(id: string | null): void {
     this.colocando = id;
     this.contenedor.style.cursor = id ? "crosshair" : "";
@@ -982,9 +1064,10 @@ export class PanelMundo implements Panel {
     const p = id ? this.suelo(rayo) : null;
     if (!id || !p) return;
     if (Math.abs(p.x) > MITAD || Math.abs(p.z) > MITAD) return this.a.aviso("Ahí queda fuera del mundo.");
-    if (this.doc.objetos.length >= MAX_OBJETOS) return this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
     const pos: Vec3 = [redondear(p.x, 100), redondear(sueloEn(p.x, p.z)), redondear(p.z, 100)];
-    this.sel.solo(this.doc.objetos.push({ asset: id, pos, rot: [0, 0, 0], esc: [1, 1, 1] }) - 1);
+    const o: Objeto = { asset: id, pos, rot: [0, 0, 0], esc: [1, 1, 1] };
+    this.sel.solo(this.doc.objetos.push(o) - 1);
+    this.preparar(o);
     this.zona = null;
     this.elegir(true);
     this.commit();

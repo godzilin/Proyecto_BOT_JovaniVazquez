@@ -600,6 +600,8 @@ UNIVERSO_GESTURE_PREFIX = "universo_gesture_"
 UNIVERSO_SLOT_PREFIX = "universo_slots_machine_"
 #: Tragaperras de la plaza del Jovaniverso (`bot.services.universo_tragas.MACHINES`).
 UNIVERSO_SLOT_MACHINES = 6
+#: Tragaperras distintas del Jovaniverso en las que se ha jugado; se calcula en `with_derived`.
+UNIVERSO_SLOTS_DISTINCT_STAT = "universo_slots_distinct"
 #: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
 #: `gesto_`), nombre y descripción.
 UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
@@ -2871,7 +2873,7 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Corre por 5 paredes seguidas sin tocar el suelo en el Jovaniverso.", R),
         (8, "universo_chain_8", "Parkour por Triana",
          "Corre por 8 paredes seguidas sin tocar el suelo en el Jovaniverso.", E),
-        (13, "universo_chain_13", "La docena del fraile",
+        (13, "universo_chain_13", "El suelo, ese gran desconocido",
          "Corre por 13 paredes seguidas sin tocar el suelo en el Jovaniverso.", E, True),
     ])  # fmt: skip
     for place, name, text, secret in UNIVERSO_PLACES:
@@ -2954,6 +2956,61 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (1, "universo_dance_canarias", "Baile de magos",
          "Baila en el Jovaniverso el 30 de mayo, Día de Canarias.", C),
     ])  # fmt: skip
+    # El menú del tabulador: viajar con los teleportes (lo cuenta la página en el informe de
+    # paseo y el servidor lo recorta a uno cada `MAX_TELEPORTS_PER_SECOND`), la lista de
+    # jugadores y la mochila (`universo_menu_stats`, en el servidor). Teletransportarse es
+    # una decisión: nada pasa de Raro.
+    a += _tiers("jovani", "universo_teleports", [
+        (1, "universo_teleports_1", "Súbeme, Scotty", "Usa un teleporte del Jovaniverso.", C),
+        (10, "universo_teleports_10", "Viaje rápido desbloqueado",
+         "Usa 10 teleportes del Jovaniverso.", C),
+        (100, "universo_teleports_100", "Más portales que Belén",
+         "Usa 100 teleportes del Jovaniverso.", R),
+        (1_000, "universo_teleports_1k", "Las piernas, de adorno",
+         "Usa 1.000 teleportes del Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_teleport_night", [
+        (1, "universo_teleport_night", "Sonámbulo con portal",
+         "Usa un teleporte del Jovaniverso entre las 3:00 y las 6:00.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_tab_inside_max", [
+        (2, "universo_tab_inside_2", "¿Quién anda ahí?",
+         "Abre la lista de jugadores del Jovaniverso con otra persona dentro.", C),
+        (5, "universo_tab_inside_5", "Hay quórum",
+         "Abre la lista de jugadores del Jovaniverso con 5 personas dentro.", R),
+        (10, "universo_tab_inside_10", "Guagua de las 7:30",
+         "Abre la lista de jugadores del Jovaniverso con 10 personas dentro.", E),
+        (20, "universo_tab_inside_20", "Lleno hasta los topes",
+         "Abre la lista de jugadores del Jovaniverso con 20 personas dentro.", L),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_tab_top", [
+        (1, "universo_tab_top", "Mansa Musa pasa lista",
+         "Abre la lista de jugadores del Jovaniverso siendo quien más saldo tiene del servidor.",
+         R, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_tab_broke", [
+        (1, "universo_tab_broke", "Patrimonio: el carné de la biblioteca",
+         "Abre la lista de jugadores del Jovaniverso con 0 Y$ de saldo.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_bag_max", [
+        (1, "universo_bag_1", "¿Llevas el DNI?",
+         "Abre la mochila del Jovaniverso con algo dentro.", C),
+        (10, "universo_bag_10", "Tetris de bolsillo",
+         "Abre la mochila del Jovaniverso con 10 objetos distintos.", R),
+        (25, "universo_bag_25", "Bolsillo sin fondo",
+         "Abre la mochila del Jovaniverso con 25 objetos distintos.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_bag_empty", [
+        (1, "universo_bag_empty", "Ligero de equipaje",
+         "Abre la mochila del Jovaniverso vacía.", C, True),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="universo_menu_all", name="Tab, tab, ¿quién es?",
+        description="Usa las tres pestañas del menú del Jovaniverso: jugadores, mochila y viajar.",
+        category="jovani", rarity=C,
+        conditions=(("universo_tab_opens", 1), ("universo_bag_opens", 1),
+                    ("universo_teleports", 1)),
+    ))  # fmt: skip
     # Tragaperras de la plaza (`universo_slots_stats`, cogs/slots.py: Slots.plaza). Las
     # tiradas cuestan dinero pero son rápidas: los escalones se miden como en `tragas`.
     # Jugar a varias a la vez y el Auto son decisiones: Comunes.
@@ -2969,17 +3026,31 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a.append(Achievement(
         id="universo_slots_all", name="Ruta de las tragas",
-        description=f"Juega en las {UNIVERSO_SLOT_MACHINES} tragaperras de la plaza.",
+        description=(
+            f"Juega en las tragaperras número 1 a {UNIVERSO_SLOT_MACHINES} del Jovaniverso."
+        ),
         category="jovani", rarity=C,
         conditions=tuple(
             (f"{UNIVERSO_SLOT_PREFIX}{m}", 1) for m in range(1, UNIVERSO_SLOT_MACHINES + 1)
         ),
     ))  # fmt: skip
+    # Las tragaperras se ponen con el editor del mundo (números de 1 a 24): estas cuentan
+    # máquinas distintas, así que dependen de cuántas monten los editores.
+    a += _tiers("jovani", UNIVERSO_SLOTS_DISTINCT_STAT, [
+        (12, "universo_slots_distinct_12", "Docena de rodillos",
+         "Juega en 12 tragaperras distintas del Jovaniverso.", C),
+        (24, "universo_slots_distinct_24", "Veinticuatro horas, veinticuatro tragas",
+         "Juega en 24 tragaperras distintas del Jovaniverso.", C),
+    ])  # fmt: skip
     a += _tiers("jovani", "universo_slots_at_once", [
         (2, "universo_slots_at_once_2", "Ambidiestro del rodillo",
          "Juega a 2 tragaperras de la plaza a la vez.", C),
         (3, "universo_slots_at_once_3", "Pulpo Paul de los rodillos",
          "Juega a 3 tragaperras de la plaza a la vez.", C),
+        (6, "universo_slots_at_once_6", "Kali de las fichas",
+         "Juega a 6 tragaperras del Jovaniverso a la vez.", C),
+        (12, "universo_slots_at_once_12", "Doce campanadas",
+         "Juega a 12 tragaperras del Jovaniverso a la vez.", C),
     ])  # fmt: skip
     a += _tiers("jovani", "universo_slots_auto", [
         (1, "universo_slots_auto_1", "Auto de fe",
@@ -24188,6 +24259,9 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[UNIVERSO_TEASERS_STAT] = sum(
         1 for stat in stats if stat.startswith(UNIVERSO_TEASER_PREFIX)
     )
+    full[UNIVERSO_SLOTS_DISTINCT_STAT] = sum(
+        1 for stat, value in stats.items() if stat.startswith(UNIVERSO_SLOT_PREFIX) and value > 0
+    )
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -25336,6 +25410,47 @@ def universo_walk_stats(
     return StatDelta(add=add, peak=peak)
 
 
+def universo_teleport_stats(teleports: int, *, when: datetime) -> StatDelta:
+    """Lo que suman los teleportes de un informe de paseo, ya recortados por el servidor
+    (`bot.services.universo.teleport_report`).
+
+    Args:
+        teleports: Teleportes usados desde el informe anterior.
+        when: Hora local del informe.
+    """
+    if teleports <= 0:
+        return StatDelta()
+    add = {"universo_teleports": teleports}
+    if 3 <= when.hour < 6:
+        add["universo_teleport_night"] = 1
+    return StatDelta(add=add)
+
+
+def universo_menu_stats(
+    tab: str, *, inside: int = 0, richest: bool = False, broke: bool = False, items: int = 0
+) -> StatDelta:
+    """Lo que suma abrir una pestaña del menú del Jovaniverso. Lo ve el servidor.
+
+    Args:
+        tab: `"jugadores"` o `"mochila"`.
+        inside: Jugadores: cuántos hay en la sala, contándote.
+        richest: Jugadores: si eres quien más saldo tiene del servidor.
+        broke: Jugadores: si tu saldo es 0.
+        items: Mochila: cuántos objetos distintos llevas.
+    """
+    if tab == "jugadores":
+        add = {"universo_tab_opens": 1}
+        if richest:
+            add["universo_tab_top"] = 1
+        if broke:
+            add["universo_tab_broke"] = 1
+        return StatDelta(add=add, peak={"universo_tab_inside_max": inside} if inside else {})
+    add = {"universo_bag_opens": 1}
+    if not items:
+        add["universo_bag_empty"] = 1
+    return StatDelta(add=add, peak={"universo_bag_max": items} if items else {})
+
+
 def universo_gesture_stats(
     gesture: str, *, near: int, together: int, summit: bool, when: datetime
 ) -> StatDelta:
@@ -25371,7 +25486,7 @@ def universo_slots_stats(
     Lo de la tirada en sí (premios, giros gratis, calor) ya lo cuenta `slots_stats`.
 
     Args:
-        machine: Número de la máquina (de 1 a `UNIVERSO_SLOT_MACHINES`).
+        machine: Número de la máquina (de 1 a `bot.services.universo_editor.MAX_SLOTS`).
         at_once: Máquinas en las que el miembro está jugando ahora, contando esta.
         auto: Si la tirada es del ▶️ Auto.
         big_prize: Si es un premio gordo (el bote o ×50 la apuesta).

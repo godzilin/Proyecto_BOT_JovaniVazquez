@@ -3,6 +3,7 @@
 // sitio define cada bloque: de aquí salen la altura del suelo (`alturaPista`, la que pisa el jugador) y su dibujo (`pistaDoc`,
 // datos que pinta `Obras` como cualquier mundo). Coordenadas absolutas: el casino y la salida siguen en la plaza (-8, 60).
 import type { MundoDoc, Pieza } from "../editor/formato";
+import { casinoDeSerie } from "../casino/serie";
 
 interface Bloque {
   x0: number;
@@ -68,9 +69,13 @@ export function pistaDoc(): MundoDoc {
     esc: [b.x1 - b.x0, b.alto, b.z1 - b.z0],
     color: b.color,
   }));
+  // El casino de la plaza, igual que en la isla pero a ras del suelo del extraplano.
+  const casino = casinoDeSerie();
+  for (const o of casino.objetos) o.pos[1] = alturaPista(o.pos[0], o.pos[2]);
   return {
-    v: 1,
+    v: 2,
     assets: {
+      ...casino.assets,
       pista: { tipo: "piezas", nombre: "Pista de pruebas", colision: null, piezas, distancia: 600 },
       columna: {
         tipo: "piezas",
@@ -81,6 +86,7 @@ export function pistaDoc(): MundoDoc {
     },
     objetos: [
       { asset: "pista", pos: [0, 0, 0], rot: [0, 0, 0], esc: [1, 1, 1] },
+      ...casino.objetos,
       ...COLUMNAS.map((r, i) => ({ asset: "columna", pos: [i * 6, 0, 30] as [number, number, number], rot: [0, 0, 0] as [number, number, number], esc: [2 * r, 1, 2 * r] as [number, number, number] })),
     ],
     zonas: {},

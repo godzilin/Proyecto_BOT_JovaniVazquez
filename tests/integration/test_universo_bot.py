@@ -23,7 +23,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from interaction_fakes import fake_interaction
 
 from bot.app import ENTRY_POINT, INITIAL_EXTENSIONS, BotClient, BotTree
-from bot.services.economy import STARTING_BALANCE
+from bot.services.economy import STARTING_BALANCE, format_amount
 
 APP_ID = 1111
 GUILD_ID = 2222
@@ -358,6 +358,76 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
 
 
+async def test_los_teleportes_del_paseo_cuentan_recortados(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+    await world.web.post("/api/entrar", json=body, headers=headers)
+    await asyncio.gather(*world.cog._background)
+    world.cog._last_walk[GUILD_ID, USER_ID] -= 10  # caben 5 teleportes
+    response = await world.web.post("/api/paseo", json={**body, "teleports": 40}, headers=headers)
+    assert response.status == 200
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_teleports"] == 5
+    assert "universo_teleports_1" in profile.unlocked
+
+
+# -- Menú del tabulador (`/api/jugadores`, `/api/mochila`) ---------------------------------
+
+
+async def test_la_lista_de_jugadores_trae_a_los_de_dentro_y_al_resto_con_saldo(
+    world: World,
+) -> None:
+    guild = world.client.get_guild(GUILD_ID)
+    rica, robot = member(777), member(888, bot=True)
+    rica.display_name = "Rica"
+    guild.members = [guild.get_member(USER_ID), rica, robot]
+    members = {USER_ID: guild.get_member(USER_ID), 777: rica}
+    guild.get_member = members.get
+    await world.client.economy.grant(GUILD_ID, 777, amount=10_000, reason="prueba")
+    session = await login(world)
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": session})
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    response = await world.web.get(
+        f"/api/jugadores?guild_id={GUILD_ID}", headers={"Authorization": f"Bearer {session}"}
+    )
+    assert response.status == 200
+    body = await response.json()
+    assert (body["miembros"], body["dentro"]) == (2, 1)
+    yo, otra = body["jugadores"]
+    assert (yo["nombre"], yo["dentro"], yo["yo"], yo["nivel"]) == ("Yeyo", True, True, None)
+    assert (otra["nombre"], otra["dentro"]) == ("Rica", False)
+    assert otra["saldo"] == format_amount(STARTING_BALANCE + 10_000)
+    await ana.close()
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_tab_opens"] == 1
+    assert profile.stats["universo_tab_inside_max"] == 1
+    assert "universo_tab_top" not in profile.stats  # Rica tiene más
+    sin = await world.web.get(f"/api/jugadores?guild_id={GUILD_ID}")
+    assert sin.status == 401
+
+
+async def test_la_mochila_del_menu_trae_lo_comprado(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    empty = await (await world.web.get(f"/api/mochila?guild_id={GUILD_ID}", headers=headers)).json()
+    assert empty == {"objetos": []}
+    tienda = world.client.get_cog("Tienda")
+    assert await tienda.give_key(GUILD_ID, USER_ID, "gesto_baile") is not None
+    response = await world.web.get(f"/api/mochila?guild_id={GUILD_ID}", headers=headers)
+    assert response.status == 200
+    (row,) = (await response.json())["objetos"]
+    assert row["cantidad"] == 1 and row["nombre"]
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_bag_opens"] == 2
+    assert profile.stats["universo_bag_empty"] == 1
+    assert profile.stats["universo_bag_max"] == 1
+
+
 async def test_pasear_sin_sesion_no_deja(world: World) -> None:
     response = await world.web.post("/api/paseo", json={"guild_id": str(GUILD_ID), "meters": 5})
     assert response.status == 401
@@ -621,22 +691,22 @@ async def test_cada_maquina_de_la_plaza_tiene_su_calor_y_su_barra(world: World) 
     assert slots.bonus(GUILD_ID, USER_ID, 3).spins == 0
 
 
-async def test_la_plaza_pone_ritmo_y_tope_de_maquinas(world: World) -> None:
-    from bot.services.universo_tragas import MAX_AT_ONCE
+async def test_la_plaza_pone_ritmo_y_deja_jugar_a_muchas_a_la_vez(world: World) -> None:
+    from bot.services.universo_editor import MAX_SLOTS
 
     session = await login(world)
     assert (await spin(world, session, machine=1))[0] == 200
     status, body = await spin(world, session, machine=1)
     assert status == 400 and "girando" in body["error"]
-    for machine in range(2, MAX_AT_ONCE + 1):
+    # Sin tope de máquinas a la vez: también las que se ponen con el editor, hasta la 24.
+    for machine in (*range(2, 7), MAX_SLOTS):
         assert (await spin(world, session, machine=machine))[0] == 200
-    status, body = await spin(world, session, machine=MAX_AT_ONCE + 1)
-    assert status == 400 and str(MAX_AT_ONCE) in body["error"]
-    assert (await spin(world, session, machine=99))[0] == 400
+    assert (await spin(world, session, machine=MAX_SLOTS + 1))[0] == 400
     assert (await spin(world, session, machine="1"))[0] == 400
     await settle(world)
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
-    assert profile.stats["universo_slots_at_once"] == MAX_AT_ONCE
+    assert profile.stats["universo_slots_at_once"] == 7
+    assert {"universo_slots_at_once_6", "universo_slots_all"} <= set(profile.unlocked)
 
 
 async def test_sin_saldo_la_plaza_avisa_y_no_cobra(world: World) -> None:
@@ -660,3 +730,21 @@ async def test_parar_el_auto_tras_la_primera_cuenta_para_los_logros(world: World
     assert profile.stats["universo_slots_auto"] == 1
     if not body["auto_stop"]:
         assert profile.stats["universo_slots_regret"] == 1
+
+
+async def test_los_letreros_saben_los_botes_de_cada_juego(world: World) -> None:
+    from bot.services.universo_botes import POTS
+
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    response = await world.web.get(f"/api/botes?guild_id={GUILD_ID}", headers=headers)
+    assert response.status == 200
+    body = await response.json()
+    assert [b["clave"] for b in body["catalogo"]] == [p.key for p in POTS]
+    botes = {b["clave"]: b for b in body["botes"]}
+    # Con el bot real cargado, cada juego contesta por su función puente.
+    assert set(botes) == {p.key for p in POTS}
+    assert all(b["texto"] and b["nombre"] for b in botes.values())
+    assert (await spin(world, session, machine=1))[0] == 200
+    sin = await world.web.get(f"/api/botes?guild_id={GUILD_ID}")
+    assert sin.status == 401

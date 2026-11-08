@@ -136,6 +136,7 @@ from bot.services.levels import TIMEZONE
 from bot.services.pets import bet_moment
 from bot.services.taxes import TAX_COLLECTOR
 from bot.services.telemetry import TimedLock
+from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, edit, notify
 from bot.utils.responder import ContextResponder
 
@@ -1592,6 +1593,12 @@ class Horses(commands.Cog, name="Caballos"):
             confirm=confirm,
             send_error=ContextResponder(ctx).send_error,
         )
+
+
+async def pot(bot: commands.Bot, guild_id: int) -> int | None:
+    """El bote del próximo Gran Premio, o `None` sin el cog (letreros del Jovaniverso)."""
+    cog = find_cog(bot, Horses)
+    return None if cog is None else (await cog.repository.meta(guild_id)).pot
 
 
 async def setup(bot: BotClient) -> None:  # type: ignore[override]

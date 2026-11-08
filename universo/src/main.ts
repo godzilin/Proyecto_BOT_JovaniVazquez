@@ -2,9 +2,10 @@
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
-import type { Tragas } from "./casino/dibujo";
-import type { MundoDoc } from "./editor/formato";
+import type { Bote, Tragas } from "./casino/dibujo";
+import { deTrozos } from "./editor/trozos";
 import { crearMundo, type Mundo } from "./mundo";
+import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
 import { iniciarPaseo } from "./paseo";
@@ -32,8 +33,10 @@ interface ProfileResponse {
   /** Es desarrollador del bot: puede dar y quitar permisos. */
   permisos?: boolean;
   mundo?: number;
-  /** La fila de tragaperras de la plaza; `null` si la tragaperras no está cargada (entonces no hay casino). */
+  /** Lo que necesitan las tragaperras del mundo; `null` si la tragaperras no está cargada (entonces no se juega). */
   tragas?: Tragas | null;
+  /** Los botes del servidor para los letreros. */
+  botes?: Bote[];
 }
 interface ErrorResponse {
   error: string;
@@ -41,8 +44,8 @@ interface ErrorResponse {
 
 const FAILURE = "No se ha podido entrar en el Jovaniverso. Cierra la Activity y vuelve a abrirla.";
 const SIN_DISCORD = "Abre el Jovaniverso desde Discord para ver tu saldo";
-const AYUDA_ESCRITORIO = "WASD para moverte · Shift para correr · Espacio para saltar · C para agacharte (corriendo, te deslizas; salta deslizándote para no perder velocidad) · Salta junto a una pared yendo en paralelo para correr por ella, y salta otra vez para saltar de ella · En el aire, Espacio otra vez es el doble salto · Q para el gancho hacia donde miras · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos · ⚙ para capturar el ratón y cambiar el campo de visión";
-const AYUDA_MOVIL = "Mueve el joystick para andar; empújalo hasta el borde para correr · ⤓ para agacharte (corriendo, te deslizas) · Salta junto a una pared yendo en paralelo para correr por ella · En el aire, ⤒ otra vez es el doble salto · 🪝 para el gancho hacia donde miras · 👁 para primera persona · 👋 para gestos";
+const AYUDA_ESCRITORIO = "Tab para el menú (jugadores, mochila y viajar) · WASD para moverte · Shift para correr · Espacio para saltar · C para agacharte (corriendo, te deslizas; salta deslizándote para no perder velocidad) · Salta junto a una pared yendo en paralelo para correr por ella, y salta otra vez para saltar de ella · En el aire, Espacio otra vez es el doble salto · Q para el gancho hacia donde miras · Arrastra para girar la cámara · V o 👁 para primera persona · 1-7 o 👋 para gestos · ⚙ para capturar el ratón y cambiar el campo de visión";
+const AYUDA_MOVIL = "Toca tu nombre para el menú (jugadores, mochila y viajar) · Mueve el joystick para andar; empújalo hasta el borde para correr · ⤓ para agacharte (corriendo, te deslizas) · Salta junto a una pared yendo en paralelo para correr por ella · En el aire, ⤒ otra vez es el doble salto · 🪝 para el gancho hacia donde miras · 👁 para primera persona · 👋 para gestos";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -91,7 +94,15 @@ function pildora(nombre: string, saldo: string | null, texto?: string): void {
   el.hidden = false;
 }
 
-/** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
+/** Tocar tu nombre (la píldora de arriba a la izquierda) abre el menú: es la forma de abrirlo en el móvil. */
+function menuEnPildora(menu: { alternar(): void }): void {
+  const el = $("pildora");
+  el.classList.add("jv-abre");
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", "Abrir el menú");
+  el.addEventListener("click", () => menu.alternar());
+}
+
 /** Aviso que se queda en pantalla (la sala se ha cerrado y no va a volver sola). */
 function aviso(texto: string): void {
   const el = document.createElement("div");
@@ -101,6 +112,7 @@ function aviso(texto: string): void {
   $("capa").append(el);
 }
 
+/** La ayuda se va sola a los pocos segundos o al empezar a moverse. */
 function ayuda(): void {
   const el = $("ayuda");
   el.textContent = window.matchMedia("(pointer: coarse)").matches ? AYUDA_MOVIL : AYUDA_ESCRITORIO;
@@ -116,12 +128,18 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
+/** El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). */
+interface MundoPublicado {
+  version: number;
+  trozos: Record<string, unknown>;
+}
+
 /** Pide el mundo publicado de este servidor y lo dibuja en lugar del de serie; si no hay nada publicado o falla, el de serie sigue como estaba. */
 function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
   if (!sesion.guildId) return Promise.resolve();
-  return api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
+  return api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
     .then((r) => {
-      if (r.version > 0) mundo.cargarMundo(r.doc);
+      if (r.version > 0) mundo.cargarMundo(deTrozos(r.trozos));
     })
     .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
 }
@@ -129,8 +147,8 @@ function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | 
 /** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
 async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
   try {
-    const r = await api<{ version: number; doc: MundoDoc }>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
-    mundo.cargarMundo(r.version > 0 ? r.doc : mundoDeSerie());
+    const r = await api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
+    mundo.cargarMundo(r.version > 0 ? deTrozos(r.trozos) : mundoDeSerie());
   } catch (e) {
     console.warn("No se ha podido cargar el mundo publicado.", e);
     aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");
@@ -198,6 +216,7 @@ async function start(): Promise<void> {
       }
       pildora(entrada.profile.name, entrada.profile.balance_text);
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
+      menuEnPildora(iniciarMenu($("capa"), mundo, sesion));
       // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
       if (!PRUEBAS) iniciarPaseo(mundo, sesion);
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => {
@@ -212,12 +231,11 @@ async function start(): Promise<void> {
         const s = entrada.guildId ? { session: entrada.session, guildId: entrada.guildId } : null;
         cargarDevtools(mundo, s, entrada.profile.permisos === true);
       }
-      if (entrada.profile.tragas) {
-        const nombre = entrada.profile.name;
-        activarCasino(mundo, { tragas: entrada.profile.tragas, sesion, saldo: (t) => pildora(nombre, t) });
-      }
+      const nombre = entrada.profile.name;
+      activarCasino(mundo, { tragas: entrada.profile.tragas ?? null, botes: entrada.profile.botes ?? [], sesion, saldo: (t) => pildora(nombre, t) });
     } else {
       iniciarSala(mundo.yo, mundo.remotos, null);
+      menuEnPildora(iniciarMenu($("capa"), mundo, null));
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
       // Solo en desarrollo: `docs/editor_local.py` da una sesión con permiso de editor sin Discord.
@@ -235,7 +253,7 @@ async function start(): Promise<void> {
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
       if (new URLSearchParams(location.search).has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);
-        if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, sesion: null, saldo: (t) => pildora("Prueba", t) });
+        if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, botes: local.botes ?? [], sesion: null, saldo: (t) => pildora("Prueba", t) });
       }
     }
     $("carga").classList.add("fuera");

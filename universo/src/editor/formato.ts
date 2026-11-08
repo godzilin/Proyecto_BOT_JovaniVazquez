@@ -39,11 +39,17 @@ export interface Malla {
 }
 /** Círculo de colisión [x, z, radio] en las coordenadas del asset. */
 export type Circulo = [number, number, number];
+/**
+ * Lo que hace un asset además de verse. `traga`: una tragaperras jugable, con la pantalla y la botonera en su sitio del marco de
+ * la máquina (`casino/sitio.ts`). `letrero`: un letrero con su panel (centro en `pos`, `ancho` × `alto` m, mirando a +z).
+ */
+export type Funcion = { tipo: "traga" } | { tipo: "letrero"; pos: Vec3; ancho: number; alto: number };
 interface AssetComun {
   nombre: string;
   colision: Circulo[] | null;
   /** Metros hasta donde se dibuja; sin ella, la de las construcciones. */
   distancia?: number;
+  funcion?: Funcion;
 }
 export type Asset = (AssetComun & { tipo: "piezas"; piezas: Pieza[]; malla?: Malla }) | (AssetComun & { tipo: "glb"; glb: string });
 export interface Objeto {
@@ -53,11 +59,26 @@ export interface Objeto {
   esc: Vec3;
   /** Multiplica los colores del objeto. */
   tinte?: number;
+  /** Lo propio de un objeto con función: `n` en una tragaperras; `titulo` y `botes` en un letrero. */
+  datos?: Datos;
+}
+export interface Datos {
+  /** Número de la tragaperras, de 1 a `MAX_TRAGAS`: el servidor guarda con él su calor, su barra y sus logros. */
+  n?: number;
+  titulo?: string;
+  /** Claves de los botes que enseña el letrero (`bot/services/universo_botes.py`), que rotan si hay varios. */
+  botes?: string[];
 }
 export interface Zona {
   x: number;
   z: number;
   r: number;
+}
+/** Un sitio del panel «Viajar» del menú: se aparece en (x, z), a ras de suelo. */
+export interface Teleporte {
+  nombre: string;
+  x: number;
+  z: number;
 }
 /**
  * La isla esculpida: rejilla de (`TERRENO_CELDAS` + 1)² vértices sobre `TERRENO_LADO` m centrados en 0, fila a fila desde -x -z,
@@ -69,25 +90,32 @@ export interface Terreno {
   colores: string;
 }
 export interface MundoDoc {
-  v: 1;
+  v: 2;
   assets: Record<string, Asset>;
   objetos: Objeto[];
   zonas: Record<string, Zona>;
+  /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
+  teleportes?: Teleporte[];
   terreno?: Terreno;
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.
-export const FORMATO = 1;
+export const FORMATO = 2;
 export const TRIANGULOS: Record<Forma, number> = { caja: 12, cuna: 8, cilindro: 48, cono: 24, esfera: 168, icosaedro: 20, dodecaedro: 36, prisma: 0 };
 export const FORMAS = Object.keys(TRIANGULOS) as Forma[];
 export const MAX_PIEZAS = 300;
-export const MAX_ASSETS = 400;
+export const MAX_ASSETS = 2000;
 export const MAX_TRIANGULOS_GLB = 6000;
 export const MAX_NOMBRE = 40;
 export const MIN_LADOS = 3;
 export const MAX_LADOS = 32;
 export const MAX_TRIANGULOS_MALLA = 2000;
 export const MAX_CIRCULOS = 16;
+export const MAX_TELEPORTES = 24;
+export const MAX_TRAGAS = 24;
+export const MAX_BOTES_LETRERO = 8;
+export const MAX_TITULO = 40;
+export const MAX_LADO_LETRERO = 40;
 export const MIN_TINTE = 0.3;
 export const MAX_TINTE = 2.0;
 export const MIN_DISTANCIA = 20.0;
@@ -95,6 +123,8 @@ export const MAX_DISTANCIA = 600.0;
 export const TERRENO_LADO = 320;
 export const TERRENO_CELDAS = 160;
 export const TERRENO_PINTURAS = 13;
+/** Lado en metros de una celda del mundo: el mundo se guarda y se descarga en trozos de este tamaño (`CELL` en Python). */
+export const CELDA = 80;
 export const ID = /^[a-z0-9_-]{1,40}$/;
 
 /** Rampa: base en y=-0.5, cara vertical en z=-0.5 y pendiente hasta z=+0.5. 8 triángulos. */

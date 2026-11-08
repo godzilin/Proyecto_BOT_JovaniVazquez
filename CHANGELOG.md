@@ -8,6 +8,51 @@ criterio.
 
 ## 10.x
 
+### 10.10.0 · 2026-11-08
+
+- Jovaniverso: movimiento de piloto. Saltando junto a una pared y yendo en paralelo se corre por ella; saltar ahí te lanza a la siguiente
+- Jovaniverso: doble salto en el aire, que se recarga en el suelo o en una pared
+- Jovaniverso: gancho con la Q (o el botón 🪝 en el móvil) que tira de ti hacia donde miras; vuelve a los 3 s
+- Jovaniverso: se llega a 20 m/s (antes, 15); la cámara se ladea en la pared y el campo de visión se abre con la velocidad
+- Jovaniverso: un muro fino o un escalón de más de medio metro ya no se sube andando (hay que saltar)
+- Logros de correr por las paredes, saltar de ellas, dobles saltos, ganchos, velocidad y paredes seguidas sin tocar el suelo
+
+### 10.9.0 · 2026-11-07
+
+- Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo
+- Jovaniverso: cualquier asset del editor puede ser una tragaperras jugable o un letrero (también un modelo `.glb`)
+- Jovaniverso: los letreros enseñan el título y los botes que se elijan (tragaperras, 💎 póker, Gran Premio de caballos, Primitiva, Bonoloto, Gordo y Euromillones), que rotan si son varios
+- Jovaniverso: se puede jugar a todas las tragaperras que se quiera a la vez (antes, 3); el Auto de cada una se para al alejarse de ella
+- Jovaniverso: el toldo del casino se ve (estaba bajo el suelo de la plaza)
+- Logros: jugar en 12 y en 24 tragaperras distintas, y a 6 y a 12 a la vez
+- Interno: los mundos guardados o publicados antes reciben el casino de la plaza una sola vez al arrancar
+
+### 10.8.1 · 2026-11-07
+
+- Interno: las pruebas del ▶️ Auto de la tragaperras ya no fallan de vez en cuando (el bote misterioso caía al azar en la primera tirada y paraba la sesión)
+
+### 10.8.0 · 2026-11-07
+
+- Jovaniverso: el optimizador de modelos del editor ya no deja los modelos con texturas de un color liso: los colores de la textura pasan a los vértices y el modelo conserva sus zonas de color (no los detalles finos, como letras o logos). Lo que brillaba deja de brillar
+
+### 10.7.0 · 2026-11-07
+
+- Jovaniverso: el editor optimiza los polígonos de los modelos GLB. Uno de más de 6.000 triángulos o de más de 1 MB ya no se rechaza al importarlo: se elige a cuántos triángulos bajarlo y se simplifica antes de subirlo. El botón «Optimizar polígonos» hace lo mismo con un GLB ya importado
+- Jovaniverso: un modelo con huesos o animación que pasa por el optimizador se queda quieto en su postura de reposo y así se ve en el mundo (antes no se dibujaba)
+
+### 10.6.0 · 2026-11-07
+
+- Jovaniverso: menú con Tab (en el móvil, tocando tu nombre) con tres pestañas: Jugadores (quién está dentro y el resto del servidor, con su saldo y su nivel), Mochila (lo que tienes de la tienda) y Viajar (teleportes a sitios de la isla)
+- Jovaniverso: el editor pone los teleportes del menú (hasta 24)
+- Logros del menú: teleportes, abrir la lista con gente dentro, la mochila llena o vacía y usar las tres pestañas
+- Interno: sistema de interfaz común para las ventanas del Jovaniverso (`universo/src/ui/`), con sus líneas de diseño en la Biblia
+
+### 10.5.0 · 2026-11-07
+
+- Jovaniverso: el mundo ya no tiene tope de objetos; se guarda por trozos (cada asset y cada celda de 80 m) y el tope es de 4000 objetos por celda
+- Jovaniverso: el editor guarda solo lo que has cambiado y el deshacer ya no guarda copias del mundo entero; dos editores a la vez solo chocan si tocan la misma celda
+- Interno: el mundo publicado y su historial se pasan solos al formato nuevo al arrancar (las tablas viejas quedan de copia)
+
 ### 10.4.0 · 2026-11-07
 
 - Jovaniverso: tu robot se ve del mismo color en tu pantalla y en la de los demás (antes tú te veías siempre naranja)

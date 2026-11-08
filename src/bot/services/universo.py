@@ -16,7 +16,8 @@ La clave de firma se sortea al arrancar el bot, así que un reinicio cierra toda
 sesiones. La página vuelve a hacer login sola al abrirse, así que da igual.
 
 También filtra lo que la página cuenta del paseo por el mundo (`walk_report`), que
-solo alimenta logros.
+solo alimenta logros, y monta las listas del menú del tabulador (`player_list` y
+`backpack_list`), que solo leen.
 
 No mueve dinero ni guarda datos.
 """
@@ -34,6 +35,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
+
+from bot.services.economy import format_amount
+from bot.services.levels import calculate_level_progress
 
 #: Base de la API de Discord para el login.
 DISCORD_API = "https://discord.com/api/v10"
@@ -281,6 +285,18 @@ TOP_SPEED = 20
 MAX_CHAIN_PER_SECOND = 2
 
 
+#: Teleportes por segundo que se aceptan en un informe: el menú tarda más en abrirse.
+MAX_TELEPORTS_PER_SECOND = 0.5
+
+
+def teleport_report(body: dict[str, object], elapsed: float) -> int:
+    """Teleportes de un informe de paseo, recortados a lo que da tiempo a usar en `elapsed` s."""
+    value = body.get("teleports")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return min(value, int(max(elapsed, 0.0) * MAX_TELEPORTS_PER_SECOND))
+
+
 @dataclass(frozen=True)
 class Walk:
     """Un informe de paseo ya recortado (`walk_report`).
@@ -336,3 +352,78 @@ def walk_report(body: dict[str, object], elapsed: float) -> Walk:
         speed=count(body.get("speed"), TOP_SPEED),
         chain=count(body.get("chain"), seconds * MAX_CHAIN_PER_SECOND),
     )
+
+
+#: Filas de la pestaña «Jugadores» del menú: los que están dentro van siempre; del resto,
+#: los de más saldo hasta llenar.
+MAX_PLAYER_ROWS = 100
+_CUSTOM_EMOJI = re.compile(r"<a?:\w+:\d+>")
+
+
+def player_list(
+    members: list[tuple[int, str]],
+    inside: set[int],
+    balances: dict[int, int],
+    xps: dict[int, int] | None,
+    me: int,
+    *,
+    limit: int = MAX_PLAYER_ROWS,
+) -> list[dict[str, Any]]:
+    """Filas de la pestaña «Jugadores»: primero quien está en la sala y luego el resto, por saldo.
+
+    Args:
+        members: `(id, nombre)` de los miembros del servidor, sin bots.
+        inside: Quién está ahora en la sala.
+        balances: Saldo de cada uno (quien no tiene monedero, 0).
+        xps: Experiencia de cada uno; `None` si el servidor no tiene niveles.
+        me: Quien pide la lista (va siempre, marcado con `yo`).
+    """
+    rows = sorted(
+        members,
+        key=lambda m: (m[0] not in inside, m[0] != me, -balances.get(m[0], 0), m[1].casefold()),
+    )
+    out = []
+    for user_id, name in rows:
+        if len(out) >= limit and user_id not in inside and user_id != me:
+            break
+        level = None if xps is None else calculate_level_progress(xps.get(user_id, 0)).level
+        out.append(
+            {
+                "nombre": name,
+                "saldo": format_amount(balances.get(user_id, 0)),
+                "nivel": level,
+                "dentro": user_id in inside,
+                "yo": user_id == me,
+            }
+        )
+    return out
+
+
+def backpack_list(entries: list[Any], now: float) -> list[dict[str, Any]]:
+    """Lo que hay en una mochila, agrupado, para la pestaña «Mochila».
+
+    `entries` son `InventoryEntry` de la tienda. Las unidades iguales (mismo nombre, emoji y
+    tipo) van en una fila con su cantidad y la caducidad más cercana, en segundos desde ahora.
+    Un emoji propio de Discord (`<:x:id>`) no se puede pintar en la página: va el del tipo.
+    """
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for e in entries:
+        emoji = e.emoji if e.emoji and not _CUSTOM_EMOJI.search(e.emoji) else e.kind.icon
+        key = (e.name, emoji, e.kind.value)
+        row = groups.setdefault(
+            key,
+            {
+                "nombre": e.name,
+                "emoji": emoji,
+                "tipo": e.kind.title,
+                "cantidad": 0,
+                "puesto": False,
+                "caduca": None,
+            },
+        )
+        row["cantidad"] += 1
+        row["puesto"] = row["puesto"] or bool(e.equipped)
+        if e.expires_at is not None:
+            left = max(0, int(e.expires_at - now))
+            row["caduca"] = left if row["caduca"] is None else min(row["caduca"], left)
+    return sorted(groups.values(), key=lambda r: (r["tipo"], r["nombre"].casefold()))
