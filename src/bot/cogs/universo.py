@@ -182,7 +182,7 @@ from bot.services.universo_editor import (
     parse_key,
     validate_piece,
 )
-from bot.services.universo_sala import Player, SalaError, Salas, place
+from bot.services.universo_sala import SPIN_SEEN_DM, Player, SalaError, Salas, place
 from bot.services.universo_tragas import SeatError
 from bot.utils.interactions import claim_custom_ids
 
@@ -943,10 +943,13 @@ class Universo(commands.Cog, name="Universo"):
             user_id=member.id,
             ms=(time.perf_counter() - started) * 1000,
         )
-        # Los demás ven la tirada en su pantalla: los fotogramas y el visor, sin saldo ni texto.
+        # Los que están cerca ven la tirada en su pantalla: los fotogramas y el visor, sin
+        # saldo ni texto. Son ~20 KB: a quien no ve la máquina no se le manda.
         seen = {key: result[key] for key in SEEN_SPIN if key in result}
         for salas in (self.salas, self.pruebas):
-            await salas.announce(guild.id, {"t": "traga", **seen}, skip_user=member.id)
+            await salas.announce(
+                guild.id, {"t": "traga", **seen}, skip_user=member.id, around_dm=SPIN_SEEN_DM
+            )
         return result
 
     async def play(self, ws: web.WebSocketResponse, backlog: Callable[[], int]) -> None:
@@ -1314,7 +1317,11 @@ async def _traga(request: web.Request) -> web.Response:
 
 async def _sala(request: web.Request) -> web.WebSocketResponse:
     cog = request.app[_COG_KEY]
-    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECONDS, max_msg_size=MAX_WS_BYTES)
+    # Sin permessage-deflate: comprimiría cada mensaje una vez por conexión, en el bucle,
+    # y la sala codifica una vez y manda los mismos bytes a todos.
+    ws = web.WebSocketResponse(
+        heartbeat=HEARTBEAT_SECONDS, max_msg_size=MAX_WS_BYTES, compress=False
+    )
     await ws.prepare(request)
     transport = request.transport
     await cog.play(ws, lambda: transport.get_write_buffer_size() if transport else 0)

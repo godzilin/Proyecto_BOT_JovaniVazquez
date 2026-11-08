@@ -8,6 +8,11 @@ criterio.
 
 ## 10.x
 
+### 10.10.1 · 2026-11-08
+
+- Jovaniverso: la tirada de una tragaperras solo se manda a quien está a 60 m o menos de quien juega (antes, a toda la isla), y la sala ya no comprime cada mensaje una vez por jugador
+- Interno: una prueba pasa `tsc` al TypeScript del Jovaniverso antes de desplegar, para que un error de tipos no deje al NAS sin actualizar
+
 ### 10.10.0 · 2026-11-08
 
 - Jovaniverso: movimiento de piloto. Saltando junto a una pared y yendo en paralelo se corre por ella; saltar ahí te lanza a la siguiente
