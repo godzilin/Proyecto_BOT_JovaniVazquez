@@ -549,7 +549,7 @@ async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) ->
 async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
     world: World,
 ) -> None:
-    from bot.cogs.universo import DEVS
+    from bot.cogs.universo.permisos import DEVS
 
     dev_id = min(DEVS)
     guild = world.client.get_guild(GUILD_ID)
@@ -585,7 +585,7 @@ async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
 
 
 async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: World) -> None:
-    from bot.cogs.universo import DEVS
+    from bot.cogs.universo.permisos import DEVS
 
     dev_id = min(DEVS)
     guild = world.client.get_guild(GUILD_ID)

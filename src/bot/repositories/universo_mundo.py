@@ -21,7 +21,7 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
   las versiones que se conservan se borran al día de subirse (`prune_glb`).
 - `universo_permisos`: quién tiene cada permiso del Jovaniverso (`editor`, `devtools`)
   en cada servidor y quién se lo dio. Los desarrolladores no salen aquí: los tienen
-  todos siempre (`bot.cogs.universo.DEVS`).
+  todos siempre (`bot.cogs.universo.permisos.DEVS`).
 
 - `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. Uno
   es `casino`: los mundos guardados o publicados antes de que las tragaperras fueran objetos

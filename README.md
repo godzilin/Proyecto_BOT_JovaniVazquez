@@ -1421,7 +1421,7 @@ del servidor y dice cuánto pesa (unos 145 KB).
 
 #### Permisos y devtools
 
-Los desarrolladores del bot (`DEVS` en `bot.cogs.universo`, por ID de Discord) tienen todos
+Los desarrolladores del bot (`DEVS` en `bot.cogs.universo.permisos`, por ID de Discord) tienen todos
 los permisos del Jovaniverso y son los únicos que los dan, desde la sección «Permisos de
 este servidor» de las devtools. Los permisos (`editor` y `devtools`) son por servidor y se
 guardan en la tabla `universo_permisos` (`bot.repositories.universo_mundo`), que se crea
@@ -1579,7 +1579,7 @@ src/bot/
 │   ├── lottery.py       # loteria: panel con pestañas, compras, rascas y sorteos
 │   ├── achievements.py  # Logros: seguimiento, premios, avisos y su vista
 │   ├── perfil.py        # `perfil`: nivel, patrimonio, trabajo, logros, rachas, objetos, gallo, 4 en raya y backgammon
-│   ├── universo.py      # universo: el botón de la Activity y su servidor web (login y perfil)
+│   ├── universo/        # universo: el botón de la Activity y su servidor web, un módulo por tema
 │   └── music.py         # Comandos de música y control por servidor
 ├── utils/
 │   └── responder.py     # Adaptador común: misma lógica para / y .

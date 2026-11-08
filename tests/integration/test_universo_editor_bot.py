@@ -16,7 +16,8 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from test_universo_bot import GUILD_ID, USER_ID, World, fake_discord, load, member
 
-from bot.cogs.universo import MAX_EDITOR_BYTES, MUNDO_CACHE
+from bot.cogs.universo.editor import MAX_EDITOR_BYTES
+from bot.cogs.universo.mundo import MUNDO_CACHE
 from bot.repositories import universo_mundo as mundo_repo
 from bot.services.universo_editor import FORMAT, MAX_WORLD_BYTES
 

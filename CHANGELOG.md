@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.10.8 · 2026-11-08
+
+- Interno: el servidor del Jovaniverso, repartido en un archivo por tema
+
 ### 10.10.7 · 2026-11-08
 
 - Jovaniverso: el mundo del editor tiene un tope de 8 MB y la barra enseña cuánto ocupa
