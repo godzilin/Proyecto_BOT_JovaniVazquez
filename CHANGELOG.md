@@ -8,6 +8,11 @@ criterio.
 
 ## 10.x
 
+### 10.10.3 · 2026-11-08
+
+- Jovaniverso: los modelos que importa el editor se guardan como archivos y no dentro de la base de datos del dinero. Caben 200 MB entre todos y los que no usa ningún mundo se borran solos al día
+- Interno: al arrancar, los modelos que ya había en la base pasan a archivos, una sola vez
+
 ### 10.10.2 · 2026-11-08
 
 - Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida
