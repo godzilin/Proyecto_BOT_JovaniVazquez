@@ -2819,6 +2819,61 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (10_000, "universo_slides_10k", "Newton pide la hoja de reclamaciones",
          "Deslízate 10.000 veces en el Jovaniverso.", E),
     ])  # fmt: skip
+    # Movimiento de piloto (correr por las paredes, saltar de ellas, doble salto y
+    # gancho): lo cuenta la página y el servidor lo recorta a lo que da tiempo a hacer
+    # (`bot.services.universo.TRICKS_PER_SECOND`). La velocidad no pasa de 20 m/s.
+    a += _tiers("jovani", "universo_wallruns", [
+        (1, "universo_wallruns_1", "Subirse por las paredes",
+         "Corre por una pared en el Jovaniverso.", C),
+        (100, "universo_wallruns_100", "Los vecinos oyen pasos",
+         "Corre por las paredes 100 veces en el Jovaniverso.", C),
+        (1_000, "universo_wallruns_1k", "Grafitero sin spray",
+         "Corre por las paredes 1.000 veces en el Jovaniverso.", R),
+        (10_000, "universo_wallruns_10k", "Peter Parker de Vecindario",
+         "Corre por las paredes 10.000 veces en el Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_walljumps", [
+        (1, "universo_walljumps_1", "De rebote",
+         "Salta desde una pared en el Jovaniverso.", C),
+        (100, "universo_walljumps_100", "Pelota de frontón",
+         "Salta desde una pared 100 veces en el Jovaniverso.", C),
+        (1_000, "universo_walljumps_1k", "Squash sin raqueta",
+         "Salta desde una pared 1.000 veces en el Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_doublejumps", [
+        (1, "universo_doublejumps_1", "El aire tiene escalones",
+         "Haz un doble salto en el Jovaniverso.", C),
+        (100, "universo_doublejumps_100", "Botas de siete leguas",
+         "Haz 100 dobles saltos en el Jovaniverso.", C),
+        (1_000, "universo_doublejumps_1k", "Sandalias de Hermes",
+         "Haz 1.000 dobles saltos en el Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_grapples", [
+        (1, "universo_grapples_1", "Echar el gancho",
+         "Engánchate con el gancho en el Jovaniverso.", C),
+        (100, "universo_grapples_100", "Tirar del hilo",
+         "Engánchate con el gancho 100 veces en el Jovaniverso.", C),
+        (1_000, "universo_grapples_1k", "Batman de saldo",
+         "Engánchate con el gancho 1.000 veces en el Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_speed_max", [
+        (15, "universo_speed_15", "Exceso de velocidad en zona 50",
+         "Alcanza 15 m/s (54 km/h) en el Jovaniverso.", C),
+        (18, "universo_speed_18", "Gacela de La Isleta",
+         "Alcanza 18 m/s (65 km/h) en el Jovaniverso.", R),
+        (20, "universo_speed_20", "Adiós, coyote",
+         "Alcanza 20 m/s (72 km/h), la velocidad máxima, en el Jovaniverso.", R),
+    ], unit="m/s")  # fmt: skip
+    a += _tiers("jovani", "universo_chain_max", [
+        (3, "universo_chain_3", "Las paredes oyen",
+         "Corre por 3 paredes seguidas sin tocar el suelo en el Jovaniverso.", C),
+        (5, "universo_chain_5", "El suelo es lava",
+         "Corre por 5 paredes seguidas sin tocar el suelo en el Jovaniverso.", R),
+        (8, "universo_chain_8", "Parkour por Triana",
+         "Corre por 8 paredes seguidas sin tocar el suelo en el Jovaniverso.", E),
+        (13, "universo_chain_13", "La docena del fraile",
+         "Corre por 13 paredes seguidas sin tocar el suelo en el Jovaniverso.", E, True),
+    ])  # fmt: skip
     for place, name, text, secret in UNIVERSO_PLACES:
         a += _tiers("jovani", f"{UNIVERSO_PLACE_PREFIX}{place}", [
             (1, f"{UNIVERSO_PLACE_PREFIX}{place}", name, text, C, secret),
@@ -25243,7 +25298,14 @@ def universo_meet_stats(met: Iterable[int], crowd: int) -> StatDelta:
 
 
 def universo_walk_stats(
-    meters: int, jumps: int, places: Iterable[str], slides: int = 0
+    meters: int,
+    jumps: int,
+    places: Iterable[str],
+    slides: int = 0,
+    *,
+    tricks: Mapping[str, int] | None = None,
+    speed: int = 0,
+    chain: int = 0,
 ) -> StatDelta:
     """Lo que suma un informe de paseo por el Jovaniverso, ya recortado por el
     servidor (`bot.services.universo.walk_report`).
@@ -25253,15 +25315,25 @@ def universo_walk_stats(
         jumps: Saltos desde el informe anterior.
         places: Lugares pisados (claves de `UNIVERSO_PLACES`).
         slides: Deslizamientos desde el informe anterior.
+        tricks: Trucos de piloto (`wallruns`, `walljumps`, `doublejumps`, `grapples`):
+            cada uno suma a `universo_<truco>`.
+        speed: La mayor velocidad en horizontal (m/s), para `universo_speed_max`.
+        chain: Paredes seguidas sin tocar el suelo, para `universo_chain_max`.
     """
     add = {f"{UNIVERSO_PLACE_PREFIX}{place}": 1 for place in places}
+    add.update({f"universo_{name}": n for name, n in (tricks or {}).items() if n > 0})
+    peak = {
+        stat: value
+        for stat, value in (("universo_speed_max", speed), ("universo_chain_max", chain))
+        if value > 0
+    }
     if slides > 0:
         add["universo_slides"] = slides
     if meters > 0:
         add["universo_meters"] = meters
     if jumps > 0:
         add["universo_jumps"] = jumps
-    return StatDelta(add=add)
+    return StatDelta(add=add, peak=peak)
 
 
 def universo_gesture_stats(

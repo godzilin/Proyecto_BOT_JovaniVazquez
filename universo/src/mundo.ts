@@ -22,7 +22,7 @@ import { Camara } from "./mundo/camara";
 import { Controles } from "./mundo/controles";
 import { crearCielo } from "./mundo/cielo";
 import { Culling } from "./mundo/culling";
-import { Jugador } from "./mundo/jugador";
+import { Jugador, VEL_CORRER, VEL_MAX, type Tecnica } from "./mundo/jugador";
 import { Lugares, fijarZonas } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
@@ -35,7 +35,7 @@ import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
 import { mundoDeSerie } from "./mundo/serie";
 import type { MundoDoc } from "./editor/formato";
 
-export interface Informe {
+export interface Informe extends Tecnica {
   meters: number;
   jumps: number;
   slides: number;
@@ -167,7 +167,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   }
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
-  escena.add(jugador.objeto);
+  escena.add(jugador.objeto, jugador.cuerda);
   camara.proteger(jugador.objeto);
   camara.enlazarSombra(sol.shadow);
   const remotos = new Remotos(escena, fundirRobot(jugador.modelo, jugador.clips));
@@ -184,9 +184,12 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     // En vertical (móvil) se abre el campo vertical para que el ancho no se quede en un túnel (con el FOV de serie, 55°: hasta 80°).
     const fov = ajustes.fov;
     const anchoMedio = Math.tan((((25 / 55) * fov) * Math.PI) / 180) / camara3.aspect;
-    camara3.fov = Math.min(Math.max(80, fov), Math.max(fov, (2 * Math.atan(anchoMedio) * 180) / Math.PI));
+    fovBase = Math.min(Math.max(80, fov), Math.max(fov, (2 * Math.atan(anchoMedio) * 180) / Math.PI));
+    camara3.fov = fovBase + fovExtra;
     camara3.updateProjectionMatrix();
   };
+  let fovBase = 55;
+  let fovExtra = 0;
   ajustar();
   window.addEventListener("resize", ajustar);
   iniciarAjustes(capa, tactil, ajustar);
@@ -247,6 +250,11 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       dx /= fuerza;
       dz /= fuerza;
     }
+    if (controles.gancho) {
+      controles.gancho = false;
+      const d = camara.apuntar();
+      if (!quieto) jugador.lanzarGancho(d.x, d.y, d.z);
+    }
     const saltos0 = jugador.saltos;
     const desliz0 = jugador.deslizamientos;
     const metros0 = jugador.metros;
@@ -266,6 +274,16 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
 
     remotos.actualizar(dt, ahora, jugador.x, jugador.z, calidad.sombras);
 
+    // Corriendo por una pared la cámara se ladea hacia fuera, y con la velocidad se abre el campo de visión (hasta 12°).
+    const pared = jugador.pared;
+    const der = camara.derecha;
+    camara.inclinar = pared ? -0.12 * (pared.x * der.x + pared.z * der.z) : 0;
+    const extra = 12 * Math.min(1, Math.max(0, jugador.velH - VEL_CORRER) / (VEL_MAX - VEL_CORRER));
+    fovExtra += (extra - fovExtra) * (1 - Math.exp(-dt * 4));
+    if (Math.abs(camara3.fov - fovBase - fovExtra) > 0.05) {
+      camara3.fov = fovBase + fovExtra;
+      camara3.updateProjectionMatrix();
+    }
     camara.actualizar(dt, jugador.x, jugador.y - jugador.bajada, jugador.z);
 
     // El recuadro de sombras sigue al jugador, ajustado a la rejilla del mapa para que no parpadee.
@@ -371,13 +389,24 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
       const slides = deslizPend;
       deslizPend = 0;
       const places = lugares.tomar();
-      return meters > 0 || jumps > 0 || slides > 0 || places.length > 0 ? { meters, jumps, slides, places } : null;
+      const t = jugador.tecnica;
+      const tecnica: Tecnica = { ...t, speed: Math.floor(t.speed) };
+      t.wallruns = t.walljumps = t.doublejumps = t.grapples = t.speed = t.chain = 0;
+      const algo = meters > 0 || jumps > 0 || slides > 0 || places.length > 0 || Object.values(tecnica).some((v) => v > 0);
+      return algo ? { meters, jumps, slides, places, ...tecnica } : null;
     },
     devolverInforme(i) {
       metrosFrac += i.meters;
       saltosPend += i.jumps;
       deslizPend += i.slides;
       lugares.devolver(i.places);
+      const t = jugador.tecnica;
+      t.wallruns += i.wallruns;
+      t.walljumps += i.walljumps;
+      t.doublejumps += i.doublejumps;
+      t.grapples += i.grapples;
+      t.speed = Math.max(t.speed, i.speed);
+      t.chain = Math.max(t.chain, i.chain);
     },
     cargarMundo(doc) {
       if (fijarTerreno(doc.terreno)) {

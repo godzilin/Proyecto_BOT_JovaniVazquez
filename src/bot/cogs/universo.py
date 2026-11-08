@@ -28,10 +28,12 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   `Authorization: Bearer`: el perfil (nombre y saldo), los gestos comprados
   (`gestures`, sus animaciones), la fila de tragaperras de la plaza (`tragas`: tiras,
   símbolos, cómo está parada cada máquina y el bote) y los logros de entrar.
-- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, places}`, con la sesión:
-  lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
-  anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
-  lo que da tiempo a hacer (`bot.services.universo.walk_report`).
+- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, places, wallruns,
+  walljumps, doublejumps, grapples, speed, chain}`, con la sesión: lo que has andado,
+  saltado y pisado en el mundo (Gran Canaria) desde el informe anterior, los trucos de
+  piloto (paredes, saltos de pared, dobles saltos y ganchos), la mayor velocidad y la
+  cadena de paredes más larga, para los logros. La página lo manda cada 15 s; el
+  servidor lo recorta a lo que da tiempo a hacer (`bot.services.universo.walk_report`).
 - `GET /api/mundo?guild_id=` con la sesión de cualquier miembro: `{version, doc}`, el
   mundo publicado (o `{version: 0, doc: EMPTY}`). El texto sale ya codificado y se guarda
   en memoria por servidor hasta que alguien publica.
@@ -735,8 +737,16 @@ class Universo(commands.Cog, name="Universo"):
         now = time.monotonic()
         last = self._last_walk.get((guild.id, member.id), now)
         self._last_walk[guild.id, member.id] = now
-        meters, jumps, slides, places = walk_report(body, now - last)
-        delta = universo_walk_stats(meters, jumps, places, slides)
+        walk = walk_report(body, now - last)
+        delta = universo_walk_stats(
+            walk.meters,
+            walk.jumps,
+            walk.places,
+            walk.slides,
+            tricks=walk.tricks,
+            speed=walk.speed,
+            chain=walk.chain,
+        )
         if delta.add:
             channel_id = snowflake(body.get("channel_id"))
             logros.note(self.bot, guild.id, member.id, delta, channel_id)

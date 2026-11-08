@@ -350,6 +350,8 @@ PRODUCED_STATS = {
     "universo_days", "universo_mobile", "universo_desktop", "universo_night", "universo_canarias",
     # 🎤 Jovani: pasear por el Jovaniverso (`universo_walk_stats`)
     "universo_meters", "universo_jumps", "universo_slides",
+    "universo_wallruns", "universo_walljumps", "universo_doublejumps", "universo_grapples",
+    "universo_speed_max", "universo_chain_max",
     "universo_people", "universo_crowd_max",
     # 🎤 Jovani: gestos del robot (`universo_gesture_stats`)
     "universo_gestures", *(f"universo_gesture_{g}" for g, *_ in UNIVERSO_GESTURES),
@@ -2641,6 +2643,9 @@ def test_pasear_por_el_universo_suma_metros_saltos_y_lugares() -> None:
     }
     assert universo_walk_stats(0, 0, []).add == {}
     assert universo_walk_stats(0, 0, [], 2).add == {"universo_slides": 2}
+    tricks = universo_walk_stats(0, 0, [], tricks={"wallruns": 4, "grapples": 0}, speed=18, chain=3)
+    assert tricks.add == {"universo_wallruns": 4}
+    assert tricks.peak == {"universo_speed_max": 18, "universo_chain_max": 3}
 
 
 def test_los_lugares_del_universo_son_los_que_acepta_el_servidor() -> None:
