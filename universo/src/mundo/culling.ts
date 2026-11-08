@@ -1,8 +1,7 @@
 // Culling: reparte lo fijo del mundo en celdas (para que three descarte cada una con su esfera, en la cámara y en la del sol)
 // y oculta por distancia lo que ya no se aprecia, con histéresis; también dice qué objetos sueltos se ven este fotograma.
-import { Box3, BufferGeometry, Frustum, InstancedMesh, Material, Matrix4, Mesh, Sphere, Vector3 } from "three";
+import { Frustum, InstancedMesh, Matrix4, Mesh, Sphere, Vector3 } from "three";
 import type { Camera, Object3D } from "three";
-import { fundir } from "./geom";
 
 const HISTERESIS = 0.05; // se oculta al pasar de d·1,05 y reaparece por debajo de d·0,95
 
@@ -86,29 +85,3 @@ function esferaDe(malla: Mesh | InstancedMesh): Sphere {
 
 /** Clave de la celda de lado `celda` que contiene (x, z). */
 export const celdaDe = (x: number, z: number, celda: number): string => `${Math.floor(x / celda)},${Math.floor(z / celda)}`;
-
-/** Reparte piezas (geometrías ya colocadas en el mundo) por la celda de su centro. */
-export function repartir(piezas: BufferGeometry[], celda: number): BufferGeometry[][] {
-  const grupos = new Map<string, BufferGeometry[]>();
-  const caja = new Box3();
-  for (const g of piezas) {
-    g.computeBoundingBox();
-    caja.copy(g.boundingBox as Box3);
-    const k = celdaDe((caja.min.x + caja.max.x) / 2, (caja.min.z + caja.max.z) / 2, celda);
-    const lista = grupos.get(k);
-    if (lista) lista.push(g);
-    else grupos.set(k, [g]);
-  }
-  return [...grupos.values()];
-}
-
-/** Una malla fundida por celda, con el mismo material compartido y la esfera de cada una. */
-export function mallasPorCeldas(piezas: BufferGeometry[], celda: number, material: Material): Mesh[] {
-  return repartir(piezas, celda).map((grupo) => {
-    const malla = new Mesh(fundir(grupo), material);
-    malla.castShadow = true;
-    malla.receiveShadow = true;
-    malla.geometry.computeBoundingSphere();
-    return malla;
-  });
-}

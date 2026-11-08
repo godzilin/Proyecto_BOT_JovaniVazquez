@@ -314,14 +314,13 @@ async def test_si_discord_no_acepta_el_nombre_se_deja_su_comando_de_entrada() ->
     assert kept == [{"id": "77", "type": 4, "name": "launch", "description": "", "handler": 2}]
 
 
-async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: World) -> None:
+async def test_el_informe_de_paseo_solo_cuenta_lo_que_la_sala_no_ve(world: World) -> None:
     session = await login(world)
     headers = {"Authorization": f"Bearer {session}"}
     body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     await world.web.post("/api/entrar", json=body, headers=headers)
     await asyncio.gather(*world.cog._background)
-    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos, 10 deslizamientos
-    # y 5 ganchos.
+    # Como si hubieran pasado 10 s desde que entró: caben 20 paredes y 3 ganchos.
     key = (GUILD_ID, USER_ID)
     world.cog._last_walk[key] -= 10
     response = await world.web.post(
@@ -329,9 +328,9 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
         json={
             **body,
             "meters": 90,
-            "jumps": 500,
+            "jumps": 5,
             "slides": 3,
-            "places": ["faro", "faro", "luna", 7],
+            "places": ["faro"],
             "wallruns": 4,
             "grapples": 50,
             "speed": 99,
@@ -341,22 +340,56 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     )
     assert response.status == 200
     cheat = await world.web.post(
-        "/api/paseo", json={**body, "meters": 10_000, "jumps": -3}, headers=headers
+        "/api/paseo", json={**body, "wallruns": 10_000, "chain": -3}, headers=headers
     )
     assert cheat.status == 200
     await world.client.get_cog("Achievements").flush()
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
-    assert 90 <= profile.stats["universo_meters"] < 92
-    assert profile.stats["universo_jumps"] == 20
-    assert profile.stats["universo_slides"] == 3
-    # 10 s dan para 5 ganchos (uno cada 3 s, con margen) y la velocidad no pasa de 20 m/s.
+    # Los metros, saltos, deslizamientos y lugares los cuenta la sala: los de la página no.
+    for stat in ("universo_meters", "universo_jumps", "universo_slides", "universo_place_faro"):
+        assert stat not in profile.stats
+    # 10 s dan para 3 ganchos (uno cada 3 s) y la velocidad no pasa de 20 m/s.
     assert profile.stats["universo_wallruns"] == 4
-    assert profile.stats["universo_grapples"] == 5
+    assert profile.stats["universo_grapples"] == 3
     assert profile.stats["universo_speed_max"] == 20
     assert profile.stats["universo_chain_max"] == 3
-    assert profile.stats["universo_place_faro"] == 1
-    assert "universo_place_luna" not in profile.stats
-    assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
+
+
+async def test_la_sala_cuenta_el_paseo_con_las_poses_que_acepta(world: World) -> None:
+    hello = {"t": "hola", "guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({**hello, "session": await login(world)})
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    (player,) = world.cog.salas.present(GUILD_ID)
+    player.flushed -= 10  # como si llevara 10 s dentro: caben 20 saltos
+    # En la plaza (`ZONES_DM`), 12 m corriendo, un salto y un teleporte avisado a la cima,
+    # que no cuenta ni metros ni el lugar.
+    for x, anim in ((-80, 2), (40, 2), (40, 3)):
+        await ana.send_bytes(struct.pack("<BhhhBB", 1, x, 80, 600, 0, anim))
+    await ana.send_json({"t": "salto"})
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, -50, 497, 80, 0, 0))
+    await ana.send_bytes(struct.pack("<BhhhBB", 1, -50, 497, 81, 0, 0))
+    for _ in range(50):
+        if place_of(player) == (-50, 497, 81):
+            break
+        await asyncio.sleep(0.01)
+    assert place_of(player) == (-50, 497, 81)
+    await ana.close()
+    for _ in range(50):
+        if not world.cog.salas.rooms:
+            break
+        await asyncio.sleep(0.01)
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_meters"] == 12
+    assert profile.stats["universo_jumps"] == 1
+    assert profile.stats["universo_place_plaza"] == 1
+    assert "universo_place_nieves" not in profile.stats
+
+
+def place_of(player: object) -> tuple[int, int, int] | None:
+    pose = getattr(player, "pose", None)
+    return struct.unpack_from("<hhh", pose) if pose else None
 
 
 async def test_los_teleportes_del_paseo_cuentan_recortados(world: World) -> None:

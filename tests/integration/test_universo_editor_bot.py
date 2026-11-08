@@ -17,6 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from test_universo_bot import GUILD_ID, USER_ID, World, fake_discord, load, member
 
 from bot.cogs.universo import MAX_EDITOR_BYTES, MUNDO_CACHE
+from bot.repositories import universo_mundo as mundo_repo
 from bot.services.universo_editor import FORMAT
 
 ADMIN = USER_ID
@@ -269,6 +270,18 @@ async def test_un_glb_se_sube_y_se_baja_por_su_contenido(world: World) -> None:
     assert "no se ha subido" in error["error"]
 
 
+async def test_un_glb_que_no_cabe_da_un_error_claro(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mundo_repo, "MAX_GLB_TOTAL", len(glb(1)))
+    query = {"guild_id": str(GUILD_ID)}
+    first = await world.web.post("/api/editor/glb", params=query, data=glb(1), headers=auth(world))
+    assert first.status == 200
+    full = await world.web.post("/api/editor/glb", params=query, data=glb(2), headers=auth(world))
+    assert full.status == 507
+    assert "No caben más modelos" in (await full.json())["error"]
+
+
 @pytest.mark.parametrize(
     ("body", "texto"),
     [
@@ -337,6 +350,37 @@ async def test_el_mundo_publicado_va_comprimido_y_se_comprime_una_vez(world: Wor
     )
     assert "Content-Encoding" not in plain.headers
     assert (await plain.json())["version"] == 1
+
+
+async def test_tras_publicar_se_baja_solo_lo_que_cambio(world: World) -> None:
+    status, saved = await save(world, mundo("arbol"))
+    assert status == 200
+    await publish(world)
+    lejos = {"asset": "arbol", "pos": [161, 0, 2], "rot": [0, 0, 0], "esc": [1, 1, 1]}
+    status, _saved = await save(world, {"c/2/0": {"objetos": [lejos]}})
+    assert status == 200
+    await publish(world)
+
+    async def pedir(**params: str) -> tuple[str, dict]:
+        response = await world.web.get(
+            "/api/mundo",
+            params={"guild_id": str(GUILD_ID), **params},
+            headers={**auth(world, PLAIN), "Accept-Encoding": "gzip"},
+        )
+        return response.headers["Cache-Control"], await response.json()
+
+    for _ in range(2):  # la segunda sale de la caché, ya comprimida
+        cache, body = await pedir(v="2", desde="1")
+        assert cache == MUNDO_CACHE
+        assert body == {"version": 2, "desde": 1, "trozos": {"c/2/0": {"objetos": [lejos]}}}
+    assert world.cog._mundo_desde[(GUILD_ID, 1)][2] is not None
+    # Al día: nada que bajar.
+    assert (await pedir(v="2", desde="2"))[1] == {"version": 2, "desde": 2, "trozos": {}}
+    # Desde una versión que no hay, o sin número: el mundo entero, sin `desde`.
+    for desde in ("7", "x", "0"):
+        _cache, body = await pedir(v="2", desde=desde)
+        assert "desde" not in body
+        assert set(body["trozos"]) == {"a/arbol", "c/0/0", "c/2/0"}
 
 
 async def test_el_mundo_con_su_version_se_guarda_para_siempre(world: World) -> None:

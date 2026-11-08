@@ -25,6 +25,7 @@ from bot.services.universo import (
     player_list,
     snowflake,
     teleport_report,
+    world_places,
 )
 
 CODE = "abcdefghijklmnopqrstuvwxyz0123"
@@ -266,3 +267,38 @@ def test_los_teleportes_del_paseo_se_recortan_al_tiempo() -> None:
     assert teleport_report({"teleports": 2}, 10) == 2
     for raro in (-1, True, "3", None):
         assert teleport_report({"teleports": raro}, 10) == 0
+
+
+def test_los_lugares_salen_de_las_zonas_y_del_terreno_publicados() -> None:
+    import base64
+    import json
+    from array import array
+
+    from bot.services.universo_editor import CELL_TERRAIN_SIDE
+
+    serie = world_places({})
+    assert serie.at(-80, 80, 600) == ["plaza"]
+    assert serie.at(-50, 497, 80) == ["nieves"]
+    assert serie.at(-50, 300, 80) == []  # dentro de la montaña no es la cima
+    # El editor mueve la plaza y esculpe un pico de 60 m en (-66, -150), en la celda -1/-2.
+    heights = array("h", [100] * CELL_TERRAIN_SIDE**2)
+    heights[5 * CELL_TERRAIN_SIDE + 7] = 6_000
+    terreno = {"alturas": base64.b64encode(heights.tobytes()).decode(), "colores": ""}
+    places = world_places(
+        {
+            "zonas": json.dumps({"zonas": {"plaza": {"x": 30, "z": -20, "r": 4.5}}}),
+            "c/-1/-2": json.dumps({"objetos": [], "terreno": terreno}),
+            "a/casa": json.dumps({"nombre": "Casa"}),
+        }
+    )
+    assert places.at(-80, 80, 600) == []
+    assert places.at(300, 80, -200) == ["plaza"]
+    assert places.at(-660, 600, -1500) == ["nieves"]
+    assert places.at(-50, 497, 80) == []  # la cima de serie ya no lo es
+    assert places.at(-660, 500, -1500) == []  # 10 m por debajo de la cima nueva
+    # El resto de lugares no se mueven: Bandama, el muelle y el agua.
+    assert places.at(481 + 180, 100, 404) == ["bandama"]
+    assert places.at(481, 100, 404) == []  # en el fondo de la caldera
+    assert places.at(-870, 10, -870) == ["muelle"]
+    assert places.at(-870, 0, -870) == []  # bajo la cubierta
+    assert places.at(0, -3, 0) == ["agua"]

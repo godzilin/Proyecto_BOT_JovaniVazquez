@@ -5,6 +5,10 @@ serie (sin terreno y con uno esculpido) y compara en Python: las claves y el JSO
 `split_world`, y que juntar lo partido devuelva el mismo mundo. También da lo que tardan `aTrozos`, el
 `commit` y el `guardar` del borrador frente al `JSON.stringify` del mundo entero.
 
+Después monta un mundo sintético grande (`CELDAS_GRANDE` celdas llenas, con terreno) y comprueba que el
+`commit` por trozos tocados y el deshacer por trozos dan lo mismo que el camino entero en cada clase de
+cambio (y que un cambio que no dice lo que toca se pilla), y mide un `commit`, un deshacer y un guardado.
+
 Uso (desde la raíz, con `npm ci` hecho en universo/ y PYTHONPATH=src):
 
     python docs/comparar_trozos.py
@@ -98,11 +102,120 @@ process.stdout.write(JSON.stringify({{
 """
 
 
-def ejecutar() -> dict[str, Any]:
+#: Celdas de 80 m llenas del mundo sintético y objetos en cada una.
+CELDAS_GRANDE = 300
+OBJETOS_CELDA = 400
+
+GUION_GRANDE = """
+import { mundoDeSerie } from "{SRC}/mundo/serie";
+import { alturas, terrenoDoc } from "{SRC}/mundo/terreno";
+import { aTrozos, deTrozos } from "{SRC}/editor/trozos";
+import { Borrador } from "{SRC}/editor/borrador";
+import type { MundoDoc, Objeto } from "{SRC}/editor/formato";
+
+const hoy = (): number => performance.now();
+const serie = mundoDeSerie();
+const ids = Object.keys(serie.assets).filter((id) => !serie.assets[id].funcion);
+let semilla = 7;
+const azar = (): number => ((semilla = (semilla * 16807) % 2147483647) - 1) / 2147483646;
+const objetos: Objeto[] = [];
+for (let n = 0; n < {CELDAS}; n++) {
+  const cx = (n % 20) - 10;
+  const cz = Math.floor(n / 20) - 8;
+  for (let k = 0; k < {POR_CELDA}; k++) {
+    const x = Math.round((cx + azar()) * 8000) / 100;
+    const z = Math.round((cz + azar()) * 8000) / 100;
+    objetos.push({ asset: ids[k % ids.length], pos: [x, 1, z], rot: [0, Math.round(azar() * 600) / 100, 0], esc: [1, 1, 1] });
+  }
+}
+for (let i = 0; i < alturas.length; i += 5) alturas[i] += 1.5;
+const grande: MundoDoc = { ...serie, objetos, terreno: terrenoDoc() };
+const nada = (): undefined => undefined;
+(globalThis as any).fetch = async (_u: string, o: { body: string }) => {
+  const t = JSON.parse(o.body).trozos;
+  return { ok: true, json: async () => ({ revs: Object.fromEntries(Object.keys(t).map((k) => [k, 1])) }) };
+};
+const nuevo = (): Borrador =>
+  new Borrador({ session: "s", guildId: "1" }, { version: 0, trozos: {} }, { fallo: nada, estado: nada, reemplazado: nada }, structuredClone(grande));
+const actual = (b: Borrador): Map<string, string> => (b as any).actual;
+const igual = (b: Borrador): boolean => {
+  const todo = aTrozos(b.doc);
+  const a = actual(b);
+  return todo.size === a.size && [...todo].every(([k, v]) => a.get(k) === v);
+};
+
+(async () => {
+  // Cada clase de cambio por el camino rápido, con la comprobación puesta: no tiene que descuadrar nunca.
+  Borrador.comprobar = true;
+  const b = nuevo();
+  await b.guardar();
+  const d = (): MundoDoc => b.doc;
+  const pasos: [string, () => boolean][] = [
+    ["mover en su celda", () => ((d().objetos[10].pos[0] += 0.5), b.commit({ objetos: [d().objetos[10]] }))],
+    ["mover a otra celda", () => ((d().objetos[11].pos[0] += 80), b.commit({ objetos: [d().objetos[11]] }))],
+    ["tinte", () => ((d().objetos[12].tinte = 0.9), b.commit({ objetos: [d().objetos[12]] }))],
+    ["poner", () => (d().objetos.push({ asset: ids[0], pos: [3, 1, 3], rot: [0, 0, 0], esc: [1, 1, 1] }), b.commit({}))],
+    ["borrar", () => (d().objetos.splice(20, 3), b.commit({}))],
+    ["asset editado", () => ((d().assets[ids[1]].nombre = "Otro nombre"), b.commit({ assets: [ids[1]] }))],
+    ["asset nuevo", () => ((d().assets.nuevo = structuredClone(d().assets[ids[2]])), b.commit({}))],
+    ["asset borrado", () => (delete d().assets.nuevo, b.commit({}))],
+    ["zona", () => ((Object.values(d().zonas)[0].r += 1), b.commit({}))],
+    ["teleportes", () => ((d().teleportes = [{ nombre: "Aquí", x: 1, z: 2 }]), b.commit({}))],
+    ["terreno", () => {
+      for (let i = 0; i < 400; i++) alturas[i] -= 1;
+      d().terreno = terrenoDoc();
+      return b.commit({});
+    }],
+    ["sin terreno", () => (delete d().terreno, b.commit({}))],
+  ];
+  const fallos: string[] = [];
+  for (const [nombre, f] of pasos) if (!f() || !igual(b)) fallos.push(nombre);
+  for (let i = b.hi - 1; i >= 0; i--) {
+    b.irA(i);
+    if (!igual(b)) fallos.push(`deshacer a ${i}`);
+  }
+  b.irA(b.hist.length - 1);
+  if (!igual(b)) fallos.push("rehacer todo");
+  // Un cambio que no dice lo que toca: la comprobación lo pilla y se usa el camino entero.
+  const descuadres = Borrador.descuadres;
+  b.doc.objetos[5].tinte = 0.7;
+  const pillado = b.commit({}) && igual(b) && Borrador.descuadres === descuadres + 1;
+
+  // Tiempos, sin la comprobación.
+  Borrador.comprobar = false;
+  const c = nuevo();
+  await c.guardar();
+  const o = c.doc.objetos[1000];
+  const medir = (n: number, f: () => void): number => {
+    const t = hoy();
+    for (let i = 0; i < n; i++) f();
+    return (hoy() - t) / n;
+  };
+  const commitEntero = medir(5, () => ((o.pos[0] += 0.01), c.commit()));
+  const commitRapido = medir(50, () => ((o.pos[0] -= 0.01), c.commit({ objetos: [o] })));
+  const deshacer = medir(40, () => c.irA(c.hi - 1));
+  // El deshacer de antes: leer todos los trozos y juntarlos.
+  const todos = [...actual(c)];
+  const deshacerEntero = medir(3, () => deTrozos(Object.fromEntries(todos.map(([k, v]) => [k, JSON.parse(v)]))));
+  const p = c.doc.objetos[2000];
+  p.pos[0] += 0.02;
+  c.commit({ objetos: [p] });
+  const t = hoy();
+  await c.guardar();
+  const guardarUno = hoy() - t;
+  process.stdout.write(JSON.stringify({
+    objetos: grande.objetos.length, trozos: actual(c).size, fallos, pillado, descuadres, pasos: pasos.length,
+    tiempos: { commitEntero, commitRapido, deshacer, deshacerEntero, guardarUno },
+  }));
+})();
+"""
+
+
+def ejecutar(guion: str = GUION) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         carpeta = Path(tmp)
         entrada = carpeta / "comparar.ts"
-        entrada.write_text(GUION, encoding="utf-8")
+        entrada.write_text(guion, encoding="utf-8")
         config = carpeta / "vite.config.mjs"
         config.write_text(
             "export default "
@@ -173,6 +286,30 @@ def main() -> None:
     print(f"commit de un objeto movido: {t['commit']:.2f} ms")
     print(
         f"guardar todo: {t['guardarTodo']:.1f} ms ({t['kbTodo']:.0f} KB) | guardar un objeto: {t['guardarUno']:.2f} ms ({t['kbUno']:.1f} KB)"
+    )
+    grande()
+
+
+def grande() -> None:
+    """El mundo sintético grande: el camino rápido da lo mismo que el entero, y lo que tarda cada uno."""
+    guion = (
+        GUION_GRANDE.replace("{SRC}", SRC)
+        .replace("{CELDAS}", str(CELDAS_GRANDE))
+        .replace("{POR_CELDA}", str(OBJETOS_CELDA))
+    )
+    r = ejecutar(guion)
+    assert not r["fallos"], f"el borrador por trozos no da lo mismo que el entero en: {r['fallos']}"
+    assert r["descuadres"] == 0, f"{r['descuadres']} commits o deshacer por trozos descuadraron"
+    assert r["pillado"], "un commit que no dice lo que toca no se ha pillado"
+    print(
+        f"mundo grande ({r['objetos']} objetos, {r['trozos']} trozos): {r['pasos']} clases de cambio, "
+        "deshacer y rehacer, iguales que por el camino entero; el que no dice lo que toca se pilla"
+    )
+    t = r["tiempos"]
+    print(
+        f"commit: {t['commitEntero']:.0f} ms entero, {t['commitRapido']:.2f} ms por trozos | "
+        f"deshacer: {t['deshacerEntero']:.0f} ms entero, {t['deshacer']:.2f} ms por trozos | "
+        f"guardar un objeto: {t['guardarUno']:.2f} ms"
     )
 
 

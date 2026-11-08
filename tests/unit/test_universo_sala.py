@@ -8,6 +8,7 @@ import struct
 import pytest
 
 from bot.services import universo_sala as sala
+from bot.services.universo import world_places
 from bot.services.universo_sala import SalaError, Salas, parse_pose, snapshot
 
 
@@ -208,3 +209,153 @@ async def test_un_aviso_de_cerca_llega_a_quien_esta_cerca_y_no_a_quien_esta_lejo
     await salas.announce(1, {"t": "traga"}, skip_user=10, around_dm=around)
     assert bea.texts == [{"t": "traga"}]
     assert ana.texts == eva.texts == []
+
+
+# -- Velocidad y paseo ----------------------------------------------------------------------
+
+
+def walking() -> tuple[Salas, list[tuple[int, sala.Stroll]]]:
+    """Una sala con reloj falso que apunta cada lote de paseo `(usuario, lo paseado)`."""
+    lotes: list[tuple[int, sala.Stroll]] = []
+    rooms = Salas(clock=Clock(), on_walk=lambda _g, p, s: lotes.append((p.user_id, s)))
+    return rooms, lotes
+
+
+def at(player: sala.Player) -> tuple[int, int, int]:
+    assert player.pose is not None
+    return sala.place(player.pose)
+
+
+async def test_una_carrera_a_tope_con_la_red_a_trompicones_se_acepta_entera() -> None:
+    rooms, lotes = walking()
+    a = await rooms.join(1, 10, "Ana", FakeClient())
+    clock = rooms.clock
+    # 20 m/s (`VEL_MAX`) a 10 poses por segundo: 20 dm por pose. Cada tres, un parón de la
+    # red: dos poses llegan juntas.
+    for i in range(290):
+        clock.now += 0.0 if i % 3 == 1 else 0.15 if i % 3 == 2 else 0.1  # type: ignore[attr-defined]
+        rooms.pose(1, a, pose(x=-2900 + 20 * i, y=20, z=0, anim=2))
+    assert at(a) == (-2900 + 20 * 289, 20, 0)
+    await rooms.leave(1, a)
+    assert sum(s.meters for _u, s in lotes) == 578  # 289 tramos de 2 m
+    await rooms.close()
+
+
+async def test_un_salto_imposible_se_recorta_a_lo_que_da_la_velocidad(salas: Salas) -> None:
+    a = await salas.join(1, 10, "Ana", FakeClient())
+    salas.pose(1, a, pose(x=0, y=20, z=0))
+    salas.clock.now += 0.1  # type: ignore[attr-defined]
+    salas.pose(1, a, pose(x=2900, y=20, z=0))  # 290 m en una décima
+    x, _y, _z = at(a)
+    # Llega lo que le quedaba guardado (`SLACK_SECONDS`) y nada más.
+    assert x <= sala.RUN_DM_PER_SECOND * (sala.SLACK_SECONDS + 0.1)
+    salas.clock.now += 0.1  # type: ignore[attr-defined]
+    salas.pose(1, a, pose(x=2900, y=20, z=0))
+    assert at(a)[0] - x <= sala.RUN_DM_PER_SECOND * 0.1 + 1  # luego, a la velocidad máxima
+    # Volar hacia arriba tampoco: se sube como mucho a `CLIMB_DM_PER_SECOND`.
+    before = at(a)[1]
+    salas.clock.now += 0.1  # type: ignore[attr-defined]
+    salas.pose(1, a, pose(x=at(a)[0], y=1900, z=0))
+    assert at(a)[1] - before <= sala.CLIMB_DM_PER_SECOND * (sala.SLACK_SECONDS + 0.4) + 1
+    assert at(a)[1] < 1900
+    # Caer, en cambio, no tiene tope.
+    salas.clock.now += 0.1  # type: ignore[attr-defined]
+    salas.pose(1, a, pose(x=at(a)[0], y=-400, z=0))
+    assert at(a)[1] == -400
+
+
+async def test_un_teleporte_avisado_pasa_entero_y_no_cuenta_como_paseo() -> None:
+    rooms, lotes = walking()
+    a = await rooms.join(1, 10, "Ana", FakeClient())
+    rooms.pose(1, a, pose(x=0, y=20, z=0))
+    rooms.text(1, a, json.dumps({"t": "salto"}))
+    rooms.clock.now += 0.1  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=-50, y=497, z=80))  # a la cima, 30 m más allá
+    assert at(a) == (-50, 497, 80)
+    # Un segundo aviso enseguida no vale: hasta `LEAP_SECONDS`, se recorta como siempre.
+    rooms.text(1, a, json.dumps({"t": "salto"}))
+    rooms.clock.now += 0.1  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=2900, y=20, z=0))
+    assert at(a)[0] < 2900
+    # Pasado el plazo, vuelve a valer; y un aviso que no se usa a tiempo caduca.
+    rooms.clock.now += sala.LEAP_SECONDS  # type: ignore[attr-defined]
+    rooms.text(1, a, json.dumps({"t": "salto"}))
+    rooms.clock.now += sala.LEAP_VALID_SECONDS + 0.1  # type: ignore[attr-defined]
+    start = at(a)[0]
+    rooms.pose(1, a, pose(x=-2900, y=20, z=0))
+    assert at(a)[0] > -2900 and at(a)[0] < start
+    await rooms.leave(1, a)
+    (stroll,) = [s for _u, s in lotes]
+    assert "nieves" not in stroll.places  # se llegó saltando
+
+
+async def test_los_metros_saltos_y_lugares_salen_de_las_poses_por_lotes() -> None:
+    rooms, lotes = walking()
+    a = await rooms.join(1, 10, "Ana", FakeClient())
+    clock = rooms.clock
+    # De la plaza (-80, 600) hacia el este, corriendo, con dos saltos y un deslizamiento.
+    anims = [2, 3, 3, 2, 3, 2, 12, 12, 2, 2]
+    for i, anim in enumerate(anims):
+        clock.now += 0.1  # type: ignore[attr-defined]
+        rooms.pose(1, a, pose(x=-80 + 15 * i, y=80, z=600, anim=anim))
+    assert lotes == []  # el lote sale cada `WALK_SECONDS`
+    clock.now += sala.WALK_SECONDS  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=-80 + 15 * 10, y=80, z=600))
+    ((user, stroll),) = lotes
+    assert user == 10
+    assert (stroll.meters, stroll.jumps, stroll.slides) == (15, 2, 1)
+    assert stroll.places == ["plaza"]
+    # Lo ya pisado no vuelve a contar en la misma visita.
+    clock.now += 0.1  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=-80, y=80, z=600))
+    await rooms.leave(1, a)
+    assert lotes[1][1].places == [] and lotes[1][1].meters == 15
+    await rooms.close()
+
+
+async def test_los_saltos_se_recortan_al_tiempo_y_con_devtools_no_hay_paseo() -> None:
+    rooms, lotes = walking()
+    a = await rooms.join(1, 10, "Ana", FakeClient())
+    for i in range(14):  # siete saltos en un segundo
+        rooms.clock.now += 0.07  # type: ignore[attr-defined]
+        rooms.pose(1, a, pose(x=i, anim=3 if i % 2 else 0))
+    rooms.text(1, a, json.dumps({"t": "trucos", "on": True}))
+    for i in range(10):
+        rooms.clock.now += 0.1  # type: ignore[attr-defined]
+        rooms.pose(1, a, pose(x=10 + 20 * i, z=-80, anim=3 if i % 2 else 0))
+    rooms.clock.now += 0.25  # type: ignore[attr-defined]
+    await rooms.leave(1, a)
+    ((_u, stroll),) = lotes
+    assert stroll.jumps == 4  # 2,2 s dentro: caben 4 de los 7
+    assert stroll.meters == 1  # los 1,3 m de antes de las devtools
+    await rooms.close()
+
+
+async def test_el_extraplano_no_mira_la_velocidad() -> None:
+    rooms = Salas(clock=Clock(), check=False)
+    a = await rooms.join(1, 10, "Ana", FakeClient())
+    rooms.pose(1, a, pose(x=-2900))
+    rooms.pose(1, a, pose(x=2900, y=1900))
+    assert at(a) == (2900, 1900, 30)
+    await rooms.close()
+
+
+async def test_los_lugares_salen_del_mundo_publicado() -> None:
+    rooms, lotes = walking()
+    # La plaza, movida 8 m al este y más pequeña.
+    zonas = {"zonas": {"plaza": {"x": 0, "z": 60, "r": 5}}}
+    a = await rooms.join(
+        1, 10, "Ana", FakeClient(), places=world_places({"zonas": json.dumps(zonas)})
+    )
+    rooms.pose(1, a, pose(x=-80, y=80, z=530))  # en la de serie, no en la movida
+    assert rooms.places_at(1, a) == []
+    rooms.clock.now += 0.2  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=-10, y=80, z=600))
+    assert rooms.places_at(1, a) == ["plaza"]
+    rooms.set_places(1, world_places({}))  # se publica otra vez la de serie
+    rooms.clock.now += 0.2  # type: ignore[attr-defined]
+    rooms.pose(1, a, pose(x=-80, y=80, z=530))
+    assert rooms.places_at(1, a) == ["plaza"]
+    await rooms.leave(1, a)
+    assert [p for _u, s in lotes for p in s.places] == ["plaza"]  # una vez por visita
+    await rooms.close()

@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from bot.repositories import universo_mundo as mundo_repo
 from bot.repositories.universo_mundo import (
     KEEP_VERSIONS,
     Change,
     Conflict,
+    GlbFull,
     MissingAssets,
     UniversoMundoRepository,
 )
@@ -96,6 +100,24 @@ async def test_publicar_apunta_solo_lo_que_cambia(repo: UniversoMundoRepository)
     assert await repo.published(2) is None
 
 
+async def test_lo_publicado_desde_una_version_solo_trae_lo_que_cambia(
+    repo: UniversoMundoRepository,
+) -> None:
+    await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99)
+    await repo.publish(1, 10)
+    await repo.save(1, {"c/0/0": put(1, ""), "c/5/5": put(0, CELL, "pino")}, 11, 99)
+    await repo.publish(1, 11)
+    await repo.save(1, {"c/5/5": put(1, '{"objetos":[]}')}, 11, 99)
+    await repo.publish(1, 11)
+    # Desde la 1: lo borrado sale vacío y de cada clave, lo último.
+    assert await repo.published_since(1, 1) == (3, {"c/0/0": "", "c/5/5": '{"objetos":[]}'})
+    assert await repo.published_since(1, 2) == (3, {"c/5/5": '{"objetos":[]}'})
+    assert await repo.published_since(1, 3) == (3, {})
+    # Una versión que no hay (o de otro servidor): hace falta el mundo entero.
+    assert await repo.published_since(1, 9) is None
+    assert await repo.published_since(2, 1) is None
+
+
 async def test_volver_deja_el_borrador_como_aquella_version(repo: UniversoMundoRepository) -> None:
     await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99)
     await repo.publish(1, 10)
@@ -122,6 +144,12 @@ async def test_podar_conserva_las_filas_de_las_versiones_que_quedan(
     connection = sqlite3.connect(repo.database_path)
     (count,) = connection.execute("SELECT COUNT(*) FROM universo_trozos_publicados").fetchone()
     assert count == KEEP_VERSIONS + 1
+    # Desde la más vieja que queda se sigue sabiendo lo cambiado; desde una podada, no.
+    assert await repo.published_since(1, 11) == (
+        KEEP_VERSIONS + 10,
+        {"c/0/0": f'{{"n":{KEEP_VERSIONS + 10}}}'},
+    )
+    assert await repo.published_since(1, 10) is None
 
 
 async def test_las_tablas_del_formato_1_se_parten_en_trozos(tmp_path: Path) -> None:
@@ -184,13 +212,131 @@ async def test_las_tablas_del_formato_1_se_parten_en_trozos(tmp_path: Path) -> N
 
 
 async def test_glb_por_contenido(repo: UniversoMundoRepository) -> None:
-    assert await repo.glb("a" * 64) is None
+    assert not repo.glb_path("a" * 64).exists()
     assert await repo.glb_triangles(set()) == {}
     await repo.put_glb("a" * 64, b"datos", 12, 10)
     await repo.put_glb("a" * 64, b"otros", 99, 11)  # ya estaba: no cambia
     await repo.put_glb("b" * 64, b"mas", 7, 10)
-    assert await repo.glb("a" * 64) == b"datos"
+    assert repo.glb_path("a" * 64).read_bytes() == b"datos"
+    assert repo.glb_path("a" * 64) == repo.database_path.parent / "universo_glb" / f"{'a' * 64}.glb"
     assert await repo.glb_triangles({"a" * 64, "b" * 64, "c" * 64}) == {"a" * 64: 12, "b" * 64: 7}
+    # En la base solo queda la ficha; ni temporales en la carpeta.
+    rows = sqlite3.connect(repo.database_path).execute(
+        "SELECT sha256, length(data), bytes FROM universo_glb ORDER BY sha256"
+    )
+    assert rows.fetchall() == [("a" * 64, 0, 5), ("b" * 64, 0, 3)]
+    assert sorted(p.name for p in repo.glb_dir.iterdir()) == [f"{c * 64}.glb" for c in "ab"]
+    with pytest.raises(ValueError, match="SHA-256"):
+        repo.glb_path("../bot.sqlite3")
+
+
+async def test_los_glb_tienen_un_tope_entre_todos(
+    repo: UniversoMundoRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mundo_repo, "MAX_GLB_TOTAL", 10)
+    await repo.put_glb("a" * 64, b"123456", 1, 10)
+    with pytest.raises(GlbFull):
+        await repo.put_glb("b" * 64, b"12345", 1, 10)
+    assert not repo.glb_path("b" * 64).exists()
+    assert await repo.glb_triangles({"b" * 64}) == {}
+    await repo.put_glb("a" * 64, b"123456", 1, 10)  # el que ya está sí se puede volver a subir
+    await repo.put_glb("c" * 64, b"1234", 1, 10)  # lo justo cabe
+    assert [p.name for p in repo.glb_dir.iterdir() if p.name.startswith(".")] == []
+
+
+def _age(repo: UniversoMundoRepository, sha: str, days: int = 2) -> None:
+    """Hace que un GLB parezca subido hace `days` días."""
+    when = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
+    with sqlite3.connect(repo.database_path) as connection:
+        connection.execute("UPDATE universo_glb SET created_at = ? WHERE sha256 = ?", (when, sha))
+
+
+async def test_los_glb_sin_usar_se_borran_al_dia(repo: UniversoMundoRepository) -> None:
+    def modelo(sha: str) -> str:
+        return json.dumps({"nombre": "M", "tipo": "glb", "glb": sha, "colision": None})
+
+    a, b, c, d, e = (x * 64 for x in "abcde")
+    for sha in (a, b, c, d, e):
+        await repo.put_glb(sha, sha.encode(), 1, 10)
+    # a: en el borrador. b y c: solo en versiones publicadas que se conservan. d: no lo usa
+    # nadie. e: tampoco, pero se subió hace nada.
+    await repo.save(1, {"a/c": put(0, modelo(c))}, 10, 99)
+    await repo.publish(1, 10)
+    await repo.save(1, {"a/c": put(1, ""), "a/b": put(0, modelo(b))}, 10, 99)
+    await repo.publish(1, 10)
+    await repo.save(1, {"a/b": put(1, ""), "a/a": put(0, modelo(a))}, 10, 99)
+    for _ in range(KEEP_VERSIONS):
+        await repo.publish(2, 10)  # otro servidor: no poda las de 1
+    for sha in (a, b, c, d):
+        _age(repo, sha)
+    stray = repo.glb_dir / ".tmp-cortado.glb"
+    stray.write_bytes(b"x")
+    os.utime(stray, (0, 0))
+
+    assert await repo.prune_glb() == 1
+    assert {s for s in (a, b, c, d, e) if repo.glb_path(s).exists()} == {a, b, c, e}
+    assert set(await repo.glb_triangles({a, b, c, d, e})) == {a, b, c, e}
+    assert not stray.exists()
+    # Cuando se podan las versiones 1 y 2, b y c ya no los usa nadie.
+    for _ in range(KEEP_VERSIONS):
+        await repo.publish(1, 10)
+    assert await repo.prune_glb() == 2
+    assert {s for s in (a, b, c, e) if repo.glb_path(s).exists()} == {a, e}
+    # Volver a subir uno viejo le da otro día.
+    _age(repo, e)
+    await repo.put_glb(e, e.encode(), 1, 10)
+    assert await repo.prune_glb() == 0
+
+
+async def test_los_glb_de_la_base_pasan_a_archivos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "bot.sqlite3"
+    with sqlite3.connect(path) as connection:  # la tabla de antes, con los bytes dentro
+        connection.execute(
+            "CREATE TABLE universo_glb (sha256 TEXT PRIMARY KEY, data BLOB NOT NULL, "
+            "triangles INTEGER NOT NULL, author_id INTEGER NOT NULL, created_at TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO universo_glb VALUES (?, ?, 3, 10, ?)",
+            [(c * 64, b"modelo " + c.encode(), datetime.now(UTC).isoformat()) for c in "ab"],
+        )
+    connection.close()
+    repo = UniversoMundoRepository(path)
+    # Se corta tras sacar el primero: el segundo sigue en la base y nada se pierde.
+    real = mundo_repo._write_file
+    calls = 0
+
+    def cut(target: Path, data: bytes) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("corte de luz")
+        real(target, data)
+
+    monkeypatch.setattr(mundo_repo, "_write_file", cut)
+    with pytest.raises(OSError, match="corte"):
+        await repo.initialize()
+    monkeypatch.undo()
+    with sqlite3.connect(path) as connection:
+        left = connection.execute(
+            "SELECT sha256 FROM universo_glb WHERE length(data) > 0"
+        ).fetchall()
+    connection.close()
+    assert len(left) == 1
+
+    await repo.initialize()
+    await repo.initialize()  # la segunda vez no hace nada
+    for sha, data in (("a" * 64, b"modelo a"), ("b" * 64, b"modelo b")):
+        assert repo.glb_path(sha).read_bytes() == data
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute("SELECT length(data), bytes FROM universo_glb").fetchall()
+        done = connection.execute(
+            "SELECT guild_id FROM universo_migraciones WHERE nombre = 'glb_disco'"
+        ).fetchall()
+    connection.close()
+    assert rows == [(0, 8), (0, 8)] and done == [(0,)]
+    assert await repo.glb_triangles({"a" * 64, "b" * 64}) == {"a" * 64: 3, "b" * 64: 3}
 
 
 async def test_los_mundos_sin_tragaperras_reciben_el_casino_una_sola_vez(tmp_path: Path) -> None:

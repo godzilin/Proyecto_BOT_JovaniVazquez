@@ -1,6 +1,8 @@
 // La conexión del multijugador: abre el WebSocket de la sala (/api/sala), manda tu pose en binario (9 bytes, como mucho
 // 10 veces por segundo y solo si cambia), recibe la de los demás y se la pasa a `Remotos`. Si se corta sola, reconecta
-// con espera creciente. El protocolo está en `src/bot/services/universo_sala.py`.
+// con espera creciente. El protocolo está en `src/bot/services/universo_sala.py`. La sala no deja ir más rápido de lo
+// que deja la física: antes de la pose de un teleporte manda `{t: "salto"}` y, al poner o quitar una devtool,
+// `{t: "trucos", on}` (con ellas no cuenta el paseo, que también lo cuenta la sala).
 import { PRUEBAS } from "./mundo/modo";
 import type { Remotos } from "./mundo/remotos";
 import type { Sesion } from "./paseo";
@@ -12,6 +14,10 @@ export interface PoseLocal {
   readonly z: number;
   readonly giro: number;
   readonly anim: number;
+  /** Teleportes hechos desde que se abrió la página (sube con cada uno). */
+  readonly viajes: number;
+  /** Si hay alguna devtool puesta. */
+  readonly trucos: boolean;
   /** Tiñe tu robot con el color que sale de tu id, el mismo con que te ven los demás. */
   colorear(id: string): void;
 }
@@ -50,6 +56,8 @@ export function iniciarSala(
   let uz = NaN;
   let ug = -1;
   let ua = -1;
+  let uv = 0; // teleportes ya avisados
+  let ut = false; // devtools que sabe la sala
 
   // En el extraplano se entra en su propia sala (solo desarrolladores): los de la isla no ven a nadie volar.
   const mundo = PRUEBAS ? "pruebas" : undefined;
@@ -67,6 +75,8 @@ export function iniciarSala(
     socket.onopen = () => {
       socket.send(hola());
       ux = NaN; // la pose se manda entera tras (re)conectar
+      uv = yo.viajes; // la primera pose de cada conexión va sin mirar
+      ut = false;
     };
     socket.onmessage = (e) => {
       if (typeof e.data === "string") {
@@ -114,6 +124,14 @@ export function iniciarSala(
 
   const enviar = (): void => {
     if (!ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 1024) return;
+    if (yo.trucos !== ut) {
+      ut = yo.trucos;
+      ws.send(JSON.stringify({ t: "trucos", on: ut }));
+    }
+    if (yo.viajes !== uv) {
+      uv = yo.viajes;
+      ws.send('{"t":"salto"}');
+    }
     const x = Math.round(yo.x * 10);
     const y = Math.round(yo.y * 10);
     const z = Math.round(yo.z * 10);

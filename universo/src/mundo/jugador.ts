@@ -123,16 +123,16 @@ export class Jugador {
   velH = 0;
   suelo = true;
   giro = 0;
-  /** Metros recorridos sin informar y saltos hechos. */
-  metros = 0;
+  /** Saltos desde el suelo (los cuenta `docs/simular_movimiento.mjs`; los logros, la sala). */
   saltos = 0;
-  deslizamientos = 0;
+  /** Teleportes hechos: la sala avisa al servidor antes de mandar la pose de cada uno (`sala.ts`). */
+  viajes = 0;
   agachado = false;
   deslizando = false;
   /** Cuánto bajan los ojos (m), suavizado: la cámara lo resta. */
   bajada = 0;
   // Devtools (solo desarrolladores): volar sin gravedad, atravesarlo todo y multiplicar la velocidad. Con cualquiera
-  // puesto no se cuentan metros ni saltos: no son paseo para los logros.
+  // puesto no se cuentan trucos ni paseo para los logros (la sala lo sabe por `trucos`).
   volar = false;
   noclip = false;
   velocidad = 1;
@@ -241,6 +241,7 @@ export class Jugador {
   }
 
   teletransportar(x: number, z: number): void {
+    this.viajes++;
     this.x = x;
     this.z = z;
     encerrar(this);
@@ -307,7 +308,6 @@ export class Jugador {
         rapidez *= k;
         this.recarga = DESLIZ_RECARGA;
       }
-      if (!this.trucos) this.deslizamientos++;
     }
 
     if (this.gancho) {
@@ -437,7 +437,6 @@ export class Jugador {
     encerrar(this); // también volando y con noclip: la sala no acepta poses de fuera
     const movido = Math.hypot(this.x - antesX, this.z - antesZ);
     this.velH = movido / Math.max(dt, 1e-4);
-    if (!this.trucos) this.metros += movido;
     if (this.velH > 0.3) {
       const objetivo = Math.atan2(this.vx, this.vz);
       let d = objetivo - this.giro;

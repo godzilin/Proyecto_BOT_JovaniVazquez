@@ -30,20 +30,23 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   tiras, símbolos, cómo está parada cada máquina y el bote), los botes de los letreros
   (`botes`) y los logros de entrar. Las tragaperras y los letreros son objetos del mundo
   (`bot.services.universo_editor`, `funcion`), así que dónde están no lo dice el servidor.
-- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, teleports, places,
-  wallruns, walljumps, doublejumps, grapples, speed, chain}`, con la sesión: lo que has
-  andado, saltado y pisado en el mundo (Gran Canaria) desde el informe anterior, los
-  trucos de piloto (paredes, saltos de pared, dobles saltos y ganchos), la mayor
-  velocidad y la cadena de paredes más larga, para los logros. La página lo manda cada
-  15 s; el servidor lo recorta a lo que da tiempo a hacer
-  (`bot.services.universo.walk_report`).
+- `POST /api/paseo` `{guild_id, channel_id, teleports, wallruns, walljumps, doublejumps,
+  grapples, speed, chain}`, con la sesión: lo del paseo que la sala no ve en las poses
+  (teleportes, trucos de piloto, la mayor velocidad y la cadena de paredes más larga),
+  para los logros. La página lo manda cada 15 s; el servidor lo recorta a lo que da tiempo
+  a hacer (`bot.services.universo.walk_report`). Los metros, saltos, deslizamientos y
+  lugares los cuenta la sala (`bot.services.universo_sala`) y aquí se ignoran.
 - `GET /api/mundo?guild_id=&v=` con la sesión de cualquier miembro: `{version, trozos}`, el
   mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
   El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
   Con `v` igual a la versión publicada (`mundo` de `/api/entrar`) el navegador lo guarda
-  para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché.
+  para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché. Con
+  `desde=M`, la versión que ya tiene la página: `{version, desde, trozos}` con solo los
+  trozos que cambiaron después de M (`null` el que se borró), con la misma caché; si M ya
+  no se conserva, el mundo entero, sin `desde`.
 - `GET /api/glb/{sha}`: un modelo GLB por el SHA-256 de su contenido, sin sesión (es
-  contenido que no cambia: `immutable`).
+  contenido que no cambia: `immutable`). Sale tal cual de su archivo (`glb_path`), sin pasar
+  por la base.
 - `POST /api/traga` `{guild_id, channel_id, machine, stake, auto}`, con la sesión:
   una tirada en una tragaperras de la plaza (`bot.cogs.slots.plaza`, el mismo dinero,
   calor por máquina, logros y anuncios que `tragas`). Devuelve los fotogramas de la
@@ -52,10 +55,14 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   `bot.services.universo_tragas`. La tirada sale también a los demás de la sala
   (`{t: "traga", machine, states, ...}`, sin saldo ni texto), que la ven en esa máquina.
 - `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
-  `{t: "hola", session, guild_id}`; después, poses en binario. El reparto lo hace
-  `bot.services.universo_sala.Salas` (una sala por servidor, ticks fijos y binarios).
-  Con `mundo: "pruebas"` en el saludo, entra en la sala del extraplano, que es otra
-  (`pruebas`), sin logros de coincidir ni de gestos y solo para los desarrolladores.
+  `{t: "hola", session, guild_id}`; después, poses en binario y, en JSON, los avisos de
+  teleporte y de devtools. El reparto lo hace `bot.services.universo_sala.Salas` (una sala
+  por servidor, ticks fijos y binarios), que no deja ir más rápido de lo que deja la física
+  y cuenta el paseo con lo que ve (`_walked`). Con `mundo: "pruebas"` en el saludo, entra en
+  la sala del extraplano, que es otra (`pruebas`), sin logros de coincidir, de gestos ni de
+  paseo, sin mirar la velocidad (allí se vuela) y solo para los desarrolladores. En la isla
+  se mira a todos, también con devtools: quien vuela o corre con ellas se ve recortado a la
+  velocidad de los demás.
   Los gestos del robot se compran en la tienda (`gesto_*`, `bot.services.universo.GESTURES`)
   y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
   a abrirlo.
@@ -102,13 +109,15 @@ guarda las puertas. Sin bromas ni logros.
 - `GET /api/editor/versiones` -> `{versiones: [{version, autor, fecha, kb}]}`.
 - `POST /api/editor/volver` `{guild_id, version}` -> `{}`: pone una versión vieja como
   borrador (la página recarga el borrador después).
-- `POST /api/editor/glb` (cuerpo `octet-stream`) -> `{sha256, triangles}`: sube un modelo.
+- `POST /api/editor/glb` (cuerpo `octet-stream`) -> `{sha256, triangles}`: sube un modelo
+  (507 si ya no cabe: `MAX_GLB_TOTAL`).
 
 La página no decide nada: todo lo que enseña sale de aquí, y el dinero (las tragaperras
 de la plaza) se decide aquí con `EconomyService`, nunca en el navegador.
 
 Logros: entrar (`universo_stats`, días distintos, móvil, ordenador, madrugada y
-Día de Canarias), pasear (`universo_walk_stats`, metros, saltos y lugares),
+Día de Canarias), pasear (`universo_walk_stats`: metros, saltos, deslizamientos y
+lugares de la sala; trucos, velocidad y teleportes del informe),
 coincidir con otros (`universo_meet_stats`, al entrar en la sala), y gestos
 (`universo_gesture_stats`, al empezar cada uno) y las tragaperras de la plaza
 (`universo_slots_stats`), categoría 🎤 Jovani. La mascota solo habla en el resultado de
@@ -142,7 +151,7 @@ from bot.cogs import lottery as loteria
 from bot.cogs import poker
 from bot.cogs import shop as tienda
 from bot.cogs import slots as tragas
-from bot.repositories.universo_mundo import Change, Conflict, MissingAssets
+from bot.repositories.universo_mundo import MAX_GLB_TOTAL, Change, Conflict, GlbFull, MissingAssets
 from bot.services.achievements import (
     StatDelta,
     universo_gesture_stats,
@@ -159,17 +168,18 @@ from bot.services.universo import (
     DISCORD_API,
     GESTURES,
     DiscordOAuth,
+    Places,
     SessionSigner,
     UniversoError,
     backpack_list,
     bearer,
     gestures_owned,
-    on_summit,
     platform_of,
     player_list,
     snowflake,
     teleport_report,
     walk_report,
+    world_places,
 )
 from bot.services.universo_botes import pot_catalog, pot_list
 from bot.services.universo_editor import (
@@ -184,7 +194,7 @@ from bot.services.universo_editor import (
     parse_key,
     validate_piece,
 )
-from bot.services.universo_sala import SPIN_SEEN_DM, Player, SalaError, Salas, place
+from bot.services.universo_sala import SPIN_SEEN_DM, Player, SalaError, Salas, Stroll
 from bot.services.universo_tragas import SeatError
 from bot.utils.interactions import claim_custom_ids
 
@@ -437,10 +447,14 @@ class Universo(commands.Cog, name="Universo"):
         # Último informe de paseo (o entrada) de cada miembro, en segundos de
         # `time.monotonic`: dice cuánto ha podido andar desde entonces.
         self._last_walk: dict[tuple[int, int], float] = {}
-        self.salas = Salas(on_gesture=self._gesture)
+        self.salas = Salas(on_gesture=self._gesture, on_walk=self._walked)
         # El extraplano de los desarrolladores: sala aparte, para que nadie vea volar a
-        # nadie por la plaza, y sin gestos que cuenten para logros.
-        self.pruebas = Salas()
+        # nadie por la plaza, sin gestos ni paseo que cuenten para logros y sin mirar la
+        # velocidad (allí se vuela y se atraviesa todo).
+        self.pruebas = Salas(check=False)
+        # Dónde están los lugares de los logros en el mundo publicado de cada servidor
+        # (`world_places`), hasta que alguien publica.
+        self._lugares: dict[int, Places] = {}
         # Mundo publicado de cada servidor (versión y texto ya codificado), para no ir
         # a la base en cada entrada. `_mundo_epoch` cuenta las publicaciones: una lectura
         # que empezó antes de publicar no guarda lo viejo.
@@ -449,6 +463,10 @@ class Universo(commands.Cog, name="Universo"):
         # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
         # por publicación y fuera del bucle, no en cada entrada.
         self._mundo_gz: dict[int, tuple[int, bytes]] = {}
+        # Lo que cambió desde cada versión (`/api/mundo?desde=`), por servidor y versión de
+        # partida: tras publicar, todas las páginas piden lo mismo. Va con la versión a la
+        # que llega, el texto y su gzip (cuando alguien lo pide comprimido).
+        self._mundo_desde: dict[tuple[int, int], tuple[int, str, bytes | None]] = {}
         # Botes de cada servidor para los letreros (`pots`), con su hora.
         self._botes: dict[int, tuple[float, list[dict[str, str]]]] = {}
         # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
@@ -638,6 +656,43 @@ class Universo(commands.Cog, name="Universo"):
                 self._mundo[guild_id] = cached
         return cached
 
+    async def places(self, guild_id: int) -> Places:
+        """Los lugares de los logros en el mundo publicado de un servidor, guardados hasta
+        que se publica otro (`publish_world`)."""
+        cached = self._lugares.get(guild_id)
+        if cached is None:
+            epoch = self._mundo_epoch.get(guild_id, 0)
+            found = await self.bot.universo_mundo.published(guild_id)
+            cached = await asyncio.to_thread(world_places, found[1] if found else {})
+            if self._mundo_epoch.get(guild_id, 0) == epoch:
+                self._lugares[guild_id] = cached
+        return cached
+
+    async def mundo_desde(self, guild_id: int, since: int) -> tuple[int, str] | None:
+        """Lo publicado después de `since` (versión y trozos ya codificados, `null` los borrados).
+
+        `None` si hace falta el mundo entero: `since` ya no se conserva o no es anterior.
+        """
+        version, _pieces = await self.mundo(guild_id)
+        if since > version:
+            return None
+        if since == version:
+            return version, "{}"
+        cached = self._mundo_desde.get((guild_id, since))
+        if cached is not None and cached[0] == version:
+            return version, cached[1]
+        found = await self.bot.universo_mundo.published_since(guild_id, since)
+        if found is None:
+            return None
+        version, pieces = found
+        for key in [
+            k for k, c in self._mundo_desde.items() if k[0] == guild_id and c[0] != version
+        ]:
+            del self._mundo_desde[key]
+        text = _changes_text(pieces)
+        self._mundo_desde[(guild_id, since)] = (version, text, None)
+        return version, text
+
     async def permisos(self, guild_id: int, user_id: int) -> set[str]:
         """Los permisos de un miembro: todos si es desarrollador, si no los que le dieron."""
         if user_id in DEVS:
@@ -775,9 +830,16 @@ class Universo(commands.Cog, name="Universo"):
             raise UniversoError("No hay borrador que publicar.")
         version = await repo.publish(guild.id, member.id)
         self._mundo.pop(guild.id, None)
+        self._lugares.pop(guild.id, None)
         self._mundo_epoch[guild.id] = self._mundo_epoch.get(guild.id, 0) + 1
         self.bot.telemetry.count("universo", "publicar", guild_id=guild.id, user_id=member.id)
+        self.salas.set_places(guild.id, await self.places(guild.id))
         await self.salas.announce(guild.id, {"t": "mundo", "version": version})
+        # Publicar poda versiones viejas: los GLB que solo usaban ellas ya sobran.
+        try:
+            await repo.prune_glb()
+        except Exception:
+            logger.exception("No se han podido borrar los GLB sin usar")
         return version
 
     async def world_versions(self, guild: discord.Guild) -> list[dict[str, Any]]:
@@ -812,13 +874,22 @@ class Universo(commands.Cog, name="Universo"):
         """Comprueba y guarda un GLB; devuelve su resumen (`sha256`) y triángulos.
 
         Raises:
-            UniversoError: 400 si no es un GLB válido.
+            UniversoError: 400 si no es un GLB válido, 507 si ya no caben más.
         """
         try:
             summary = await asyncio.to_thread(glb_summary, data)
         except MundoError as error:
             raise UniversoError(str(error)) from error
-        await self.bot.universo_mundo.put_glb(summary.sha256, data, summary.triangles, member.id)
+        try:
+            await self.bot.universo_mundo.put_glb(
+                summary.sha256, data, summary.triangles, member.id
+            )
+        except GlbFull as error:
+            raise UniversoError(
+                f"No caben más modelos: entre todos ya ocupan {MAX_GLB_TOTAL // 2**20} MB. "
+                "Quita del mundo los que no uses y publica; se liberan al día siguiente.",
+                507,
+            ) from error
         return {"sha256": summary.sha256, "triangles": summary.triangles}
 
     async def players(self, session: str | None, query: dict[str, Any]) -> dict[str, Any]:
@@ -879,10 +950,11 @@ class Universo(commands.Cog, name="Universo"):
         return {"objetos": rows}
 
     def walk(self, session: str | None, body: dict[str, Any]) -> None:
-        """Apunta para los logros lo que la página dice que has paseado.
+        """Apunta para los logros lo que la página dice del paseo y la sala no ve.
 
-        Solo cuenta lo que da tiempo a hacer desde el informe anterior (o desde que
-        entraste); si el bot se ha reiniciado entre medias, nada hasta el siguiente.
+        Trucos de piloto, velocidad, cadena y teleportes. Solo cuenta lo que da tiempo a
+        hacer desde el informe anterior (o desde que entraste); si el bot se ha reiniciado
+        entre medias, nada hasta el siguiente.
 
         Raises:
             UniversoError: Igual que `enter`.
@@ -893,13 +965,7 @@ class Universo(commands.Cog, name="Universo"):
         self._last_walk[guild.id, member.id] = now
         walk = walk_report(body, now - last)
         delta = universo_walk_stats(
-            walk.meters,
-            walk.jumps,
-            walk.places,
-            walk.slides,
-            tricks=walk.tricks,
-            speed=walk.speed,
-            chain=walk.chain,
+            0, 0, (), tricks=walk.tricks, speed=walk.speed, chain=walk.chain
         )
         delta.merge(
             universo_teleport_stats(teleport_report(body, now - last), when=datetime.now(TIMEZONE))
@@ -979,7 +1045,14 @@ class Universo(commands.Cog, name="Universo"):
             salas = self.pruebas if pruebas else self.salas
             gestures = gestures_owned(await tienda.owned_keys(self.bot, guild.id, member.id))
             player = await salas.join(
-                guild.id, member.id, member.display_name, ws, backlog, gestures
+                guild.id,
+                member.id,
+                member.display_name,
+                ws,
+                backlog,
+                gestures,
+                places=None if pruebas else await self.places(guild.id),
+                channel_id=snowflake(hello.get("channel_id")),
             )
         except (UniversoError, SalaError) as error:
             text = error.message if isinstance(error, UniversoError) else str(error)
@@ -993,6 +1066,8 @@ class Universo(commands.Cog, name="Universo"):
             async for message in ws:
                 if message.type == WSMsgType.BINARY:
                     salas.pose(guild.id, player, message.data)
+                elif message.type == WSMsgType.TEXT:
+                    salas.text(guild.id, player, message.data)
         finally:
             await salas.leave(guild.id, player)
 
@@ -1006,15 +1081,19 @@ class Universo(commands.Cog, name="Universo"):
             seen = universo_meet_stats([player.user_id], len(present))
             logros.note(self.bot, guild_id, other.user_id, seen)
 
+    def _walked(self, guild_id: int, player: Player, stroll: Stroll) -> None:
+        """Logros del paseo que ha visto la sala (un lote cada 15 s o al salir)."""
+        delta = universo_walk_stats(stroll.meters, stroll.jumps, stroll.places, stroll.slides)
+        logros.note(self.bot, guild_id, player.user_id, delta, player.channel_id)
+
     def _gesture(self, guild_id: int, player: Player, anim: int, near: list[Player]) -> None:
         """Logros de empezar un gesto. Quien baila cerca sube también su récord de bailar juntos."""
-        x, _y, z = place(player.pose or bytes(8))
         same = [p for p in near if p.pose is not None and p.pose[-1] == anim]
         delta = universo_gesture_stats(
             GESTURES[anim].removeprefix("gesto_"),
             near=len(near),
             together=len(same) + 1,
-            summit=on_summit(x, z),
+            summit="nieves" in self.salas.places_at(guild_id, player),
             when=datetime.now(TIMEZONE),
         )
         logros.note(self.bot, guild_id, player.user_id, delta)
@@ -1217,6 +1296,11 @@ async def _editor_glb(request: web.Request) -> web.Response:
 async def _mundo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     guild, _member = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
+    since = request.query.get("desde", "")
+    if since.isdigit() and int(since) > 0:
+        found = await cog.mundo_desde(guild.id, int(since))
+        if found is not None:
+            return await _mundo_desde(request, guild.id, int(since), *found)
     version, pieces = await cog.mundo(guild.id)
     # Con `v` igual a la versión publicada (la que da `/api/entrar`), lo que hay en esa URL
     # ya no cambia (las versiones solo crecen): se guarda para siempre, solo en el navegador
@@ -1239,6 +1323,38 @@ async def _mundo(request: web.Request) -> web.Response:
     )
 
 
+async def _mundo_desde(
+    request: web.Request, guild_id: int, since: int, version: int, pieces: str
+) -> web.Response:
+    """`/api/mundo?desde=`: solo lo cambiado, con la caché de `/api/mundo` y su gzip guardado."""
+    cog = request.app[_COG_KEY]
+    cache = MUNDO_CACHE if request.query.get("v") == str(version) else "no-cache"
+    headers = {"Cache-Control": cache, "Vary": "Accept-Encoding"}
+    text = f'{{"version":{version},"desde":{since},"trozos":{pieces}}}'
+    if "gzip" not in request.headers.get("Accept-Encoding", ""):
+        return web.Response(text=text, content_type="application/json", headers=headers)
+    cached = cog._mundo_desde.get((guild_id, since))
+    data = cached[2] if cached is not None and cached[0] == version else None
+    if data is None:
+        data = await asyncio.to_thread(gzip.compress, text.encode(), 6)
+        if cached is not None and cached[0] == version:
+            cog._mundo_desde[(guild_id, since)] = (version, cached[1], data)
+    return web.Response(
+        body=data,
+        content_type="application/json",
+        headers={**headers, "Content-Encoding": "gzip"},
+    )
+
+
+def _changes_text(pieces: dict[str, str]) -> str:
+    """Los trozos cambiados como un objeto JSON: cada uno tal cual, `null` el que se borró."""
+    return (
+        "{"
+        + ",".join(f"{json.dumps(k)}:{doc or 'null'}" for k, doc in sorted(pieces.items()))
+        + "}"
+    )
+
+
 def _world_text(version: int, pieces: str) -> str:
     """El cuerpo de `/api/mundo`: los trozos ya van codificados y se pegan tal cual."""
     return f'{{"version":{version},"trozos":{pieces}}}'
@@ -1247,13 +1363,18 @@ def _world_text(version: int, pieces: str) -> str:
 async def _glb(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     sha = request.match_info["sha"]
-    data = await cog.bot.universo_mundo.glb(sha) if _SHA256.fullmatch(sha) else None
-    if data is None:
+    if not _SHA256.fullmatch(sha):
         raise web.HTTPNotFound
-    return web.Response(
-        body=data,
-        content_type="model/gltf-binary",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    path = cog.bot.universo_mundo.glb_path(sha)
+    # Se mira antes, fuera del bucle: el 404 de `FileResponse` saldría con la caché `immutable`.
+    if not await asyncio.to_thread(path.is_file):
+        raise web.HTTPNotFound
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "model/gltf-binary",
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
     )
 
 

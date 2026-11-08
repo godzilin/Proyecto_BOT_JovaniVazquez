@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from bot.services import universo_editor as editor
+from bot.services.universo import ZONES_DM
 
 RAIZ = Path(__file__).resolve().parents[2]
 SCRIPT = RAIZ / "docs" / "volcar_mundo_serie.py"
@@ -62,6 +63,12 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
     usados = {o["asset"] for o in mundo["objetos"]}
     assert usados == set(assets), "cada asset se usa y cada objeto tiene el suyo"
     assert set(mundo["zonas"]) == editor.EDITABLE_ZONES
+    # La sala cuenta los lugares con las mismas zonas de serie (en decímetros).
+    serie = {
+        k: (round(z["x"] * 10), round(z["z"] * 10), round(z["r"] * 10))
+        for k, z in mundo["zonas"].items()
+    }
+    assert serie == ZONES_DM
 
 
 def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:
@@ -74,6 +81,17 @@ def test_la_pagina_parte_el_mundo_igual_que_el_servidor(mundo: dict) -> None:
     # `aTrozos` y `deTrozos` de la página contra `split_world` (`docs/comparar_trozos.py`).
     spec = importlib.util.spec_from_file_location(
         "comparar_trozos", RAIZ / "docs" / "comparar_trozos.py"
+    )
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    modulo.main()
+
+
+def test_rehacer_las_celdas_publicadas_deja_lo_mismo_que_montar_entero(mundo: dict) -> None:
+    # `Obras.actualizar` de 1, 4, 12 y 24 celdas contra `Obras.cargar` (`docs/medir_recarga.py`).
+    spec = importlib.util.spec_from_file_location(
+        "medir_recarga", RAIZ / "docs" / "medir_recarga.py"
     )
     assert spec and spec.loader
     modulo = importlib.util.module_from_spec(spec)

@@ -800,8 +800,9 @@ export class PanelMundo implements Panel {
     if (this.sel.lista.length || this.zona) this.commit();
   }
 
+  /** Lo editado en su sitio es siempre lo elegido; lo nuevo, lo borrado, las zonas y los teleportes el borrador lo ve solo. */
   private commit(): void {
-    this.a.b.commit();
+    this.a.b.commit({ objetos: this.elegidos });
     this.pintarProps();
     this.a.estado();
     this.pedir();
