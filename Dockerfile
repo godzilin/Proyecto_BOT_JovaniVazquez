@@ -16,8 +16,9 @@ COPY universo/package.json universo/package-lock.json ./
 RUN npm ci
 COPY universo/ ./
 # Las tragaperras de la plaza pintan en directo la escena de la clásica del bot: la página la importa
-# de ../src/bot/assets (universo/src/casino/escena.ts), con sus símbolos y fuentes.
-COPY src/bot/assets/tragas.js /opt/src/bot/assets/
+# de ../src/bot/assets (universo/src/casino/escena.ts), con sus símbolos y fuentes, y dónde va cada
+# máquina (casino_plaza.json, que importa universo/src/casino/serie.ts).
+COPY src/bot/assets/tragas.js src/bot/assets/casino_plaza.json /opt/src/bot/assets/
 COPY src/bot/assets/slots/ /opt/src/bot/assets/slots/
 COPY src/bot/assets/botes/fonts/luckiest-guy.woff /opt/src/bot/assets/botes/fonts/
 COPY src/bot/assets/memes/fonts/MontserratBold.ttf /opt/src/bot/assets/memes/fonts/
