@@ -126,9 +126,9 @@ MIN_DISTANCE, MAX_DISTANCE = 20.0, 600.0
 EDITABLE_ZONES = frozenset({"nublo", "dunas", "faro", "plaza", "drago", "canteras"})
 #: Lado de una celda en metros: la isla esculpible (320 m centrados en 0) son 4 × 4 celdas.
 CELL = 80
-#: Celdas a cada lado del 0 (±3,2 km).
-#: shortcut: la red manda posiciones en dm con int16; para ir más allá, fase 3 de mundo-celdas.md.
-CELL_LIMIT = 40
+#: Celdas a cada lado del 0 (±40 km, 80 km de lado). La sala acepta poses hasta ahí
+#: (`universo_sala.WORLD_DM`) y la página no pasa de ahí (`LIMITE_CELDAS` de `mundo/borde.ts`).
+CELL_LIMIT = 500
 MIN_Y, MAX_Y = -20.0, 120.0
 MIN_SCALE, MAX_SCALE = 0.02, 60.0
 MAX_ROTATION = 4 * math.pi

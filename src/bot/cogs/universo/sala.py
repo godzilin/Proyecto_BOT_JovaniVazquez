@@ -1,7 +1,8 @@
 """La sala (multijugador por WebSocket) y el paseo del Jovaniverso.
 
 - `GET /api/sala` (WebSocket): el multijugador. El primer mensaje es JSON
-  `{t: "hola", session, guild_id}`; después, poses en binario y, en JSON, los avisos de
+  `{t: "hola", v, session, guild_id}` (`v`, la versión del protocolo: a una página vieja se
+  le pide que recargue); después, poses en binario y, en JSON, los avisos de
   teleporte y de devtools. El reparto lo hace `bot.services.universo_sala.Salas` (una sala
   por servidor, ticks fijos y binarios), que no deja ir más rápido de lo que deja la física
   y cuenta el paseo con lo que ve (`_walked`). Con `mundo: "pruebas"` en el saludo, entra en
@@ -51,7 +52,7 @@ from bot.services.universo import (
     teleport_report,
     walk_report,
 )
-from bot.services.universo_sala import Player, SalaError, Stroll
+from bot.services.universo_sala import OLD_PAGE, PROTOCOL, Player, SalaError, Stroll
 
 #: Segundos que tiene la página para decir quién es al abrir el multijugador.
 HELLO_SECONDS = 10
@@ -101,6 +102,11 @@ class SalaMixin:
         except (TimeoutError, ValueError):
             hello = None
         if not isinstance(hello, dict) or hello.get("t") != "hola":
+            await ws.close()
+            return
+        if hello.get("v") != PROTOCOL:
+            # Una página de antes de un despliegue: que recargue (con `error` no reintenta).
+            await ws.send_json({"t": "error", "error": OLD_PAGE})
             await ws.close()
             return
         try:

@@ -4,6 +4,7 @@ import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
 import { deTrozos, parchear } from "./editor/trozos";
+import { fijarBorde } from "./mundo/borde";
 import type { MundoDoc } from "./editor/formato";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
@@ -158,6 +159,7 @@ function bajarMundo(sesion: { session: string; guildId: string }, version?: numb
 /** Apunta lo publicado que se va a ver y devuelve su documento (`null` si nunca se publicó nada). */
 function guardarPublicado(r: MundoPublicado): MundoDoc | null {
   publicado = r.version > 0 ? { version: r.version, doc: deTrozos(r.trozos) } : null;
+  fijarBorde(r.version > 0 ? Object.keys(r.trozos) : []);
   return publicado?.doc ?? null;
 }
 
@@ -185,6 +187,7 @@ function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | 
         if (base && r.desde === base.version) {
           const doc = parchear(base.doc, r.trozos);
           publicado = { version: r.version, doc };
+          fijarBorde(Object.keys(r.trozos), true);
           mundo.actualizarMundo(base.doc, doc, Object.keys(r.trozos));
         } else {
           const doc = guardarPublicado(r);

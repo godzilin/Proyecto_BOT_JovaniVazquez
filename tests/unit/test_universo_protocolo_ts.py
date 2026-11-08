@@ -40,11 +40,13 @@ def pairs(text: str) -> dict[str, int]:
 
 def test_la_pose_mide_y_se_llama_igual_en_los_dos_lados() -> None:
     code = ts("sala.ts")
-    assert int(const("POSE", code)) == sala.POSE
-    size = int(const("POSE_BYTES", code))
-    # Lo que manda la página (con su tipo) y lo que manda la sala por jugador (con su hueco).
-    assert size == sala._POSE.size == sala._ENTRY.size
-    assert sala._HEAD.size == 2  # «2 + i * POSE_BYTES» en sala.ts
+    assert int(const("PROTOCOLO", code)) == sala.PROTOCOL
+    assert (int(const("POSE", code)), int(const("COMPLETO", code))) == (sala.POSE, sala.FULL)
+    # Lo que manda la página (con su tipo), la cabecera de un grupo y cada jugador de un grupo.
+    assert int(const("POSE_BYTES", code)) == sala._POSE.size
+    assert int(const("GRUPO_BYTES", code)) == sala._GROUP.size
+    assert int(const("ENTRADA_BYTES", code)) == sala._ENTRY.size
+    assert int(const("REGION_DM", code)) == sala.REGION_DM
 
 
 def test_los_gestos_son_los_de_la_tienda() -> None:

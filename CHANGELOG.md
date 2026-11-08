@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.11.0 · 2026-11-08
+
+- Jovaniverso: el mundo puede medir hasta 80 km y 4000 m de alto, y cada uno recibe solo a los que tiene cerca
+
 ### 10.10.8 · 2026-11-08
 
 - Interno: el servidor del Jovaniverso, repartido en un archivo por tema

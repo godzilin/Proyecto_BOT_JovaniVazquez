@@ -3,7 +3,7 @@ import { BufferAttribute, BufferGeometry, LineBasicMaterial, LineSegments, MeshB
 import type { Fog, FogExp2 } from "three";
 import type { Asset, MundoDoc, Objeto } from "../editor/formato";
 import type { Mundo } from "../mundo";
-import { BORDE as LIMITE_XZ } from "../mundo/borde";
+import { borde, dentro } from "../mundo/borde";
 import { circulos } from "../mundo/colision";
 import { PRUEBAS, irAMundo } from "../mundo/modo";
 import { pistaDoc } from "../mundo/pista";
@@ -151,10 +151,10 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
     boton("Ir", () => {
       const x = inX.valueAsNumber;
       const z = inZ.valueAsNumber;
-      if (Number.isFinite(x) && Number.isFinite(z) && Math.abs(x) <= LIMITE_XZ && Math.abs(z) <= LIMITE_XZ) {
+      if (Number.isFinite(x) && Number.isFinite(z) && dentro(x, z)) {
         yo.teletransportar(x, z);
         aviso.textContent = "";
-      } else aviso.textContent = `X y Z tienen que ser números entre -${LIMITE_XZ} y ${LIMITE_XZ}.`;
+      } else aviso.textContent = `X tiene que estar entre ${borde.x0} y ${borde.x1}, y Z entre ${borde.z0} y ${borde.z1}.`;
     }),
   );
   tp.append(filaXZ);

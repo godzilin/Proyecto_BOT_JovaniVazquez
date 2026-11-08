@@ -93,6 +93,16 @@ export class Remotos {
     this.orden.length = 0;
   }
 
+  /** Ha salido de lo que te manda la sala: deja de dibujarse (sigue en la sala) hasta su próxima pose. */
+  lejos(slot: number): void {
+    this.todos.get(slot)?.estela.vaciar();
+  }
+
+  /** Tras un mensaje con todo lo que ves: los que no venían en él dejan de dibujarse. */
+  dejarSolo(vistos: Set<number>): void {
+    for (const [slot, r] of this.todos) if (!vistos.has(slot)) r.estela.vaciar();
+  }
+
   /** Pose recibida (metros y radianes). Si llega antes que su `entra`, espera a saber quién es. */
   pose(slot: number, x: number, y: number, z: number, yaw: number, anim: number, ahora: number): void {
     if (slot === this.miSlot) return;
