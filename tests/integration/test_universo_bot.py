@@ -9,6 +9,7 @@ pruebas de aiohttp sobre `Universo.build_app`, sin abrir puertos.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import struct
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
-from aiohttp import web
+from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 from interaction_fakes import fake_interaction
 
@@ -319,7 +320,8 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     await world.web.post("/api/entrar", json=body, headers=headers)
     await asyncio.gather(*world.cog._background)
-    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos y 10 deslizamientos.
+    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos, 10 deslizamientos
+    # y 5 ganchos.
     key = (GUILD_ID, USER_ID)
     world.cog._last_walk[key] -= 10
     response = await world.web.post(
@@ -330,6 +332,10 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
             "jumps": 500,
             "slides": 3,
             "places": ["faro", "faro", "luna", 7],
+            "wallruns": 4,
+            "grapples": 50,
+            "speed": 99,
+            "chain": 3,
         },
         headers=headers,
     )
@@ -343,6 +349,11 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     assert 90 <= profile.stats["universo_meters"] < 92
     assert profile.stats["universo_jumps"] == 20
     assert profile.stats["universo_slides"] == 3
+    # 10 s dan para 5 ganchos (uno cada 3 s, con margen) y la velocidad no pasa de 20 m/s.
+    assert profile.stats["universo_wallruns"] == 4
+    assert profile.stats["universo_grapples"] == 5
+    assert profile.stats["universo_speed_max"] == 20
+    assert profile.stats["universo_chain_max"] == 3
     assert profile.stats["universo_place_faro"] == 1
     assert "universo_place_luna" not in profile.stats
     assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
@@ -631,28 +642,57 @@ async def test_una_tirada_en_la_plaza_cobra_de_verdad_y_trae_la_animacion(
     assert "slots_turbo" not in profile.stats
 
 
-async def test_los_demas_de_la_sala_ven_tu_tirada_sin_tu_saldo(world: World) -> None:
+async def notices(ws: object) -> list[str]:
+    """Los tipos de los avisos JSON que llegan hasta que la sala se calla."""
+    found = []
+    with contextlib.suppress(asyncio.TimeoutError):
+        while True:
+            message = await ws.receive(timeout=0.2)
+            if message.type is WSMsgType.TEXT:
+                found.append(message.json()["t"])
+    return found
+
+
+async def test_los_de_cerca_ven_tu_tirada_sin_tu_saldo_y_los_de_lejos_no(world: World) -> None:
+    from bot.services.universo_sala import SPIN_SEEN_DM
+
     guild = world.client.get_guild(GUILD_ID)
-    members = {USER_ID: guild.get_member(USER_ID), 777: member(777)}
+    members = {USER_ID: guild.get_member(USER_ID), 777: member(777), 778: member(778)}
     guild.get_member = members.get
     session = await login(world)
     hello = {"t": "hola", "guild_id": str(GUILD_ID)}
-    ana = await world.web.ws_connect("/api/sala")
+    # La página pide permessage-deflate, como un navegador; la sala no lo acepta.
+    ana = await world.web.ws_connect("/api/sala", compress=15)
+    assert ana.compress == 0
     await ana.send_json({**hello, "session": session})
     assert (await ana.receive_json())["t"] == "bienvenida"
     bea = await world.web.ws_connect("/api/sala")
     await bea.send_json({**hello, "session": world.cog.signer.issue(777)})
     assert (await bea.receive_json())["t"] == "bienvenida"
     assert (await ana.receive_json())["t"] == "entra"
+    eva = await world.web.ws_connect("/api/sala")
+    await eva.send_json({**hello, "session": world.cog.signer.issue(778)})
+    assert (await eva.receive_json())["t"] == "bienvenida"
+    for ws, x in ((ana, 0), (bea, SPIN_SEEN_DM - 10), (eva, SPIN_SEEN_DM + 10)):
+        await ws.send_bytes(struct.pack("<BhhhBB", 1, x, 0, 0, 0, 0))
+    room = world.cog.salas.rooms[GUILD_ID]
+    async with asyncio.timeout(2):
+        while any(p.pose is None for p in room.players.values()):
+            await asyncio.sleep(0.01)
     status, body = await spin(world, session, machine=3)
     assert status == 200, body
-    seen = await bea.receive_json(timeout=2)
+    # Antes de la tirada le llegan los ticks y la entrada de Eva.
+    while (message := await bea.receive(timeout=2)).type is WSMsgType.BINARY or (
+        message.json()["t"] == "entra"
+    ):
+        pass
+    seen = message.json()
     assert seen["t"] == "traga" and seen["machine"] == 3
     assert seen["states"] == body["states"] and seen["pot_text"] == body["pot_text"]
     assert not {"balance", "balance_text", "text", "bet"} & seen.keys()
-    # Quien tira no recibe su propia tirada por la sala: ya la tiene en la respuesta.
-    with pytest.raises(asyncio.TimeoutError):
-        await ana.receive_json(timeout=0.2)
+    # Quien tira ya la tiene en la respuesta, y quien está lejos no ve la máquina.
+    assert "traga" not in await notices(ana) + await notices(eva)
+    await eva.close()
     await bea.close()
     await ana.close()
     await settle(world)

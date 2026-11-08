@@ -8,9 +8,23 @@ criterio.
 
 ## 10.x
 
-### 10.9.1 · 2026-11-08
+### 10.10.2 · 2026-11-08
 
 - Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida
+
+### 10.10.1 · 2026-11-08
+
+- Jovaniverso: la tirada de una tragaperras solo se manda a quien está a 60 m o menos de quien juega (antes, a toda la isla), y la sala ya no comprime cada mensaje una vez por jugador
+- Interno: una prueba pasa `tsc` al TypeScript del Jovaniverso antes de desplegar, para que un error de tipos no deje al NAS sin actualizar
+
+### 10.10.0 · 2026-11-08
+
+- Jovaniverso: movimiento de piloto. Saltando junto a una pared y yendo en paralelo se corre por ella; saltar ahí te lanza a la siguiente
+- Jovaniverso: doble salto en el aire, que se recarga en el suelo o en una pared
+- Jovaniverso: gancho con la Q (o el botón 🪝 en el móvil) que tira de ti hacia donde miras; vuelve a los 3 s
+- Jovaniverso: se llega a 20 m/s (antes, 15); la cámara se ladea en la pared y el campo de visión se abre con la velocidad
+- Jovaniverso: un muro fino o un escalón de más de medio metro ya no se sube andando (hay que saltar)
+- Logros de correr por las paredes, saltar de ellas, dobles saltos, ganchos, velocidad y paredes seguidas sin tocar el suelo
 
 ### 10.9.0 · 2026-11-07
 

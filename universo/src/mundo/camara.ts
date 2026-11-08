@@ -1,4 +1,5 @@
 // Cámara del jugador: tercera persona (orbita al robot), primera persona (a la altura de sus ojos) y anclada (fija en un punto, p. ej. sentado ante una máquina).
+// Corriendo por una pared se ladea hacia fuera de ella (`inclinar`), suavizado.
 import { PerspectiveCamera, Quaternion, Vector3 } from "three";
 import type { LightShadow, Object3D } from "three";
 import { clamp } from "./ruido";
@@ -12,6 +13,7 @@ const EMPUJE_PRIMERA = 0.25; // zoom acumulado contra el mínimo de la tercera p
 const CLAVE = "jv.camara";
 /** Capa del propio robot cuando no se ve: la cámara no la dibuja, la del sol sí (ver `enlazarSombra`). */
 const CAPA_PROPIA = 1;
+const Z = new Vector3(0, 0, 1);
 
 export type Modo = "tercera" | "primera";
 
@@ -40,6 +42,10 @@ export class Camara {
   distMax = 16;
   /** Devtools (noclip): la cámara atraviesa el terreno en vez de acercarse o subir por encima. */
   atraviesa = false;
+  /** Ladeo buscado (radianes, + hacia la izquierda de la imagen); la cámara llega a él poco a poco. */
+  inclinar = 0;
+  private ladeo = 0;
+  private giroZ = new Quaternion();
   private _modo: Modo = leerModo();
   private foco = new Vector3();
   private deseada = new Vector3();
@@ -132,6 +138,18 @@ export class Camara {
     this.pitch = this.limitarPitch(this.pitch);
   }
 
+  /** Hacia dónde apunta (longitud 1); en tercera persona, algo más arriba que el centro de la imagen para apuntar desde el robot. */
+  apuntar(): { x: number; y: number; z: number } {
+    const p = this._modo === "primera" ? this.pitch : this.pitch - 0.3;
+    const c = Math.cos(p);
+    return { x: -Math.sin(this.yaw) * c, y: -Math.sin(p), z: -Math.cos(this.yaw) * c };
+  }
+
+  /** Derecha de la imagen en horizontal. */
+  get derecha(): { x: number; z: number } {
+    return { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) };
+  }
+
   /** Dirección horizontal hacia la que mira la cámara (para mover "hacia delante"). */
   get adelante(): { x: number; z: number } {
     return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
@@ -175,6 +193,8 @@ export class Camara {
       this.mira.lookAt(this.foco);
     }
     this.quat.copy(this.mira.quaternion);
+    this.ladeo += ((this.ancla ? 0 : this.inclinar) - this.ladeo) * (1 - Math.exp(-dt * 8));
+    if (Math.abs(this.ladeo) > 1e-4) this.quat.multiply(this.giroZ.setFromAxisAngle(Z, this.ladeo));
 
     if (this.trans < 1) {
       this.trans = Math.min(1, this.trans + dt / TRANSICION);

@@ -16,6 +16,8 @@ export class Controles {
   agachar = false;
   /** Se pone a true al pulsar saltar; el jugador lo consume. */
   saltar = false;
+  /** Se pone a true con la Q o el botón 🪝 (lanzar o soltar el gancho); el mundo lo consume. */
+  gancho = false;
   /** Se pone a true con la tecla V o el botón 👁; la cámara lo consume. */
   cambiarVista = false;
   /** Giro y zoom acumulados desde la última lectura. */
@@ -33,6 +35,7 @@ export class Controles {
   private botonSalto: HTMLElement;
   private botonAgachar: HTMLElement;
   private agacharTactil = false;
+  private botonGancho: HTMLElement;
   private botonVista: HTMLElement;
   private punto: HTMLElement;
 
@@ -83,6 +86,20 @@ export class Controles {
     capa.append(agachar);
     this.botonAgachar = agachar;
 
+    const gancho = document.createElement("button");
+    gancho.className = "boton-gancho";
+    gancho.type = "button";
+    gancho.setAttribute("aria-label", "Lanzar o soltar el gancho hacia donde mira la cámara");
+    gancho.textContent = "🪝";
+    gancho.hidden = !this.tactil;
+    gancho.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.gancho = true;
+    });
+    capa.append(gancho);
+    this.botonGancho = gancho;
+
     const vista = document.createElement("button");
     vista.className = "boton-vista";
     vista.type = "button";
@@ -130,6 +147,7 @@ export class Controles {
     this.punto.remove();
     this.botonSalto.remove();
     this.botonAgachar.remove();
+    this.botonGancho.remove();
     this.botonVista.remove();
     this.joyVista.base.remove();
   }
@@ -202,6 +220,7 @@ export class Controles {
       if (!e.repeat) this.saltar = true;
       e.preventDefault();
     }
+    if (e.code === "KeyQ" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.gancho = true;
     if (e.code === "KeyV" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.cambiarVista = true;
     if (/^(Key[WASDC]|Arrow(Up|Down|Left|Right)|Shift(Left|Right))$/.test(e.code)) {
       this.teclas.add(e.code);

@@ -1,4 +1,5 @@
-// La pista del extraplano de pruebas: rampas de varias pendientes, escalones, un muro y columnas de varios radios. Un solo
+// La pista del extraplano de pruebas: rampas de varias pendientes, escalones, un muro, columnas de varios radios, un
+// pasillo de paredes para correr por ellas y saltar de una a otra, y una torre para el gancho. Un solo
 // sitio define cada bloque: de aquí salen la altura del suelo (`alturaPista`, la que pisa el jugador) y su dibujo (`pistaDoc`,
 // datos que pinta `Obras` como cualquier mundo). Coordenadas absolutas: el casino y la salida siguen en la plaza (-8, 60).
 import type { MundoDoc, Pieza } from "../editor/formato";
@@ -33,6 +34,10 @@ RAMPAS.forEach((g, i) => {
 });
 ESCALONES.forEach((h, i) => BLOQUES.push({ x0: 4 + i * 3.5, x1: 6 + i * 3.5, z0: 40, z1: 42, alto: h, color: 0x7f9fc8 }));
 BLOQUES.push({ x0: 28, x1: 40, z0: 35, z1: 35.6, alto: 4, color: 0x8a7a6a }); // muro: más empinado que lo que se sube
+// Pasillo de paredes (4,8 m entre caras) y torre de 10 m, para correr por las paredes y probar el gancho.
+BLOQUES.push({ x0: 30, x1: 30.6, z0: 50, z1: 80, alto: 6, color: 0x6a8aa8 });
+BLOQUES.push({ x0: 35.4, x1: 36, z0: 50, z1: 80, alto: 6, color: 0x6a8aa8 });
+BLOQUES.push({ x0: 46, x1: 50, z0: 60, z1: 64, alto: 10, color: 0xa86a6a });
 
 /** Altura del suelo del extraplano en (x, z): 0 salvo encima de un bloque. */
 export function alturaPista(x: number, z: number): number {
@@ -52,6 +57,7 @@ export const SITIOS_PISTA: Record<string, [number, number]> = {
   escalones: [12, 46],
   columnas: [6, 30],
   muro: [34, 40],
+  paredes: [33, 88],
 };
 
 /** El dibujo de la pista como documento del mundo (sin zonas: el extraplano no da logros). */

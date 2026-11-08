@@ -72,6 +72,10 @@ MOVES = frozenset({11, 12})
 GESTURE_SECONDS = 1.0
 #: A cuántos decímetros alguien está «cerca» al hacer un gesto.
 NEAR_DM = 80
+#: A cuántos decímetros se ve la tirada de una tragaperras. La página no pinta pantallas a
+#: más de 45 m (`DISTANCIA_PANTALLAS` de `casino.ts`); 15 m más cubren a quien se acerca
+#: corriendo (9 m/s) mientras dura la tirada.
+SPIN_SEEN_DM = 600
 #: Tipo del mensaje binario de pose.
 POSE = 1
 _POSE = struct.Struct("<BhhhBB")
@@ -273,11 +277,18 @@ class Salas:
         return list(room.players.values()) if room else []
 
     async def announce(
-        self, guild_id: int, payload: dict[str, object], *, skip_user: int | None = None
+        self,
+        guild_id: int,
+        payload: dict[str, object],
+        *,
+        skip_user: int | None = None,
+        around_dm: int | None = None,
     ) -> None:
         """Manda un aviso JSON a todos los de la sala de un servidor (sin sala, nada).
 
-        Con `skip_user`, a todos menos a esa persona.
+        Con `skip_user`, a todos menos a esa persona. Con `around_dm`, solo a quienes
+        están a esa distancia (en horizontal) de `skip_user`; si no está en la sala o aún
+        no ha mandado su pose, a nadie: no se sabe dónde ocurre.
         """
         room = self.rooms.get(guild_id)
         if room is None:
@@ -285,7 +296,12 @@ class Salas:
         skip = next((p for p in room.players.values() if p.user_id == skip_user), None)
         if skip is not None and len(room.players) == 1:
             return
-        await self._broadcast_str(room, json.dumps(payload), skip=skip)
+        to = None
+        if around_dm is not None:
+            to = near(room, skip, around_dm) if skip is not None else []
+            if not to:
+                return
+        await self._broadcast_str(room, json.dumps(payload), skip=skip, to=to)
 
     async def close(self) -> None:
         """Para todas las salas (al descargar el cog)."""
@@ -322,8 +338,15 @@ class Salas:
             except Exception:
                 logger.exception("Fallo en un tick de la sala %s", guild_id)
 
-    async def _broadcast_str(self, room: Room, text: str, *, skip: Player | None = None) -> None:
-        await self._send_all(room, lambda p: p.client.send_str(text), skip=skip)
+    async def _broadcast_str(
+        self,
+        room: Room,
+        text: str,
+        *,
+        skip: Player | None = None,
+        to: list[Player] | None = None,
+    ) -> None:
+        await self._send_all(room, lambda p: p.client.send_str(text), skip=skip, to=to)
 
     async def _send_all(
         self,
@@ -331,10 +354,11 @@ class Salas:
         send: Callable[[Player], Awaitable[None]],
         *,
         skip: Player | None = None,
+        to: list[Player] | None = None,
     ) -> None:
         # Por debajo de `MAX_BACKLOG_BYTES` el envío no espera al cliente, así que ir
         # de uno en uno no hace esperar a los demás; al que va atrasado se le salta.
-        for player in list(room.players.values()):
+        for player in list(room.players.values()) if to is None else to:
             if player is skip or player.backlog() > MAX_BACKLOG_BYTES:
                 continue
             try:
@@ -344,8 +368,8 @@ class Salas:
                 pass
 
 
-def near(room: Room, player: Player) -> list[Player]:
-    """Los demás de la sala a menos de `NEAR_DM` (en horizontal) de `player`."""
+def near(room: Room, player: Player, radius_dm: int = NEAR_DM) -> list[Player]:
+    """Los demás de la sala a menos de `radius_dm` (en horizontal) de `player`."""
     if player.pose is None:
         return []
     x, _y, z = place(player.pose)
@@ -354,7 +378,7 @@ def near(room: Room, player: Player) -> list[Player]:
         if other is player or other.pose is None:
             continue
         ox, _oy, oz = place(other.pose)
-        if (ox - x) ** 2 + (oz - z) ** 2 <= NEAR_DM**2:
+        if (ox - x) ** 2 + (oz - z) ** 2 <= radius_dm**2:
             found.append(other)
     return found
 
