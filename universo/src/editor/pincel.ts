@@ -351,25 +351,29 @@ export class PincelTerreno {
     this.trazando = false;
     cancelAnimationFrame(this.bucle);
     const [ix0, iz0, ix1, iz1] = this.caja;
+    let movidos: Objeto[] = [];
     if (this.antes && ix0 <= ix1) {
-      this.seguirSuelo(this.antes, ix0 * PASO - MITAD, iz0 * PASO - MITAD, ix1 * PASO - MITAD, iz1 * PASO - MITAD);
+      movidos = this.seguirSuelo(this.antes, ix0 * PASO - MITAD, iz0 * PASO - MITAD, ix1 * PASO - MITAD, iz1 * PASO - MITAD);
       this.doc.terreno = terrenoDoc();
       this.mundo.retocarTerreno(ix0 - 1, iz0 - 1, ix1 + 1, iz1 + 1, true);
     }
     this.antes = null;
-    if (this.a.b.commit() || this.sembrados) this.g.rehacerObras();
+    if (this.a.b.commit({ objetos: movidos }) || this.sembrados) this.g.rehacerObras();
     this.a.estado();
   }
 
-  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo desde `antes`. */
-  private seguirSuelo(antes: Float32Array, x0: number, z0: number, x1: number, z1: number): void {
+  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo desde `antes`; devuelve los apoyados. */
+  private seguirSuelo(antes: Float32Array, x0: number, z0: number, x1: number, z1: number): Objeto[] {
+    const movidos: Objeto[] = [];
     for (const o of this.doc.objetos) {
       const [x, y, z] = o.pos;
       if (x < x0 || x > x1 || z < z0 || z > z1) continue;
       const viejo = alturaEn(antes, x, z);
       if (Math.abs(y - viejo) > APOYADO) continue;
       o.pos[1] = r4(limitar(y + terrenoEn(x, z) - viejo, MIN_ALTURA, MAX_ALTURA));
+      movidos.push(o);
     }
+    return movidos;
   }
 
   /** Quita el terreno del documento: vuelve la isla de la fórmula, y los objetos apoyados con ella. */
@@ -378,9 +382,9 @@ export class PincelTerreno {
     const antes = alturas.slice();
     delete this.doc.terreno;
     fijarTerreno(undefined);
-    this.seguirSuelo(antes, -MITAD, -MITAD, MITAD, MITAD);
+    const movidos = this.seguirSuelo(antes, -MITAD, -MITAD, MITAD, MITAD);
     this.mundo.retocarTerreno(0, 0, CELDAS, CELDAS, true);
-    this.a.b.commit();
+    this.a.b.commit({ objetos: movidos });
     this.g.rehacerObras();
     this.colocarAnillo();
     this.a.estado();

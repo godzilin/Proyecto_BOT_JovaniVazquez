@@ -79,3 +79,14 @@ def test_la_pagina_parte_el_mundo_igual_que_el_servidor(mundo: dict) -> None:
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     modulo.main()
+
+
+def test_rehacer_las_celdas_publicadas_deja_lo_mismo_que_montar_entero(mundo: dict) -> None:
+    # `Obras.actualizar` de 1, 4, 12 y 24 celdas contra `Obras.cargar` (`docs/medir_recarga.py`).
+    spec = importlib.util.spec_from_file_location(
+        "medir_recarga", RAIZ / "docs" / "medir_recarga.py"
+    )
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    modulo.main()

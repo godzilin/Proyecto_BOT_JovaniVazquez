@@ -96,6 +96,24 @@ async def test_publicar_apunta_solo_lo_que_cambia(repo: UniversoMundoRepository)
     assert await repo.published(2) is None
 
 
+async def test_lo_publicado_desde_una_version_solo_trae_lo_que_cambia(
+    repo: UniversoMundoRepository,
+) -> None:
+    await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99)
+    await repo.publish(1, 10)
+    await repo.save(1, {"c/0/0": put(1, ""), "c/5/5": put(0, CELL, "pino")}, 11, 99)
+    await repo.publish(1, 11)
+    await repo.save(1, {"c/5/5": put(1, '{"objetos":[]}')}, 11, 99)
+    await repo.publish(1, 11)
+    # Desde la 1: lo borrado sale vacío y de cada clave, lo último.
+    assert await repo.published_since(1, 1) == (3, {"c/0/0": "", "c/5/5": '{"objetos":[]}'})
+    assert await repo.published_since(1, 2) == (3, {"c/5/5": '{"objetos":[]}'})
+    assert await repo.published_since(1, 3) == (3, {})
+    # Una versión que no hay (o de otro servidor): hace falta el mundo entero.
+    assert await repo.published_since(1, 9) is None
+    assert await repo.published_since(2, 1) is None
+
+
 async def test_volver_deja_el_borrador_como_aquella_version(repo: UniversoMundoRepository) -> None:
     await repo.save(1, {"a/pino": put(0, PINO), "c/0/0": put(0, CELL, "pino")}, 10, 99)
     await repo.publish(1, 10)
@@ -122,6 +140,12 @@ async def test_podar_conserva_las_filas_de_las_versiones_que_quedan(
     connection = sqlite3.connect(repo.database_path)
     (count,) = connection.execute("SELECT COUNT(*) FROM universo_trozos_publicados").fetchone()
     assert count == KEEP_VERSIONS + 1
+    # Desde la más vieja que queda se sigue sabiendo lo cambiado; desde una podada, no.
+    assert await repo.published_since(1, 11) == (
+        KEEP_VERSIONS + 10,
+        {"c/0/0": f'{{"n":{KEEP_VERSIONS + 10}}}'},
+    )
+    assert await repo.published_since(1, 10) is None
 
 
 async def test_las_tablas_del_formato_1_se_parten_en_trozos(tmp_path: Path) -> None:

@@ -58,6 +58,9 @@ que cambian, no una copia del mundo entero.
 ## Rutas
 
 - `GET /api/mundo?guild_id=&v=N` → `{"version": N, "trozos": {clave: doc}}` (gzip). Con `v` de la versión publicada, el navegador lo guarda para siempre; sin ella, sin caché.
+- `GET /api/mundo?guild_id=&v=N&desde=M` → `{"version": N, "desde": M, "trozos": {clave: doc | null}}`: solo
+  los trozos que cambiaron después de M (`null` los borrados), con la misma caché y guardado en memoria
+  por versión de partida. Si M ya no se conserva (se podó), el mundo entero, sin `desde`.
 - `GET /api/editor/borrador` → `{"version": N, "trozos": {clave: {"doc": doc | null, "rev": r}}}`.
 - `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {"rev": r, "doc": doc | null}}}`
   → `{"revs": {clave: r}}`. 409 si algún `rev` no coincide (no se guarda nada).
@@ -65,7 +68,26 @@ que cambian, no una copia del mundo entero.
 - `POST /api/editor/volver` `{guild_id, version}` → `{}`: el borrador pasa a ser esa versión.
 
 En la página, el editor y el mundo siguen trabajando con el documento plano (`MundoDoc`): se parte
-en trozos al guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/formato.ts`.
+en trozos al guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`.
+
+**Solo lo que cambia (10.10.3):**
+
+- **El editor** (`editor/borrador.ts`): cada `commit` dice lo que ha editado en su sitio (`Toca`: los
+  objetos elegidos, el asset elegido, los objetos que siguen al suelo tras un trazo) y el borrador ve
+  solo lo demás (objetos nuevos, borrados o que cambian de celda, assets nuevos o borrados, zonas,
+  teleportes y el terreno de cada celda). Solo esos trozos se pasan a JSON y se comparan; deshacer y
+  rehacer leen solo los trozos del paso (`parchear`) y guardar compara solo los cambiados desde el
+  último guardado. Un `commit` sin `Toca` compara el mundo entero, y en desarrollo cada `commit` rápido
+  se compara con el entero (`Borrador.comprobar`): si no cuadra, lo dice en la consola y usa el entero.
+  Lo prueba `docs/comparar_trozos.py` con un mundo de 120 000 objetos: el `commit` baja de ~110 ms a
+  ~13 y deshacer de ~150 a ~13.
+- **Al publicar**, la sala avisa (`{t: "mundo", version}`) y cada página espera hasta 3 s al azar, pide
+  `?desde=` con la versión que tiene, la aplica sobre su documento (`parchear`) y rehace solo esas celdas
+  (`Mundo.actualizarMundo`: `Obras.actualizar`, las colisiones, el culling y el terreno de esas celdas).
+  Con assets cambiados, un grupo que pasa de suelto a instanciado o más de 64 celdas, se monta entero
+  (sin volver a bajar nada). `docs/medir_recarga.py` lo mide y comprueba que da la misma escena que
+  montar entero: en el mundo de serie, 2,5 ms y 1,2 KB por una celda frente a 16 ms y 28 KB; en uno de
+  60 000 objetos, ~30 ms y 2,7 KB frente a ~245 ms y 700 KB.
 
 ## Fases
 
