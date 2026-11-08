@@ -187,3 +187,24 @@ async def test_el_gesto_avisa_al_empezar_con_quien_hay_cerca_y_no_mas_de_uno_por
         assert hits == [(4, [20]), (5, [20])]
     finally:
         await salas.close()
+
+
+async def test_un_aviso_de_cerca_llega_a_quien_esta_cerca_y_no_a_quien_esta_lejos(
+    salas: Salas,
+) -> None:
+    ana, bea, eva = FakeClient(), FakeClient(), FakeClient()
+    tira = await salas.join(1, 10, "Ana", ana)
+    cerca = await salas.join(1, 20, "Bea", bea)
+    lejos = await salas.join(1, 30, "Eva", eva)
+    for client in (ana, bea, eva):
+        client.texts.clear()
+    around = sala.SPIN_SEEN_DM
+    # Sin pose de quien tira no se sabe dónde ocurre: no llega a nadie.
+    await salas.announce(1, {"t": "traga"}, skip_user=10, around_dm=around)
+    assert ana.texts == bea.texts == eva.texts == []
+    salas.pose(1, tira, pose(x=0, z=0))
+    salas.pose(1, cerca, pose(x=around, z=0))
+    salas.pose(1, lejos, pose(x=around, z=1))
+    await salas.announce(1, {"t": "traga"}, skip_user=10, around_dm=around)
+    assert bea.texts == [{"t": "traga"}]
+    assert ana.texts == eva.texts == []

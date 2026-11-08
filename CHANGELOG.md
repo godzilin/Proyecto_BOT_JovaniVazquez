@@ -8,6 +8,11 @@ criterio.
 
 ## 10.x
 
+### 10.9.1 · 2026-11-08
+
+- Jovaniverso: la tirada de una tragaperras solo se manda a quien está a 60 m o menos de quien juega (antes, a toda la isla), y la sala ya no comprime cada mensaje una vez por jugador
+- Interno: una prueba pasa `tsc` al TypeScript del Jovaniverso antes de desplegar, para que un error de tipos no deje al NAS sin actualizar
+
 ### 10.9.0 · 2026-11-07
 
 - Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo
