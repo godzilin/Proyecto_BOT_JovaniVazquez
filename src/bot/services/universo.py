@@ -275,6 +275,14 @@ MAX_SPEED = 12
 MAX_JUMPS_PER_SECOND = 2
 #: Deslizamientos por segundo que se aceptan: el impulso se recarga en un segundo.
 MAX_SLIDES_PER_SECOND = 1
+#: Trucos de piloto (`universo/src/mundo/jugador.ts`) que se aceptan por segundo: correr
+#: por una pared o saltar de ella no baja de medio segundo, el doble salto se recarga en
+#: el suelo o en una pared y el gancho tarda 3 s en volver.
+TRICKS_PER_SECOND = {"wallruns": 2, "walljumps": 2, "doublejumps": 2, "grapples": 0.5}
+#: Lo más rápido que se va encadenando impulsos, en m/s (`VEL_MAX` de la página).
+TOP_SPEED = 20
+#: Paredes seguidas sin tocar el suelo que da tiempo a encadenar por segundo.
+MAX_CHAIN_PER_SECOND = 2
 
 
 #: Teleportes por segundo que se aceptan en un informe: el menú tarda más en abrirse.
@@ -289,11 +297,35 @@ def teleport_report(body: dict[str, object], elapsed: float) -> int:
     return min(value, int(max(elapsed, 0.0) * MAX_TELEPORTS_PER_SECOND))
 
 
-def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, int, list[str]]:
-    """Lo que cuenta de un informe de paseo: metros, saltos, deslizamientos y lugares.
+@dataclass(frozen=True)
+class Walk:
+    """Un informe de paseo ya recortado (`walk_report`).
 
-    La página no es de fiar: los metros, saltos y deslizamientos se recortan a lo que da tiempo a
-    hacer en `elapsed` segundos (desde el informe anterior) y los lugares se filtran.
+    Attributes:
+        meters: Metros recorridos.
+        jumps: Saltos desde el suelo.
+        slides: Deslizamientos.
+        places: Lugares pisados (claves de `PLACES`), sin repetir.
+        tricks: Trucos de piloto por nombre de `TRICKS_PER_SECOND`, solo los que hay.
+        speed: La mayor velocidad en horizontal, en m/s.
+        chain: Lo más largo encadenando paredes sin tocar el suelo.
+    """
+
+    meters: int
+    jumps: int
+    slides: int
+    places: list[str]
+    tricks: dict[str, int]
+    speed: int
+    chain: int
+
+
+def walk_report(body: dict[str, object], elapsed: float) -> Walk:
+    """Lo que cuenta de un informe de paseo: metros, saltos, deslizamientos, lugares y trucos.
+
+    La página no es de fiar: los contadores se recortan a lo que da tiempo a hacer en
+    `elapsed` segundos (desde el informe anterior), la velocidad a la más alta posible y
+    los lugares se filtran.
     """
 
     def count(value: object, limit: float) -> int:
@@ -306,11 +338,19 @@ def walk_report(body: dict[str, object], elapsed: float) -> tuple[int, int, int,
     seen = []
     if isinstance(places, list):
         seen = sorted({place for place in places if isinstance(place, str) and place in PLACES})
-    return (
-        count(body.get("meters"), seconds * MAX_SPEED),
-        count(body.get("jumps"), seconds * MAX_JUMPS_PER_SECOND),
-        count(body.get("slides"), seconds * MAX_SLIDES_PER_SECOND),
-        seen,
+    tricks = {
+        name: n
+        for name, per_second in TRICKS_PER_SECOND.items()
+        if (n := count(body.get(name), seconds * per_second)) > 0
+    }
+    return Walk(
+        meters=count(body.get("meters"), seconds * MAX_SPEED),
+        jumps=count(body.get("jumps"), seconds * MAX_JUMPS_PER_SECOND),
+        slides=count(body.get("slides"), seconds * MAX_SLIDES_PER_SECOND),
+        places=seen,
+        tricks=tricks,
+        speed=count(body.get("speed"), TOP_SPEED),
+        chain=count(body.get("chain"), seconds * MAX_CHAIN_PER_SECOND),
     )
 
 

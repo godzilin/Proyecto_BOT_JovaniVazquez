@@ -8,6 +8,15 @@ criterio.
 
 ## 10.x
 
+### 10.10.0 · 2026-11-08
+
+- Jovaniverso: movimiento de piloto. Saltando junto a una pared y yendo en paralelo se corre por ella; saltar ahí te lanza a la siguiente
+- Jovaniverso: doble salto en el aire, que se recarga en el suelo o en una pared
+- Jovaniverso: gancho con la Q (o el botón 🪝 en el móvil) que tira de ti hacia donde miras; vuelve a los 3 s
+- Jovaniverso: se llega a 20 m/s (antes, 15); la cámara se ladea en la pared y el campo de visión se abre con la velocidad
+- Jovaniverso: un muro fino o un escalón de más de medio metro ya no se sube andando (hay que saltar)
+- Logros de correr por las paredes, saltar de ellas, dobles saltos, ganchos, velocidad y paredes seguidas sin tocar el suelo
+
 ### 10.9.0 · 2026-11-07
 
 - Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo
