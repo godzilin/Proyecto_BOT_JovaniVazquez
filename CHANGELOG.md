@@ -8,10 +8,15 @@ criterio.
 
 ## 10.x
 
-### 10.10.3 · 2026-11-08
+### 10.10.4 · 2026-11-08
 
 - Jovaniverso: al publicar un cambio, cada página baja solo las celdas que cambiaron y rehace solo esas (antes, el mundo entero a la vez para todos)
 - Jovaniverso: el editor solo convierte y compara los trozos que toca cada cambio, también al deshacer, rehacer y guardar (antes, el mundo entero en cada clic)
+
+### 10.10.3 · 2026-11-08
+
+- Jovaniverso: los modelos que importa el editor se guardan como archivos y no dentro de la base de datos del dinero. Caben 200 MB entre todos y los que no usa ningún mundo se borran solos al día
+- Interno: al arrancar, los modelos que ya había en la base pasan a archivos, una sola vez
 
 ### 10.10.2 · 2026-11-08
 
