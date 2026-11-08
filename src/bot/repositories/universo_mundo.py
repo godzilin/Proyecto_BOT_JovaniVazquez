@@ -13,16 +13,22 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
   se borró).
 - `universo_mundo_publicaciones`: una fila por publicación. Solo se guardan las
   `KEEP_VERSIONS` últimas; al podar, cada clave conserva la fila en la que se apoyan.
-- `universo_glb`: los modelos GLB importados, por el SHA-256 de su contenido y comunes
-  a todos los servidores.
+- `universo_glb`: las fichas de los modelos GLB importados (SHA-256 de su contenido,
+  triángulos, autor, fecha y tamaño), comunes a todos los servidores. Los bytes van en
+  archivos, `<carpeta de la base>/universo_glb/<sha256>.glb` (en Docker, el volumen `.data`):
+  así no engordan la base del dinero, sus copias ni el WAL. La columna `data` se queda vacía.
+  Caben `MAX_GLB_TOTAL` bytes entre todos, y los que no usa ningún trozo del borrador ni de
+  las versiones que se conservan se borran al día de subirse (`prune_glb`).
 - `universo_permisos`: quién tiene cada permiso del Jovaniverso (`editor`, `devtools`)
   en cada servidor y quién se lo dio. Los desarrolladores no salen aquí: los tienen
   todos siempre (`bot.cogs.universo.DEVS`).
 
-- `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. El único
+- `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. Uno
   es `casino`: los mundos guardados o publicados antes de que las tragaperras fueran objetos
   del editor reciben el casino de la plaza (`bot.services.universo_editor.add_casino`), en el
-  borrador y en una publicación nueva del bot (`author_id` 0).
+  borrador y en una publicación nueva del bot (`author_id` 0). La otra, `glb_disco` (con
+  `guild_id` 0, porque los GLB son de todos), saca a archivos los GLB que se guardaban en la
+  base.
 
 Las tablas del formato 1 (`universo_mundo_borrador` y `universo_mundo_versiones`, un
 documento entero por fila) se parten en trozos al arrancar, una sola vez, y se quedan como
@@ -35,20 +41,33 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 import sqlite3
+import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 
 from bot.repositories import sqlite
-from bot.services.universo_editor import add_casino
+from bot.services.universo_editor import add_casino, glb_refs
 
 T = TypeVar("T")
 
 #: Versiones publicadas que se conservan de cada servidor.
 KEEP_VERSIONS = 50
+
+#: Lo que pueden ocupar en disco todos los GLB juntos. Cada uno pesa hasta 1 MB y un mundo
+#: bien decorado usa unas decenas: caben unos 200 modelos grandes, de sobra para los mundos de
+#: todos los servidores, y en el peor caso son 200 MB más en el volumen y en cada copia.
+MAX_GLB_TOTAL = 200 * 1024 * 1024
+
+#: Un GLB sin usar se borra pasado este tiempo: da margen a quien lo sube y aún no ha guardado.
+GLB_GRACE = timedelta(days=1)
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def _now() -> str:
@@ -57,6 +76,10 @@ def _now() -> str:
 
 class Conflict(Exception):
     """Algún trozo ya no tiene el `rev` que creía quien guarda; no se ha guardado nada."""
+
+
+class GlbFull(Exception):
+    """El GLB no cabe: los guardados ya suman `MAX_GLB_TOTAL`; no se ha guardado."""
 
 
 class MissingAssets(Exception):
@@ -109,6 +132,7 @@ class UniversoMundoRepository:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
+        self.glb_dir = database_path.parent / "universo_glb"
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite.connect(self.database_path)
@@ -184,10 +208,16 @@ class UniversoMundoRepository:
                     data BLOB NOT NULL,
                     triangles INTEGER NOT NULL,
                     author_id INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    bytes INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            columns = {r[1] for r in connection.execute("PRAGMA table_info(universo_glb)")}
+            if "bytes" not in columns:
+                connection.execute(
+                    "ALTER TABLE universo_glb ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS universo_migraciones (
@@ -223,6 +253,57 @@ class UniversoMundoRepository:
         if old:
             self._transaction(lambda c: _migrate_v1(c, old))
         self._transaction(_migrate_casino)
+        self._migrate_glb_sync()
+        self._prune_glb_sync()
+
+    def _migrate_glb_sync(self) -> None:
+        """Saca a archivos los GLB que se guardaban en la base y vacía su columna, una vez.
+
+        De uno en uno: el archivo queda escrito (y en disco) antes de vaciar su fila, así que si
+        se corta a medias, lo que falte se saca en el siguiente arranque y no se pierde nada.
+        """
+        connection = self._connect()
+        try:
+            if connection.execute(
+                "SELECT 1 FROM universo_migraciones WHERE guild_id = 0 AND nombre = 'glb_disco'"
+            ).fetchone():
+                return
+            pending = [
+                r[0]
+                for r in connection.execute(
+                    "SELECT sha256 FROM universo_glb WHERE length(data) > 0"
+                )
+            ]
+        finally:
+            connection.close()
+        for sha in pending:
+            data = self._blob(sha)
+            if data is None:
+                continue
+            _write_file(self.glb_path(sha), data)
+            size = len(data)
+            self._transaction(
+                lambda c, sha=sha, size=size: c.execute(
+                    "UPDATE universo_glb SET data = x'', bytes = ? WHERE sha256 = ?", (size, sha)
+                )
+            )
+        self._transaction(
+            lambda c: c.execute(
+                "INSERT OR IGNORE INTO universo_migraciones (guild_id, nombre) "
+                "VALUES (0, 'glb_disco')"
+            )
+        )
+
+    def _blob(self, sha: str) -> bytes | None:
+        """Los bytes de un GLB que aún está dentro de la base (solo para migrarlo)."""
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT data FROM universo_glb WHERE sha256 = ? AND length(data) > 0", (sha,)
+            ).fetchone()
+        finally:
+            connection.close()
+        return bytes(row[0]) if row else None
 
     async def permissions(self, guild_id: int, user_id: int) -> set[str]:
         """Los permisos que tiene un miembro en un servidor."""
@@ -465,35 +546,101 @@ class UniversoMundoRepository:
 
         return self._transaction(work)
 
+    def glb_path(self, sha256: str) -> Path:
+        """Dónde va el archivo de un GLB; no mira el disco.
+
+        Raises:
+            ValueError: Si `sha256` no son 64 cifras hexadecimales (acaba en una ruta).
+        """
+        if not _SHA256.fullmatch(sha256):
+            raise ValueError(f"SHA-256 no válido: {sha256!r}")
+        return self.glb_dir / f"{sha256}.glb"
+
     async def put_glb(self, sha256: str, data: bytes, triangles: int, author_id: int) -> None:
-        """Guarda un GLB por su SHA-256; si ya estaba, no hace nada."""
+        """Guarda un GLB por su SHA-256; si ya estaba, solo le renueva la fecha.
+
+        La fecha nueva le da otro `GLB_GRACE` antes de que `prune_glb` lo borre si nadie lo usa.
+
+        Raises:
+            GlbFull: Si es nuevo y no cabe en `MAX_GLB_TOTAL`.
+        """
         await self._run(self._put_glb_sync, sha256, data, triangles, author_id)
 
     def _put_glb_sync(self, sha256: str, data: bytes, triangles: int, author_id: int) -> None:
-        connection = self._connect()
-        try:
-            with connection:
-                connection.execute(
-                    "INSERT OR IGNORE INTO universo_glb "
-                    "(sha256, data, triangles, author_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (sha256, data, triangles, author_id, _now()),
-                )
-        finally:
-            connection.close()
+        path = self.glb_path(sha256)
+        # Se escribe (y se lleva al disco) fuera de la transacción; dentro solo se coloca, para
+        # que `prune_glb`, que borra archivos dentro de la suya, nunca se cruce con una subida.
+        temporary = _write_temporary(path.parent, data)
 
-    async def glb(self, sha256: str) -> bytes | None:
-        """Los bytes de un GLB, si está guardado."""
-        return await self._run(self._glb_sync, sha256)
-
-    def _glb_sync(self, sha256: str) -> bytes | None:
-        connection = self._connect()
-        try:
-            row = connection.execute(
-                "SELECT data FROM universo_glb WHERE sha256 = ?", (sha256,)
+        def work(connection: sqlite3.Connection) -> None:
+            known = connection.execute(
+                "SELECT 1 FROM universo_glb WHERE sha256 = ?", (sha256,)
             ).fetchone()
+            if known:
+                connection.execute(
+                    "UPDATE universo_glb SET created_at = ? WHERE sha256 = ?", (_now(), sha256)
+                )
+                if path.is_file():
+                    return
+            else:
+                total = connection.execute("SELECT SUM(bytes) FROM universo_glb").fetchone()[0]
+                if (total or 0) + len(data) > MAX_GLB_TOTAL:
+                    raise GlbFull
+                connection.execute(
+                    "INSERT INTO universo_glb "
+                    "(sha256, data, triangles, author_id, created_at, bytes) "
+                    "VALUES (?, x'', ?, ?, ?, ?)",
+                    (sha256, triangles, author_id, _now(), len(data)),
+                )
+            os.replace(temporary, path)
+
+        try:
+            self._transaction(work)
         finally:
-            connection.close()
-        return bytes(row["data"]) if row else None
+            temporary.unlink(missing_ok=True)
+
+    async def prune_glb(self) -> int:
+        """Borra los GLB que no usa nadie y tienen más de `GLB_GRACE`; devuelve cuántos.
+
+        Usar es salir en un asset del borrador o de lo publicado que se conserva
+        (`KEEP_VERSIONS`), en cualquier servidor. También se lleva los archivos sin ficha
+        (temporales de una subida cortada) igual de viejos.
+        """
+        return await self._run(self._prune_glb_sync)
+
+    def _prune_glb_sync(self) -> int:
+        cutoff = datetime.now(UTC) - GLB_GRACE
+
+        def work(connection: sqlite3.Connection) -> int:
+            used: set[str] = set()
+            for table in ("universo_trozos_borrador", "universo_trozos_publicados"):
+                for r in connection.execute(
+                    f"SELECT doc FROM {table} WHERE clave LIKE 'a/%' AND doc != ''"  # noqa: S608
+                ):
+                    used |= glb_refs({"a": json.loads(r["doc"])})
+            old = [
+                r["sha256"]
+                for r in connection.execute(
+                    "SELECT sha256 FROM universo_glb WHERE created_at < ?",
+                    (cutoff.isoformat(timespec="seconds"),),
+                )
+                if r["sha256"] not in used
+            ]
+            for sha in old:
+                connection.execute("DELETE FROM universo_glb WHERE sha256 = ?", (sha,))
+                self.glb_path(sha).unlink(missing_ok=True)
+            known = {r[0] for r in connection.execute("SELECT sha256 FROM universo_glb")}
+            if self.glb_dir.is_dir():
+                for path in self.glb_dir.iterdir():
+                    if (
+                        path.is_file()
+                        and path.stem not in known
+                        and path.stat().st_mtime < cutoff.timestamp()
+                    ):
+                        path.unlink(missing_ok=True)
+            return len(old)
+
+        return self._transaction(work)
 
     async def glb_triangles(self, shas: set[str]) -> dict[str, int]:
         """Triángulos de los GLB guardados entre `shas` (los que no están no salen)."""
@@ -512,6 +659,30 @@ class UniversoMundoRepository:
         finally:
             connection.close()
         return {r["sha256"]: int(r["triangles"]) for r in rows}
+
+
+def _write_temporary(directory: Path, data: bytes) -> Path:
+    """Escribe `data` en un temporal de `directory`, ya en disco (`fsync`), y lo devuelve."""
+    directory.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".glb")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return Path(name)
+
+
+def _write_file(path: Path, data: bytes) -> None:
+    """Escribe un archivo de forma atómica: entero o nada, nunca a medias."""
+    temporary = _write_temporary(path.parent, data)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _check_refs(connection: sqlite3.Connection, guild_id: int, table: str, max_assets: int) -> None:

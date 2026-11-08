@@ -17,6 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from test_universo_bot import GUILD_ID, USER_ID, World, fake_discord, load, member
 
 from bot.cogs.universo import MAX_EDITOR_BYTES, MUNDO_CACHE
+from bot.repositories import universo_mundo as mundo_repo
 from bot.services.universo_editor import FORMAT
 
 ADMIN = USER_ID
@@ -267,6 +268,18 @@ async def test_un_glb_se_sube_y_se_baja_por_su_contenido(world: World) -> None:
     status, error = await save(world, {"a/modelo": {**modelo, "glb": "f" * 64}}, {"a/modelo": 1})
     assert status == 400
     assert "no se ha subido" in error["error"]
+
+
+async def test_un_glb_que_no_cabe_da_un_error_claro(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mundo_repo, "MAX_GLB_TOTAL", len(glb(1)))
+    query = {"guild_id": str(GUILD_ID)}
+    first = await world.web.post("/api/editor/glb", params=query, data=glb(1), headers=auth(world))
+    assert first.status == 200
+    full = await world.web.post("/api/editor/glb", params=query, data=glb(2), headers=auth(world))
+    assert full.status == 507
+    assert "No caben más modelos" in (await full.json())["error"]
 
 
 @pytest.mark.parametrize(

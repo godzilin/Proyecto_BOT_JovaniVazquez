@@ -42,7 +42,8 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   Con `v` igual a la versión publicada (`mundo` de `/api/entrar`) el navegador lo guarda
   para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché.
 - `GET /api/glb/{sha}`: un modelo GLB por el SHA-256 de su contenido, sin sesión (es
-  contenido que no cambia: `immutable`).
+  contenido que no cambia: `immutable`). Sale tal cual de su archivo (`glb_path`), sin pasar
+  por la base.
 - `POST /api/traga` `{guild_id, channel_id, machine, stake, auto}`, con la sesión:
   una tirada en una tragaperras de la plaza (`bot.cogs.slots.plaza`, el mismo dinero,
   calor por máquina, logros y anuncios que `tragas`). Devuelve los fotogramas de la
@@ -105,7 +106,8 @@ guarda las puertas. Sin bromas ni logros.
 - `GET /api/editor/versiones` -> `{versiones: [{version, autor, fecha, kb}]}`.
 - `POST /api/editor/volver` `{guild_id, version}` -> `{}`: pone una versión vieja como
   borrador (la página recarga el borrador después).
-- `POST /api/editor/glb` (cuerpo `octet-stream`) -> `{sha256, triangles}`: sube un modelo.
+- `POST /api/editor/glb` (cuerpo `octet-stream`) -> `{sha256, triangles}`: sube un modelo
+  (507 si ya no cabe: `MAX_GLB_TOTAL`).
 
 La página no decide nada: todo lo que enseña sale de aquí, y el dinero (las tragaperras
 de la plaza) se decide aquí con `EconomyService`, nunca en el navegador.
@@ -146,7 +148,7 @@ from bot.cogs import lottery as loteria
 from bot.cogs import poker
 from bot.cogs import shop as tienda
 from bot.cogs import slots as tragas
-from bot.repositories.universo_mundo import Change, Conflict, MissingAssets
+from bot.repositories.universo_mundo import MAX_GLB_TOTAL, Change, Conflict, GlbFull, MissingAssets
 from bot.services.achievements import (
     StatDelta,
     universo_gesture_stats,
@@ -801,6 +803,11 @@ class Universo(commands.Cog, name="Universo"):
         self.bot.telemetry.count("universo", "publicar", guild_id=guild.id, user_id=member.id)
         self.salas.set_places(guild.id, await self.places(guild.id))
         await self.salas.announce(guild.id, {"t": "mundo", "version": version})
+        # Publicar poda versiones viejas: los GLB que solo usaban ellas ya sobran.
+        try:
+            await repo.prune_glb()
+        except Exception:
+            logger.exception("No se han podido borrar los GLB sin usar")
         return version
 
     async def world_versions(self, guild: discord.Guild) -> list[dict[str, Any]]:
@@ -835,13 +842,22 @@ class Universo(commands.Cog, name="Universo"):
         """Comprueba y guarda un GLB; devuelve su resumen (`sha256`) y triángulos.
 
         Raises:
-            UniversoError: 400 si no es un GLB válido.
+            UniversoError: 400 si no es un GLB válido, 507 si ya no caben más.
         """
         try:
             summary = await asyncio.to_thread(glb_summary, data)
         except MundoError as error:
             raise UniversoError(str(error)) from error
-        await self.bot.universo_mundo.put_glb(summary.sha256, data, summary.triangles, member.id)
+        try:
+            await self.bot.universo_mundo.put_glb(
+                summary.sha256, data, summary.triangles, member.id
+            )
+        except GlbFull as error:
+            raise UniversoError(
+                f"No caben más modelos: entre todos ya ocupan {MAX_GLB_TOTAL // 2**20} MB. "
+                "Quita del mundo los que no uses y publica; se liberan al día siguiente.",
+                507,
+            ) from error
         return {"sha256": summary.sha256, "triangles": summary.triangles}
 
     async def players(self, session: str | None, query: dict[str, Any]) -> dict[str, Any]:
@@ -1278,13 +1294,18 @@ def _world_text(version: int, pieces: str) -> str:
 async def _glb(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     sha = request.match_info["sha"]
-    data = await cog.bot.universo_mundo.glb(sha) if _SHA256.fullmatch(sha) else None
-    if data is None:
+    if not _SHA256.fullmatch(sha):
         raise web.HTTPNotFound
-    return web.Response(
-        body=data,
-        content_type="model/gltf-binary",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    path = cog.bot.universo_mundo.glb_path(sha)
+    # Se mira antes, fuera del bucle: el 404 de `FileResponse` saldría con la caché `immutable`.
+    if not await asyncio.to_thread(path.is_file):
+        raise web.HTTPNotFound
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "model/gltf-binary",
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
     )
 
 
