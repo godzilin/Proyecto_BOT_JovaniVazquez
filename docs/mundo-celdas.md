@@ -30,12 +30,11 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 - 80 m porque la isla esculpible (320 m centrados en 0) son justo 4 × 4 celdas, de la −2 a la 1.
   Las celdas de dibujo de `obras.ts` siguen con sus medidas (128 m las construcciones, 96 m lo
   instanciado); el suelo sí va por celdas de 80 m.
-- Por ahora, las celdas llegan como mucho a ±`CELL_LIMIT` = 40 (±3,2 km), porque la red manda
-  las posiciones en decímetros con `int16`, y el jugador no sale de `BORDE` (`mundo/borde.ts`). Los
-  dos los sube la fase 3; nada de la carga por cercanía depende de su valor. La altura sigue de
-  −20 a 120 m.
+- Las celdas llegan como mucho a ±`CELL_LIMIT` = 500 (±40 km, un cuadrado de 80 km: `universo_editor.py`
+  y `LIMITE_CELDAS` de `mundo/borde.ts`, que vigila `test_universo_borde_ts.py`), lo que acepta la
+  sala (fase 3). Los objetos del editor siguen de −20 a 120 m de altura y el terreno, en cm con `int16`.
 
-**Sin tope del mundo entero (10.11.0).** La 10.10.7 puso uno de 8 MB porque la página lo bajaba y
+**Sin tope del mundo entero (10.12.0).** La 10.10.7 puso uno de 8 MB porque la página lo bajaba y
 lo montaba todo y el bot lo guardaba entero en memoria; con la carga por cercanía (fase 2) ya no
 hace falta y se quitó, con el de 2000 assets (`MAX_ASSETS`). Lo que queda son topes de cordura
 contra abusos, por trozo o por petición: 1 MB y 4000 objetos por trozo (`MAX_PIECE_BYTES`,
@@ -151,15 +150,89 @@ borrador tendría que saber qué celdas existen sin tenerlas (para no pisar una 
 bajar las que entren en vista. Hasta entonces, un mundo muy grande pesa al abrir el editor (no al
 jugar). El pincel de terreno sigue esculpiendo solo la isla de 320 m (`alturas` de `terreno.ts`).
 
+## La red (fase 3)
+
+La sala (`bot.services.universo_sala`, con el protocolo en su docstring) pasa de ±300 m a las
+celdas del editor (±40 km) y de 200 m a 4000 m de altura, y cada jugador recibe solo a los que
+tiene cerca.
+
+**Coordenadas.** La página manda su pose absoluta (`i32 x, u16 y, i32 z`, en dm; la altura, desde
+−50 m) y la sala manda las de los demás **relativas a su región**: grupos `i16 rx, i16 rz, u8 n`
+seguidos de `n` poses de 9 bytes con `i16` desde la esquina de la región. Así cada jugador sigue
+pesando 9 bytes (lo mismo que con `int16` absoluto) y 1 dm de precisión en cualquier punto, y la
+región cuesta 5 bytes por grupo. Medido en bytes por tick y por cliente con 50 jugadores:
+
+| Con 50 jugadores | Bytes por tick | KB/s por cliente |
+|---|---|---|
+| Antes (`int16` absoluto, todos a todos) | 2 + 50 · 9 = 452 | 4,1 |
+| `int32` absoluto, todos a todos | 2 + 50 · 13 = 652 (+44 %) | ~6 (calculado) |
+| Por región, todos en la plaza (una región) | 1 + 5 + 50 · 9 = 456 | 4,2 |
+| Por región, repartidos en 600 m | ~210 | 2,1 |
+| Por región, repartidos en 20 × 20 km | casi nada | 0,0 |
+
+**Interés por cercanía.** Las regiones miden `REGION_DM` = 160 m (dos celdas) y cada uno ve las
+3 × 3 de alrededor de la suya; la región cambia al salirse de ella más de `HYSTERESIS_DM` = 10 m,
+así que se ve seguro a quien esté a menos de 140 m y, como mucho, a unos 330 m. La página no
+dibuja más que los 12 más cercanos y no pone nombre a más de 60 m, y la niebla se come lo que está
+a 300 m. Codificar una vez sigue valiendo: cada región con cambios se codifica una vez por tick
+(solo si alguien que no es quien se mueve la va a recibir) y quienes están en la misma región
+reciben el mismo objeto `bytes`. A quien está solo no se le manda su propia pose.
+
+- **Entrar o acercarse:** al cambiar de región (también al llegar o con un teleporte), al entrar y
+  tras saltarse ticks por ir atrasado, uno recibe un mensaje de tipo 3 con todos los de sus 9
+  regiones, quietos o no. Quien no viene en él deja de dibujarse.
+- **Alejarse:** a quien veía a alguien que se sale de su vista se le manda `{t: "lejos", slots}`.
+  La página vacía su estela (deja de dibujarlo) pero lo sigue teniendo: `entra`, `sale` y el menú
+  de jugadores (`/api/jugadores`) siguen siendo de toda la sala.
+- Los gestos (`near`), las tiradas cercanas (`announce(around_dm=...)`), el paseo y el descarte
+  de poses imposibles miran las posiciones absolutas, como antes.
+
+**Versión del protocolo.** El saludo lleva `v: 2` (`PROTOCOL`). Una página abierta desde antes
+del despliegue no lo manda: la sala le contesta `{t: "error"}` pidiendo que recargue y la página
+vieja no reintenta. Su pose de 9 bytes y su tipo 1 tampoco valdrían (la sala los descarta).
+
+**El borde** (`mundo/borde.ts`): es la caja de las celdas del mundo publicado (las claves
+`c/<cx>/<cz>`) más 140 m de mar, nunca menos que la isla de serie (±300 m) ni más que las celdas
+del editor. `fijarBorde` lo pone al bajar el mundo y lo amplía con los trozos cambiados de una
+publicación (una celda borrada no lo encoge hasta recargar). Con la carga por cercanía (fase 2),
+se llama con las claves del índice. El editor no se limita con el borde, que solo crece al
+publicar, sino con `LIMITE`.
+
+**Cuánto cabe en una sala.** Medido con `docs/sala_local.py --medir N [--repartir lado]` (clientes
+falsos de verdad por WebSocket en otro proceso, servidor atado a 4 hilos, 15 s), alternando el
+código de antes y el de ahora en la misma tanda:
+
+| Jugadores (8/11/2026, PC a 4 hilos, dos rondas) | CPU (% de un hilo) | Tick medio (ms) | KB/s por cliente |
+|---|---|---|---|
+| Antes: 50 en la plaza | 2,8-3,3 | 1,0-1,2 | 4,1 |
+| Ahora: 50 en la plaza | 2,7-3,1 | 1,0-1,4 | 4,2 |
+| Antes: 50 repartidos en 600 m | 3,0-4,1 | 1,0-1,3 | 4,0 |
+| Ahora: 50 repartidos en 600 m | 2,8-4,2 | 1,1-1,5 | 2,1 |
+| Ahora: 50 repartidos en 20 × 20 km | 2,0-2,1 | 0,3 | 0,0 |
+| Ahora: 100 repartidos en 20 × 20 km | 3,8-4,0 | 0,8 | 0,0 |
+| Ahora: 100 en la plaza | 5,3-5,8 | 2,0 | 8,2 |
+
+Lo que gasta la sala con mucha gente ya no son los envíos sino recibir las poses: 10 por segundo
+de cada uno, que crecen con cada jugador esté donde esté. El interés por cercanía quita los bytes y
+los envíos cuando la gente está repartida, pero todos juntos en la plaza siguen viéndose todos
+(cada uno, 9 bytes a todos los demás 10 veces por segundo). `MAX_PLAYERS` se queda en 50:
+con 100, ni repartidos por todo el mundo se gasta lo mismo que 50 antes (un 25 % más), y todos
+juntos gastan casi el doble y suben 0,8 MB/s por el túnel. Subirlo pide recibir menos (por
+ejemplo, poses a menos ritmo de quien no se mueve), no repartir mejor.
+
+Lo que queda para la página en un mundo de decenas de km (fase 2): las mallas fundidas guardan
+los vértices en coordenadas del mundo con `float32`, que a 40 km tiene 4 mm de paso; si se nota
+temblor lejos del centro, cada celda se dibuja desde su esquina.
+
 ## Fases
 
 1. **Trozos en el almacenamiento, el editor y la descarga** (hecha, 10.5.0). Los datos quedan ya con su
    forma final; lo que se publique desde ahora no hay que migrarlo otra vez.
-2. **La página carga por cercanía** (hecha, 10.11.0): índice, celdas alrededor de la cámara,
+2. **La página carga por cercanía** (hecha, 10.12.0): índice, celdas alrededor de la cámara,
    assets bajo demanda, suelo por celdas con horizonte, sin tope del mundo. Falta el editor por
    celdas (ver «Rutas») y que el pincel esculpa fuera de la isla.
-3. **Red:** posiciones relativas a la celda (o `int32`) para pasar de ±3,2 km, y que cada jugador
-   reciba solo a los que tiene cerca. Más altura (el Teide).
+3. **Red** (10.11.0, «La red (fase 3)» arriba): posiciones relativas a la región, interés por
+   cercanía, el borde del mundo publicado y altura hasta 4000 m.
 4. **Interiores y estado de cada jugador:** los interiores como trozos propios que se cargan al
    acercarse a la puerta. Lo que cambia jugando (muebles de tu piso, reparaciones, estanterías del
    Ultramarino) va en sus tablas, nunca en el documento del mundo.

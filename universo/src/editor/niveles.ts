@@ -29,7 +29,7 @@ import { zonasDeSerie } from "../mundo/lugares";
 import { teleportesDeSerie } from "../mundo/teleportes";
 import { matriz } from "../mundo/obras";
 import { PRUEBAS } from "../mundo/modo";
-import { BORDE } from "../mundo/borde";
+import { LIMITE } from "../mundo/borde";
 import { PLAZA, sueloEn } from "../mundo/terreno";
 import { ArrastreGrupo, Recuadro, Seleccion as Conjunto } from "./grupo";
 import { PincelTerreno } from "./pincel";
@@ -47,8 +47,8 @@ const MAX_TRIANGULOS = 250_000;
 // Sin tope de objetos del mundo: el servidor pone uno por celda (`MAX_CELL_OBJECTS`) y avisa al guardar.
 /** Cada objeto elegido se pinta suelto (una llamada de dibujo): no se eligen más a la vez. */
 const TOPE_SEL = 300;
-/** Hasta dónde se puede colocar: el borde del mundo, el mismo que no deja pasar al jugador. */
-const MITAD = BORDE;
+/** Hasta dónde se puede colocar: donde acaban las celdas del editor (`CELL_LIMIT`); el borde del jugador crece al publicar. */
+const MITAD = LIMITE;
 const MIN_Y = -20;
 const MAX_Y = 120;
 const MIN_ESC = 0.02;

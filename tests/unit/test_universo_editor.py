@@ -101,7 +101,7 @@ def test_el_mundo_vacio_vale() -> None:
     [
         ({"objetos": [{"asset": "nada", "pos": [0, 0, 0], "rot": [0, 0, 0], "esc": [1, 1, 1]}]},
          "no existe"),
-        ({"objetos": [{"asset": "farola", "pos": [9999, 0, 0], "rot": [0, 0, 0],
+        ({"objetos": [{"asset": "farola", "pos": [40001, 0, 0], "rot": [0, 0, 0],
                        "esc": [1, 1, 1]}]}, "fuera del mundo"),
         ({"objetos": [{"asset": "farola", "pos": [0, 0, 0], "rot": [0, 0, 0],
                        "esc": [0, 1, 1]}]}, "escala"),
@@ -348,8 +348,8 @@ def test_las_claves_de_los_trozos(key: str, esperado: tuple) -> None:
 @pytest.mark.parametrize(
     ("key", "texto"),
     [
-        ("c/40/0", "fuera del mundo"),
-        ("c/0/-41", "fuera del mundo"),
+        ("c/500/0", "fuera del mundo"),
+        ("c/0/-501", "fuera del mundo"),
         ("c/1.5/0", "clave"),
         ("a/Farola", "clave"),
         ("assets", "clave"),

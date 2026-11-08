@@ -436,7 +436,7 @@ async def test_un_lote_da_los_trozos_tal_cual_o_solo_el_resumen(world: World) ->
         "c/0/0@uno",
         "c/0/0@1,c/0/0@1",  # repetida
         "c/x/0@1",
-        "c/99/0@1",  # fuera del mundo
+        "c/999/0@1",  # fuera del mundo
         "mundo@1",
         "a/NO VALE@1",
         ",c/0/0@1",

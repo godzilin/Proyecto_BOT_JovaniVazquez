@@ -3,6 +3,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
+import { fijarBorde } from "./mundo/borde";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
@@ -133,12 +134,16 @@ let versionVista = 0;
 /** Tras el aviso de la sala, cada página espera al azar hasta esto antes de pedir: así no llegan todas al NAS a la vez. */
 const RETARDO_AVISO_MS = 3000;
 
-/** La fuente del mundo publicado (su índice), o `null` si no hay nada publicado o falla (entonces se queda el de serie). */
-function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number): Promise<Fuente | null> {
+/**
+ * La fuente del mundo publicado (su índice), o `null` si no hay nada publicado o falla (entonces se queda el de serie). El borde del
+ * mundo sale de las celdas del índice; con `ampliar` (otra publicación mientras se juega) solo crece.
+ */
+function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number, ampliar = false): Promise<Fuente | null> {
   if (!sesion.guildId) return Promise.resolve(null);
   return fuenteServidor({ session: sesion.session, guildId: sesion.guildId }, version).then(
     (f) => {
       versionVista = f?.indice.version ?? 0;
+      fijarBorde(f ? f.indice.trozos.keys() : [], ampliar);
       return f;
     },
     (e: unknown) => {
@@ -156,7 +161,7 @@ function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | 
   if (!sesion.guildId) return;
   window.setTimeout(() => {
     if (version && versionVista >= version) return; // ya llegó con otro aviso
-    void pedirMundo(sesion, version || undefined).then((f) => {
+    void pedirMundo(sesion, version || undefined, true).then((f) => {
       if (f) mundo.cargarPublicado(f);
     });
   }, Math.random() * espera);
@@ -167,6 +172,7 @@ async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: 
   try {
     const f = await fuenteServidor(sesion);
     versionVista = f?.indice.version ?? 0;
+    fijarBorde(f ? f.indice.trozos.keys() : []);
     if (f) mundo.cargarPublicado(f);
     else mundo.cargarSerie();
   } catch (e) {
