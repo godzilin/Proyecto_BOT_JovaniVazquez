@@ -70,7 +70,7 @@ que cambian, no una copia del mundo entero.
 En la página, el editor y el mundo siguen trabajando con el documento plano (`MundoDoc`): se parte
 en trozos al guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`.
 
-**Solo lo que cambia (10.10.3):**
+**Solo lo que cambia (10.10.4):**
 
 - **El editor** (`editor/borrador.ts`): cada `commit` dice lo que ha editado en su sitio (`Toca`: los
   objetos elegidos, el asset elegido, los objetos que siguen al suelo tras un trazo) y el borrador ve
