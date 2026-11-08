@@ -456,7 +456,8 @@ PLANS.gato = (c) => {
 // -- Plan perro -----------------------------------------------------------------------------
 // look: coat, muzzle, ears ("caidas" | "largas" | "pie" | "rosa" | "rizos"), earColor, saddle (silla
 // oscura), chest, blaze, mask (hocico oscuro), brindle (rayas), jowls (mofletes), head ("ancha"),
-// body ("largo": teckel), curly (caniche), tip (punta de la cola), ruff (pelo del pecho), snout.
+// body ("largo": teckel), curly (caniche), tip (punta de la cola), ruff (pelo del pecho), snout,
+// beard y brows (barba y cejas pobladas del schnauzer), ears "pico" (en V, dobladas hacia delante).
 PLANS.perro = (c) => {
   const L = c.look, coat = L.coat || "#c8935a", lightC = L.muzzle || light(coat, 0.55);
   const ears = L.ears || "caidas", earC = L.earColor || dark(coat, 0.22);
@@ -509,11 +510,15 @@ PLANS.perro = (c) => {
       if (ears === "caidas") blob(() => ell(hx + s * (hrx - 4), hy + 8, 25, 45, s * 0.28), earC);
       else if (ears === "largas") blob(() => ell(hx + s * (hrx + 2), hy + 26, 28, 60, s * 0.14), earC);
       else if (ears === "rosa") blob(() => ell(hx + s * 66, hy - 44, 27, 20, s * 0.55), earC);
+      else if (ears === "pico") blob(() => { g.moveTo(hx + s * 30, hy - 56); g.quadraticCurveTo(hx + s * 64, hy - 74, hx + s * 86, hy - 48); g.quadraticCurveTo(hx + s * 82, hy - 26, hx + s * 64, hy - 12); g.quadraticCurveTo(hx + s * 48, hy - 34, hx + s * 30, hy - 56); g.closePath(); }, earC);
     }
+    // barba del schnauzer: cuelga del hocico, con mechones abajo
+    if (L.beard) blob(() => { ell(hx, hy + 30, 40, 26); for (let i = -2; i <= 2; i++) ell(hx + i * 15, hy + 50 + (i % 2 ? 0 : 5), 11, 15); }, L.beard, { lw: 4 });
     if (L.jowls) for (const s of [-1, 1]) blob(() => ell(hx + s * 34, hy + 42, 19, 14), L.mask || lightC, { lw: 4 });
     cheeks(hx, hy + 24, 2 * (hrx - 12), 11);
     eyes(c, hx, hy - 4, wide ? 70 : 62, 12.5, { kind: "dulce", moodInk: lum(coat) < 0.25 ? "#f4eaf2" : INK });
-    if (L.face !== "serio" && (c.mood === "tranquila" || c.mood === "contenta")) brows(hx, hy - 24, wide ? 70 : 62, 20, -0.14, dark(coat, 0.4), 4);
+    if (L.brows) for (const s of [-1, 1]) blob(() => { ell(hx + s * 30, hy - 22, 24, 10, s * -0.22); ell(hx + s * 44, hy - 17, 12, 8, s * -0.4); }, L.brows, { lw: 3 });
+    else if (L.face !== "serio" && (c.mood === "tranquila" || c.mood === "contenta")) brows(hx, hy - 24, wide ? 70 : 62, 20, -0.14, dark(coat, 0.4), 4);
     // hocico
     g.beginPath(); ell(hx, hy + 10, 15, 11); g.fillStyle = "#3a2a3a"; g.fill();
     fillEll(hx - 5, hy + 7, 4.5, 2.8, "rgba(255,255,255,0.75)", -0.4);
@@ -1227,7 +1232,10 @@ function outfitAnchor(slot, placed) {
     const head = placed.head ? { dy: placed.head.y - placed.neck.y, w: placed.head.w } : null;
     return { x: placed.neck.x, y: placed.neck.y, w: placed.neck.w, head };
   }
-  if (slot === "cuerpo" && placed.body) return { x: placed.body.x, y: placed.body.y, w: placed.body.w, h: placed.body.h };
+  if (slot === "cuerpo" && placed.body) {
+    const head = placed.head ? { dx: placed.head.x - placed.body.x, dy: placed.head.y - placed.body.y, w: placed.head.w, a: tilt * DEG } : null;
+    return { x: placed.body.x, y: placed.body.y, w: placed.body.w, h: placed.body.h, head };
+  }
   return null;
 }
 function drawOutfit(slot, drawing, placed) {
@@ -1253,6 +1261,8 @@ function placeAnchors(A, plan, ox, gy, s, fx) {
 }
 function drawPet(pet, st, ox, gy, s, flip, lean) {
   const plan = PLANS[pet.plan] ? pet.plan : "gato";
+  // La talla de la raza (schnauzer mini o gigante), con topes para que no se salga del cuadro.
+  s *= Math.min(1.25, Math.max(0.6, Number((pet.look || {}).size) || 1));
   const dorm = st.mood === "dormida";
   const c = { look: pet.look || {}, mood: st.mood, dy: dorm ? 9 : 0, rot: dorm ? 0.12 : lean, seed: st.seed | 0, species: pet.species };
   const fx = flip ? -1 : 1;

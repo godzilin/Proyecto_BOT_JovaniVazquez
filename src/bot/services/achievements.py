@@ -11891,6 +11891,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          R, True),
         ("pedrusco", "pet_pedrusco", "Moda de 1975", "Adopta la piedra mascota.", C, True),
         ("presa", "pet_presa", "Corazón de pan", "Adopta un presa canario.", R, False),
+        ("schnauzer", "pet_schnauzer", "Barba de tres tallas", "Adopta un schnauzer.", R,
+         False),
         ("koi", "pet_koi", "Prosperidad de Mong Kok", "Adopta la carpa koi.", E, False),
         ("caballo", "pet_caballo", "Caballo en el salón",
          "Adopta el caballo de pura raza española.", E, False),
@@ -11911,6 +11913,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          ("canario", "bardino", "cabra", "presa")),
         ("pet_boricua", "Patio boricua", "Ten el coquí y el gallo de patio.", R,
          ("coqui", "gallo")),
+        ("pet_barbas", "Hipsters de cuatro patas",
+         "Ten el schnauzer y la cabra majorera a la vez.", R, ("schnauzer", "cabra")),
         ("pet_pijos", "Pijerío animal",
          "Ten el caniche de Serrano, el pavo real y el caballo de pura raza.", L,
          ("caniche", "pavo_real", "caballo")),
@@ -12074,6 +12078,14 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Ponle las gafas de pasta al pulpo adivino.", C, True),
         ("pet_dress_gato_parche", "pet_dress_gato_parche", "Gato con parche y sin botas",
          "Ponle el parche de pirata a un gato.", C, True),
+        ("pet_dress_tiburon", "pet_dress_tiburon", "Sharknado en el salón",
+         "Ponle el disfraz de tiburón a una mascota.", C, False),
+        ("pet_dress_papa", "pet_dress_papa", "Urbi et orbi desde el sofá",
+         "Ponle el disfraz de Papa a una mascota.", C, False),
+        ("pet_dress_papa_arrugada", "pet_dress_papa_arrugada", "Arrugada pero con mojo",
+         "Ponle el disfraz de papa arrugada a una mascota.", C, False),
+        ("pet_dress_schnauzer_papa", "pet_dress_schnauzer_papa", "Habemus schnauzer",
+         "Ponle el disfraz de Papa a un schnauzer.", R, True),
         ("pet_dress_canarias", "pet_dress_canarias", "Mago de los pies al sombrero",
          "Ponle a una mascota sombrero, ropa y fondo del pasillo de Canarias.", R, False),
         ("pet_dress_theme", "pet_dress_theme", "A juego hasta el pasillo",
@@ -29058,6 +29070,10 @@ def pet_dress_stats(
         delta.add["pet_dress_pulpo_gafas"] = 1
     if species in {"gato", "gato_callejero"} and look.get("ojos") == "parche":
         delta.add["pet_dress_gato_parche"] = 1
+    if look.get("cuerpo") in {"disfraz_tiburon", "disfraz_papa", "disfraz_papa_arrugada"}:
+        delta.add[f"pet_dress_{look['cuerpo'].removeprefix('disfraz_')}"] = 1
+        if species == "schnauzer" and look["cuerpo"] == "disfraz_papa":
+            delta.add["pet_dress_schnauzer_papa"] = 1
     canary = [aisles.get(slot) for slot in ("cabeza", "cuerpo", "fondo")]
     if all(aisle == "canarias" for aisle in canary):
         delta.add["pet_dress_canarias"] = 1

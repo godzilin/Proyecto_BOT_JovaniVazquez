@@ -56,7 +56,9 @@ class Breed:
               si no, la cara de siempre, chulo con los párpados a media asta).
             - ``perro``: coat, muzzle, ears ("caidas", "largas", "pie", "rosa", "rizos"),
               earColor, saddle, chest, blaze, mask, brindle, legs, tip, ruff, jowls, snout,
-              patches, head ("ancha"), body ("largo": teckel), curly (caniche).
+              patches, head ("ancha"), body ("largo": teckel), curly (caniche), beard y
+              brows (barba y cejas pobladas: schnauzer), ears "pico" (en V, dobladas hacia
+              delante).
             - ``hamster``: coat, belly, feet, cap, stripe, ring, inner, nose.
             - ``conejo``: coat, belly, muzzle, inner, earColor, ears ("largas", "caidas",
               "cortas"), mane y maneColor (cabeza de león), blaze, patches, bodyPatches, tail,
@@ -84,6 +86,9 @@ class Breed:
               moss.
             - ``cucaracha``: shell, edge, ring.
             - ``mosquito``: body, head, belly, stripes, eye (iris).
+
+            Todos los planes aceptan ``size``: la talla del dibujo (1 por defecto; el
+            schnauzer mini es 0,8 y el gigante 1,1).
 
             Las manchas (`patches`) son tuplas `(color, x, y, rx, ry, giro)` relativas al
             centro de la cabeza; las del cuerpo (`bodyPatches`), en el espacio del plan.
@@ -130,6 +135,25 @@ PLAN_SLOTS: dict[str, tuple[str, ...]] = {
 def _b(key: str, name: str, price: int = 0, **look: object) -> Breed:
     return Breed(key, name, price, _frozen(look))
 
+
+_SAL: dict[str, object] = {
+    "coat": "#8f8d93",
+    "saddle": "#5e5c63",
+    "muzzle": "#d9d7d3",
+    "beard": "#e2e0dc",
+    "brows": "#e2e0dc",
+    "legs": "#c9c7c4",
+    "ears": "pico",
+    "earColor": "#5e5c63",
+}
+_NEGRO: dict[str, object] = {
+    "coat": "#2c2a30",
+    "muzzle": "#46434c",
+    "beard": "#5c5964",
+    "brows": "#5c5964",
+    "ears": "pico",
+    "earColor": "#232127",
+}
 
 # fmt: off
 LOOKS: dict[str, Look] = {
@@ -188,6 +212,20 @@ LOOKS: dict[str, Look] = {
         _b("albaricoque", "Albaricoque", 20_000, coat="#e6b27a", curly=True, ears="rizos"),
         _b("negro", "Negro", 20_000, coat="#34303c", curly=True, ears="rizos"),
         _b("rosa", "Teñido de rosa", 35_000, coat="#f6a9c4", curly=True, ears="rizos"),
+    )),
+    # Tallas y colores del estándar FCI (gris = sal y pimienta): el blanco y el negro y plata,
+    # solo en mini. Los nombres caben en «Raza para tu schnauzer: …» (40 caracteres).
+    "schnauzer": Look("perro", (
+        _b("mediano_sal", "Mediano gris", **_SAL, size=0.95),
+        _b("mediano_negro", "Mediano negro", 5_000, **_NEGRO, size=0.95),
+        _b("mini_sal", "Mini gris", 6_000, **_SAL, size=0.8),
+        _b("mini_negro", "Mini negro", 6_000, **_NEGRO, size=0.8),
+        _b("mini_plata", "Mini negro-plata", 8_000, **{**_NEGRO, "beard": "#dcdce2",
+           "brows": "#dcdce2", "muzzle": "#dcdce2"}, chest="#dcdce2", legs="#cfcfd6", size=0.8),
+        _b("mini_blanco", "Mini blanco", 8_000, coat="#f7f5f0", muzzle="#ffffff",
+           beard="#ffffff", brows="#ffffff", ears="pico", earColor="#ebe7de", size=0.8),
+        _b("gigante_sal", "Gigante gris", 15_000, **_SAL, size=1.1),
+        _b("gigante_negro", "Gigante negro", 15_000, **_NEGRO, size=1.1),
     )),
     "hamster": Look("hamster", (
         _b("dorado", "Dorado", coat="#d9a35e", belly="#fff0d8", stripe="#b07a3a"),

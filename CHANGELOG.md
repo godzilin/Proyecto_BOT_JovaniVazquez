@@ -8,6 +8,12 @@ criterio.
 
 ## 10.x
 
+### 10.13.0 · 2026-11-08
+
+- Mascotas: nuevo schnauzer en adopción, en tres tallas (mini, mediano y gigante) y con los colores del estándar (sal y pimienta, negro, negro y plata, blanco), con barba y cejas en el retrato
+- Armario: disfraces de tiburón, de Papa y de papa arrugada, que visten el cuerpo y tapan la cabeza
+- Logros: seis nuevos del schnauzer y de los disfraces
+
 ### 10.12.0 · 2026-11-08
 
 - Jovaniverso: el mundo ya no tiene tope y se carga por cercanía
