@@ -30,10 +30,13 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   tiras, símbolos, cómo está parada cada máquina y el bote), los botes de los letreros
   (`botes`) y los logros de entrar. Las tragaperras y los letreros son objetos del mundo
   (`bot.services.universo_editor`, `funcion`), así que dónde están no lo dice el servidor.
-- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, places}`, con la sesión:
-  lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
-  anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
-  lo que da tiempo a hacer (`bot.services.universo.walk_report`).
+- `POST /api/paseo` `{guild_id, channel_id, meters, jumps, slides, teleports, places,
+  wallruns, walljumps, doublejumps, grapples, speed, chain}`, con la sesión: lo que has
+  andado, saltado y pisado en el mundo (Gran Canaria) desde el informe anterior, los
+  trucos de piloto (paredes, saltos de pared, dobles saltos y ganchos), la mayor
+  velocidad y la cadena de paredes más larga, para los logros. La página lo manda cada
+  15 s; el servidor lo recorta a lo que da tiempo a hacer
+  (`bot.services.universo.walk_report`).
 - `GET /api/mundo?guild_id=` con la sesión de cualquier miembro: `{version, trozos}`, el
   mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
   El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
@@ -883,12 +886,20 @@ class Universo(commands.Cog, name="Universo"):
         now = time.monotonic()
         last = self._last_walk.get((guild.id, member.id), now)
         self._last_walk[guild.id, member.id] = now
-        meters, jumps, slides, places = walk_report(body, now - last)
-        delta = universo_walk_stats(meters, jumps, places, slides)
+        walk = walk_report(body, now - last)
+        delta = universo_walk_stats(
+            walk.meters,
+            walk.jumps,
+            walk.places,
+            walk.slides,
+            tricks=walk.tricks,
+            speed=walk.speed,
+            chain=walk.chain,
+        )
         delta.merge(
             universo_teleport_stats(teleport_report(body, now - last), when=datetime.now(TIMEZONE))
         )
-        if delta.add:
+        if delta.add or delta.peak:
             channel_id = snowflake(body.get("channel_id"))
             logros.note(self.bot, guild.id, member.id, delta, channel_id)
 

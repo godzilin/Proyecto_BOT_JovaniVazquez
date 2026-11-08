@@ -320,7 +320,8 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     await world.web.post("/api/entrar", json=body, headers=headers)
     await asyncio.gather(*world.cog._background)
-    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos y 10 deslizamientos.
+    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos, 10 deslizamientos
+    # y 5 ganchos.
     key = (GUILD_ID, USER_ID)
     world.cog._last_walk[key] -= 10
     response = await world.web.post(
@@ -331,6 +332,10 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
             "jumps": 500,
             "slides": 3,
             "places": ["faro", "faro", "luna", 7],
+            "wallruns": 4,
+            "grapples": 50,
+            "speed": 99,
+            "chain": 3,
         },
         headers=headers,
     )
@@ -344,6 +349,11 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     assert 90 <= profile.stats["universo_meters"] < 92
     assert profile.stats["universo_jumps"] == 20
     assert profile.stats["universo_slides"] == 3
+    # 10 s dan para 5 ganchos (uno cada 3 s, con margen) y la velocidad no pasa de 20 m/s.
+    assert profile.stats["universo_wallruns"] == 4
+    assert profile.stats["universo_grapples"] == 5
+    assert profile.stats["universo_speed_max"] == 20
+    assert profile.stats["universo_chain_max"] == 3
     assert profile.stats["universo_place_faro"] == 1
     assert "universo_place_luna" not in profile.stats
     assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
