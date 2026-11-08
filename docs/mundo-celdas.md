@@ -57,7 +57,7 @@ que cambian, no una copia del mundo entero.
 
 ## Rutas
 
-- `GET /api/mundo?guild_id=` → `{"version": N, "trozos": {clave: doc}}` (gzip).
+- `GET /api/mundo?guild_id=&v=N` → `{"version": N, "trozos": {clave: doc}}` (gzip). Con `v` de la versión publicada, el navegador lo guarda para siempre; sin ella, sin caché.
 - `GET /api/editor/borrador` → `{"version": N, "trozos": {clave: {"doc": doc | null, "rev": r}}}`.
 - `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {"rev": r, "doc": doc | null}}}`
   → `{"revs": {clave: r}}`. 409 si algún `rev` no coincide (no se guarda nada).

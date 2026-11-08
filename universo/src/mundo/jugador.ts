@@ -1,5 +1,5 @@
 // El jugador: el robot (modelo glb con animaciones) y su movimiento: velocidad, gravedad, salto, pendientes,
-// colisiones con círculos y pared invisible en el mar. Las unidades son metros y segundos.
+// colisiones con círculos, pared invisible en el mar y el borde del mundo (`borde.ts`). Las unidades son metros y segundos.
 // Movimiento con técnica: agacharse corriendo es deslizarse (con impulso cada DESLIZ_RECARGA s y que acelera cuesta
 // abajo), saltar desde el deslizamiento o nada más caer conserva la velocidad (bunny hop), en el aire se gira sin
 // frenar (air strafe), y el salto perdona un poco tarde (coyote) y un poco pronto (buffer).
@@ -25,6 +25,7 @@ import {
   Vector3,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { encerrar } from "./borde";
 import { circulos, empujar } from "./colision";
 import { GESTOS, gestoDe } from "./gestos";
 import { clamp } from "./ruido";
@@ -242,7 +243,8 @@ export class Jugador {
   teletransportar(x: number, z: number): void {
     this.x = x;
     this.z = z;
-    this.y = sueloEn(x, z);
+    encerrar(this);
+    this.y = sueloEn(this.x, this.z);
     this.vy = 0;
     this.vx = this.vz = 0;
     this.suelo = true;
@@ -432,6 +434,7 @@ export class Jugador {
       }
     }
 
+    encerrar(this); // también volando y con noclip: la sala no acepta poses de fuera
     const movido = Math.hypot(this.x - antesX, this.z - antesZ);
     this.velH = movido / Math.max(dt, 1e-4);
     if (!this.trucos) this.metros += movido;

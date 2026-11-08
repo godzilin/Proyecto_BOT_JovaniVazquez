@@ -13,6 +13,10 @@ Las vistas `casino` (fuera, con las seis tragaperras de la plaza) y `casinodentr
 servidor de pruebas `docs/sala_local.py` (con PYTHONPATH=src): `--arrancar` lo lanza también. Sin él no hay casino y
 las vistas `plaza`, `casino` y `casinodentro` salen sin las máquinas (el script lo avisa).
 `--pruebas` mide el extraplano de los desarrolladores (`?mundo=pruebas`) en sus vistas (`VISTAS_PRUEBAS`).
+`--carga N` mide la entrada N veces (cada una sin caché): cuándo acaba de pintarse el primer fotograma tras quitar la
+pantalla de carga (el primero que ve el jugador), cuándo acaba el primero que ya enseña el mundo publicado, cuánto
+bloquea montarlo (y si pasa con la pantalla de carga ya quitada: el tirón que se ve) y cuántas veces se pide `/api/mundo`. Entra con `?editor`, así que necesita `docs/editor_local.py` (con PYTHONPATH=src) en
+lugar de `docs/sala_local.py`, con un mundo publicado en su base de datos.
 Presupuesto (Biblia, «Jovaniverso: rendimiento imperativo»): < 120 llamadas y < 250.000 triángulos en la peor vista.
 """
 
@@ -135,6 +139,63 @@ def medir(
     return res
 
 
+# Antes de que cargue la página: apunta cuándo se quita la pantalla de carga, cuándo acaba el primer fotograma después
+# y cuánto bloquea montar el mundo publicado: desde que llega su JSON hasta que acaba esa tarea (deTrozos y el montaje
+# van seguidos en la misma), y cuándo acaba el primer fotograma que ya lo enseña.
+JS_CARGA = """(() => {
+  const c = (window.__carga = { fuera: null, primer: null, llega: null, listo: null, vista: null });
+  const json = Response.prototype.json;
+  Response.prototype.json = function () {
+    const r = json.call(this);
+    if (!this.url.includes('/api/mundo')) return r;
+    return r.then((v) => {
+      c.llega = performance.now();
+      setTimeout(() => (c.listo = performance.now()), 0);
+      return v;
+    });
+  };
+  const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (f) => raf((t) => {
+    if (c.fuera === null && document.getElementById('carga')?.classList.contains('fuera')) c.fuera = t;
+    const conMundo = c.fuera !== null && c.listo !== null && t >= c.listo;
+    f(t);
+    if (c.primer === null && c.fuera !== null) c.primer = performance.now();
+    if (c.vista === null && conMundo) c.vista = performance.now();
+  });
+})()"""
+
+
+def medir_carga(url: str, veces: int, perfil: str = "escritorio") -> dict:
+    """La entrada `veces` veces, cada una en un contexto nuevo (sin caché): medianas en ms."""
+    filas = []
+    with sync_playwright() as p:
+        nav = p.chromium.launch(headless=True, args=ARGS)
+        for _ in range(veces):
+            ctx = nav.new_context(**PERFILES[perfil])
+            ctx.add_init_script(JS_CARGA)
+            pag = ctx.new_page()
+            pedidas = []
+            pag.on("request", lambda r, p=pedidas: "/api/mundo" in r.url and p.append(r.url))
+            pag.goto(f"{url}/?debug=fijo&editor", wait_until="load")
+            pag.wait_for_function("window.__carga.vista !== null", timeout=120000)
+            c = pag.evaluate("() => window.__carga")
+            montaje = c["listo"] - c["llega"]
+            filas.append(
+                dict(
+                    primer=c["primer"],
+                    vista=c["vista"],
+                    montaje=montaje,
+                    # El tirón que se ve: montar con la pantalla de carga ya quitada.
+                    tiron=montaje if c["listo"] > c["fuera"] else 0,
+                    mundo=len(pedidas),
+                )
+            )
+            ctx.close()
+        nav.close()
+    med = lambda k: sorted(f[k] for f in filas)[len(filas) // 2]  # noqa: E731
+    return {k: round(med(k)) for k in ("primer", "vista", "montaje", "tiron", "mundo")}
+
+
 def tabla(res: dict) -> str:
     out = []
     for perfil, vistas in res.items():
@@ -166,18 +227,28 @@ def main() -> None:
     )
     ap.add_argument("--solo", choices=list(PERFILES), default="", help="mide solo este perfil")
     ap.add_argument("--pruebas", action="store_true", help="mide el extraplano de pruebas")
+    ap.add_argument("--carga", type=int, default=0, help="mide la entrada tantas veces")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     proc = sala = None
     if a.arrancar:
         repo = Path(__file__).resolve().parent.parent
         env = {**os.environ, "PYTHONPATH": str(repo / "src"), "PYTHONIOENCODING": "utf-8"}
-        sala = subprocess.Popen([sys.executable, str(repo / "docs/sala_local.py")], env=env)
+        local = "docs/editor_local.py" if a.carga else "docs/sala_local.py"
+        sala = subprocess.Popen([sys.executable, str(repo / local)], env=env)
         proc = subprocess.Popen("npm run dev", cwd=repo / "universo", shell=True)
         time.sleep(6)
     try:
         if a.capturas:
             a.capturas.mkdir(parents=True, exist_ok=True)
+        if a.carga:
+            carga = medir_carga(a.url, a.carga, a.solo or "escritorio")
+            print(
+                f"primer fotograma {carga['primer']} ms · con el mundo publicado "
+                f"{carga['vista']} ms · montarlo bloquea {carga['montaje']} ms, "
+                f"{carga['tiron']} ms a la vista · /api/mundo pedido {carga['mundo']} veces"
+            )
+            return
         if a.pruebas:
             res = medir(a.url, a.capturas, a.extra + "&mundo=pruebas", a.solo, VISTAS_PRUEBAS)
         else:

@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.10.2 · 2026-11-08
+
+- Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida
+
 ### 10.10.1 · 2026-11-08
 
 - Jovaniverso: la tirada de una tragaperras solo se manda a quien está a 60 m o menos de quien juega (antes, a toda la isla), y la sala ya no comprime cada mensaje una vez por jugador

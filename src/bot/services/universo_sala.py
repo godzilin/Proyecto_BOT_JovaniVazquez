@@ -54,7 +54,8 @@ MAX_POSES_PER_SECOND = 15
 MAX_PLAYERS = 50
 #: Salas a la vez (una por servidor de Discord con alguien dentro).
 MAX_ROOMS = 200
-#: Lo más lejos del centro que puede estar alguien, en decímetros (la isla mide ~300 m).
+#: Lo más lejos del centro que puede estar alguien, en decímetros (la isla mide ~300 m). La
+#: página tiene el mismo borde (`universo/src/mundo/borde.ts`, `test_universo_borde_ts.py`).
 WORLD_DM = 3_000
 #: Altura mínima y máxima, en decímetros.
 MIN_Y_DM, MAX_Y_DM = -500, 2_000

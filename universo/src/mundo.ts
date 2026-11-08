@@ -100,8 +100,12 @@ const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 12
 const DIST_TERRENO = 480;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
 
-export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Promise<Mundo> {
-  const jugador = await Jugador.cargar();
+/**
+ * Monta el mundo una sola vez: con el publicado que traiga `inicial` (se pide a la vez que el login) o, si da `null`, con
+ * el de serie. En el extraplano no se mira.
+ */
+export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, inicial: Promise<MundoDoc | null>): Promise<Mundo> {
+  const [jugador, publicado] = await Promise.all([Jugador.cargar(), inicial]);
   const tactil = window.matchMedia("(pointer: coarse)").matches;
   const debug = new URLSearchParams(location.search).get("debug");
 
@@ -171,12 +175,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     docActual = pistaDoc();
     obras.cargar(docActual);
   } else {
+    // El terreno publicado se fija antes de crear la malla: se construye una vez, ya con él.
+    if (publicado && fijarTerreno(publicado.terreno)) jugador.teletransportar(jugador.x, jugador.z);
     suelo = crearTerreno(param("teselas", TESELAS), culling, DIST_TERRENO);
     escena.add(...suelo.baldosas);
     profundidad = crearMapaProfundidad();
     mar = crearMar(profundidad);
     escena.add(mar.malla);
-    docActual = mundoDeSerie();
+    docActual = publicado ?? mundoDeSerie();
+    fijarZonas(docActual.zonas);
     obras.cargar(docActual);
   }
   const cielo = crearCielo();
@@ -227,7 +234,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
 
   let ultimo = performance.now();
   let reloj = 0;
-  let sombrasQuitadas = false;
+  let conSombras = true;
   let metrosFrac = 0;
   let saltosPend = 0;
   let deslizPend = 0;
@@ -235,11 +242,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   let metrosPend = 0;
   let pausado = false;
 
+  let detenido = false;
   const fotograma = (ahora: number): void => {
     if (document.hidden || pausado) {
       ultimo = ahora;
+      detenido = true;
       return;
     }
+    if (detenido) calidad.callar(3); // al volver (pestaña, editor) se recompila y se sube lo que cambió: tirón
+    detenido = false;
     const real = (ahora - ultimo) / 1000;
     ultimo = ahora;
     const dt = Math.min(real, 0.1);
@@ -318,8 +329,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
     cielo.actualizar(dt, camara3.position.x, camara3.position.y, camara3.position.z);
     for (const g of ganchos) g(dt, ahora);
 
-    if (!calidad.sombras && !sombrasQuitadas) {
-      sombrasQuitadas = true;
+    if (calidad.sombras !== conSombras) {
+      conSombras = calidad.sombras; // quitarlas o devolverlas recompila los materiales
       escena.traverse((o) => {
         const m = (o as Mesh).material;
         if (m) (Array.isArray(m) ? m : [m]).forEach((mm) => (mm.needsUpdate = true));
@@ -330,7 +341,9 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
   renderer.setAnimationLoop(fotograma);
 
   // Los del panel «Viajar»: en la isla, los del mundo publicado (o los de serie); en el extraplano, los de la pista.
-  let teleportes: Teleporte[] = PRUEBAS ? Object.entries(SITIOS_PISTA).map(([nombre, [x, z]]) => ({ nombre, x, z })) : teleportesDeSerie();
+  let teleportes: Teleporte[] = PRUEBAS
+    ? Object.entries(SITIOS_PISTA).map(([nombre, [x, z]]) => ({ nombre, x, z }))
+    : (docActual.teleportes ?? teleportesDeSerie());
   const irA = (nombre: string): void => {
     // En el extraplano, la pista se mira hacia -z; el casino está donde en la isla y se encuadra igual.
     if (PRUEBAS && nombre !== "casino") {
@@ -432,6 +445,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement): Pr
         if (profundidad) rellenarMapaProfundidad(profundidad);
       }
       obras.cargar(doc);
+      calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
       docActual = doc;
       for (const f of alCargar) f(doc);
       fijarZonas(doc.zonas);

@@ -3,6 +3,7 @@ import { BufferAttribute, BufferGeometry, LineBasicMaterial, LineSegments, MeshB
 import type { Fog, FogExp2 } from "three";
 import type { Asset, MundoDoc, Objeto } from "../editor/formato";
 import type { Mundo } from "../mundo";
+import { BORDE as LIMITE_XZ } from "../mundo/borde";
 import { circulos } from "../mundo/colision";
 import { PRUEBAS, irAMundo } from "../mundo/modo";
 import { pistaDoc } from "../mundo/pista";
@@ -10,7 +11,6 @@ import { mundoDeSerie } from "../mundo/serie";
 import { sueloEn } from "../mundo/terreno";
 
 const MAX_OBJETOS = 200;
-const LIMITE_XZ = 290;
 const SEG_ANILLO = 24;
 const DOBLE_ESPACIO_MS = 300;
 const REFRESCO_MS = 250;

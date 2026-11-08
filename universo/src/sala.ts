@@ -28,14 +28,14 @@ interface Jugadores {
 /**
  * Abre la sala y devuelve la función que la cierra. Sin `sesion` (fuera de Discord) usa el saludo de desarrollo.
  * `avisar` recibe el texto de un `error` del servidor (por ejemplo, que has entrado desde otro sitio).
- * `alMundo` se llama cuando alguien publica un mundo nuevo (`{t: "mundo", version}`).
+ * `alMundo` se llama cuando alguien publica un mundo nuevo (`{t: "mundo", version}`), con su versión.
  */
 export function iniciarSala(
   yo: PoseLocal,
   remotos: Remotos,
   sesion: Sesion | null,
   avisar: (texto: string) => void = () => {},
-  alMundo: () => void = () => {},
+  alMundo: (version: number) => void = () => {},
 ): () => void {
   const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/sala`;
   const buffer = new ArrayBuffer(9); // se reutiliza en cada envío
@@ -70,14 +70,14 @@ export function iniciarSala(
     };
     socket.onmessage = (e) => {
       if (typeof e.data === "string") {
-        const m = JSON.parse(e.data) as { t: string; slot?: number; id?: string; nombre?: string; jugadores?: Jugadores[]; error?: string };
+        const m = JSON.parse(e.data) as { t: string; slot?: number; id?: string; nombre?: string; jugadores?: Jugadores[]; error?: string; version?: number };
         if (m.t === "bienvenida") {
           intento = 0;
           if (m.id) yo.colorear(m.id);
           remotos.bienvenida(m.slot as number, m.jugadores ?? []);
         } else if (m.t === "entra") remotos.entra(m.slot as number, m.id as string, m.nombre as string);
         else if (m.t === "sale") remotos.sale(m.slot as number);
-        else if (m.t === "mundo") alMundo();
+        else if (m.t === "mundo") alMundo(m.version ?? 0);
         // La tirada de otro en una tragaperras: la pinta el casino si está montado (casino.ts).
         else if (m.t === "traga") window.dispatchEvent(new CustomEvent("jv:traga", { detail: m }));
         else if (m.t === "error") {
