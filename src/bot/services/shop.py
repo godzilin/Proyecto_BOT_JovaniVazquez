@@ -39,6 +39,7 @@ from enum import StrEnum
 from bot.services import credit
 from bot.services.levels import TIMEZONE
 from bot.services.pets_catalog import species_of
+from bot.services.pets_looks import is_breed
 from bot.services.taxes import IGIC_BY_KEY, IGIC_DEFAULT, IgicRate, igic
 
 SHOP_NAME = "El Colmado de Jovani"
@@ -272,7 +273,8 @@ def ineligibility(
         bought: Compras suyas de este artículo, sin devoluciones.
         owns_role: Si ya tiene, comprado en la tienda, este rol para siempre.
     """
-    if not item.visible:
+    # Las razas van ocultas del escaparate pero se compran desde el panel de `mascota`.
+    if not item.visible and not is_breed(item.catalog_key):
         return "Ese artículo ya no está a la venta."
     if item.kind is Kind.PET and (species := species_of(item.catalog_key)) is not None:
         if not species.adoptable:

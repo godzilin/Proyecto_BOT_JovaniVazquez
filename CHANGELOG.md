@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.13.2 · 2026-11-08
+
+- Mascotas: las razas se vuelven a poder comprar desde el panel (salía «Ese artículo ya no está a la venta»)
+
 ### 10.13.1 · 2026-11-08
 
 - Despliegue: la imagen vuelve a construirse; el Dockerfile no copiaba `casino_plaza.json`, que la plaza del Jovaniverso importa desde la 10.12
