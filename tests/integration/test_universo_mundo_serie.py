@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from bot.services import universo_editor as editor
+from bot.services.universo import ZONES_DM
 
 RAIZ = Path(__file__).resolve().parents[2]
 SCRIPT = RAIZ / "docs" / "volcar_mundo_serie.py"
@@ -62,6 +63,12 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
     usados = {o["asset"] for o in mundo["objetos"]}
     assert usados == set(assets), "cada asset se usa y cada objeto tiene el suyo"
     assert set(mundo["zonas"]) == editor.EDITABLE_ZONES
+    # La sala cuenta los lugares con las mismas zonas de serie (en decímetros).
+    serie = {
+        k: (round(z["x"] * 10), round(z["z"] * 10), round(z["r"] * 10))
+        for k, z in mundo["zonas"].items()
+    }
+    assert serie == ZONES_DM
 
 
 def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:

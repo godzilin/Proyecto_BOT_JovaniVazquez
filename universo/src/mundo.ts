@@ -23,7 +23,6 @@ import { Controles } from "./mundo/controles";
 import { crearCielo } from "./mundo/cielo";
 import { Culling } from "./mundo/culling";
 import { Jugador, VEL_CORRER, VEL_MAX, type Tecnica } from "./mundo/jugador";
-import { Lugares, fijarZonas } from "./mundo/lugares";
 import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
@@ -36,12 +35,9 @@ import { mundoDeSerie } from "./mundo/serie";
 import type { MundoDoc, Teleporte } from "./editor/formato";
 import { SITIOS_ISLA, puntoDe, teleportesDeSerie } from "./mundo/teleportes";
 
+/** Lo del paseo que la sala no ve en las poses (los metros, saltos, deslizamientos y lugares los cuenta ella). */
 export interface Informe extends Tecnica {
-  meters: number;
-  jumps: number;
-  slides: number;
   teleports: number;
-  places: string[];
 }
 
 /** Lo que necesita un módulo que se cuelga del mundo (el casino): la escena, la cámara, el culling y un gancho por fotograma. */
@@ -68,7 +64,7 @@ export interface Contexto {
 
 export interface Mundo {
   readonly contexto: Contexto;
-  /** Cuenta lo andado y los lugares nuevos desde el último informe; vacío si no hay nada que contar. */
+  /** Cuenta los teleportes y los trucos desde el último informe; vacío si no hay nada que contar. */
   tomarInforme(): Informe | null;
   devolverInforme(i: Informe): void;
   /** Tu pose, para mandarla a la sala. */
@@ -183,7 +179,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     mar = crearMar(profundidad);
     escena.add(mar.malla);
     docActual = publicado ?? mundoDeSerie();
-    fijarZonas(docActual.zonas);
     obras.cargar(docActual);
   }
   const cielo = crearCielo();
@@ -197,7 +192,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
   const ratioInicial = calidad.ratio;
   if (debug === "fijo") calidad.activa = false;
   const controles = new Controles(renderer.domElement, capa);
-  const lugares = new Lugares();
 
   const ajustar = (): void => {
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -235,11 +229,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
   let ultimo = performance.now();
   let reloj = 0;
   let conSombras = true;
-  let metrosFrac = 0;
-  let saltosPend = 0;
-  let deslizPend = 0;
   let viajesPend = 0;
-  let metrosPend = 0;
   let pausado = false;
 
   let detenido = false;
@@ -283,9 +273,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       const d = camara.apuntar();
       if (!quieto) jugador.lanzarGancho(d.x, d.y, d.z);
     }
-    const saltos0 = jugador.saltos;
-    const desliz0 = jugador.deslizamientos;
-    const metros0 = jugador.metros;
     jugador.actualizar(dt, {
       dx,
       dz,
@@ -295,10 +282,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       agachar: !quieto && controles.agachar,
     });
     controles.saltar = false;
-    saltosPend += jugador.saltos - saltos0;
-    deslizPend += jugador.deslizamientos - desliz0;
-    metrosPend += jugador.metros - metros0;
-    if (!PRUEBAS && !jugador.trucos) lugares.comprobar(jugador.x, jugador.y, jugador.z);
 
     remotos.actualizar(dt, ahora, jugador.x, jugador.z, calidad.sombras);
 
@@ -375,7 +358,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       calidad,
       culling,
       controles,
-      lugares,
       heightAt,
       sueloEn,
       info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
@@ -401,36 +383,21 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     viajar(t) {
       jugador.teletransportar(t.x, t.z);
       if (!PRUEBAS) viajesPend++;
-      // Saltar no es pasear: el lugar de destino no cuenta para los logros de esta visita.
-      lugares.saltar(jugador.x, jugador.y, jugador.z);
       camara.pitch = 0.25;
       camara.distMax = 16;
       camara.dist = 8;
     },
     tomarInforme() {
-      metrosFrac += metrosPend;
-      metrosPend = 0;
-      const meters = Math.floor(metrosFrac);
-      metrosFrac -= meters;
-      const jumps = saltosPend;
-      saltosPend = 0;
-      const slides = deslizPend;
-      deslizPend = 0;
       const teleports = viajesPend;
       viajesPend = 0;
-      const places = lugares.tomar();
       const t = jugador.tecnica;
       const tecnica: Tecnica = { ...t, speed: Math.floor(t.speed) };
       t.wallruns = t.walljumps = t.doublejumps = t.grapples = t.speed = t.chain = 0;
-      const algo = meters > 0 || jumps > 0 || slides > 0 || teleports > 0 || places.length > 0 || Object.values(tecnica).some((v) => v > 0);
-      return algo ? { meters, jumps, slides, teleports, places, ...tecnica } : null;
+      const algo = teleports > 0 || Object.values(tecnica).some((v) => v > 0);
+      return algo ? { teleports, ...tecnica } : null;
     },
     devolverInforme(i) {
-      metrosFrac += i.meters;
-      saltosPend += i.jumps;
-      deslizPend += i.slides;
       viajesPend += i.teleports;
-      lugares.devolver(i.places);
       const t = jugador.tecnica;
       t.wallruns += i.wallruns;
       t.walljumps += i.walljumps;
@@ -448,7 +415,6 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
       docActual = doc;
       for (const f of alCargar) f(doc);
-      fijarZonas(doc.zonas);
       if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
     },
     retocarTerreno(ix0, iz0, ix1, iz1, conMar) {

@@ -1,5 +1,5 @@
-// Informe de paseo para los logros: cada 15 s y al ocultarse la página manda al servidor los metros, saltos y
-// lugares nuevos. Los errores se ignoran y lo no enviado se suma al siguiente informe.
+// Informe de paseo para los logros: cada 15 s y al ocultarse la página manda al servidor lo que la sala no ve en las
+// poses (teleportes y trucos de piloto). Los errores se ignoran y lo no enviado se suma al siguiente informe.
 import type { Informe, Mundo } from "./mundo";
 
 export interface Sesion {

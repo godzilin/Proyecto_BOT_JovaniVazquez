@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.10.3 · 2026-11-08
+
+- Jovaniverso: el paseo lo cuenta el servidor y nadie va más rápido que la física
+
 ### 10.10.2 · 2026-11-08
 
 - Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida

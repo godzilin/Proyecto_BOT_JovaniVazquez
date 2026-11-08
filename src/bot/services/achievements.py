@@ -25381,14 +25381,17 @@ def universo_walk_stats(
     speed: int = 0,
     chain: int = 0,
 ) -> StatDelta:
-    """Lo que suma un informe de paseo por el Jovaniverso, ya recortado por el
-    servidor (`bot.services.universo.walk_report`).
+    """Lo que suma un lote de paseo por el Jovaniverso, ya recortado por el servidor.
+
+    Los metros, saltos, deslizamientos y lugares los cuenta la sala con las poses
+    (`bot.services.universo_sala.Stroll`); los trucos, la velocidad y la cadena llegan del
+    informe de la página (`bot.services.universo.walk_report`).
 
     Args:
-        meters: Metros recorridos desde el informe anterior.
-        jumps: Saltos desde el informe anterior.
+        meters: Metros recorridos desde el lote anterior.
+        jumps: Saltos desde el lote anterior.
         places: Lugares pisados (claves de `UNIVERSO_PLACES`).
-        slides: Deslizamientos desde el informe anterior.
+        slides: Deslizamientos desde el lote anterior.
         tricks: Trucos de piloto (`wallruns`, `walljumps`, `doublejumps`, `grapples`):
             cada uno suma a `universo_<truco>`.
         speed: La mayor velocidad en horizontal (m/s), para `universo_speed_max`.

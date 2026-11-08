@@ -19,14 +19,33 @@ Protocolo (todo en little-endian):
 - Servidor → página, JSON (lo raro): `bienvenida` (tu hueco, tu id para teñir tu robot
   del mismo color que te ven los demás, y quién hay), `entra` y `sale`. El hueco
   (0-254) es el identificador corto de cada jugador en la sala.
+- Página → servidor, JSON: `{t: "salto"}` justo antes de la pose de un teleporte (el
+  menú «Viajar», sentarse a una máquina, las devtools) y `{t: "trucos", on}` al poner o
+  quitar una devtool (volar, noclip, velocidad).
 
 Lo que llega de la página no es de fiar: se descarta lo que no mide 9 bytes, lo que
 llega a más de `MAX_POSES_PER_SECOND` y lo que se sale del mundo (`WORLD_DM`). Un
-gesto que no se ha comprado (o que no existe) se reenvía como quieto.
+gesto que no se ha comprado (o que no existe) se reenvía como quieto. Y nadie va más
+rápido de lo que deja la física de la página (`_move`): cada jugador tiene un
+presupuesto de decímetros que se rellena a `RUN_DM_PER_SECOND` (y otro para subir, a
+`CLIMB_DM_PER_SECOND`; bajar, que es caer, no tiene tope) hasta `SLACK_SECONDS` de
+reserva, que cubre las poses que llegan juntas tras un parón de la red. Una pose que se
+pasa se recorta hasta donde llega el presupuesto: quien se teletransporta sin avisar se
+ve correr hacia allí a la velocidad máxima. Tras un `salto` aceptado (uno cada
+`LEAP_SECONDS`, el ritmo de teleportes del informe) la pose siguiente va sin mirar. Con
+`check=False` (el extraplano de los desarrolladores, donde se vuela) no se mira nada.
 
 Cuando alguien empieza un gesto, la sala llama a `Salas.on_gesture` con los que tiene
 cerca, para los logros. Es un evento suelto (como mucho uno cada `GESTURE_SECONDS`
 por jugador), no algo de cada tick.
+
+El paseo para los logros lo cuenta la sala con las poses que acepta, no la página: los
+metros en horizontal, los saltos (pasar a la animación de saltar), los deslizamientos
+(pasar a la de deslizarse) y los lugares que pisa (`Places`, del mundo publicado, que el
+cog pone con `set_places`). En cada pose son unas restas y comparaciones; cada
+`WALK_SECONDS` (en la pose siguiente) y al salir se entrega el lote a `Salas.on_walk`,
+con los saltos y deslizamientos recortados a lo que da tiempo a hacer. Lo pisado al
+llegar de un teleporte no cuenta, ni nada con una devtool puesta.
 
 No toca Discord ni la base de datos: el cog (`bot.cogs.universo`) comprueba quién es
 cada uno y apunta los logros al entrar.
@@ -38,11 +57,14 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import struct
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol
+
+from bot.services.universo import MAX_TELEPORTS_PER_SECOND, SERIE_PLACES, Places
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +98,29 @@ NEAR_DM = 80
 #: más de 45 m (`DISTANCIA_PANTALLAS` de `casino.ts`); 15 m más cubren a quien se acerca
 #: corriendo (9 m/s) mientras dura la tirada.
 SPIN_SEEN_DM = 600
+#: Lo más rápido que se avanza en horizontal sin devtools, en dm/s: `VEL_MAX` (20 m/s) de
+#: `universo/src/mundo/jugador.ts`, que recorta la velocidad después de correr, deslizarse,
+#: la pared y el gancho, más un 20 % por los empujones de las colisiones y el reloj
+#: (`docs/simular_movimiento.mjs` mide lo más que se mueve en una pose).
+RUN_DM_PER_SECOND = 240
+#: Lo más rápido que se sube, en dm/s: el gancho tira hacia arriba a 14 m/s y deslizándose a
+#: 20 m/s por la ladera más empinada que deja subir (pendiente 1,5) se sube a 30.
+CLIMB_DM_PER_SECOND = 330
+#: Segundos de movimiento que se pueden guardar: las poses que llegan juntas tras un parón
+#: de la red (TCP las entrega de golpe) no se recortan.
+SLACK_SECONDS = 2.0
+#: Segundos entre dos teleportes que se dejan pasar sin mirar la velocidad.
+LEAP_SECONDS = 1 / MAX_TELEPORTS_PER_SECOND
+#: Lo que vale un aviso de teleporte que aún no ha llegado a usarse, en segundos.
+LEAP_VALID_SECONDS = 1.0
+#: Animaciones de saltar y de deslizarse: pasar a ellas es un salto o un deslizamiento.
+JUMP, SLIDE = 3, 12
+#: Saltos y deslizamientos por segundo que se cuentan: un salto dura casi un segundo en el
+#: aire y el impulso de deslizarse se recarga en uno.
+MAX_JUMPS_PER_SECOND = 2
+MAX_SLIDES_PER_SECOND = 1
+#: Cada cuántos segundos se entrega el paseo de alguien a los logros (como el informe).
+WALK_SECONDS = 15.0
 #: Tipo del mensaje binario de pose.
 POSE = 1
 _POSE = struct.Struct("<BhhhBB")
@@ -109,10 +154,42 @@ class Player:
     gestures: frozenset[int] = frozenset()
     #: Cuándo empezó el último gesto que contó para los logros.
     gestured: float = float("-inf")
+    #: Canal desde el que abrió el Jovaniverso (para avisar de los logros), si se sabe.
+    channel_id: int | None = None
+    #: Presupuesto de movimiento (`_move`): decímetros en horizontal y subiendo (al entrar,
+    #: llenos) y cuándo se rellenaron por última vez (`None` hasta la primera pose).
+    budget: float = RUN_DM_PER_SECOND * SLACK_SECONDS
+    climb: float = CLIMB_DM_PER_SECOND * SLACK_SECONDS
+    moved_at: float | None = None
+    #: Cuándo se aceptó el último aviso de teleporte y si está sin usar.
+    leaped: float = float("-inf")
+    leap: bool = False
+    #: Si tiene alguna devtool puesta: no cuenta paseo.
+    tricks: bool = False
+    #: Paseo desde el último lote (`on_walk`): decímetros, saltos, deslizamientos, lugares
+    #: nuevos, los ya pisados en esta visita y cuándo salió el último lote.
+    walked: float = 0.0
+    jumps: int = 0
+    slides: int = 0
+    found: list[str] = field(default_factory=list)
+    visited: set[str] = field(default_factory=set)
+    flushed: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class Stroll:
+    """Lo paseado por alguien desde el último lote, ya recortado (`Salas.on_walk`)."""
+
+    meters: int
+    jumps: int
+    slides: int
+    places: list[str]
 
 
 #: Lo que se llama al empezar un gesto: servidor, quién, animación y quién hay cerca.
 GestureHook = Callable[[int, Player, int, list[Player]], None]
+#: Lo que se llama con cada lote de paseo: servidor, quién y lo paseado.
+WalkHook = Callable[[int, Player, Stroll], None]
 
 
 def parse_pose(data: bytes, gestures: frozenset[int] = frozenset()) -> bytes | None:
@@ -149,6 +226,8 @@ class Room:
     players: dict[int, Player] = field(default_factory=dict)
     dirty: set[int] = field(default_factory=set)
     task: asyncio.Task[None] | None = None
+    #: Dónde están los lugares de los logros en el mundo publicado de su servidor.
+    places: Places = SERIE_PLACES
 
 
 class SalaError(Exception):
@@ -160,6 +239,9 @@ class Salas:
 
     Args:
         clock: Reloj en segundos (las pruebas ponen uno falso).
+        on_gesture: Se llama al empezar un gesto (logros).
+        on_walk: Se llama con cada lote de paseo (logros). Sin él, no se cuenta nada.
+        check: Si se mira que nadie vaya más rápido de lo que deja la física.
     """
 
     def __init__(
@@ -167,10 +249,14 @@ class Salas:
         *,
         clock: Callable[[], float] = time.monotonic,
         on_gesture: GestureHook | None = None,
+        on_walk: WalkHook | None = None,
+        check: bool = True,
     ) -> None:
         self.rooms: dict[int, Room] = {}
         self.clock = clock
         self.on_gesture = on_gesture
+        self.on_walk = on_walk
+        self.check = check
 
     async def join(
         self,
@@ -180,11 +266,15 @@ class Salas:
         client: Client,
         backlog: Callable[[], int] = lambda: 0,
         gestures: frozenset[int] = frozenset(),
+        *,
+        places: Places | None = None,
+        channel_id: int | None = None,
     ) -> Player:
         """Mete a alguien en la sala de su servidor y avisa a los demás.
 
         Si ya estaba (otra pestaña), la conexión vieja sale primero. `gestures` son
-        las animaciones de gesto que ha comprado.
+        las animaciones de gesto que ha comprado; `places`, los lugares del mundo
+        publicado (como `set_places`), y `channel_id`, desde dónde abrió.
 
         Raises:
             SalaError: Sala llena o demasiadas salas.
@@ -206,7 +296,18 @@ class Salas:
         free = next((slot for slot in range(MAX_PLAYERS) if slot not in room.players), None)
         if free is None:
             raise SalaError("Esta isla está llena. Prueba en un rato.")
-        player = Player(free, user_id, name, client, backlog, gestures=gestures)
+        if places is not None:
+            room.places = places
+        player = Player(
+            free,
+            user_id,
+            name,
+            client,
+            backlog,
+            gestures=gestures,
+            channel_id=channel_id,
+            flushed=self.clock(),
+        )
         others = list(room.players.values())
         room.players[free] = player
         await client.send_str(
@@ -228,23 +329,30 @@ class Salas:
         return player
 
     def pose(self, guild_id: int, player: Player, data: bytes) -> None:
-        """Guarda la pose que manda la página, si vale y no se pasa de ritmo."""
+        """Guarda la pose que manda la página, si vale y no se pasa de ritmo ni de velocidad."""
         room = self.rooms.get(guild_id)
-        if room is None or room.players.get(player.slot) is not player:
-            return
         now = self.clock()
-        start, count = player.window
-        if now - start >= 1.0:
-            start, count = now, 0
-        if count >= MAX_POSES_PER_SECOND:
+        if room is None or not _allowed(room, player, now):
             return
-        player.window = (start, count + 1)
         pose = parse_pose(data, player.gestures)
         if pose is None or pose == player.pose:
             return
-        before = player.pose[-1] if player.pose else 0
+        last = player.pose
+        moved: float | None = 0.0
+        if last is not None:
+            if self.check:
+                pose, moved = _move(player, last, pose, now)
+                if pose == last:
+                    return
+            else:
+                (x0, _y0, z0), (x, _y, z) = place(last), place(pose)
+                moved = math.hypot(x - x0, z - z0)
+        player.moved_at = now
         player.pose = pose
         room.dirty.add(player.slot)
+        if self.on_walk is not None and not player.tricks:
+            self._walk(guild_id, room, player, last, pose, moved, now)
+        before = last[-1] if last else 0
         anim = pose[-1]
         if (
             anim >= FIRST_GESTURE
@@ -256,11 +364,92 @@ class Salas:
             player.gestured = now
             self.on_gesture(guild_id, player, anim, near(room, player))
 
+    def text(self, guild_id: int, player: Player, data: str) -> None:
+        """Atiende un mensaje JSON de la página: un aviso de teleporte o de devtools.
+
+        Cuenta para el mismo tope de mensajes por segundo que las poses. Un `salto` que
+        llega antes de `LEAP_SECONDS` desde el último aceptado no vale: esa pose se
+        recorta como cualquier otra.
+        """
+        room = self.rooms.get(guild_id)
+        now = self.clock()
+        if room is None or len(data) > 64 or not _allowed(room, player, now):
+            return
+        try:
+            message = json.loads(data)
+        except ValueError:
+            return
+        if not isinstance(message, dict):
+            return
+        if message.get("t") == "salto" and now - player.leaped >= LEAP_SECONDS:
+            player.leaped, player.leap = now, True
+        elif message.get("t") == "trucos":
+            player.tricks = message.get("on") is True
+
+    def set_places(self, guild_id: int, places: Places) -> None:
+        """Pone los lugares del mundo recién publicado en la sala de su servidor."""
+        if (room := self.rooms.get(guild_id)) is not None:
+            room.places = places
+
+    def places_at(self, guild_id: int, player: Player) -> list[str]:
+        """Los lugares donde está ahora alguien (ninguno sin pose o sin sala)."""
+        room = self.rooms.get(guild_id)
+        if room is None or player.pose is None:
+            return []
+        return room.places.at(*place(player.pose))
+
+    def _walk(
+        self,
+        guild_id: int,
+        room: Room,
+        player: Player,
+        last: bytes | None,
+        pose: bytes,
+        moved: float | None,
+        now: float,
+    ) -> None:
+        """Suma la pose al paseo de alguien y entrega el lote si toca. `moved` es `None` al
+        llegar de un teleporte: ni metros ni lugares."""
+        if moved is not None:
+            player.walked += moved
+            if last is not None and pose[-1] != last[-1]:
+                if pose[-1] == JUMP:
+                    player.jumps += 1
+                elif pose[-1] == SLIDE:
+                    player.slides += 1
+        for key in room.places.at(*place(pose)):
+            if key not in player.visited:
+                player.visited.add(key)
+                if moved is not None:
+                    player.found.append(key)
+        if now - player.flushed >= WALK_SECONDS:
+            self._flush(guild_id, player, now)
+
+    def _flush(self, guild_id: int, player: Player, now: float) -> None:
+        """Entrega a `on_walk` lo paseado desde el último lote, recortado al tiempo pasado."""
+        elapsed = now - player.flushed
+        player.flushed = now
+        meters = int(player.walked // 10)
+        player.walked -= meters * 10
+        stroll = Stroll(
+            meters=meters,
+            jumps=min(player.jumps, int(elapsed * MAX_JUMPS_PER_SECOND)),
+            slides=min(player.slides, int(elapsed * MAX_SLIDES_PER_SECOND)),
+            places=player.found,
+        )
+        player.jumps = player.slides = 0
+        player.found = []
+        if self.on_walk is not None and (
+            stroll.meters or stroll.jumps or stroll.slides or stroll.places
+        ):
+            self.on_walk(guild_id, player, stroll)
+
     async def leave(self, guild_id: int, player: Player) -> None:
         """Saca a alguien de la sala y avisa a los demás; la sala vacía se cierra."""
         room = self.rooms.get(guild_id)
         if room is None or room.players.get(player.slot) is not player:
             return
+        self._flush(guild_id, player, self.clock())
         del room.players[player.slot]
         room.dirty.discard(player.slot)
         if not room.players:
@@ -304,7 +493,11 @@ class Salas:
         await self._broadcast_str(room, json.dumps(payload), skip=skip, to=to)
 
     async def close(self) -> None:
-        """Para todas las salas (al descargar el cog)."""
+        """Para todas las salas (al descargar el cog), entregando antes el paseo pendiente."""
+        now = self.clock()
+        for guild_id, room in self.rooms.items():
+            for player in room.players.values():
+                self._flush(guild_id, player, now)
         tasks = [room.task for room in self.rooms.values() if room.task is not None]
         self.rooms.clear()
         for task in tasks:
@@ -366,6 +559,51 @@ class Salas:
             except (ConnectionError, RuntimeError):
                 # Conexión que se está cerrando: su manejador la saca de la sala.
                 pass
+
+
+def _allowed(room: Room, player: Player, now: float) -> bool:
+    """Si un mensaje de `player` cabe en su tope por segundo (y lo cuenta)."""
+    if room.players.get(player.slot) is not player:
+        return False
+    start, count = player.window
+    if now - start >= 1.0:
+        start, count = now, 0
+    if count >= MAX_POSES_PER_SECOND:
+        return False
+    player.window = (start, count + 1)
+    return True
+
+
+def _move(player: Player, last: bytes, pose: bytes, now: float) -> tuple[bytes, float | None]:
+    """La pose recortada a lo que deja la física desde `last`, y los dm que avanza en horizontal.
+
+    Rellena el presupuesto de `player` con el tiempo pasado desde su última pose y gasta lo
+    que se mueve; lo que se pasa se recorta en la misma dirección. Con un aviso de teleporte
+    sin usar (y a tiempo), la pose va tal cual, el presupuesto se llena y devuelve `None`.
+    """
+    since = now - player.moved_at if player.moved_at is not None else SLACK_SECONDS
+    player.moved_at = now
+    if player.leap:
+        player.leap = False
+        if now - player.leaped <= LEAP_VALID_SECONDS:
+            player.budget = RUN_DM_PER_SECOND * SLACK_SECONDS
+            player.climb = CLIMB_DM_PER_SECOND * SLACK_SECONDS
+            return pose, None
+    budget = min(RUN_DM_PER_SECOND * SLACK_SECONDS, player.budget + since * RUN_DM_PER_SECOND)
+    climb = min(CLIMB_DM_PER_SECOND * SLACK_SECONDS, player.climb + since * CLIMB_DM_PER_SECOND)
+    x0, y0, z0 = place(last)
+    x, y, z = place(pose)
+    moved = math.hypot(x - x0, z - z0)
+    if moved > budget or y - y0 > climb:
+        if moved > budget:
+            k = budget / moved
+            x, z = x0 + int((x - x0) * k), z0 + int((z - z0) * k)
+            moved = math.hypot(x - x0, z - z0)
+        y = min(y, y0 + int(climb))
+        pose = _PLACE.pack(x, y, z) + pose[6:]
+    player.budget = budget - moved
+    player.climb = climb - max(0, y - y0)
+    return pose, moved
 
 
 def near(room: Room, player: Player, radius_dm: int = NEAR_DM) -> list[Player]:

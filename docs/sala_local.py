@@ -250,7 +250,8 @@ async def main() -> None:
     args = parser.parse_args()
 
     app = web.Application()
-    app["salas"] = Salas()
+    # Como en el bot: la sala comprueba la velocidad y cuenta el paseo (aquí, sin logros).
+    app["salas"] = Salas(on_walk=lambda _guild, _player, _stroll: None)
     app["casino"] = Casino()
     app.router.add_get("/api/sala", sala)
     app.router.add_post("/api/entrar", entrar)
