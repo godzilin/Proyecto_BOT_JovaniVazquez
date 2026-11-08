@@ -36,6 +36,14 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   para los logros. La página lo manda cada 15 s; el servidor lo recorta a lo que da tiempo
   a hacer (`bot.services.universo.walk_report`). Los metros, saltos, deslizamientos y
   lugares los cuenta la sala (`bot.services.universo_sala`) y aquí se ignoran.
+- `POST /api/medidas` `{guild_id, platform, segundos, fotogramas, fps_p5, llamadas, ...}`,
+  con la sesión: cómo va la página en el dispositivo (fps, calidad adaptativa, llamadas de
+  dibujo, triángulos, tiempos de entrada, GPU por familia y pantalla redondeada), solo para
+  la telemetría («Jovaniverso en los dispositivos» de `docs/analisis_metricas.py`). La página
+  lo manda cada 5 min y al ocultarse; el servidor lo recorta
+  (`bot.services.universo.device_report`), deja uno por miembro cada `MEDIDAS_SECONDS` (`429`
+  si llega antes) y lo suma con `telemetry.count` (tipo `universo_disp`, nombre «medida ·
+  plataforma»). Ni base de datos ni logros.
 - `GET /api/mundo?guild_id=&v=` con la sesión de cualquier miembro: `{version, trozos}`, el
   mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
   El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
@@ -173,6 +181,7 @@ from bot.services.universo import (
     UniversoError,
     backpack_list,
     bearer,
+    device_report,
     gestures_owned,
     platform_of,
     player_list,
@@ -227,6 +236,10 @@ HELLO_SECONDS = 10
 MAX_WS_BYTES = 1024
 #: Latido del multijugador: una conexión que no contesta en este tiempo se cierra.
 HEARTBEAT_SECONDS = 20
+#: Un informe de medidas por miembro cada tanto como mucho (la página manda uno cada 5 min).
+MEDIDAS_SECONDS = 60
+#: Miembros que recuerda el tope de medidas; al pasarse se olvidan los que ya pueden mandar.
+MAX_MEDIDAS_USERS = 2000
 #: Lo que ven los demás de una tirada (lo que pinta y suena la máquina, no el saldo ni el texto).
 SEEN_SPIN = (
     "machine",
@@ -444,6 +457,8 @@ class Universo(commands.Cog, name="Universo"):
         # Logros que se apuntan después de contestar a la página: se guardan para que
         # el recolector no se los lleve a medias y para esperarlos al descargar.
         self._background: set[asyncio.Task[None]] = set()
+        # Último informe de medidas de cada miembro (`time.monotonic`), para su tope.
+        self._last_medidas: dict[int, float] = {}
         # Último informe de paseo (o entrada) de cada miembro, en segundos de
         # `time.monotonic`: dice cuánto ha podido andar desde entonces.
         self._last_walk: dict[tuple[int, int], float] = {}
@@ -522,6 +537,7 @@ class Universo(commands.Cog, name="Universo"):
         app.router.add_post("/api/token", _token)
         app.router.add_post("/api/entrar", _entrar)
         app.router.add_post("/api/paseo", _paseo)
+        app.router.add_post("/api/medidas", _medidas)
         app.router.add_get("/api/mundo", _mundo)
         app.router.add_get("/api/glb/{sha}", _glb)
         app.router.add_post("/api/traga", _traga)
@@ -973,6 +989,33 @@ class Universo(commands.Cog, name="Universo"):
         if delta.add or delta.peak:
             channel_id = snowflake(body.get("channel_id"))
             logros.note(self.bot, guild.id, member.id, delta, channel_id)
+
+    def measure(self, session: str | None, body: dict[str, Any]) -> None:
+        """Suma a la telemetría un tramo de medidas de la página (sin logros: es telemetría).
+
+        Raises:
+            UniversoError: Igual que `enter`, o 429 si el miembro ya mandó uno hace menos
+                de `MEDIDAS_SECONDS`.
+        """
+        guild, member = self._member(session, body)
+        now = time.monotonic()
+        if now - self._last_medidas.get(member.id, -MEDIDAS_SECONDS) < MEDIDAS_SECONDS:
+            raise UniversoError("Demasiadas medidas seguidas.", 429)
+        if len(self._last_medidas) >= MAX_MEDIDAS_USERS:
+            self._last_medidas = {
+                k: t for k, t in self._last_medidas.items() if now - t < MEDIDAS_SECONDS
+            }
+        self._last_medidas[member.id] = now
+        platform = platform_of(body.get("platform")) or "otra"
+        for name, value, events in device_report(body):
+            self.bot.telemetry.count(
+                "universo_disp",
+                f"{name} · {platform}",
+                guild_id=guild.id,
+                user_id=member.id,
+                ms=value,
+                events=events,
+            )
 
     async def slot(self, session: str | None, body: dict[str, Any]) -> dict[str, Any]:
         """Una tirada (o ⏹️ parar el Auto) en una tragaperras de la plaza.
@@ -1441,6 +1484,13 @@ async def _paseo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     body = await _json_body(request)
     cog.walk(bearer(request.headers.get("Authorization")), body)
+    return web.json_response({"ok": True})
+
+
+async def _medidas(request: web.Request) -> web.Response:
+    cog = request.app[_COG_KEY]
+    body = await _json_body(request)
+    cog.measure(bearer(request.headers.get("Authorization")), body)
     return web.json_response({"ok": True})
 
 

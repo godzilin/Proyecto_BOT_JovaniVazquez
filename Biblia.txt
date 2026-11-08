@@ -434,6 +434,7 @@ El Jovaniverso tiene que ir fluido en el NAS (8 GB de RAM para todo el NAS, 2 GB
 - **Los otros jugadores cuestan:** un tope de visibles (los más cercanos), los lejanos sin animar o sin dibujar, el mismo modelo y material compartidos, e interpolación entre ticks en vez de mandar más ticks.
 - **Peso de la descarga:** cada KB pasa por el túnel y por el proxy de Discord. Sin dependencias nuevas sin necesidad (las de Node, fijadas y con dos semanas, como siempre), modelos sin texturas cuando se pueda y lo pesado cargado cuando haga falta, no al entrar.
 - **Se prueba en lo lento:** capturas a 390 × 844 con táctil, `renderer.info` en la peor vista y, antes de dar algo por bueno, un móvil de verdad dentro de Discord.
+- **Se mide en los dispositivos:** la página manda cada 5 min y al ocultarse un resumen de cómo va (`universo/src/medidas.ts` a `/api/medidas`): fps medio y percentil 5, escalón de la calidad adaptativa y cuántas veces bajó y subió, llamadas de dibujo y triángulos medios y máximos, momentos de la entrada (login, perfil, mundo y primer fotograma), plataforma, GPU por familia, pantalla redondeada y reconexiones. Por fotograma solo suma y compara. El servidor lo recorta (`device_report`), deja uno por miembro cada minuto y lo cuenta como `universo_disp`; sale en «Jovaniverso en los dispositivos» de `docs/analisis_metricas.py`, frente al presupuesto. Solo cifras, nada que identifique a nadie, sin base de datos ni logros. Una medida nueva entra en las tres partes a la vez.
 
 ### Jovaniverso: interfaz
 

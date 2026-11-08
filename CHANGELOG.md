@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.10.6 · 2026-11-08
+
+- Interno: el Jovaniverso mide cómo va en cada móvil y ordenador (fps, calidad, dibujo y entrada) para el informe
+
 ### 10.10.5 · 2026-11-08
 
 - Jovaniverso: el paseo lo cuenta el servidor y nadie va más rápido que la física

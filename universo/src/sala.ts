@@ -36,6 +36,9 @@ interface Jugadores {
  * `avisar` recibe el texto de un `error` del servidor (por ejemplo, que has entrado desde otro sitio).
  * `alMundo` se llama cuando alguien publica un mundo nuevo (`{t: "mundo", version}`), con su versión.
  */
+/** Veces que la sala se ha cortado sola y se reconecta (la telemetría, `medidas.ts`). */
+export let reconexiones = 0;
+
 export function iniciarSala(
   yo: PoseLocal,
   remotos: Remotos,
@@ -118,6 +121,7 @@ export function iniciarSala(
       if (ws === socket) ws = null;
       remotos.vaciar();
       if (parado || error) return;
+      reconexiones++;
       timer = setTimeout(conectar, ESPERAS[Math.min(intento++, ESPERAS.length - 1)]);
     };
   };

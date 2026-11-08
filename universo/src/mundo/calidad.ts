@@ -70,9 +70,13 @@ export class Calidad {
   activa = true;
   ratio: number;
   sombras = true;
+  /** Veces que ha bajado y subido un escalón (la telemetría, `medidas.ts`). */
+  bajadas = 0;
+  subidas = 0;
+  /** La resolución de partida, la mejor. */
+  readonly inicial: number;
   private readonly renderer: WebGLRenderer;
   private readonly sol: DirectionalLight;
-  private readonly inicial: number;
   private readonly pasos: number;
   private readonly escalera: Escalera;
 
@@ -92,7 +96,10 @@ export class Calidad {
 
   /** `dt` es el tiempo real del fotograma, sin recortar. */
   medir(dt: number): void {
-    if (!this.activa || this.escalera.medir(dt) === 0) return;
+    const paso = this.activa ? this.escalera.medir(dt) : 0;
+    if (paso === 0) return;
+    if (paso > 0) this.bajadas++;
+    else this.subidas++;
     const e = this.escalera.escalon;
     const ratio = this.inicial - Math.min(e, this.pasos) * PASO;
     if (ratio !== this.ratio) {
