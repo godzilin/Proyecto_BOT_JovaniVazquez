@@ -1457,7 +1457,10 @@ páginas de la ayuda, entre ellas), los comandos mal escritos o que contestan co
 error, los errores con traza por tipo y función, la música (búsquedas, pistas
 escuchadas o saltadas, fallos y cola), lo que tarda cada llamada a Discord por ruta,
 cada vuelta de cada tarea programada, lo que tarda en arrancar, los mensajes del bot
-y las reacciones que reciben, y, cada minuto, la memoria y la CPU del contenedor, el
+y las reacciones que reciben, cómo va el Jovaniverso en los móviles y ordenadores de
+los miembros (fps, calidad adaptativa, llamadas de dibujo y triángulos frente al
+presupuesto, tiempos de entrada y GPU por familia, que manda la página cada 5 minutos)
+y, cada minuto, la memoria y la CPU del contenedor, el
 retraso del bucle, los procesos de Chromium y Node y su memoria, lo leído y escrito en
 disco, las tareas vivas del bucle, lo que ocupa la base de datos y el disco libre. Al sacar el informe lee también, sin escribir nada,
 cuántos miembros tienen cada logro (frente a su rareza), las ventas de la tienda por

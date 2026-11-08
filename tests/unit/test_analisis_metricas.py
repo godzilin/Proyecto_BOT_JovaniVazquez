@@ -205,6 +205,7 @@ def test_secciones_salen_en_el_orden_pedido():
         "## Partidas y paneles",
         "## Usos incorrectos y rechazos",
         "## Menús y ayuda",
+        "## Jovaniverso en los dispositivos",
         "## Casino",
         "## Economía",
         "## Economía por día",
@@ -767,3 +768,37 @@ def test_sistema_enseña_procesos_disco_y_tareas_y_el_arranque():
     assert "Del arranque a conectar: 8.5 s de media, 12.0 de máximo, en 2 arranques" in _text(
         am.section_discord(report, 10)
     )
+
+
+def test_jovaniverso_en_los_dispositivos_por_plataforma_y_frente_al_presupuesto():
+    def disp(name, events=1, *, users=1, ms=None, ms_max=0):
+        return _entry("universo_disp", name, events, users=users, ms=ms, ms_max=ms_max)
+
+    report = {
+        "uso": [
+            disp("tramo · mobile", 10, users=4),
+            disp("fps · mobile", 10, ms=24, ms_max=60),
+            disp("fps_p5 · mobile", 10, ms=12, ms_max=40),
+            disp("sin_sombras · mobile", 3, users=2),
+            disp("resolucion_baja · mobile", 6, users=3),
+            disp("bajadas · mobile", 7),
+            disp("subidas · mobile", 2),
+            disp("llamadas · mobile", 10, ms=90, ms_max=110),
+            disp("llamadas_max · mobile", 10, ms=110, ms_max=150),
+            disp("triangulos · mobile", 10, ms=120_000, ms_max=180_000),
+            disp("triangulos_max · mobile", 10, ms=180_000, ms_max=240_000),
+            disp("entrada_frame · mobile", 4, ms=6500, ms_max=12_000),
+            disp("gpu:adreno · mobile", 3),
+            disp("pantalla:400x800 · mobile", 4),
+            disp("tramo · desktop", 5, users=2),
+            disp("fps · desktop", 5, ms=60, ms_max=60),
+        ]
+    }
+    text = _text(am.section_universo_devices(report, 10))
+    assert "| mobile | 10 | 4 | 24 ⚠️ | 12 | 30.0 % (2) | 60.0 % (3) | 7 / 2 | 0 |" in text
+    assert "| desktop | 5 | 2 | 60 | 0 |" in text
+    assert "| mobile | 90 | 150 ⚠️ | 120.000 | 240.000 |" in text
+    assert "| mobile | Primer fotograma | 4 | 6.5 | 12.0 |" in text
+    assert "GPU: adreno (mobile) 3" in text
+    assert "Pantallas: 400x800 (mobile) 4" in text
+    assert "Sin datos." in _text(am.section_universo_devices({"uso": []}, 10))

@@ -9,6 +9,7 @@ import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
+import { entrada as momentos, iniciarMedidas } from "./medidas";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
 import { mundoDeSerie } from "./mundo/serie";
@@ -232,6 +233,7 @@ interface Entrada {
   session: string;
   guildId: string | null;
   channelId: string | null;
+  platform: string;
 }
 
 async function entrar(): Promise<Entrada> {
@@ -247,12 +249,14 @@ async function entrar(): Promise<Entrada> {
   });
   const { access_token, session } = await api<TokenResponse>("/api/token", { code });
   await sdk.commands.authenticate({ access_token });
+  momentos.login = performance.now();
   const profile = await api<ProfileResponse>(
     "/api/entrar",
     { guild_id: sdk.guildId, channel_id: sdk.channelId, platform: sdk.platform },
     session,
   );
-  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId };
+  momentos.api = performance.now();
+  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId, platform: sdk.platform };
 }
 
 async function start(): Promise<void> {
@@ -277,7 +281,11 @@ async function start(): Promise<void> {
         : params.has("editor")
           ? dev.then((d) => (d ? pedirMundo({ session: d.session, guildId: d.guild_id }) : null))
           : Promise.resolve(null);
-    const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa"), inicial), entrando]);
+    const montado = crearMundo($("mundo"), $("capa"), inicial).then((m) => {
+      momentos.mundo = performance.now();
+      return m;
+    });
+    const [mundo, entrada] = await Promise.all([montado, entrando]);
     if (entrada) {
       if (PRUEBAS && !entrada.profile.dev) {
         irAMundo(false); // el extraplano es solo de los desarrolladores
@@ -287,7 +295,10 @@ async function start(): Promise<void> {
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       menuEnPildora(iniciarMenu($("capa"), mundo, sesion));
       // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
-      if (!PRUEBAS) iniciarPaseo(mundo, sesion);
+      if (!PRUEBAS) {
+        iniciarPaseo(mundo, sesion);
+        iniciarMedidas(mundo, sesion, entrada.platform);
+      }
       iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, (version) => {
         if (!PRUEBAS) cargarObras(mundo, sesion, version);
       });

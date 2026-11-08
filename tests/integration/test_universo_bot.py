@@ -355,6 +355,54 @@ async def test_el_informe_de_paseo_solo_cuenta_lo_que_la_sala_no_ve(world: World
     assert profile.stats["universo_chain_max"] == 3
 
 
+async def test_las_medidas_de_la_pagina_van_a_la_telemetria_con_tope(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    body = {
+        "guild_id": str(GUILD_ID),
+        "platform": "mobile",
+        "segundos": 300,
+        "fotogramas": 9000,
+        "fps_p5": 18,
+        "llamadas": 80,
+        "llamadas_max": 140,
+        "triangulos": 150_000,
+        "triangulos_max": 260_000,
+        "ratio": 1,
+        "ratio_max": 1.5,
+        "sombras": True,
+        "entrada": {"login": 2500, "frame": 6000},
+        "gpu": "adreno",
+        "ancho": 400,
+        "alto": 800,
+    }
+    world.client.telemetry._counters.clear()
+    assert (await world.web.post("/api/medidas", json=body)).status == 401
+    assert (await world.web.post("/api/medidas", json=body, headers=headers)).status == 200
+    # Otro antes de `MEDIDAS_SECONDS`: no cuenta.
+    again = await world.web.post("/api/medidas", json={**body, "fotogramas": 1}, headers=headers)
+    assert again.status == 429
+    found = {
+        key.name: counter
+        for key, counter in world.client.telemetry._counters.items()
+        if key.kind == "universo_disp"
+    }
+    assert found["fps · mobile"].ms_total == 30
+    assert found["fps_p5 · mobile"].ms_max == 18
+    assert found["llamadas_max · mobile"].ms_max == 140
+    assert found["triangulos · mobile"].ms_total == 150_000
+    assert found["resolucion_baja · mobile"].events == 1
+    assert "sin_sombras · mobile" not in found
+    assert found["entrada_frame · mobile"].ms_max == 6000
+    assert found["gpu:adreno · mobile"].events == 1
+    assert found["pantalla:400x800 · mobile"].events == 1
+    assert found["tramo · mobile"].events == 1
+    # Pasado el tope, vuelve a contar; sin logros de nada.
+    world.cog._last_medidas[USER_ID] -= 60
+    assert (await world.web.post("/api/medidas", json=body, headers=headers)).status == 200
+    assert world.client.telemetry._counters  # sigue en memoria hasta el volcado
+
+
 async def test_la_sala_cuenta_el_paseo_con_las_poses_que_acepta(world: World) -> None:
     hello = {"t": "hola", "guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     ana = await world.web.ws_connect("/api/sala")

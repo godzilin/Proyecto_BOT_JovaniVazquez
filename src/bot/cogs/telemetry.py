@@ -50,6 +50,8 @@ Qué cuenta y dónde lo engancha (tipos de `bot.services.telemetry`):
 - `menu`: la opción elegida en cada desplegable (`HelpSelect → 🎰 Casino`), con
   las cifras cambiadas por `#` para que nunca salga un id.
 - `peso`: lo que pesa cada imagen subida, en KB (va en los campos de `ms`).
+- `universo_disp`: lo cuenta el cog `Universo` con lo que manda la página del
+  Jovaniverso (fps, calidad, llamadas de dibujo, triángulos, entrada, GPU).
 - `10062`: interacciones que Discord ya había dado por perdidas al contestar.
 - `uso_mal`: comandos de texto mal escritos (falta o sobra un argumento, o el
   bot contesta «Uso: …»). `rechazo` (en `bot.utils.responder`): comandos que
