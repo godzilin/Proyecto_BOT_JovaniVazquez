@@ -34,9 +34,11 @@ URL Mapping del portal apunta al túnel del NAS). Rutas:
   lo que has andado, saltado y pisado en el mundo (Gran Canaria) desde el informe
   anterior, para los logros. La página lo manda cada 15 s; el servidor lo recorta a
   lo que da tiempo a hacer (`bot.services.universo.walk_report`).
-- `GET /api/mundo?guild_id=` con la sesión de cualquier miembro: `{version, trozos}`, el
+- `GET /api/mundo?guild_id=&v=` con la sesión de cualquier miembro: `{version, trozos}`, el
   mundo publicado en trozos (`docs/mundo-celdas.md`; `{version: 0, trozos: {}}` si no hay).
   El texto sale ya codificado y se guarda en memoria por servidor hasta que alguien publica.
+  Con `v` igual a la versión publicada (`mundo` de `/api/entrar`) el navegador lo guarda
+  para siempre (`MUNDO_CACHE`); sin `v` o con otra, contesta la de ahora sin caché.
 - `GET /api/glb/{sha}`: un modelo GLB por el SHA-256 de su contenido, sin sesión (es
   contenido que no cambia: `immutable`).
 - `POST /api/traga` `{guild_id, channel_id, machine, stake, auto}`, con la sesión:
@@ -233,6 +235,9 @@ SEEN_SPIN = (
 LIST_SECONDS = 10
 #: Segundos que se guardan los botes de los letreros: la página los pide cada tanto.
 POTS_SECONDS = 20
+#: Caché de `/api/mundo?v=` con la versión publicada: no cambia nunca, y va con sesión
+#: (`private`: solo el navegador, ni el túnel ni el proxy de Discord).
+MUNDO_CACHE = "private, max-age=31536000, immutable"
 #: Clave de la aplicación de aiohttp donde vive el cog.
 _COG_KEY: web.AppKey[Universo] = web.AppKey("universo")
 
@@ -1199,18 +1204,30 @@ async def _mundo(request: web.Request) -> web.Response:
     cog = request.app[_COG_KEY]
     guild, _member = cog._member(bearer(request.headers.get("Authorization")), dict(request.query))
     version, pieces = await cog.mundo(guild.id)
-    text = f'{{"version":{version},"trozos":{pieces}}}'
+    # Con `v` igual a la versión publicada (la que da `/api/entrar`), lo que hay en esa URL
+    # ya no cambia (las versiones solo crecen): se guarda para siempre, solo en el navegador
+    # porque va con sesión. Sin `v`, o con una vieja, lo de ahora y sin caché.
+    cache = MUNDO_CACHE if request.query.get("v") == str(version) else "no-cache"
+    headers = {"Cache-Control": cache, "Vary": "Accept-Encoding"}
     if "gzip" not in request.headers.get("Accept-Encoding", ""):
-        return web.Response(text=text, content_type="application/json")
+        return web.Response(
+            text=_world_text(version, pieces), content_type="application/json", headers=headers
+        )
     cached = cog._mundo_gz.get(guild.id)
     if cached is None or cached[0] != version:
-        cached = (version, await asyncio.to_thread(gzip.compress, text.encode(), 6))
+        data = _world_text(version, pieces).encode()
+        cached = (version, await asyncio.to_thread(gzip.compress, data, 6))
         cog._mundo_gz[guild.id] = cached
     return web.Response(
         body=cached[1],
         content_type="application/json",
-        headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+        headers={**headers, "Content-Encoding": "gzip"},
     )
+
+
+def _world_text(version: int, pieces: str) -> str:
+    """El cuerpo de `/api/mundo`: los trozos ya van codificados y se pegan tal cual."""
+    return f'{{"version":{version},"trozos":{pieces}}}'
 
 
 async def _glb(request: web.Request) -> web.Response:

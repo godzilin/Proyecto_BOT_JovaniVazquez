@@ -8,6 +8,10 @@ criterio.
 
 ## 10.x
 
+### 10.9.1 · 2026-11-08
+
+- Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida
+
 ### 10.9.0 · 2026-11-07
 
 - Jovaniverso: las tragaperras, el toldo y el letrero del casino de la plaza son objetos del editor: se mueven, se cambian de aspecto y se ponen más, hasta 24 tragaperras numeradas, en cualquier sitio del mundo

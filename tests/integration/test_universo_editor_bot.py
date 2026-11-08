@@ -16,7 +16,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from test_universo_bot import GUILD_ID, USER_ID, World, fake_discord, load, member
 
-from bot.cogs.universo import MAX_EDITOR_BYTES
+from bot.cogs.universo import MAX_EDITOR_BYTES, MUNDO_CACHE
 from bot.services.universo_editor import FORMAT
 
 ADMIN = USER_ID
@@ -337,3 +337,20 @@ async def test_el_mundo_publicado_va_comprimido_y_se_comprime_una_vez(world: Wor
     )
     assert "Content-Encoding" not in plain.headers
     assert (await plain.json())["version"] == 1
+
+
+async def test_el_mundo_con_su_version_se_guarda_para_siempre(world: World) -> None:
+    status, _saved = await save(world, mundo("arbol"))
+    assert status == 200
+    await publish(world)
+
+    async def cache(v: str | None) -> tuple[str, int]:
+        params = {"guild_id": str(GUILD_ID)} | ({"v": v} if v is not None else {})
+        response = await world.web.get("/api/mundo", params=params, headers=auth(world, PLAIN))
+        return response.headers["Cache-Control"], (await response.json())["version"]
+
+    assert await cache("1") == (MUNDO_CACHE, 1)
+    # Sin versión o con una que ya no es la publicada: la de ahora, sin caché.
+    assert await cache(None) == ("no-cache", 1)
+    assert await cache("0") == ("no-cache", 1)
+    assert await cache("2") == ("no-cache", 1)
