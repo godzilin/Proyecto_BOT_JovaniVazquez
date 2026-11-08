@@ -14,6 +14,8 @@ export interface OpcionesRegistro {
   centro?: Vector3;
   /** Si es true, `objeto.visible` sigue a la distancia (el frustum lo descarta three con su `boundingSphere`). */
   ocultar?: boolean;
+  /** Si es true, `escala` no cambia su distancia (el suelo: acortarlo dejaría huecos). */
+  fija?: boolean;
 }
 
 interface Entrada {
@@ -21,6 +23,7 @@ interface Entrada {
   radio: number;
   distancia: number;
   ocultar: boolean;
+  fija: boolean;
   cerca: boolean;
   dentro: boolean;
 }
@@ -36,13 +39,13 @@ export class Culling {
   registrar(objeto: Object3D, o: OpcionesRegistro): void {
     objeto.updateWorldMatrix(true, false);
     const centro = o.centro?.clone() ?? new Vector3().setFromMatrixPosition(objeto.matrixWorld);
-    this.entradas.set(objeto, { centro, radio: o.radio, distancia: o.distancia, ocultar: o.ocultar ?? false, cerca: true, dentro: true });
+    this.entradas.set(objeto, { centro, radio: o.radio, distancia: o.distancia, ocultar: o.ocultar ?? false, fija: o.fija ?? false, cerca: true, dentro: true });
   }
 
   /** Registra una malla con la esfera que ya tiene (la de su geometría o, en `InstancedMesh`, la de todas sus instancias). */
-  registrarMalla(malla: Mesh | InstancedMesh, distancia: number): void {
+  registrarMalla(malla: Mesh | InstancedMesh, distancia: number, fija = false): void {
     const e = esferaDe(malla);
-    this.registrar(malla, { radio: e.radius, distancia, centro: e.center, ocultar: true });
+    this.registrar(malla, { radio: e.radius, distancia, centro: e.center, ocultar: true, fija });
   }
 
   quitar(objeto: Object3D): void {
@@ -61,7 +64,7 @@ export class Culling {
     const c = camara.position;
     for (const [objeto, e] of this.entradas) {
       const d = e.centro.distanceTo(c) - e.radio;
-      const lim = e.distancia * this.escala;
+      const lim = e.fija ? e.distancia : e.distancia * this.escala;
       e.cerca = d < (e.cerca ? lim * (1 + HISTERESIS) : lim * (1 - HISTERESIS));
       e.dentro = e.cerca && this.frustum.intersectsSphere(this.esfera.set(e.centro, e.radio));
       if (e.ocultar) objeto.visible = e.cerca;

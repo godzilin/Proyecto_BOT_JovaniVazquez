@@ -25,7 +25,8 @@ cada una documentada en su módulo:
   `/api/entrar`).
 - `permisos`: los permisos del Jovaniverso (`/api/permisos`).
 - `editor`: el editor del mundo (`/api/editor/*`).
-- `mundo`: el mundo publicado y los modelos (`/api/mundo`, `/api/glb/{sha}`).
+- `mundo`: el mundo publicado por trozos y los modelos (`/api/mundo/indice`,
+  `/api/mundo/trozos`, `/api/glb/{sha}`).
 - `sala`: el multijugador y el paseo (`/api/sala`, `/api/paseo`).
 - `casino`: las tragaperras de la plaza y los botes (`/api/traga`, `/api/botes`).
 - `menu`: el menú del tabulador (`/api/jugadores`, `/api/mochila`).
@@ -51,8 +52,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Hashable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import discord
@@ -65,7 +67,7 @@ from bot.cogs.universo.casino import CasinoMixin, _botes, _traga
 from bot.cogs.universo.comun import _COG_KEY, _errors
 from bot.cogs.universo.editor import EditorMixin
 from bot.cogs.universo.menu import MenuMixin, _jugadores, _mochila
-from bot.cogs.universo.mundo import WorldMixin, _glb, _mundo
+from bot.cogs.universo.mundo import CACHE_BYTES, ByteCache, WorldMixin, _glb, _indice, _trozos
 from bot.cogs.universo.permisos import PermissionsMixin, _permisos
 from bot.cogs.universo.promo import PROMO_ID, install_promo, promo_embed, uninstall_promo
 from bot.cogs.universo.sala import SalaMixin, _paseo, _sala
@@ -186,18 +188,15 @@ class Universo(
         # Dónde están los lugares de los logros en el mundo publicado de cada servidor
         # (`world_places`), hasta que alguien publica.
         self._lugares: dict[int, Places] = {}
-        # Mundo publicado de cada servidor (versión y texto ya codificado), para no ir
-        # a la base en cada entrada. `_mundo_epoch` cuenta las publicaciones: una lectura
-        # que empezó antes de publicar no guarda lo viejo.
-        self._mundo: dict[int, tuple[int, str]] = {}
+        # Versión publicada de cada servidor, para no ir a la base en cada entrada.
+        # `_mundo_epoch` cuenta las publicaciones: una lectura que empezó antes de publicar no
+        # guarda lo viejo. El mundo no está en memoria: el índice y los trozos que piden las
+        # páginas viven en una caché con tope de bytes (`ByteCache`, por versión de fila).
+        self._version: dict[int, int] = {}
         self._mundo_epoch: dict[int, int] = {}
-        # El mismo mundo comprimido con gzip, por servidor y versión: se comprime una vez
-        # por publicación y fuera del bucle, no en cada entrada.
-        self._mundo_gz: dict[int, tuple[int, bytes]] = {}
-        # Lo que cambió desde cada versión (`/api/mundo?desde=`), por servidor y versión de
-        # partida: tras publicar, todas las páginas piden lo mismo. Va con la versión a la
-        # que llega, el texto y su gzip (cuando alguien lo pide comprimido).
-        self._mundo_desde: dict[tuple[int, int], tuple[int, str, bytes | None]] = {}
+        self._cache = ByteCache(CACHE_BYTES)
+        # Lo que se está leyendo ahora (`_once`): quien pide lo mismo espera, no lo repite.
+        self._pending: dict[Hashable, asyncio.Future[Any]] = {}
         # Botes de cada servidor para los letreros (`pots`), con su hora.
         self._botes: dict[int, tuple[float, list[dict[str, str]]]] = {}
         # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
@@ -254,7 +253,8 @@ class Universo(
         app.router.add_post("/api/entrar", _entrar)
         app.router.add_post("/api/paseo", _paseo)
         app.router.add_post("/api/medidas", _medidas)
-        app.router.add_get("/api/mundo", _mundo)
+        app.router.add_get("/api/mundo/indice", _indice)
+        app.router.add_get("/api/mundo/trozos", _trozos)
         app.router.add_get("/api/glb/{sha}", _glb)
         app.router.add_post("/api/traga", _traga)
         app.router.add_get("/api/sala", _sala)

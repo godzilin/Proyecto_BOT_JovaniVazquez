@@ -9,7 +9,7 @@ import { aTrozos, claveDeNumero, deTrozos, numeroCelda, numeroDeClave, parchear,
 
 const AUTOGUARDADO_MS = 20_000;
 export const MAX_HISTORIAL = 50;
-/** Bytes de un guardado como mucho; el servidor acepta 8 MB por petición (`MAX_EDITOR_BYTES`). Cada tanda va todo o nada. */
+/** Bytes de un guardado como mucho; el servidor acepta 8 MB por petición (`MAX_EDITOR_BYTES`). Cada tanda va todo o nada; un guardado grande va en varias. */
 const MAX_TANDA = 4 * 1024 * 1024;
 /** Trozos de un guardado como mucho (`MAX_SAVE_PIECES` del servidor). */
 const MAX_TROZOS = 5000;
@@ -45,9 +45,8 @@ export class Borrador {
   sucio = false;
   guardando = false;
   conflicto = false;
-  /** Lo que pesa el borrador (los trozos de `actual` en JSON) y lo que permite el servidor (0 si no lo dice). */
+  /** Lo que pesa el borrador (los trozos de `actual` en JSON): solo un dato para la barra, el mundo no tiene tope. */
   bytes = 0;
-  tope = 0;
   /** `hist[i]` lleva lo que cambió al pasar del estado i - 1 al i; el 0 es el de partida y no lleva nada. */
   hist: Paso[] = [];
   hi = 0;
@@ -72,7 +71,7 @@ export class Borrador {
   /** `semilla`: el mundo con el que empezar si el servidor no tiene nada; queda sucio para que se guarde. */
   constructor(
     private readonly sesion: Sesion,
-    b: { version: number; tope?: number; trozos: Record<string, TrozoBorrador> },
+    b: { version: number; trozos: Record<string, TrozoBorrador> },
     private readonly g: Ganchos,
     semilla?: MundoDoc,
   ) {
@@ -82,8 +81,7 @@ export class Borrador {
   }
 
   /** Deja el borrador como lo tiene el servidor (o como la semilla) y devuelve el documento. */
-  private cargar(b: { tope?: number; trozos: Record<string, TrozoBorrador> }, semilla?: MundoDoc): MundoDoc {
-    this.tope = b.tope ?? 0;
+  private cargar(b: { trozos: Record<string, TrozoBorrador> }, semilla?: MundoDoc): MundoDoc {
     const docs: Record<string, unknown> = {};
     this.revs = new Map();
     for (const [k, t] of Object.entries(b.trozos)) {

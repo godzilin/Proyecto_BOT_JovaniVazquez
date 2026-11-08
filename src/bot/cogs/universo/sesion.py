@@ -106,7 +106,7 @@ class SessionMixin:
             "editor": "editor" in permisos,
             "dev": "devtools" in permisos,
             "permisos": member.id in DEVS,
-            "mundo": (await self.mundo(guild.id))[0],
+            "mundo": await self.world_version(guild.id),
             # La fila de tragaperras de la plaza (`None` si la tragaperras no está cargada).
             "tragas": await tragas.plaza_meta(self.bot, guild.id),
             "botes": await self.pots(guild.id),

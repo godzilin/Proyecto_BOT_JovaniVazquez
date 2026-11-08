@@ -12,7 +12,6 @@ import {
   FORMATO,
   type Forma,
   ID,
-  MAX_ASSETS,
   MAX_CIRCULOS,
   MAX_DISTANCIA,
   MAX_LADOS,
@@ -722,7 +721,6 @@ export class PanelAssets implements Panel {
   // ---------------------------------------------------------------- assets
 
   private async nuevo(): Promise<void> {
-    if (Object.keys(this.doc.assets).length >= MAX_ASSETS) return this.avisar(`El mundo puede tener ${MAX_ASSETS} assets como mucho.`);
     const nombre = (await dialogo(this.a.raiz, "Nuevo asset", "Nombre del asset:", "Crear", ""))?.trim().slice(0, MAX_NOMBRE);
     if (!nombre) return;
     const pieza: Pieza = { forma: "caja", pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0xc8c8d0 };
@@ -742,7 +740,6 @@ export class PanelAssets implements Panel {
     const f = this.archivo.files?.[0];
     this.archivo.value = "";
     if (!f) return;
-    if (Object.keys(this.doc.assets).length >= MAX_ASSETS) return this.avisar(`El mundo puede tener ${MAX_ASSETS} assets como mucho.`);
     this.mensaje = "Subiendo modelo…";
     this.pintarEstado();
     try {
@@ -848,7 +845,6 @@ export class PanelAssets implements Panel {
   private duplicarAsset(): void {
     const a = this.asset;
     if (!a) return;
-    if (Object.keys(this.doc.assets).length >= MAX_ASSETS) return this.avisar(`El mundo puede tener ${MAX_ASSETS} assets como mucho.`);
     const nombre = `${a.nombre.slice(0, MAX_NOMBRE - 8)} (copia)`;
     this.anadirAsset(nombre, { ...structuredClone(a), nombre });
   }

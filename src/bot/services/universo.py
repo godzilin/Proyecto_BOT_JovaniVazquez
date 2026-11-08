@@ -33,9 +33,7 @@ import json
 import math
 import re
 import secrets
-import sys
 import time
-from array import array
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -44,7 +42,7 @@ import aiohttp
 
 from bot.services.economy import format_amount
 from bot.services.levels import calculate_level_progress
-from bot.services.universo_editor import CELL, CELL_TERRAIN_SIDE, TERRAIN_STEP
+from bot.services.universo_editor import CELL, CELL_TERRAIN_SIDE, TERRAIN_STEP, split_summary
 
 #: Base de la API de Discord para el login.
 DISCORD_API = "https://discord.com/api/v10"
@@ -327,32 +325,26 @@ class Places:
         return found
 
 
-def world_places(pieces: Mapping[str, str]) -> Places:
-    """Los lugares de un mundo publicado (`{clave: doc}`, ya validado; `{}`, la isla de serie).
+def world_places(zonas: str, summaries: Mapping[str, str] | None = None) -> Places:
+    """Los lugares de un mundo publicado (`""` y sin resúmenes, la isla de serie).
 
-    Las zonas salen del trozo `zonas` y la cima, del punto más alto del terreno esculpido; lo
-    que el mundo no trae, de serie. Decodifica el terreno de cada celda: se llama en un hilo.
+    Las zonas salen del texto del trozo `zonas` y la cima, del punto más alto de los terrenos
+    esculpidos, que dan los resúmenes de las celdas (`cell_summary`: clave → resumen). Lo que el
+    mundo no trae, de serie. No lee ningún trozo del mundo.
     """
     zones = dict(ZONES_DM)
-    if raw := pieces.get("zonas"):
-        for key, zone in json.loads(raw).get("zonas", {}).items():
+    if zonas:
+        for key, zone in json.loads(zonas).get("zonas", {}).items():
             if key in zones:
                 zones[key] = (round(zone["x"] * 10), round(zone["z"] * 10), round(zone["r"] * 10))
     sx, sz, radius = SUMMIT_DM
     top_cm = SUMMIT_TOP_DM * 10
     sculpted: tuple[int, int, int] | None = None
-    for key, raw in pieces.items():
-        if not key.startswith("c/"):
+    for key, summary in (summaries or {}).items():
+        if not key.startswith("c/") or not summary:
             continue
-        terrain = json.loads(raw).get("terreno")
-        if not terrain:
-            continue
-        heights = array("h", base64.b64decode(terrain["alturas"]))
-        if sys.byteorder == "big":
-            heights.byteswap()
-        high = max(heights)
+        high, i, _samples = split_summary(summary)
         if sculpted is None or high > sculpted[0]:
-            i = heights.index(high)
             _, cx, cz = key.split("/")
             sculpted = (
                 high,
@@ -368,7 +360,7 @@ def world_places(pieces: Mapping[str, str]) -> Places:
 
 
 #: Los lugares de la isla de serie, para la sala de un servidor sin mundo publicado.
-SERIE_PLACES = world_places({})
+SERIE_PLACES = world_places("")
 
 
 #: Trucos de piloto (`universo/src/mundo/jugador.ts`) que se aceptan por segundo: correr

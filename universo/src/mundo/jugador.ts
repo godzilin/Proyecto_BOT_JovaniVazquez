@@ -26,7 +26,7 @@ import {
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { encerrar } from "./borde";
-import { circulos, empujar } from "./colision";
+import { circulosCerca, empujar } from "./colision";
 import { gestoDe } from "./gestos";
 import { clamp } from "./ruido";
 import { NIVEL_MAR, SUELO_AGUA, PLAZA, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./terreno";
@@ -483,7 +483,7 @@ export class Jugador {
     const lx = dx * GANCHO_ALCANCE;
     const lz = dz * GANCHO_ALCANCE;
     const l2 = lx * lx + lz * lz;
-    const cerca = circulos.filter((c) => {
+    const cerca = circulosCerca(ox + lx / 2, oz + lz / 2, GANCHO_ALCANCE / 2).filter((c) => {
       const t = l2 > 1e-6 ? clamp(((c.x - ox) * lx + (c.z - oz) * lz) / l2, 0, 1) : 0;
       return Math.hypot(ox + lx * t - c.x, oz + lz * t - c.z) < c.r;
     });
@@ -571,7 +571,7 @@ export class Jugador {
   private paredCerca(): Pared | null {
     let hueco = PARED_ALCANCE;
     let mejor: Pared | null = null;
-    for (const c of circulos) {
+    for (const c of circulosCerca(this.x, this.z, PARED_ALCANCE + RADIO)) {
       if (c.r < PARED_RADIO) continue;
       const dx = this.x - c.x;
       const dz = this.z - c.z;

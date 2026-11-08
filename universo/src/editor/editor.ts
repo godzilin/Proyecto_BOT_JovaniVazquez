@@ -68,7 +68,7 @@ class Editor implements Anfitrion {
   constructor(
     readonly sesion: Sesion,
     private readonly entorno: Entorno,
-    b: { version: number; tope?: number; trozos: Record<string, TrozoBorrador> },
+    b: { version: number; trozos: Record<string, TrozoBorrador> },
     semilla?: MundoDoc,
   ) {
     this.b = new Borrador(sesion, b, {
@@ -174,7 +174,7 @@ class Editor implements Anfitrion {
     const partes = [...(this.paneles[this.activa]?.estado() ?? [])];
     partes.push(b.guardando ? "Guardando…" : b.sucio ? "Sin guardar" : "Guardado");
     partes.push(b.version ? `Publicada: versión ${b.version}` : "Sin publicar");
-    if (b.tope) partes.push(`${b.bytes > b.tope ? "⚠ " : ""}Mundo: ${mb(b.bytes)} de ${mb(b.tope)} MB`);
+    partes.push(`Mundo: ${mb(b.bytes)} MB`);
     this.barra.replaceChildren(...partes.map((t) => h("span", { textContent: t, className: t.startsWith("⚠") ? "ed-alerta" : "" })));
     this.botones.get("guardar")!.disabled = b.guardando;
   }

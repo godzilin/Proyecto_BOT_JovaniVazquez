@@ -42,7 +42,6 @@ def test_el_servidor_acepta_el_mundo_de_serie(mundo: dict) -> None:
     assert max(len(editor.encode_piece(t).encode()) for t in limpio.values()) < (
         editor.MAX_PIECE_BYTES // 4
     )
-    assert sum(k.startswith("a/") for k in limpio) < editor.MAX_ASSETS // 2
     densa = max(len(t["objetos"]) for k, t in limpio.items() if k.startswith("c/"))
     assert densa < editor.MAX_CELL_OBJECTS // 4
     assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"])
@@ -106,17 +105,6 @@ def test_la_pagina_parte_el_mundo_igual_que_el_servidor(mundo: dict) -> None:
     # `aTrozos` y `deTrozos` de la página contra `split_world` (`docs/comparar_trozos.py`).
     spec = importlib.util.spec_from_file_location(
         "comparar_trozos", RAIZ / "docs" / "comparar_trozos.py"
-    )
-    assert spec and spec.loader
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
-    modulo.main()
-
-
-def test_rehacer_las_celdas_publicadas_deja_lo_mismo_que_montar_entero(mundo: dict) -> None:
-    # `Obras.actualizar` de 1, 4, 12 y 24 celdas contra `Obras.cargar` (`docs/medir_recarga.py`).
-    spec = importlib.util.spec_from_file_location(
-        "medir_recarga", RAIZ / "docs" / "medir_recarga.py"
     )
     assert spec and spec.loader
     modulo = importlib.util.module_from_spec(spec)

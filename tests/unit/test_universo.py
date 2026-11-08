@@ -275,22 +275,28 @@ def test_los_lugares_salen_de_las_zonas_y_del_terreno_publicados() -> None:
     import json
     from array import array
 
-    from bot.services.universo_editor import CELL_TERRAIN_SIDE
+    from bot.services.universo_editor import CELL_TERRAIN_SIDE, cell_summary
 
-    serie = world_places({})
+    def summary(peak: int, at: int = 5 * CELL_TERRAIN_SIDE + 7) -> str:
+        heights = array("h", [100] * CELL_TERRAIN_SIDE**2)
+        heights[at] = peak
+        terreno = {"alturas": base64.b64encode(heights.tobytes()).decode(), "colores": ""}
+        return cell_summary({"objetos": [], "terreno": terreno})
+
+    serie = world_places("")
     assert serie.at(-80, 80, 600) == ["plaza"]
     assert serie.at(-50, 497, 80) == ["nieves"]
     assert serie.at(-50, 300, 80) == []  # dentro de la montaña no es la cima
-    # El editor mueve la plaza y esculpe un pico de 60 m en (-66, -150), en la celda -1/-2.
-    heights = array("h", [100] * CELL_TERRAIN_SIDE**2)
-    heights[5 * CELL_TERRAIN_SIDE + 7] = 6_000
-    terreno = {"alturas": base64.b64encode(heights.tobytes()).decode(), "colores": ""}
+    # El editor mueve la plaza y esculpe un pico de 60 m en (-66, -150), en la celda -1/-2; otra
+    # celda más baja, sin terreno o que no es una celda no lo desplazan.
     places = world_places(
+        json.dumps({"zonas": {"plaza": {"x": 30, "z": -20, "r": 4.5}}}),
         {
-            "zonas": json.dumps({"zonas": {"plaza": {"x": 30, "z": -20, "r": 4.5}}}),
-            "c/-1/-2": json.dumps({"objetos": [], "terreno": terreno}),
-            "a/casa": json.dumps({"nombre": "Casa"}),
-        }
+            "c/-1/-2": summary(6_000),
+            "c/3/3": summary(5_000),
+            "c/0/0": "",
+            "a/casa": summary(9_000),
+        },
     )
     assert places.at(-80, 80, 600) == []
     assert places.at(300, 80, -200) == ["plaza"]

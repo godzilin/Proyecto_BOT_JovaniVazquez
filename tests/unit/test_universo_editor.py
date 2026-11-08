@@ -20,11 +20,13 @@ from bot.services.universo_editor import (
     TERRAIN_SIDE,
     MundoError,
     asset_triangles,
+    cell_summary,
     encode_piece,
     glb_refs,
     glb_summary,
     is_empty,
     parse_key,
+    split_summary,
     split_world,
     validate_piece,
 )
@@ -519,3 +521,31 @@ def test_el_casino_de_serie_vale_y_se_suma_a_lo_que_hay() -> None:
     assert changed["c/-1/0"]["objetos"][0] == {"asset": "pino"}
     assert len(changed["c/-1/0"]["objetos"]) == 1 + len(casino["objetos"])
     assert mine["c/-1/0"]["objetos"] == [{"asset": "pino"}]  # no toca lo que recibe
+
+
+def test_el_resumen_de_una_celda_es_su_cima_y_su_rejilla_cada_20_m() -> None:
+    from array import array
+
+    side = CELL_TERRAIN_SIDE
+    heights = array(
+        "h", [(iz * 7 + ix * 3) % 500 - 100 for iz in range(side) for ix in range(side)]
+    )
+    heights[12 * side + 7] = 6_000
+    heights[30 * side + 30] = 6_000  # empate: manda el primero
+    terreno = {
+        "alturas": base64.b64encode(heights.tobytes()).decode(),
+        "colores": base64.b64encode(bytes(side * side)).decode(),
+    }
+    summary = cell_summary({"objetos": [], "terreno": terreno})
+    top, index, samples = split_summary(summary)
+    assert (top, index) == (6_000, 12 * side + 7)
+    # Muestreado a mano: vértices 0, 10, 20, 30 y 40 en x y en z, fila a fila desde -x -z.
+    by_hand = array("h")
+    for iz in (0, 10, 20, 30, 40):
+        for ix in (0, 10, 20, 30, 40):
+            by_hand.append(heights[iz * side + ix])
+    assert base64.b64decode(samples) == by_hand.tobytes()
+    assert len(base64.b64decode(samples)) == 50
+    assert summary.count(",") == 2
+    # Sin terreno no hay resumen.
+    assert cell_summary({"objetos": []}) == ""

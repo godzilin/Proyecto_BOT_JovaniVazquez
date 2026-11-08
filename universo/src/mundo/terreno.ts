@@ -1,9 +1,10 @@
-// El terreno de la isla: altura analítica (heightAt), disposición de los lugares, malla con color por vértice
-// y un suelo interpolado idéntico a la malla para que los pies no floten ni se hundan. La rejilla sale de la
-// fórmula o, si el mundo publicado trae un terreno esculpido en el editor, de sus datos (`fijarTerreno`).
-import { BufferAttribute, BufferGeometry, Color, DataTexture, LinearFilter, Mesh, MeshLambertMaterial, RedFormat, UnsignedByteType } from "three";
-import { TERRENO_CELDAS, TERRENO_LADO, TERRENO_PINTURAS, type Terreno } from "../editor/formato";
-import type { Culling } from "./culling";
+// El terreno: altura analítica de la isla de serie (heightAt), disposición de los lugares, color por vértice y un suelo
+// interpolado idéntico a la malla para que los pies no floten ni se hundan. El suelo va por celdas de `CELDA` m (`docs/mundo-celdas.md`):
+// cada celda cargada tiene su rejilla (la de su trozo o, en la isla sin terreno, la de la fórmula) y las lejanas, solo su resumen
+// (5 × 5 alturas, el horizonte). La malla la monta `suelo.ts`. Aparte queda la rejilla de la isla esculpible entera (`alturas`), que es
+// con la que trabaja el pincel del editor (`fijarTerreno`, `terrenoDoc`) y que pasa a sus 16 celdas.
+import { Color, DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
+import { CELDA, TERRENO_CELDAS, TERRENO_LADO, TERRENO_PINTURAS, type Terreno } from "../editor/formato";
 import { PRUEBAS } from "./modo";
 import { alturaPista } from "./pista";
 import { clamp, fbm, lerp, ruido, smoothstep } from "./ruido";
@@ -207,10 +208,124 @@ export function alturaEn(rejilla: Float32Array, x: number, z: number): number {
   return u + v <= 1 ? h00 + (h10 - h00) * u + (h01 - h00) * v : h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
 }
 
+// --- Las celdas cargadas ---
+/** Cuadros de rejilla por lado de una celda y vértices por lado (los bordes se repiten en la celda de al lado). */
+export const POR_CELDA = CELDA / PASO;
+export const NV = POR_CELDA + 1;
+/** Muestras del resumen por lado (cada `PASO_RESUMEN` vértices: 20 m) y la primera celda de la isla esculpible (-2). */
+export const LADO_RESUMEN = 5;
+export const PASO_RESUMEN = POR_CELDA / (LADO_RESUMEN - 1);
+export const PRIMERA = -MITAD / CELDA;
+export interface Rejilla {
+  alt: Float32Array;
+  pin: Uint8Array;
+}
+// El mismo número de celda que `numeroCelda` de `editor/trozos.ts` (que importa de aquí y no se puede importar al revés).
+const B = 1 << 20;
+export const numeroDe = (cx: number, cz: number): number => (cx + B) * 2 * B + cz + B;
+/** Rejilla de cada celda cargada que tiene suelo. */
+export const rejillas = new Map<number, Rejilla>();
+/** Alturas del resumen (5 × 5, cada 20 m) de las celdas lejanas que tienen terreno. */
+export const resumenes = new Map<number, Float32Array>();
+export const enIsla = (cx: number, cz: number): boolean => cx >= PRIMERA && cx < -PRIMERA && cz >= PRIMERA && cz < -PRIMERA;
+
+/**
+ * Pone la rejilla de una celda cargada: la de su terreno o, sin él, la de la isla esculpible (si cae en ella) o ninguna (es mar).
+ * Devuelve si la celda tiene suelo. Un terreno que no cuadra se descarta (el servidor ya lo valida).
+ */
+export function ponerRejilla(cx: number, cz: number, t?: Terreno): boolean {
+  const n = numeroDe(cx, cz);
+  const r: Rejilla = { alt: new Float32Array(NV * NV), pin: new Uint8Array(NV * NV) };
+  const h = t && aBytes(t.alturas);
+  const c = t && aBytes(t.colores);
+  if (h && c && h.length === 2 * NV * NV && c.length === NV * NV) {
+    const v = new DataView(h.buffer);
+    for (let i = 0; i < NV * NV; i++) {
+      r.alt[i] = v.getInt16(i * 2, true) / 100;
+      r.pin[i] = c[i] > TERRENO_PINTURAS ? 0 : c[i];
+    }
+  } else if (enIsla(cx, cz)) copiarDeIsla(cx, cz, r);
+  else {
+    rejillas.delete(n);
+    return false;
+  }
+  rejillas.set(n, r);
+  return true;
+}
+
+/** Copia a la rejilla de una celda de la isla su parte de `alturas` y `pinturas`. */
+export function copiarDeIsla(cx: number, cz: number, r: Rejilla): void {
+  for (let k = 0; k < NV; k++) {
+    const ini = ((cz - PRIMERA) * POR_CELDA + k) * N1 + (cx - PRIMERA) * POR_CELDA;
+    r.alt.set(alturas.subarray(ini, ini + NV), k * NV);
+    r.pin.set(pinturas.subarray(ini, ini + NV), k * NV);
+  }
+}
+
+export const quitarRejilla = (cx: number, cz: number): boolean => rejillas.delete(numeroDe(cx, cz));
+
+/** El resumen de una celda (25 alturas en cm en base64, como el `cell_summary` del servidor); vacío, sin terreno. */
+export function ponerResumen(cx: number, cz: number, b64: string): void {
+  const n = numeroDe(cx, cz);
+  const h = b64 ? aBytes(b64) : null;
+  if (!h || h.length !== 2 * LADO_RESUMEN * LADO_RESUMEN) {
+    resumenes.delete(n);
+    return;
+  }
+  const v = new DataView(h.buffer);
+  resumenes.set(n, Float32Array.from({ length: LADO_RESUMEN * LADO_RESUMEN }, (_, i) => v.getInt16(i * 2, true) / 100));
+}
+
+export const quitarResumen = (cx: number, cz: number): boolean => resumenes.delete(numeroDe(cx, cz));
+
+/** El resumen de un terreno (el base64 de `cell_summary`): para los mundos que no vienen del servidor (el de serie, el editor). */
+export function resumenDe(t: Terreno): string {
+  const h = aBytes(t.alturas);
+  if (h.length !== 2 * NV * NV) return "";
+  const out = new Uint8Array(2 * LADO_RESUMEN * LADO_RESUMEN);
+  for (let iz = 0; iz < LADO_RESUMEN; iz++) {
+    for (let ix = 0; ix < LADO_RESUMEN; ix++) {
+      const i = iz * PASO_RESUMEN * NV + ix * PASO_RESUMEN;
+      out.set(h.subarray(2 * i, 2 * i + 2), 2 * (iz * LADO_RESUMEN + ix));
+    }
+  }
+  return aBase64(out);
+}
+
+/** Altura interpolada en una rejilla de `lado` vértices cada `paso` m, en (x, z) desde su esquina; con los mismos triángulos que la malla. */
+function interpolar(alt: Float32Array, lado: number, paso: number, x: number, z: number): number {
+  const gx = Math.min(Math.max(x / paso, 0), lado - 1.000001);
+  const gz = Math.min(Math.max(z / paso, 0), lado - 1.000001);
+  const ix = Math.floor(gx);
+  const iz = Math.floor(gz);
+  const u = gx - ix;
+  const v = gz - iz;
+  const h00 = alt[iz * lado + ix];
+  const h10 = alt[iz * lado + ix + 1];
+  const h01 = alt[(iz + 1) * lado + ix];
+  const h11 = alt[(iz + 1) * lado + ix + 1];
+  return u + v <= 1 ? h00 + (h10 - h00) * u + (h01 - h00) * v : h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
+}
+
 /** Altura del terreno tal y como se dibuja (sin cubierta del muelle). */
 export function terrenoEn(x: number, z: number): number {
   if (PRUEBAS) return alturaPista(x, z); // el extraplano: suelo a 0 m y los bloques de la pista
-  return alturaEn(alturas, x, z);
+  const cx = Math.floor(x / CELDA);
+  const cz = Math.floor(z / CELDA);
+  const n = numeroDe(cx, cz);
+  const r = rejillas.get(n);
+  if (r) return interpolar(r.alt, NV, PASO, x - cx * CELDA, z - cz * CELDA);
+  const lejos = resumenes.get(n);
+  if (lejos) return interpolar(lejos, LADO_RESUMEN, PASO * PASO_RESUMEN, x - cx * CELDA, z - cz * CELDA);
+  return alturaEn(alturas, x, z); // la isla aún sin cargar, o el fondo del mar
+}
+
+/** Altura de un vértice de la rejilla de todo el mundo (cada `PASO` m desde 0): de su celda si está cargada; si no, `terrenoEn`. */
+export function verticeEn(gx: number, gz: number): number {
+  const cx = Math.floor(gx / POR_CELDA);
+  const cz = Math.floor(gz / POR_CELDA);
+  const r = rejillas.get(numeroDe(cx, cz));
+  return r ? r.alt[(gz - cz * POR_CELDA) * NV + gx - cx * POR_CELDA] : terrenoEn(gx * PASO, gz * PASO);
 }
 
 /** Suelo sobre el que se camina: terreno o cubierta del muelle, con el fondo del vadeo como mínimo. */
@@ -260,7 +375,7 @@ export const PALETA: { nombre: string; color: Color }[] = [
 ];
 if (PALETA.length !== TERRENO_PINTURAS) throw new Error("La paleta del terreno no cuadra con TERRENO_PINTURAS");
 
-function colorEn(x: number, z: number, h: number, pend: number, pintura: number): Color {
+export function colorEn(x: number, z: number, h: number, pend: number, pintura: number): Color {
   const out = new Color();
   if (pintura) return out.copy(PALETA[pintura - 1].color).multiplyScalar(0.94 + fbm(x * 0.7, z * 0.7, 1) * 0.12);
   const r = Math.hypot(x, z) || 1e-6;
@@ -283,93 +398,6 @@ function colorEn(x: number, z: number, h: number, pend: number, pintura: number)
   out.lerp(ARENA, (1 - smoothstep(10, 22, dcant)) * (1 - smoothstep(3, 5, h)));
   out.lerp(FONDO, smoothstep(0.1, -0.8, h) * 0.8);
   return out.multiplyScalar(0.94 + fbm(x * 0.7, z * 0.7, 1) * 0.12);
-}
-
-/** La malla del terreno: sus baldosas y cómo ponerla al día cuando cambia la rejilla. */
-export interface Suelo {
-  baldosas: Mesh[];
-  /** Vuelve a leer la rejilla entre esos vértices (incluidos); sin argumentos, entera. */
-  actualizar(ix0?: number, iz0?: number, ix1?: number, iz1?: number): void;
-}
-
-/**
- * El terreno en `teselas` × `teselas` baldosas (divisor de 160), para que three descarte las que no se ven. Cada baldosa
- * copia sus vértices de la rejilla entera (las juntas coinciden) y se registra en el culling con su esfera.
- */
-export function crearTerreno(teselas: number, culling: Culling, distancia: number): Suelo {
-  const lado = CELDAS / teselas;
-  const n = lado + 1;
-  const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  const idx = new Uint16Array(lado * lado * 6);
-  let k = 0;
-  for (let iz = 0; iz < lado; iz++) {
-    for (let ix = 0; ix < lado; ix++) {
-      const v00 = iz * n + ix;
-      const v10 = v00 + 1;
-      const v01 = v00 + n;
-      const v11 = v01 + 1;
-      idx.set([v00, v01, v10, v10, v01, v11], k);
-      k += 6;
-    }
-  }
-  const baldosas: Mesh[] = [];
-  for (let t = 0; t < teselas * teselas; t++) {
-    const g = new BufferGeometry();
-    g.setAttribute("position", new BufferAttribute(new Float32Array(n * n * 3), 3));
-    g.setAttribute("color", new BufferAttribute(new Float32Array(n * n * 3), 3));
-    g.setIndex(new BufferAttribute(idx, 1));
-    const mesh = new Mesh(g, material);
-    mesh.receiveShadow = true;
-    baldosas.push(mesh);
-  }
-  // Las baldosas en las que está cada fila (o columna) de vértices: dos en las juntas.
-  const de = (i: number): number[] => {
-    const a = Math.min(Math.floor(i / lado), teselas - 1);
-    const b = Math.max(Math.ceil(i / lado) - 1, 0);
-    return a === b ? [a] : [b, a];
-  };
-
-  const actualizar = (ix0 = 0, iz0 = 0, ix1 = CELDAS, iz1 = CELDAS): void => {
-    ix0 = Math.max(ix0, 0);
-    iz0 = Math.max(iz0, 0);
-    ix1 = Math.min(ix1, CELDAS);
-    iz1 = Math.min(iz1, CELDAS);
-    const tocadas = new Set<number>();
-    for (let iz = iz0; iz <= iz1; iz++) {
-      for (let ix = ix0; ix <= ix1; ix++) {
-        const i = iz * N1 + ix;
-        const x = ix * PASO - MITAD;
-        const z = iz * PASO - MITAD;
-        const h = alturas[i];
-        const hx = alturas[iz * N1 + Math.min(ix + 1, CELDAS)] - alturas[iz * N1 + Math.max(ix - 1, 0)];
-        const hz = alturas[Math.min(iz + 1, CELDAS) * N1 + ix] - alturas[Math.max(iz - 1, 0) * N1 + ix];
-        const co = colorEn(x, z, h, Math.hypot(hx, hz) / (2 * PASO), pinturas[i]);
-        for (const tz of de(iz)) {
-          for (const tx of de(ix)) {
-            const b = tz * teselas + tx;
-            const j = ((iz - tz * lado) * n + ix - tx * lado) * 3;
-            const g = baldosas[b].geometry;
-            (g.attributes.position.array as Float32Array).set([x, h, z], j);
-            (g.attributes.color.array as Float32Array).set([co.r, co.g, co.b], j);
-            tocadas.add(b);
-          }
-        }
-      }
-    }
-    for (const b of tocadas) {
-      const m = baldosas[b];
-      const g = m.geometry;
-      g.attributes.position.needsUpdate = true;
-      g.attributes.color.needsUpdate = true;
-      g.computeVertexNormals();
-      g.computeBoundingSphere();
-      // La esfera puede crecer al esculpir: el culling la vuelve a leer.
-      culling.quitar(m);
-      culling.registrarMalla(m, distancia);
-    }
-  };
-  actualizar();
-  return { baldosas, actualizar };
 }
 
 /** Textura de profundidad (8 bits: -6 a +6 m) para que el mar sepa dónde es poco profundo y hacer espuma. */

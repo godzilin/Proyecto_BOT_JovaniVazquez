@@ -344,15 +344,13 @@ async def test_los_lugares_salen_del_mundo_publicado() -> None:
     rooms, lotes = walking()
     # La plaza, movida 8 m al este y más pequeña.
     zonas = {"zonas": {"plaza": {"x": 0, "z": 60, "r": 5}}}
-    a = await rooms.join(
-        1, 10, "Ana", FakeClient(), places=world_places({"zonas": json.dumps(zonas)})
-    )
+    a = await rooms.join(1, 10, "Ana", FakeClient(), places=world_places(json.dumps(zonas)))
     rooms.pose(1, a, pose(x=-80, y=80, z=530))  # en la de serie, no en la movida
     assert rooms.places_at(1, a) == []
     rooms.clock.now += 0.2  # type: ignore[attr-defined]
     rooms.pose(1, a, pose(x=-10, y=80, z=600))
     assert rooms.places_at(1, a) == ["plaza"]
-    rooms.set_places(1, world_places({}))  # se publica otra vez la de serie
+    rooms.set_places(1, world_places(""))  # se publica otra vez la de serie
     rooms.clock.now += 0.2  # type: ignore[attr-defined]
     rooms.pose(1, a, pose(x=-80, y=80, z=530))
     assert rooms.places_at(1, a) == ["plaza"]

@@ -4,7 +4,7 @@ import type { Fog, FogExp2 } from "three";
 import type { Asset, MundoDoc, Objeto } from "../editor/formato";
 import type { Mundo } from "../mundo";
 import { BORDE as LIMITE_XZ } from "../mundo/borde";
-import { circulos } from "../mundo/colision";
+import { todosLosCirculos } from "../mundo/colision";
 import { PRUEBAS, irAMundo } from "../mundo/modo";
 import { pistaDoc } from "../mundo/pista";
 import { mundoDeSerie } from "../mundo/serie";
@@ -182,6 +182,7 @@ export function iniciarDevtools(mundo: Mundo, sesion: { session: string; guildId
   const rehacerAnillos = (): void => {
     quitarAnillos();
     materialAnillos ??= new LineBasicMaterial({ color: 0xff2bd6, depthTest: false });
+    const circulos = todosLosCirculos();
     const pos = new Float32Array(circulos.length * SEG_ANILLO * 6);
     let k = 0;
     for (const c of circulos) {

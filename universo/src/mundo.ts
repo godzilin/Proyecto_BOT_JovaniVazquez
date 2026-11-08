@@ -27,13 +27,14 @@ import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { CELDAS, crearMapaProfundidad, crearTerreno, fijarTerreno, heightAt, MITAD, PASO, rellenarMapaProfundidad, sueloEn, type Suelo } from "./mundo/terreno";
+import { crearMapaProfundidad, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn } from "./mundo/terreno";
+import { Suelo } from "./mundo/suelo";
+import { Cercania, type Fuente, fuenteLocal } from "./mundo/cercania";
 import { Obras } from "./mundo/obras";
 import { PRUEBAS } from "./mundo/modo";
 import { SITIOS_PISTA, pistaDoc } from "./mundo/pista";
 import { mundoDeSerie } from "./mundo/serie";
-import { CELDA, type MundoDoc, type Teleporte } from "./editor/formato";
-import { coordsDeClave } from "./editor/trozos";
+import type { MundoDoc, Teleporte } from "./editor/formato";
 import { SITIOS_ISLA, puntoDe, teleportesDeSerie } from "./mundo/teleportes";
 
 /** Lo del paseo que la sala no ve en las poses (los metros, saltos, deslizamientos y lugares los cuenta ella). */
@@ -57,9 +58,9 @@ export interface Contexto {
   tactil: boolean;
   /** `f` se llama cada fotograma, con la cámara y el culling ya al día y antes de dibujar. */
   enganchar(f: (dt: number, ahora: number) => void): void;
-  /** El mundo que se está dibujando (el de serie, el publicado o el borrador del editor). */
+  /** Lo que se está dibujando (del de serie, del publicado o del borrador del editor): solo las celdas cargadas, las de alrededor. */
   doc(): MundoDoc;
-  /** `f` se llama cada vez que se carga otro mundo (`cargarMundo`), con él. */
+  /** `f` se llama cada vez que cambia lo cargado (otro mundo, o celdas que llegan y se van al moverse), con el documento nuevo. */
   alCargar(f: (doc: MundoDoc) => void): void;
 }
 
@@ -72,13 +73,22 @@ export interface Mundo {
   readonly yo: Jugador;
   /** Los demás jugadores, a los que alimenta la sala. */
   readonly remotos: Remotos;
-  /** Dibuja el mundo publicado desde el editor en lugar del de serie (o del publicado antes), terreno incluido. */
-  cargarMundo(doc: MundoDoc): void;
   /**
-   * Lo publicado cambió solo en esos trozos (`claves`) y `doc` es el mundo nuevo (`parchear` de `antes`). Si se está viendo
-   * `antes`, se rehace solo lo de esas celdas (obras, colisiones, culling y terreno); si no, o si es mucho, se carga entero.
+   * Dibuja un mundo que se tiene entero (el borrador del editor, las devtools) en lugar del que había, terreno incluido. Se carga por
+   * cercanía como el publicado; si viene de otro `cargarMundo`, solo se rehacen las celdas que han cambiado.
    */
-  actualizarMundo(antes: MundoDoc, doc: MundoDoc, claves: string[]): void;
+  cargarMundo(doc: MundoDoc): void;
+  /** Dibuja el mundo publicado de esa fuente; si ya se veía otra versión, solo se vuelven a bajar los trozos cercanos que han cambiado. */
+  cargarPublicado(f: Fuente): void;
+  /** Vuelve al mundo de serie (nunca se ha publicado nada). */
+  cargarSerie(): void;
+  /** `f` se llama si el servidor ya no tiene las celdas del índice que se está usando: hay que pedir otro (`cargarPublicado`). */
+  alCaducar(f: () => void): void;
+  /**
+   * Carga y monta lo que hay alrededor de (x, z) en este fotograma (el editor, que pinta él mientras el bucle está en pausa). Dice si
+   * queda algo por montar: entonces hay que volver a llamar en el siguiente.
+   */
+  enfocar(x: number, z: number): boolean;
   /**
    * El editor ha esculpido o pintado la rejilla del terreno (`terreno.ts`) entre esos vértices: se rehace esa parte de la
    * malla. Con `mar`, también el mapa de profundidad del mar (al acabar el trazo; es más caro).
@@ -98,18 +108,24 @@ export interface Mundo {
 }
 
 // Tamaños medidos con docs/medir_universo.py (los de obras, en mundo/medidas.ts); con ?debug=1&teselas=.. se prueban otros.
-const TESELAS = 4; // el terreno en 4 × 4 baldosas de 80 m (8 × 8 pasaba de 120 llamadas)
-const DIST_TERRENO = 480;
+const DIST_CARGA = 480; // m alrededor de la cámara cuyas celdas se cargan enteras (con calidad baja, menos: `radioCarga`)
+/** Lo que puede gastar cada fotograma en montar lo que llega (ms); al entrar, con la pantalla de carga, mucho más. */
+const PRESUPUESTO_MS = 4;
+const ESPERA_ENTRADA_MS = 6000;
+/**
+ * Presupuesto de la Biblia por fotograma (sombras incluidas). En un sitio muy denso se acorta la distancia de dibujo de lo que no es
+ * suelo hasta que cabe (`alcance`), y se devuelve poco a poco cuando sobra: lo lejano desaparece antes, pero nunca se pasa.
+ */
+const MAX_LLAMADAS = 120;
+const MAX_TRIANGULOS = 250_000;
+const MIN_ALCANCE = 0.25;
 const SOMBRA = 32; // semi-lado en metros del recuadro de sombras que sigue al jugador
-// Con más celdas cambiadas se monta entero. Rehacer celdas sale siempre más barato (docs/medir_recarga.py: 24 de 300 celdas,
-// 53 ms contra 245 entero; 12 de 14, 6 contra 16), así que el tope es solo para cambios que tocan casi todo.
-const MAX_CELDAS_PARCIAL = 64;
 
 /**
  * Monta el mundo una sola vez: con el publicado que traiga `inicial` (se pide a la vez que el login) o, si da `null`, con
  * el de serie. En el extraplano no se mira.
  */
-export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, inicial: Promise<MundoDoc | null>): Promise<Mundo> {
+export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, inicial: Promise<Fuente | null>): Promise<Mundo> {
   const [jugador, publicado] = await Promise.all([Jugador.cargar(), inicial]);
   const tactil = window.matchMedia("(pointer: coarse)").matches;
   const debug = new URLSearchParams(location.search).get("debug");
@@ -146,12 +162,10 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
 
   // Mundo.
   const culling = new Culling();
-  const param = (n: string, defecto: number): number => (debug !== null ? Number(new URLSearchParams(location.search).get(n)) || defecto : defecto);
   let mar: ReturnType<typeof crearMar> | null = null;
   let suelo: Suelo | null = null;
   let profundidad: ReturnType<typeof crearMapaProfundidad> | null = null;
   const obras = new Obras(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
-  let docActual: MundoDoc;
   const alCargar: ((doc: MundoDoc) => void)[] = [];
   if (PRUEBAS) {
     // El extraplano: un suelo gris a 0 m con cuadrícula de 1 m (y de 10 m más marcada) pintada en una textura que se
@@ -174,21 +188,26 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     rejilla.repeat.set(60, 60);
     rejilla.anisotropy = renderer.capabilities.getMaxAnisotropy();
     rejilla.colorSpace = SRGBColorSpace;
-    const suelo = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ map: rejilla }));
-    suelo.receiveShadow = true;
-    escena.add(suelo);
-    docActual = pistaDoc();
-    obras.cargar(docActual);
+    const plano = new Mesh(new PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new MeshLambertMaterial({ map: rejilla }));
+    plano.receiveShadow = true;
+    escena.add(plano);
   } else {
-    // El terreno publicado se fija antes de crear la malla: se construye una vez, ya con él.
-    if (publicado && fijarTerreno(publicado.terreno)) jugador.teletransportar(jugador.x, jugador.z);
-    suelo = crearTerreno(param("teselas", TESELAS), culling, DIST_TERRENO);
-    escena.add(...suelo.baldosas);
+    suelo = new Suelo(escena, culling, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
     profundidad = crearMapaProfundidad();
     mar = crearMar(profundidad);
     escena.add(mar.malla);
-    docActual = publicado ?? mundoDeSerie();
-    obras.cargar(docActual);
+  }
+  const cercania = new Cercania(obras, suelo);
+  // El suelo de la isla del centro ha cambiado: el mapa de profundidad del mar se rehace (como mucho dos veces por segundo).
+  let marSucio = 0;
+  if (suelo) suelo.alCambiarIsla = () => (marSucio ||= performance.now() + 500);
+  cercania.cambiarFuente(PRUEBAS ? fuenteLocal(pistaDoc()) : (publicado ?? fuenteLocal(mundoDeSerie())));
+  // Lo de alrededor del jugador se baja y se monta antes de quitar la pantalla de carga (sin esperar más de `ESPERA_ENTRADA_MS`).
+  const hastaEntrada = performance.now() + ESPERA_ENTRADA_MS;
+  for (;;) {
+    cercania.actualizar(jugador.x, jugador.z);
+    if (!cercania.trabajar(performance.now() + 40) || performance.now() > hastaEntrada) break;
+    await new Promise((r) => setTimeout(r, 0));
   }
   const cielo = crearCielo();
   escena.add(...cielo.objetos);
@@ -197,6 +216,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
   camara.enlazarSombra(sol.shadow);
   const remotos = new Remotos(escena, fundirRobot(jugador.modelo, jugador.clips));
 
+  if (profundidad) rellenarMapaProfundidad(profundidad);
+  marSucio = 0;
   const calidad = new Calidad(renderer, sol, tactil ? 1.5 : 2);
   const ratioInicial = calidad.ratio;
   if (debug === "fijo") calidad.activa = false;
@@ -231,7 +252,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     calidad,
     tactil,
     enganchar: (f) => ganchos.push(f),
-    doc: () => docActual,
+    doc: () => cercania.doc(),
     alCargar: (f) => alCargar.push(f),
   };
 
@@ -242,6 +263,11 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
   let pausado = false;
 
   let detenido = false;
+  /** Si en el último fotograma quedó algo por bajar o montar alrededor (las medidas esperan a que no). */
+  let ocupado = false;
+  let escalaCalidad = 1;
+  /** Lo que se acorta la distancia de dibujo para no pasar del presupuesto (1: nada). */
+  let alcance = 1;
   const fotograma = (ahora: number): void => {
     if (document.hidden || pausado) {
       ultimo = ahora;
@@ -315,7 +341,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     sol.position.set(sx + DIR_SOL.x * 80, sy + DIR_SOL.y * 80, sz + DIR_SOL.z * 80);
     sol.target.updateMatrixWorld();
 
-    culling.escala = !calidad.sombras ? 0.6 : calidad.ratio < ratioInicial ? 0.8 : 1;
+    escalaCalidad = !calidad.sombras ? 0.6 : calidad.ratio < ratioInicial ? 0.8 : 1;
+    culling.escala = escalaCalidad * alcance;
+    cercania.radio = radioCarga();
+    cercania.actualizar(camara3.position.x, camara3.position.z);
+    ocupado = cercania.trabajar(performance.now() + PRESUPUESTO_MS);
+    if (marSucio && ahora > marSucio && profundidad) {
+      marSucio = 0;
+      rellenarMapaProfundidad(profundidad);
+    }
     culling.actualizar(camara3);
     mar?.actualizar(reloj, camara3.position.x, camara3.position.z);
     cielo.actualizar(dt, camara3.position.x, camara3.position.y, camara3.position.z);
@@ -329,13 +363,15 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       });
     }
     renderer.render(escena, camara3);
+    const info = renderer.info.render;
+    if (info.calls > 0.92 * MAX_LLAMADAS || info.triangles > 0.92 * MAX_TRIANGULOS) alcance = Math.max(MIN_ALCANCE, alcance * 0.95);
+    else if (info.calls < 0.75 * MAX_LLAMADAS && info.triangles < 0.75 * MAX_TRIANGULOS) alcance = Math.min(1, alcance * 1.01);
   };
   renderer.setAnimationLoop(fotograma);
 
   // Los del panel «Viajar»: en la isla, los del mundo publicado (o los de serie); en el extraplano, los de la pista.
-  let teleportes: Teleporte[] = PRUEBAS
-    ? Object.entries(SITIOS_PISTA).map(([nombre, [x, z]]) => ({ nombre, x, z }))
-    : (docActual.teleportes ?? teleportesDeSerie());
+  const teleportesPista = Object.entries(SITIOS_PISTA).map(([nombre, [x, z]]) => ({ nombre, x, z }));
+  const teleportes = (): Teleporte[] => (PRUEBAS ? teleportesPista : (cercania.indice?.teleportes ?? teleportesDeSerie()));
   const irA = (nombre: string): void => {
     // En el extraplano, la pista se mira hacia -z; el casino está donde en la isla y se encuadra igual.
     if (PRUEBAS && nombre !== "casino") {
@@ -370,6 +406,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       heightAt,
       sueloEn,
       info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+      cercania,
+      cargado: () => ({ ...cercania.estado, obras: obras.mallas, suelo: suelo?.mallas ?? 0, ocupado, alcance: Math.round(alcance * 100) / 100 }),
       irA,
       tp: (x: number, z: number, yaw?: number, pitch?: number, dist?: number) => {
         jugador.teletransportar(x, z);
@@ -380,21 +418,23 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     };
   }
 
-  /** Lo que sigue al documento que se ve, se cargue entero o por celdas. */
-  const fijarDoc = (doc: MundoDoc): void => {
-    docActual = doc;
+  // Lo cargado cambia muy a menudo mientras se camina: quien mira el documento (el casino) se entera como mucho cuatro veces por segundo.
+  let avisar = 0;
+  cercania.alCambiar = () => (avisar ||= performance.now() + 250);
+  ganchos.push((_dt, ahora) => {
+    if (!avisar || ahora < avisar) return;
+    avisar = 0;
+    const doc = cercania.doc();
     for (const f of alCargar) f(doc);
-    if (!PRUEBAS) teleportes = doc.teleportes ?? teleportesDeSerie();
-  };
-  const cargarMundo = (doc: MundoDoc): void => {
-    if (fijarTerreno(doc.terreno)) {
-      suelo?.actualizar();
-      if (profundidad) rellenarMapaProfundidad(profundidad);
-    }
-    obras.cargar(doc);
+  });
+  /** Pasa a otra fuente: lo de antes se queda hasta que llega lo nuevo. `isla` es la rejilla de la isla esculpible (la del editor). */
+  const cambiar = (f: Fuente, isla?: MundoDoc["terreno"]): void => {
+    fijarTerreno(isla);
+    cercania.cambiarFuente(f);
     calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
-    fijarDoc(doc);
   };
+  let local: Fuente | null = null;
+  const radioCarga = (): number => DIST_CARGA * Math.max(escalaCalidad, 0.85);
 
   return {
     contexto,
@@ -403,7 +443,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     sitios: Object.keys(PRUEBAS ? SITIOS_PISTA : SITIOS_ISLA),
     irA,
     get teleportes() {
-      return teleportes;
+      return teleportes();
     },
     viajar(t) {
       jugador.teletransportar(t.x, t.z);
@@ -431,29 +471,34 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       t.speed = Math.max(t.speed, i.speed);
       t.chain = Math.max(t.chain, i.chain);
     },
-    cargarMundo,
-    actualizarMundo(antes, doc, claves) {
-      const celdas = claves.filter((k) => k.startsWith("c/"));
-      if (docActual !== antes || celdas.length > MAX_CELDAS_PARCIAL || !obras.actualizar(doc, celdas)) return cargarMundo(doc);
-      if (fijarTerreno(doc.terreno)) {
-        // Los vértices de las celdas cambiadas (y uno más: el color mira la pendiente); si aparece o se va todo el terreno, entero.
-        const caja = [Infinity, Infinity, -Infinity, -Infinity];
-        for (const k of celdas) {
-          const [cx, cz] = coordsDeClave(k) as [number, number];
-          const [ix, iz] = [(cx * CELDA + MITAD) / PASO, (cz * CELDA + MITAD) / PASO];
-          [caja[0], caja[1]] = [Math.min(caja[0], ix - 1), Math.min(caja[1], iz - 1)];
-          [caja[2], caja[3]] = [Math.max(caja[2], ix + CELDA / PASO + 1), Math.max(caja[3], iz + CELDA / PASO + 1)];
-        }
-        const [ix0, iz0, ix1, iz1] = caja.map((v) => Math.min(Math.max(v, 0), CELDAS));
-        if (!antes.terreno || !doc.terreno) suelo?.actualizar();
-        else if (ix0 <= ix1 && iz0 <= iz1) suelo?.actualizar(ix0, iz0, ix1, iz1);
-        if (profundidad) rellenarMapaProfundidad(profundidad);
+    cargarMundo(doc) {
+      local = fuenteLocal(doc, local);
+      cambiar(local, doc.terreno);
+    },
+    cargarPublicado(f) {
+      local = null;
+      cambiar(f);
+    },
+    cargarSerie() {
+      local = null;
+      cambiar(fuenteLocal(mundoDeSerie()));
+    },
+    alCaducar(f) {
+      cercania.alCaducar = f;
+    },
+    enfocar(x, z) {
+      cercania.radio = radioCarga();
+      cercania.actualizar(x, z);
+      const queda = cercania.trabajar(performance.now() + 8);
+      if (avisar) {
+        avisar = 0;
+        const doc = cercania.doc();
+        for (const f of alCargar) f(doc);
       }
-      calidad.callar(2);
-      fijarDoc(doc);
+      return queda;
     },
     retocarTerreno(ix0, iz0, ix1, iz1, conMar) {
-      suelo?.actualizar(ix0, iz0, ix1, iz1);
+      suelo?.retocarIsla(ix0, iz0, ix1, iz1);
       if (conMar && profundidad) rellenarMapaProfundidad(profundidad);
     },
     pausar(si) {
@@ -461,6 +506,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       if (si) controles.soltarRaton();
     },
     detener() {
+      cercania.vaciar();
+      suelo?.vaciar();
       obras.vaciar();
       renderer.setAnimationLoop(null);
       controles.destruir();

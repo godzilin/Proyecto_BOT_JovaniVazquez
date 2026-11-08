@@ -8,8 +8,8 @@ llama tiene el permiso `editor`. Es una herramienta de administración: sin brom
 Los permisos están en `bot.cogs.universo.permisos`.
 
 - `GET /api/editor/borrador` -> `{version, trozos: {clave: {doc, rev}}}`: el borrador por
-  trozos (`doc` es `null` en los borrados, que conservan su `rev`) y la última versión
-  publicada.
+  trozos entero (`doc` es `null` en los borrados, que conservan su `rev`) y la última versión
+  publicada. El mundo entero no tiene tope: solo cada trozo (`encode_piece`) y cada guardado.
 - `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {rev, doc}}}` -> `{revs}`:
   valida cada trozo (`bot.services.universo_editor`) y los guarda todos o ninguno: 409 si
   alguno ya no tiene ese `rev`. `doc: null` (o vacío) lo borra.
@@ -39,7 +39,6 @@ from bot.repositories.universo_mundo import (
     Conflict,
     GlbFull,
     MissingAssets,
-    WorldTooBig,
 )
 from bot.services.universo import (
     UniversoError,
@@ -47,10 +46,9 @@ from bot.services.universo import (
 )
 from bot.services.universo_editor import (
     FORMAT,
-    MAX_ASSETS,
     MAX_GLB_BYTES,
-    MAX_WORLD_BYTES,
     MundoError,
+    cell_summary,
     encode_piece,
     glb_refs,
     glb_summary,
@@ -93,7 +91,7 @@ class EditorMixin:
     async def draft_world(self, guild_id: int) -> tuple[str, int]:
         """Lo que carga el editor: los trozos del borrador ya codificados y la versión publicada."""
         pieces = await self.bot.universo_mundo.draft(guild_id)
-        version, _published = await self.mundo(guild_id)
+        version = await self.world_version(guild_id)
         return _draft_text(pieces), version
 
     async def save_world(
@@ -126,26 +124,18 @@ class EditorMixin:
                     continue
                 clean, refs = validate_piece(key, value["doc"], glbs)
                 text = "" if is_empty(clean) else encode_piece(clean)
-                changes[key] = Change(rev, text, refs if text else frozenset())
+                summary = cell_summary(clean) if text else ""
+                changes[key] = Change(rev, text, refs if text else frozenset(), summary)
             return changes
 
         try:
             changes = await asyncio.to_thread(check)
-            return await repo.save(guild.id, changes, member.id, MAX_ASSETS, MAX_WORLD_BYTES)
+            return await repo.save(guild.id, changes, member.id)
         except MundoError as error:
             raise UniversoError(str(error)) from error
         except Conflict as error:
             raise UniversoError(REV_CONFLICT, 409) from error
-        except WorldTooBig as error:
-            raise UniversoError(
-                f"El mundo pesaría {_mb(error.size)} y caben {_mb(error.limit)} como mucho: "
-                "borra objetos o terreno antes de añadir más."
-            ) from error
         except MissingAssets as error:
-            if not error.missing:
-                raise UniversoError(
-                    f"El mundo puede tener {MAX_ASSETS} assets como mucho."
-                ) from error
             raise UniversoError(
                 f"Hay objetos que usan assets que no existen: {', '.join(error.missing)}."
             ) from error
@@ -160,7 +150,8 @@ class EditorMixin:
         if not await repo.draft(guild.id):
             raise UniversoError("No hay borrador que publicar.")
         version = await repo.publish(guild.id, member.id)
-        self._mundo.pop(guild.id, None)
+        # La caché de trozos va por versión de fila: no hace falta vaciarla.
+        self._version.pop(guild.id, None)
         self._lugares.pop(guild.id, None)
         self._mundo_epoch[guild.id] = self._mundo_epoch.get(guild.id, 0) + 1
         self.bot.telemetry.count("universo", "publicar", guild_id=guild.id, user_id=member.id)
@@ -286,11 +277,6 @@ async def _editor_call(
     return cog, guild, member, body
 
 
-def _mb(size: int) -> str:
-    """Bytes en MB con un decimal y coma, para los avisos del editor."""
-    return f"{size / 1024 / 1024:.1f} MB".replace(".", ",")
-
-
 def _draft_text(pieces: dict[str, tuple[str, int]]) -> str:
     """Los trozos del borrador (`{clave: {doc, rev}}`), sin decodificar cada `doc`."""
     return (
@@ -308,7 +294,7 @@ async def _editor_borrador(request: web.Request) -> web.Response:
     pieces, version = await cog.draft_world(guild.id)
     # Los trozos ya están codificados: se pegan tal cual, sin pasar por `json`.
     return web.Response(
-        text=f'{{"version":{version},"tope":{MAX_WORLD_BYTES},"trozos":{pieces}}}',
+        text=f'{{"version":{version},"trozos":{pieces}}}',
         content_type="application/json",
     )
 
