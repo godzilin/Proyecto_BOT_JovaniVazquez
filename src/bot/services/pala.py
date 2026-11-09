@@ -115,6 +115,7 @@ from bot.services.work import (
     REMOTE_PING_CHANCE,
     SICK_LEAVE_SECONDS,
     SICK_PAY_RATE,
+    TASK_STATS,
     TIRED,
     TRIENNIUM_PAY,
     WISH_PAY,
@@ -218,6 +219,11 @@ def aval_active(contract: Contract, now: float) -> bool:
     if asked is None or now - asked >= AVAL_SECONDS:
         return False
     return contract.family_used.get(AVAL_SPENT, 0.0) < asked
+
+
+def rotation_day(now: float) -> int:
+    """Día de la rotación de minijuegos (`Position.on`): el de Canarias, como número."""
+    return local_day(now).toordinal()
 
 
 class WorkError(Exception):
@@ -752,7 +758,8 @@ class WorkService:
         return Status(
             contract=contract,
             job=job,
-            position=job.position(contract.level, contract.branch),
+            # El minijuego del día: de P5 en adelante rota (`Position.on`).
+            position=job.position(contract.level, contract.branch).on(rotation_day(now)),
             battery=battery_now(contract, now),
             next_kind=next_shift_kind(contract, now),
             blockers=blockers,
@@ -1248,18 +1255,17 @@ class WorkService:
             progress["guards"] = progress.get("guards", 0) + 1
         elif kind is not ShiftKind.ORDINARY:
             progress["extras"] = progress.get("extras", 0) + 1
-        if game.mechanic is Mechanic.DIG and game.broken == 0 and game.correct:
+        # Las tareas cuentan con el minijuego de siempre del puesto: el día que rota a
+        # otro, lo que se acierta allí suma en el mismo contador.
+        usual = position.task_mechanic
+        if usual is Mechanic.DIG and game.broken == 0 and game.correct:
             progress["clean"] = progress.get("clean", 0) + 1
-        if game.mechanic is Mechanic.SPOT:
-            progress["caught"] = progress.get("caught", 0) + game.correct
-        if game.mechanic is Mechanic.MEMORY:
-            progress["perfect_rounds"] = progress.get("perfect_rounds", 0) + game.perfect_rounds
-        if game.mechanic is Mechanic.DIALOGUE:
-            progress["smooth"] = progress.get("smooth", 0) + game.correct
-        if game.mechanic is Mechanic.SORT:
-            progress["sorted"] = progress.get("sorted", 0) + game.correct
-        if game.mechanic is Mechanic.CALC:
-            progress["best"] = progress.get("best", 0) + game.correct
+        if usual is Mechanic.MEMORY:
+            # Una ronda perfecta de memoria vale por dos aciertos del juego del día.
+            hits = game.perfect_rounds if game.mechanic is Mechanic.MEMORY else game.correct // 2
+            progress["perfect_rounds"] = progress.get("perfect_rounds", 0) + hits
+        elif (stat := TASK_STATS.get(usual)) is not None:
+            progress[stat] = progress.get(stat, 0) + game.correct
         delta = performance_delta(
             score,
             kind,

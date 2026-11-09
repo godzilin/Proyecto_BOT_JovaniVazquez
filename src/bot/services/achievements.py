@@ -247,6 +247,7 @@ from bot.services.work import (
     Mechanic,
 )
 from bot.services.work_catalog import JOBS as WORK_JOBS
+from bot.services.work_games import DEAL_PROBE, DEAL_START, DealGame, PlanGame
 from bot.services.work_tools import TOOLS as WORK_TOOLS
 
 if TYPE_CHECKING:
@@ -12491,6 +12492,91 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Haz perfectas todas las rondas de memoria de un turno.", C),
         (50, "memoria_50", "Ni un «no me consta»",
          "Haz perfectas todas las rondas de memoria en 50 turnos.", R),
+    ])  # fmt: skip
+
+    # Los minijuegos que rotan de P5 en adelante: Cuadrante y Negociación.
+    a += _tiers("work", "work_plan_shifts", [
+        (1, "plan_1", "Encaje de bolillos", "Juega un turno de Cuadrante.", C),
+        (50, "plan_50", "La cuadratura del círculo", "Juega 50 turnos de Cuadrante.", E),
+        (200, "plan_200", "Tetris con corbata", "Juega 200 turnos de Cuadrante.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_full", [
+        (1, "plan_full_1", "Todo cuadra", "Encaja todas las piezas de un Cuadrante.", C),
+        (25, "plan_full_25", "Sin calzador", "Encaja todas las piezas en 25 Cuadrantes.", R),
+        (100, "plan_full_100", "Overbooking cero",
+         "Encaja todas las piezas en 100 Cuadrantes.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_pieces", [
+        (100, "plan_pieces_100", "Mover ficha", "Encaja 100 piezas en Cuadrantes.", R),
+        (1_000, "plan_pieces_1000", "El puzle de mil piezas",
+         "Encaja 1.000 piezas en Cuadrantes.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_fast", [
+        (1, "plan_fast", "Visto y encajado",
+         "Encaja todas las piezas de un Cuadrante con más de la mitad del tiempo.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_undo", [
+        (1, "plan_undo_1", "Regreso al paso anterior", "Deshaz una jugada en un Cuadrante.", C),
+        (25, "plan_undo_25", "Rebobina, por favor", "Deshaz 25 jugadas en Cuadrantes.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_last_out", [
+        (1, "plan_last_out", "Morir en la orilla",
+         "Deja fuera solo la última pieza de un Cuadrante.", C),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_out3", [
+        (1, "plan_out3", "Lista de espera",
+         "Deja 3 piezas o más fuera en un mismo Cuadrante.", C, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_none", [
+        (1, "plan_none", "Agenda en blanco",
+         "Deja fuera todas las piezas de un Cuadrante.", C, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_shifts", [
+        (1, "deal_1", "Siéntese, por favor", "Juega un turno de Negociación.", C),
+        (50, "deal_50", "Hablando se entiende la gente", "Juega 50 turnos de Negociación.", E),
+        (200, "deal_200", "Negociado de negociaciones",
+         "Juega 200 turnos de Negociación.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_best", [
+        (1, "deal_best_1", "Ni para ti ni para mí: para mí",
+         "Cierra un trato justo en el límite del otro.", C),
+        (50, "deal_best_50", "El precio justo", "Cierra 50 tratos justo en el límite.", R),
+        (250, "deal_best_250", "Quien regatea, gana", "Cierra 250 tratos justo en el límite.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_clean", [
+        (1, "deal_clean_1", "Hat-trick de despacho",
+         "Cierra en su límite todos los tratos de un turno.", R),
+        (25, "deal_clean_25", "A la tercera va la firma",
+         "Cierra en su límite todos los tratos en 25 turnos.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_hundred", [
+        (1, "deal_100_1", "Pide por esa boquita",
+         "Cierra un trato al 100 % de lo que pedías.", C),
+        (25, "deal_100_25", "Una oferta que no pudieron rechazar",
+         "Cierra 25 tratos al 100 % de lo que pedías.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_probes", [
+        (1, "deal_probe_1", "Tantear el terreno", "Tantea en una Negociación.", C),
+        (50, "deal_probe_50", "Catador de paciencias", "Tantea 50 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_poker_blind", [
+        (1, "deal_poker_1", "P-p-p-poker face",
+         "Sácale el máximo a un cara de póker sin tantear.", R),
+        (15, "deal_poker_15", "Vidente con traje",
+         "Sácale el máximo a un cara de póker sin tantear 15 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_walked", [
+        (1, "deal_walk_1", "Portazo", "Aprieta hasta que se levanten de la mesa.", C),
+        (25, "deal_walk_25", "Diplomacia de portazo",
+         "Haz que se levanten de la mesa 25 veces.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_all_walked", [
+        (1, "deal_all_walked", "Mesa para uno",
+         "Haz que se levanten de la mesa en todos los tratos de un turno.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_timid", [
+        (1, "deal_timid", "Lo que usted diga",
+         "Cierra todos los tratos de un turno sin apretar ni una vez.", C, True),
     ])  # fmt: skip
 
     # 👷 Oficios ------------------------------------------------------------------------
@@ -30984,6 +31070,59 @@ def _work_game_stats(outcome: ShiftOutcome, add: dict[str, int]) -> None:
         and game.perfect_rounds == len(game.rounds)
     ):
         add["work_memory_flawless"] = 1
+    if isinstance(game, PlanGame):
+        _plan_stats(game, add)
+    elif isinstance(game, DealGame):
+        _deal_stats(game, add)
+
+
+def _plan_stats(game: PlanGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Cuadrante: piezas encajadas, las que se quedan fuera y deshacer."""
+    add["work_plan_shifts"] = 1
+    out = sum(1 for lane in game.placed if lane is None)
+    if game.correct:
+        add["work_plan_pieces"] = game.correct
+    if game.undone:
+        add["work_plan_undo"] = game.undone
+    if not game.completed:
+        return
+    if out == 0:
+        add["work_plan_full"] = 1
+        if game.time_left >= game.seconds / 2:
+            add["work_plan_fast"] = 1
+    elif out == len(game.pieces):
+        add["work_plan_none"] = 1
+    elif out == 1 and game.placed[-1] is None:
+        add["work_plan_last_out"] = 1
+    if out >= 3:
+        add["work_plan_out3"] = 1
+
+
+def _deal_stats(game: DealGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Negociación: tratos al límite, portazos, tanteos y timidez."""
+    add["work_deal_shifts"] = 1
+    if game.probes:
+        add["work_deal_probes"] = game.probes
+    if game.walked:
+        add["work_deal_walked"] = game.walked
+    closed = list(zip(game.deals, game.got, game.peeked, strict=False))
+    limit = [deal for deal, got, _peek in closed if deal.best - got <= DEAL_PROBE]
+    if limit:
+        add["work_deal_best"] = len(limit)
+    if hundred := sum(1 for _deal, got, _peek in closed if got >= 100):
+        add["work_deal_hundred"] = hundred
+    if blind := sum(
+        1 for deal, got, peek in closed if deal.kind == "poker" and got == deal.best and not peek
+    ):
+        add["work_deal_poker_blind"] = blind
+    if not game.completed:
+        return
+    if game.walked == len(game.deals):
+        add["work_deal_all_walked"] = 1
+    if len(limit) == len(game.deals):
+        add["work_deal_clean"] = 1
+    if all(got <= DEAL_START for got in game.got) and not game.walked:
+        add["work_deal_timid"] = 1
 
 
 #: Contenidos de memoria: cuentan las rondas perfectas, no los aciertos sueltos.

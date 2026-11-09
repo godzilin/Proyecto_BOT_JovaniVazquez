@@ -854,6 +854,11 @@ PRODUCED_STATS = {
     "work_zero", "work_black_total",
     "work_tools_owned", "work_saves", "work_insured", "work_fifty", "work_fast",
     "work_last_second", "work_first_miss", "work_stale_clicks", "work_tremor_perfect",
+    "work_plan_shifts", "work_plan_full", "work_plan_pieces", "work_plan_fast",
+    "work_plan_undo", "work_plan_last_out", "work_plan_out3", "work_plan_none",
+    "work_deal_shifts", "work_deal_best", "work_deal_clean", "work_deal_hundred",
+    "work_deal_probes", "work_deal_poker_blind", "work_deal_walked",
+    "work_deal_all_walked", "work_deal_timid",
     "work_memory_flawless", "work_posters", "work_clean_digs", "work_board",
     # Oficios nuevos: reparto, funcionariado e influencer (work_stats y eventos)
     "work_orders", "work_routes", "work_fleet", "work_founder", "work_rain", "work_calima",

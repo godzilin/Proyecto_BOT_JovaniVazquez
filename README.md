@@ -387,7 +387,9 @@ python -m bot
   30 a 60 s según el puesto (cavar leyendo el plano, pillar al que se escaquea,
   memorizar comandas o votaciones, esquivar preguntas en rueda de prensa,
   mandar cada papel a su negociado, elegir el pedido que más paga por
-  kilómetro), y la
+  kilómetro). De P5 en adelante el minijuego alterna, un día cada uno, con el
+  Cuadrante (encajar piezas en carriles con el sitio contado) o la Negociación
+  (apretar o cerrar contra alguien con un aguante oculto). La
   nota mueve el sueldo entre el 70 % y el 130 %. Cada turno es una nómina de
   verdad: Seguridad Social del trabajador (6,5 %), IRPF con la reducción por
   rendimientos del trabajo y la cotización de la empresa (32 %), que va al
@@ -1600,6 +1602,7 @@ src/bot/
 │   ├── negocio.py       # Casos de uso del negocio y su dinero
 │   ├── work_catalog.py  # Oficios, puestos, contenido de minijuegos y eventos
 │   ├── work_games.py    # Minijuegos de pala: cavar, detectar, memoria, diálogo
+│   ├── work_rotation.py # Contenido del Cuadrante y la Negociación (rotación de P5+)
 │   ├── work_tools.py    # Herramientas de curro de la tienda y su efecto en pala
 │   ├── pala.py          # Casos de uso de pala: fichar, cobrar, ascender, café
 │   ├── lottery.py       # Loterías del Estado: reglas, probabilidades y reparto

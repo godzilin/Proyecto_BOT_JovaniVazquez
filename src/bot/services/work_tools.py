@@ -75,12 +75,15 @@ class Tool:
         if self.insured:
             parts.append("romper algo al cavar no resta")
         if self.fifty:
-            parts.append("tacha una respuesta mala en cada pregunta")
+            parts.append(
+                "tacha una respuesta mala en cada pregunta (en la Negociación, tantear es gratis)"
+            )
         return ", ".join(parts)
 
 
 _DIG = frozenset({Mechanic.DIG})
-_TALK = frozenset({Mechanic.DIALOGUE})
+#: Hablar: los diálogos y la Negociación (ahí la chuleta deja tantear gratis).
+_TALK = frozenset({Mechanic.DIALOGUE, Mechanic.DEAL})
 
 #: Todas las herramientas, en el orden del pasillo.
 TOOLS: tuple[Tool, ...] = (

@@ -16,6 +16,9 @@ Modelo (lo usa `docs/economia_sim.py`):
   funcionariado con temario pendiente, 2 turnos de estudio más (no son jornada); un extra
   el primer día si la tarea pide extras.
 - Sin deseo del día ni barra de los eventos, sin accidentes ni herramientas de la tienda.
+- De P5 en adelante el minijuego rota (`Position.on`): cada día se juega el que toca, con el
+  acierto ajustado a la misma nota media en cada uno. En el Cuadrante y la Negociación el
+  jugador pulsa con probabilidad q el botón de `best()` y, si no, otro al azar.
 
 Para cada puesto juega `RUNS` carreras día a día hasta llenar la barra y cumplir las tareas
 de `work.promotion_blockers` y da la media de días. Los días que pide el puesto no cuentan
@@ -61,6 +64,18 @@ STAT_OF = {
 def play(pos: Position, q: float, rng: random.Random, guard: bool = False, retries: int = 0):
     """Juega una partida real del puesto con acierto q. Devuelve `(nota, contadores)`."""
     g = new_game(pos, rng, now=0, guard=guard)
+    if g.mechanic in (Mechanic.PLAN, Mechanic.DEAL):
+        while (current := g.current) is not None:
+            best = g.best()
+            others = [i for i in range(len(current.options)) if i != best]
+            g.press(best if rng.random() < q or not others else rng.choice(others), 0)
+        score = round(100 * max(0, g.points) / g.max_points + rng.uniform(1, 5))
+        # Las tareas cuentan en el contador del minijuego de siempre (como `PalaService`).
+        usual = pos.task_mechanic
+        if usual is Mechanic.DIG:
+            return max(0, min(100, score)), {"clean": int(g.correct > 0)}
+        hits = g.correct // 2 if usual is Mechanic.MEMORY else g.correct
+        return max(0, min(100, score)), {STAT_OF[usual]: hits}
     points = broken = perfect = correct = 0
     left = retries
     for r in g.rounds:
@@ -119,7 +134,9 @@ def position_days(
 ) -> float:
     """Días de calendario medios para cumplir las condiciones de ascenso de `pos`."""
     retries = sum(1 for p in job.perks(pos.level, branch) if p.retry)
-    q = tune(pos, target, rng, retries)
+    # Un acierto por cada minijuego que rota en el puesto, todos a la misma nota media.
+    turns = 1 + len(pos.alts)
+    qs = {pos.on(d).mechanic: tune(pos.on(d), target, rng, retries) for d in range(turns)}
     goals = {t.stat: t.goal for t in pos.tasks}
     guards_on = job.has_guards(pos.level)
     trunk = pos.level <= job.trunk_top
@@ -136,7 +153,9 @@ def position_days(
             if "extras" in goals and prog.get("extras", 0) < goals["extras"]:
                 kinds.append(ShiftKind.EXTRA)
             for kind in kinds:
-                s, st = play(pos, q, rng, guard=kind is ShiftKind.GUARD, retries=retries)
+                today = pos.on(day)
+                q = qs[today.mechanic]
+                s, st = play(today, q, rng, guard=kind is ShiftKind.GUARD, retries=retries)
                 for k, v in st.items():
                     prog[k] = prog.get(k, 0) + v
                 prog["good"] = prog.get("good", 0) + (s >= GOOD_SCORE)

@@ -115,7 +115,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Callable, Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import NamedTuple
@@ -372,6 +372,20 @@ class Mechanic(StrEnum):
     DIALOGUE = "dialogo"
     SORT = "clasificar"
     CALC = "calcular"
+    #: Cuadrante: encajar piezas en carriles con sitio contado (rotación de P5 en adelante).
+    PLAN = "cuadrante"
+    #: Negociación: apretar o cerrar contra alguien con un aguante oculto.
+    DEAL = "negociar"
+
+
+#: Contador de las tareas de minijuego de un puesto según su motor de siempre (cavar y
+#: memoria van aparte: cuentan turnos limpios y rondas perfectas).
+TASK_STATS = {
+    Mechanic.SPOT: "caught",
+    Mechanic.DIALOGUE: "smooth",
+    Mechanic.SORT: "sorted",
+    Mechanic.CALC: "best",
+}
 
 
 class ShiftKind(StrEnum):
@@ -453,6 +467,10 @@ class Position:
         content: Clave del contenido del minijuego.
         fee: Cuota semanal de autónomos si `self_employed` (la tarifa plana es menor).
         perk: Ventaja que se gana al llegar a este puesto (`None` = ninguna).
+        alts: Minijuegos que se turnan con el del puesto, un día cada uno (`on`): pares
+            `(motor, contenido)`. Vacío = siempre el mismo.
+        rotated: Si este puesto es el de un día de rotación (lo pone `on`): `mechanic` y
+            `content` son los del día y `alts[0]`, los de siempre.
     """
 
     level: int
@@ -467,6 +485,30 @@ class Position:
     self_employed: bool = False
     fee: int = SELF_EMPLOYED_FEE
     perk: Perk | None = None
+    alts: tuple[tuple[Mechanic, str], ...] = ()
+    rotated: bool = False
+
+    def on(self, day: int) -> Position:
+        """El puesto con el minijuego que toca el día `day` (`date.toordinal()`).
+
+        El de siempre y los de `alts` se turnan, un día cada uno.
+        """
+        turn = day % (1 + len(self.alts))
+        if self.rotated or turn == 0:
+            return self
+        mechanic, content = self.alts[turn - 1]
+        return replace(
+            self,
+            mechanic=mechanic,
+            content=content,
+            alts=((self.mechanic, self.content),),
+            rotated=True,
+        )
+
+    @property
+    def task_mechanic(self) -> Mechanic:
+        """Motor de siempre del puesto: el que cuenta para sus tareas, rote o no."""
+        return self.alts[0][0] if self.rotated else self.mechanic
 
 
 class BranchKind(StrEnum):

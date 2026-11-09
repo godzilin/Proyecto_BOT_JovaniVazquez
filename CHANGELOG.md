@@ -8,6 +8,10 @@ criterio.
 
 ## 11.x
 
+### 11.1.0 · 2026-11-09
+
+- Pala: de P5 en adelante el minijuego rota cada día con el Cuadrante o la Negociación
+
 ### 11.0.0 · 2026-11-09
 
 - Fortunas: el Estado sale en la lista con su caja, lo que paga en nóminas públicas y lo que se cobra a sí mismo en impuestos

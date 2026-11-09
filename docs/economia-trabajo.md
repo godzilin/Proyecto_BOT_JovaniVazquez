@@ -130,3 +130,24 @@ pasa por Ladrillo del día ~40 al 93 y, si compra pisos con hipoteca, nunca junt
 una obra. El techo es quien se queda en P10 de Ladrillo y encadena obras vendiéndolo todo al
 acabar: con el margen del ~16 % y los plazos de la tabla llega al Falcon el día 305, frente al
 340 de los pisos con hipoteca. Con el primer diseño (27 % y la mitad de días), el día 171.
+
+## Rotación de minijuegos (11.1.0)
+
+De P5 en adelante el minijuego del puesto alterna, un día cada uno, con el Cuadrante o la
+Negociación (`Position.alts`). No cambia sueldos, días ni tareas:
+
+- **La nota va a la misma escala** (0-100, con el extra de tiempo) y el jugador de
+  `docs/ritmo_pala.py` juega cada minijuego con el acierto que le da la misma nota media.
+  En los nuevos pulsa el botón de `best()` con esa probabilidad y, si no, otro al azar:
+  con acierto 0 saca ~25 en el Cuadrante y ~57 en la Negociación (cerrar sin apretar ya
+  deja el 40 % de cada trato), y con acierto 1, 100 en los dos.
+- **Las tareas cuentan en el contador de siempre** del puesto los días de rotación (en los
+  puestos de memoria, dos aciertos del juego del día valen una ronda perfecta).
+- **Medido el 09/11/2026:** a nota 75, llenar la barra y cumplir las tareas en los puestos
+  de P5 en adelante tarda de media 7,0 días (antes, 6,8; el que más cambia, 2 días); a nota
+  85, 3,9 (antes, 4,0). Siempre por debajo de los días que pide el puesto (13 a 21 en las
+  ramas), que son los que mandan: las ramas siguen en 67 días y la referencia de la obra,
+  con el primer P10 el día 94 y el Falcon con pisos el día 368.
+- **Lo que no mide el simulador:** quien se sabía los diálogos de memoria sacaba 100 todos
+  los días. En la Negociación, un cara de póker obliga a tantear (5 puntos de ese trato) o
+  a jugársela: los días de rotación ese jugador cobra algo menos (del orden de un 1-3 %).

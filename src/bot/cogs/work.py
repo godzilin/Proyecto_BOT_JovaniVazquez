@@ -180,7 +180,7 @@ from bot.services.work_catalog import (
     NIGHT_CAUGHT_TEXT,
     Event,
 )
-from bot.services.work_games import GRACE_SECONDS
+from bot.services.work_games import DEAL_BREAK, GRACE_SECONDS, DealGame, PlanGame
 from bot.services.work_tools import TOOL_KEYS
 from bot.utils.channels import wrong_channel
 from bot.utils.cogs import find_cog
@@ -207,6 +207,8 @@ MECHANIC_NAMES = {
     Mechanic.DIALOGUE: "diálogo",
     Mechanic.SORT: "clasificar",
     Mechanic.CALC: "calcular",
+    Mechanic.PLAN: "cuadrante",
+    Mechanic.DEAL: "negociación",
 }
 #: Cómo se ve el tiempo en el panel del reparto.
 WEATHER_TEXT = {
@@ -233,6 +235,11 @@ HOW_TO = {
     Mechanic.DIALOGUE: "Lee la situación y elige la mejor respuesta.",
     Mechanic.SORT: "Lee el papel y mándalo a su sitio con el botón que toque.",
     Mechanic.CALC: "Haz la cuenta y elige la mejor oferta. La buena gana por goleada.",
+    Mechanic.PLAN: "Manda cada pieza a un sitio donde quepa. Ves la cola entera y todo "
+    "encaja si lo piensas: lo que se queda fuera resta. Con un fallo gratis puedes deshacer.",
+    Mechanic.DEAL: "Aprieta para sacar más y cierra antes de que se levante: si se va, te "
+    f"quedas con el {DEAL_BREAK} %. Fíjate en lo que hace y en su carácter. Tantear dice "
+    "cuánto aguanta.",
 }
 #: Pasillo de la tienda con los regalos para la familia (botón 🎁 del panel).
 GIFT_AISLE = "familia"
@@ -898,6 +905,14 @@ def outcome_text(outcome: ShiftOutcome) -> str:
         detail += f" · 💥 {game.broken} roturas"
     if game.mechanic is Mechanic.MEMORY:
         detail = f"{game.perfect_rounds} rondas perfectas"
+    if isinstance(game, PlanGame):
+        detail = f"{game.correct} de {len(game.pieces)} piezas encajadas"
+    if isinstance(game, DealGame):
+        detail = "Tratos: " + " · ".join(
+            f"{got} % de {deal.best} %" for got, deal in zip(game.got, game.deals, strict=False)
+        )
+        if game.walked:
+            detail += f" · 🚪 {game.walked} se levantaron"
     lines.append(f"-# {detail}")
     if outcome.weather == "lluvia":
         lines.append(f"🌧️ Con lluvia, el turno paga ×{str(RAIN_PAY).replace('.', ',')}.")

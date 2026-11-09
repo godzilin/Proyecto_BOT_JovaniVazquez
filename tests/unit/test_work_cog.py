@@ -839,3 +839,43 @@ def test_la_oferta_del_b_dice_el_riesgo_de_dia_y_el_de_noche() -> None:
     night = black_offer_text(2)
     assert "2.ª franja de noche" in night and "40 % de que te pille la Inspección" in night
     assert "turno doble" in night
+
+
+@pytest.mark.parametrize(
+    ("level", "branch", "mechanic", "shown", "result"),
+    [
+        (5, "", Mechanic.DEAL, "Trato 1/3", "Tratos:"),
+        (6, "moncloa", Mechanic.PLAN, "Ahora (1/", "piezas encajadas"),
+    ],
+)
+async def test_el_dia_de_rotacion_se_juega_el_otro_minijuego_con_botones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    level: int,
+    branch: str,
+    mechanic: Mechanic,
+    shown: str,
+    result: str,
+) -> None:
+    monkeypatch.setattr(pala, "rotation_day", lambda now: 1)
+    cog, panel, _send = await politics_panel(tmp_path)
+    await set_career(cog, level, branch)
+    await panel.refresh(make_interaction())
+    assert work_cog.MECHANIC_NAMES[mechanic] in texts(panel)
+    await panel._clock_in(make_interaction())
+    assert panel.shift is not None
+    game = panel.shift.game
+    assert game.mechanic is mechanic and shown in texts(panel)
+    check_limits(panel)
+    while panel.shift is not None:
+        await panel.game_click(make_interaction(), game.index, game.best())
+        if panel.shift is not None:
+            check_limits(panel)
+    assert "100/100" in texts(panel) and result in texts(panel)
+    check_limits(panel)
+    # Las tareas del puesto cuentan en su contador de siempre aunque hoy rote.
+    contract = await cog.service.repository.contract(GUILD, OWNER)
+    usual = JOB_BY_KEY["politica"].position(level, branch).mechanic
+    stat = {Mechanic.DIALOGUE: "smooth", Mechanic.SORT: "sorted"}[usual]
+    assert contract is not None and contract.progress[stat] == game.correct
+    await asyncio.sleep(0)
