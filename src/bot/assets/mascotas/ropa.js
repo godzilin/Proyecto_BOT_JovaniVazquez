@@ -852,7 +852,219 @@ window.Ropa = (() => {
     g.restore();
     garment(g, u, h);
   }
+  // Los disfraces: el anclaje del cuerpo trae `head` ({dx, dy, w, a}: lo alto de la cabeza
+  // respecto al tronco), para la capucha o la mitra. Sin cabeza, solo se pinta el tronco.
+  function onHead(g, anchor, draw) {
+    const head = anchor && anchor.head;
+    if (!head) return;
+    g.save();
+    g.translate(head.dx, head.dy);
+    if (head.a) g.rotate((head.a * Math.PI) / 180);
+    draw(Math.max(4, head.w));
+    g.restore();
+  }
+  // Capucha que enmarca la cara: un anillo (elipse exterior menos el hueco de la cara).
+  function hoodRing(g, w, outer, hole) {
+    g.beginPath();
+    g.ellipse(0, w * 0.42, w * outer[0], w * outer[1], 0, 0, TAU);
+    // al revés que la de fuera: con la regla de siempre (nonzero) queda el hueco de la cara
+    g.moveTo(w * hole[0], w * 0.47);
+    g.ellipse(0, w * 0.47, w * hole[0], w * hole[1], 0, 0, TAU, true);
+  }
+  // Silueta de patata: elipse con bultos (fase fija, sin azar).
+  function lumpy(g, cx, cy, rx, ry) {
+    g.beginPath();
+    for (let i = 0; i <= 36; i++) {
+      const t = (i / 36) * TAU, k = 1 + 0.06 * Math.sin(t * 5 + 0.7) + 0.03 * Math.sin(t * 9);
+      const x = cx + Math.cos(t) * rx * k, y = cy + Math.sin(t) * ry * k;
+      if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    g.closePath();
+  }
+  function salt(g, x, y, w, h, n, color, seed) {
+    const r = rng(seed);
+    g.fillStyle = color;
+    for (let i = 0; i < n; i++) {
+      const px = x + r() * w, py = y + r() * h, k = w * (0.008 + r() * 0.01);
+      g.fillRect(px - k, py - k, k * 2, k * 2);
+    }
+  }
   const BODY = {
+    disfraz_tiburon(g, d, u, h, anchor) {
+      const c = col(d, 0, "#7f97ad"), belly = col(d, 1, "#f2f4f6"), lw = u * 0.035;
+      // aletas de los lados
+      for (const k of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(k * u * 0.42, -h * 0.12);
+        g.quadraticCurveTo(k * u * 0.8, h * 0.05, k * u * 0.7, h * 0.32);
+        g.quadraticCurveTo(k * u * 0.58, h * 0.16, k * u * 0.44, h * 0.14);
+        g.closePath();
+        fill(g, c, lw);
+      }
+      torso(g, u, h, () => {
+        g.fillStyle = c;
+        g.fillRect(-u * 0.6, -h * 0.6, u * 1.2, h * 1.2);
+        ellipse(g, 0, h * 0.2, u * 0.3, h * 0.42);
+        g.fillStyle = belly;
+        g.fill();
+      });
+      g.lineWidth = lw;
+      g.strokeStyle = tone(c, -0.45);
+      g.stroke();
+      onHead(g, anchor, (w) => {
+        const hl = w * 0.03;
+        // aleta de arriba, detrás de la capucha
+        g.beginPath();
+        g.moveTo(-w * 0.16, w * 0.02);
+        g.quadraticCurveTo(-w * 0.02, -w * 0.2, w * 0.14, -w * 0.4);
+        g.quadraticCurveTo(w * 0.12, -w * 0.14, w * 0.2, w * 0.02);
+        g.closePath();
+        fill(g, c, hl);
+        hoodRing(g, w, [0.64, 0.6], [0.44, 0.38]);
+        fill(g, c, 0);
+        g.save();
+        g.clip("evenodd");
+        // la boca: forro rojo y dientes alrededor de la cara
+        ellipse(g, 0, w * 0.47, w * 0.5, w * 0.44);
+        g.fillStyle = col(d, 3, "#c0392b");
+        g.fill();
+        g.restore();
+        hoodRing(g, w, [0.64, 0.6], [0.5, 0.44]);
+        fill(g, c, 0);
+        g.beginPath();
+        g.ellipse(0, w * 0.42, w * 0.64, w * 0.6, 0, 0, TAU);
+        g.lineWidth = hl;
+        g.strokeStyle = tone(c, -0.45);
+        g.stroke();
+        const teeth = col(d, 2, "#ffffff");
+        for (let i = 0; i < 14; i++) {
+          const t = (i / 14) * TAU, rx = w * 0.47, ry = w * 0.41;
+          const bx = Math.cos(t) * rx, by = w * 0.47 + Math.sin(t) * ry;
+          const nx = -Math.cos(t), ny = -Math.sin(t), tx = -ny, ty = nx, sz = w * 0.05;
+          g.beginPath();
+          g.moveTo(bx + tx * sz, by + ty * sz);
+          g.lineTo(bx + nx * sz * 1.4, by + ny * sz * 1.4);
+          g.lineTo(bx - tx * sz, by - ty * sz);
+          g.closePath();
+          fill(g, teeth, hl * 0.6, "#b9c3cc");
+        }
+        for (const k of [-1, 1]) {
+          ellipse(g, k * w * 0.5, w * 0.12, w * 0.05, w * 0.05);
+          fill(g, "#1d1d22", 0);
+          ellipse(g, k * w * 0.5 - w * 0.015, w * 0.105, w * 0.016, w * 0.016);
+          fill(g, "#ffffff", 0);
+        }
+      });
+    },
+    disfraz_papa(g, d, u, h, anchor) {
+      const white = col(d, 0, "#fbfaf5"), gold = col(d, 1, "#d4a72c"), lw = u * 0.035;
+      const edge = tone("#c8c2b0", -0.2);
+      torso(g, u, h, () => {
+        g.fillStyle = white;
+        g.fillRect(-u * 0.6, -h * 0.6, u * 1.2, h * 1.2);
+        g.fillStyle = tone(gold, 0.1);
+        for (let i = 0; i < 5; i++) {
+          ellipse(g, 0, -h * 0.05 + i * h * 0.12, u * 0.022, u * 0.022);
+          g.fill();
+        }
+      });
+      g.lineWidth = lw;
+      g.strokeStyle = edge;
+      g.stroke();
+      // la esclavina, por encima de los hombros
+      g.beginPath();
+      g.moveTo(-u * 0.32, -h * 0.5);
+      g.quadraticCurveTo(0, -h * 0.36, u * 0.32, -h * 0.5);
+      g.bezierCurveTo(u * 0.58, -h * 0.36, u * 0.6, -h * 0.1, u * 0.52, -h * 0.02);
+      g.quadraticCurveTo(0, h * 0.12, -u * 0.52, -h * 0.02);
+      g.bezierCurveTo(-u * 0.6, -h * 0.1, -u * 0.58, -h * 0.36, -u * 0.32, -h * 0.5);
+      g.closePath();
+      fill(g, white, lw, edge);
+      // cruz al pecho con su cordón
+      g.strokeStyle = gold;
+      g.lineWidth = u * 0.02;
+      g.beginPath();
+      g.moveTo(-u * 0.16, -h * 0.42);
+      g.quadraticCurveTo(0, -h * 0.05, u * 0.16, -h * 0.42);
+      g.stroke();
+      g.fillStyle = gold;
+      g.fillRect(-u * 0.025, -h * 0.2, u * 0.05, h * 0.28);
+      g.fillRect(-u * 0.09, -h * 0.13, u * 0.18, h * 0.05);
+      onHead(g, anchor, (w) => {
+        const hl = w * 0.03;
+        // la mitra: dos picos que se juntan arriba, con galones dorados
+        const shape = () => {
+          g.beginPath();
+          g.moveTo(-w * 0.3, w * 0.08);
+          g.bezierCurveTo(-w * 0.34, -w * 0.25, -w * 0.12, -w * 0.5, 0, -w * 0.66);
+          g.bezierCurveTo(w * 0.12, -w * 0.5, w * 0.34, -w * 0.25, w * 0.3, w * 0.08);
+          g.closePath();
+        };
+        shape();
+        fill(g, white, hl, edge);
+        g.save();
+        shape();
+        g.clip();
+        g.fillStyle = gold;
+        g.fillRect(-w * 0.05, -w * 0.7, w * 0.1, w * 0.8);
+        g.fillRect(-w * 0.4, -w * 0.04, w * 0.8, w * 0.12);
+        g.restore();
+        g.fillStyle = gold;
+        g.fillRect(-w * 0.025, -w * 0.38, w * 0.05, w * 0.22);
+        g.fillRect(-w * 0.08, -w * 0.32, w * 0.16, w * 0.05);
+      });
+    },
+    disfraz_papa_arrugada(g, d, u, h, anchor) {
+      const c = col(d, 0, "#b98a4e"), dark = col(d, 1, "#7a5530"), white = col(d, 2, "#ffffff");
+      const lw = u * 0.035;
+      const wrinkles = (cx, cy, rx, ry) => {
+        g.strokeStyle = alpha(dark, 0.7);
+        g.lineWidth = rx * 0.035;
+        for (const [x, y, r, a0] of [[-0.4, -0.3, 0.3, 0.2], [0.35, -0.1, 0.25, 2.2], [-0.1, 0.35, 0.3, 3.6], [0.3, 0.45, 0.2, 4.4]]) {
+          g.beginPath();
+          g.arc(cx + x * rx, cy + y * ry, r * rx, a0, a0 + 1.4);
+          g.stroke();
+        }
+        g.fillStyle = dark;
+        for (const [x, y] of [[0.5, -0.45], [-0.55, 0.2], [0.05, -0.05]]) {
+          ellipse(g, cx + x * rx, cy + y * ry, rx * 0.04, ry * 0.03);
+          g.fill();
+        }
+      };
+      lumpy(g, 0, h * 0.02, u * 0.56, h * 0.56);
+      fill(g, c, lw, tone(c, -0.45));
+      g.save();
+      lumpy(g, 0, h * 0.02, u * 0.56, h * 0.56);
+      g.clip();
+      wrinkles(0, 0, u * 0.56, h * 0.56);
+      salt(g, -u * 0.5, -h * 0.5, u, h, 26, white, 3);
+      g.restore();
+      onHead(g, anchor, (w) => {
+        g.beginPath();
+        for (let i = 0; i <= 36; i++) {
+          const t = (i / 36) * TAU, k = 1 + 0.05 * Math.sin(t * 6 + 0.4);
+          const x = Math.cos(t) * w * 0.64 * k, y = w * 0.42 + Math.sin(t) * w * 0.6 * k;
+          if (i) g.lineTo(x, y); else g.moveTo(x, y);
+        }
+        g.closePath();
+        g.moveTo(w * 0.44, w * 0.47);
+        g.ellipse(0, w * 0.47, w * 0.44, w * 0.38, 0, 0, TAU, true);
+        fill(g, c, w * 0.03, tone(c, -0.45));
+        g.save();
+        g.clip("evenodd");
+        wrinkles(0, w * 0.42, w * 0.64, w * 0.6);
+        salt(g, -w * 0.64, -w * 0.18, w * 1.28, w * 1.2, 30, white, 5);
+        g.restore();
+        // un poco de mojo picón encima, como manda la casa
+        g.beginPath();
+        g.moveTo(-w * 0.2, -w * 0.12);
+        g.bezierCurveTo(-w * 0.14, -w * 0.24, w * 0.16, -w * 0.26, w * 0.22, -w * 0.12);
+        g.quadraticCurveTo(w * 0.12, -w * 0.04, w * 0.04, -w * 0.1);
+        g.quadraticCurveTo(-w * 0.06, -w * 0.02, -w * 0.2, -w * 0.12);
+        g.closePath();
+        fill(g, col(d, 3, "#c0392b"), w * 0.02);
+      });
+    },
     capa(g, d, u, h) {
       const c = col(d, 0, "#d63031"), lw = u * 0.035;
       const shape = () => {

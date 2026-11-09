@@ -1085,6 +1085,7 @@ class WorkService:
             concept=concept,
             self_employed=position.self_employed,
             beckham=contract.beckham_until > now,
+            public=JOB_BY_KEY[contract.job].paid_by_state(position),
         )
         return result.payslip, result.balance
 

@@ -213,6 +213,8 @@ def test_ineligibility_explica_cada_motivo() -> None:
 
     assert check(item()) is None
     assert "venta" in (check(item(visible=False)) or "")
+    # Las razas son ocultas, pero se compran desde el panel de la mascota.
+    assert check(item(visible=False, catalog_key="raza_schnauzer_mini_negro")) is None
     assert "Agotado" in (check(item(stock=2, sold=2)) or "")
     assert "nivel 10" in (check(item(min_level=10)) or "")
     assert "ya es tuyo" in (check(item(kind=Kind.ROLE, role_id=5), owns_role=True) or "")

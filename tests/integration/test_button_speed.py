@@ -1530,7 +1530,7 @@ async def press_pets_pay(client: BotClient, owner: MagicMock) -> Click:
     opener.guild = owner.guild
     opener.channel = MagicMock()
     await cog.choose_breed(opener, panel, "comprar:siames")
-    assert panel.checkout is not None
+    assert panel.checkout is not None and not panel.checkout.failed, panel.checkout.result
 
     async def click(interaction: MagicMock) -> None:
         interaction.guild = owner.guild

@@ -11891,6 +11891,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          R, True),
         ("pedrusco", "pet_pedrusco", "Moda de 1975", "Adopta la piedra mascota.", C, True),
         ("presa", "pet_presa", "Corazón de pan", "Adopta un presa canario.", R, False),
+        ("schnauzer", "pet_schnauzer", "Barba de tres tallas", "Adopta un schnauzer.", R,
+         False),
         ("koi", "pet_koi", "Prosperidad de Mong Kok", "Adopta la carpa koi.", E, False),
         ("caballo", "pet_caballo", "Caballo en el salón",
          "Adopta el caballo de pura raza española.", E, False),
@@ -11911,6 +11913,8 @@ def _build_catalog() -> tuple[Achievement, ...]:
          ("canario", "bardino", "cabra", "presa")),
         ("pet_boricua", "Patio boricua", "Ten el coquí y el gallo de patio.", R,
          ("coqui", "gallo")),
+        ("pet_barbas", "Hipsters de cuatro patas",
+         "Ten el schnauzer y la cabra majorera a la vez.", R, ("schnauzer", "cabra")),
         ("pet_pijos", "Pijerío animal",
          "Ten el caniche de Serrano, el pavo real y el caballo de pura raza.", L,
          ("caniche", "pavo_real", "caballo")),
@@ -12074,6 +12078,14 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Ponle las gafas de pasta al pulpo adivino.", C, True),
         ("pet_dress_gato_parche", "pet_dress_gato_parche", "Gato con parche y sin botas",
          "Ponle el parche de pirata a un gato.", C, True),
+        ("pet_dress_tiburon", "pet_dress_tiburon", "Sharknado en el salón",
+         "Ponle el disfraz de tiburón a una mascota.", C, False),
+        ("pet_dress_papa", "pet_dress_papa", "Urbi et orbi desde el sofá",
+         "Ponle el disfraz de Papa a una mascota.", C, False),
+        ("pet_dress_papa_arrugada", "pet_dress_papa_arrugada", "Arrugada pero con mojo",
+         "Ponle el disfraz de papa arrugada a una mascota.", C, False),
+        ("pet_dress_schnauzer_papa", "pet_dress_schnauzer_papa", "Habemus schnauzer",
+         "Ponle el disfraz de Papa a un schnauzer.", R, True),
         ("pet_dress_canarias", "pet_dress_canarias", "Mago de los pies al sombrero",
          "Ponle a una mascota sombrero, ropa y fondo del pasillo de Canarias.", R, False),
         ("pet_dress_theme", "pet_dress_theme", "A juego hasta el pasillo",
@@ -17574,8 +17586,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a += _tiers("economy", "bank_hostage", [
         (1, "bank_hostage", "El problema es del banco",
-         "Mira `fortunas` o tu patrimonio debiendo al banco más de lo que vale 🏦 El Banco.",
-         R, True),
+         "Mira `fortunas` o tu patrimonio debiendo al banco más que su beneficio (sin contar "
+         "los depósitos).", R, True),
+    ])  # fmt: skip
+    # 🏛️ El Estado en `fortunas`: su caja es casi todo lo recaudado desde el primer día.
+    a += _tiers("economy", "richer_than_state", [
+        (1, "richer_than_state", "El Estado soy yo",
+         "Mira `fortunas` o tu patrimonio teniendo más que 🏛️ El Estado.", M),
     ])  # fmt: skip
     a += _tiers("economy", "hacienda_over_casino", [
         (1, "hacienda_over_casino", "Tributas más que Montecarlo",
@@ -20137,6 +20154,21 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (75, "work_frauds_75", "Lupa de inspector", "Destapa 75 declaraciones fraudulentas.", E),
         (200, "perro_te_quiere", "Perro Sanxe te quiere",
          "Destapa 200 declaraciones fraudulentas.", L),
+    ])  # fmt: skip
+    # La nómina del funcionariado sale de la cuenta del Estado y sus impuestos vuelven a ella.
+    a += _tiers("funcionariado", "work_public_payroll", [
+        (1, "work_public_payroll_1", "Pagado con tus impuestos",
+         "Cobra una nómina del funcionariado, que paga el Estado.", C),
+        (100, "work_public_payroll_100", "Funcionario de carrera (de fondo)",
+         "Cobra 100 nóminas del funcionariado.", E),
+    ])  # fmt: skip
+    a += _tiers("funcionariado", "work_public_self_taxes", [
+        (100_000, "work_public_self_taxes_100000", "Hacienda somos todos (dos veces)",
+         "Con tus nóminas del funcionariado, haz que el Estado se cobre 100.000 Y$ de "
+         "impuestos a sí mismo.", R),
+        (1_000_000, "work_public_self_taxes_1000000", "Circuito cerrado del erario",
+         "Con tus nóminas del funcionariado, haz que el Estado se cobre 1.000.000 Y$ de "
+         "impuestos a sí mismo.", L),
     ])  # fmt: skip
     a += _tiers("funcionariado", "work_triennia_max", [
         (1, "primer_trienio", "Tres años y un sello", "Cumple un trienio en el funcionariado.", R),
@@ -26843,16 +26875,24 @@ def patrimonio_stats(
     return StatDelta(add=add, peak=peak)
 
 
-def house_rivals_stats(*, mine: int, casino: int, bank: int, debts: int) -> StatDelta:
-    """Contadores de compararse con 🎰 El Casino y 🏦 El Banco en `fortunas` y `perfil`.
+def house_rivals_stats(
+    *, mine: int, casino: int, bank: int, debts: int, state: int = 0, bank_profit: int | None = None
+) -> StatDelta:
+    """Contadores de compararse con la banca y 🏛️ El Estado en `fortunas` y `perfil`.
 
     Args:
         mine: El patrimonio neto de quien mira.
-        casino: El del Casino (lo que gana la casa menos sus impuestos).
-        bank: El del Banco.
+        casino: El del Casino (lo que gana la casa y su edificio, menos sus impuestos).
+        bank: El del Banco, con los depósitos de todos.
         debts: Lo que debe quien mira (hipotecas, préstamos y deudas; negativo si le deben).
+        state: El del Estado (su caja).
+        bank_profit: El beneficio del banco sin los depósitos (para `bank_hostage`); sin él,
+            `bank`.
     """
     add: dict[str, int] = {}
+    if state > 0 and mine > state:
+        add["richer_than_state"] = 1
+    bank_profit = bank if bank_profit is None else bank_profit
     beat_casino = casino > 0 and mine > casino
     beat_bank = bank > 0 and mine > bank
     if beat_casino:
@@ -26865,7 +26905,7 @@ def house_rivals_stats(*, mine: int, casino: int, bank: int, debts: int) -> Stat
         add["casino_close"] = 1
     if casino < 0:
         add["casino_in_red"] = 1
-    if bank > 0 and debts > bank:
+    if bank_profit > 0 and debts > bank_profit:
         add["bank_hostage"] = 1
     return StatDelta(add=add)
 
@@ -29058,6 +29098,10 @@ def pet_dress_stats(
         delta.add["pet_dress_pulpo_gafas"] = 1
     if species in {"gato", "gato_callejero"} and look.get("ojos") == "parche":
         delta.add["pet_dress_gato_parche"] = 1
+    if look.get("cuerpo") in {"disfraz_tiburon", "disfraz_papa", "disfraz_papa_arrugada"}:
+        delta.add[f"pet_dress_{look['cuerpo'].removeprefix('disfraz_')}"] = 1
+        if species == "schnauzer" and look["cuerpo"] == "disfraz_papa":
+            delta.add["pet_dress_schnauzer_papa"] = 1
     canary = [aisles.get(slot) for slot in ("cabeza", "cuerpo", "fondo")]
     if all(aisle == "canarias" for aisle in canary):
         delta.add["pet_dress_canarias"] = 1
@@ -30829,6 +30873,9 @@ def work_stats(outcome: ShiftOutcome, *, birthday: bool = False) -> StatDelta:
             add["tax_paid"] = slip.irpf
         if slip.total_taxes:
             add["work_taxes"] = slip.ss_worker + slip.irpf
+        if outcome.job.paid_by_state(outcome.position):
+            add["work_public_payroll"] = 1
+            add["work_public_self_taxes"] = slip.total_taxes
         delta.peak["work_irpf_pct_max"] = round(slip.rates.irpf * 100)
         if slip.net > 0 and slip.total_taxes >= 0.8 * slip.net:
             add["work_half_salary"] = 1

@@ -264,6 +264,7 @@ PRODUCED_STATS = {
     "pet_dressed", "pet_outfits_owned", "pet_full_look", "pet_dress_cucaracha",
     "pet_dress_cabra_corona", "pet_dress_piedra_chistera", "pet_dress_pulpo_gafas",
     "pet_dress_gato_parche", "pet_dress_canarias", "pet_dress_theme", "pet_breeds_owned",
+    "pet_dress_tiburon", "pet_dress_papa", "pet_dress_papa_arrugada", "pet_dress_schnauzer_papa",
     "pet_breed_changes", "pet_breed_rock", "pet_shows", "pet_shows_dressed", "pet_shows_night",
     "pet_photos", "pet_walked", "pet_visits", "pet_hosted", "pet_years",
     # 🏪 Negocio propio de pala (`business_stats` y las acciones del negocio)
@@ -857,7 +858,8 @@ PRODUCED_STATS = {
     # Oficios nuevos: reparto, funcionariado e influencer (work_stats y eventos)
     "work_orders", "work_routes", "work_fleet", "work_founder", "work_rain", "work_calima",
     "work_rain_fall", "work_app_blocked", "work_five_stars", "work_flat_fee",
-    "work_top_reparto", "work_study", "work_temario", "work_ventanilla", "work_registro",
+    "work_top_reparto", "work_study", "work_temario", "work_public_payroll",
+    "work_public_self_taxes", "work_ventanilla", "work_registro",
     "work_stamps", "work_citizens", "work_frauds", "work_triennia_max", "work_caught_defensor",
     "work_top_funcionariado", "work_dances", "work_metrics", "work_stream", "work_collabs",
     "work_tv", "work_viral", "work_megaviral", "work_flop", "work_followers_max",
@@ -1032,6 +1034,7 @@ PRODUCED_STATS = {
     # El Casino y el Banco como fortunas (`house_rivals_stats`, `hacienda_house_stats`).
     "richer_than_casino", "richer_than_bank", "richer_than_both", "casino_close",
     "casino_in_red", "bank_hostage", "hacienda_over_casino", "hacienda_over_bank",
+    "richer_than_state",
     # Las pestañas de `hacienda` (`hacienda_page_stats`).
     "hacienda_business", "hacienda_business_top", "hacienda_landlord_top", "hacienda_all_tabs",
     # Estadísticas del casino (cogs/apuestas.py: apuestas_stats)
@@ -2842,3 +2845,32 @@ def test_el_menu_del_universo_cuenta_teleportes_lista_y_mochila() -> None:
 def test_las_tragaperras_distintas_del_jovaniverso_se_cuentan() -> None:
     stats = {f"universo_slots_machine_{m}": 1 for m in (1, 7, 24)} | {"universo_slots_machine_9": 0}
     assert with_derived(stats)["universo_slots_distinct"] == 3
+
+
+async def test_la_retirada_de_los_logros_del_banco_se_hace_una_sola_vez(tmp_path: Path) -> None:
+    """Se quitan a quien los tenía (sin devolver el dinero) y luego se pueden volver a ganar."""
+    db = tmp_path / "bot.db"
+    with sqlite3.connect(db) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE achievement_stats (guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                stat TEXT NOT NULL, value INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id, stat));
+            CREATE TABLE achievement_unlocks (guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL, achievement_id TEXT NOT NULL, unlocked_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id, achievement_id));
+            INSERT INTO achievement_stats VALUES (1, 2, 'richer_than_bank', 3),
+                (1, 2, 'richer_than_casino', 1);
+            INSERT INTO achievement_unlocks VALUES (1, 2, 'richer_than_bank', 0),
+                (1, 2, 'richer_than_both', 0), (1, 2, 'richer_than_casino', 0);
+            """
+        )
+    repository = AchievementRepository(db)
+    await repository.initialize()
+    profile = await repository.profile(1, 2)
+    assert set(profile.unlocked) == {"richer_than_casino"}
+    assert "richer_than_bank" not in profile.stats
+    with sqlite3.connect(db) as connection:
+        connection.execute("INSERT INTO achievement_unlocks VALUES (1, 2, 'richer_than_bank', 1)")
+    await repository.initialize()
+    assert "richer_than_bank" in (await repository.profile(1, 2)).unlocked

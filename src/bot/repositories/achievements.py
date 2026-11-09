@@ -4,6 +4,7 @@ Dos tablas en la base de datos del bot:
 
 - `achievement_stats`: un contador por servidor, miembro y estadística.
 - `achievement_unlocks`: qué logros tiene cada miembro y desde cuándo.
+- `achievement_migrations`: las retiradas de logros ya hechas (`REVOKED`), una vez cada una.
 
 No se guarda el contenido de ningún mensaje, solo números. Las reglas (qué
 logros existen y cuándo se cumplen) viven en `bot.services.achievements`;
@@ -23,6 +24,14 @@ from bot.repositories import sqlite
 from bot.services.achievements import StatDelta
 
 T = TypeVar("T")
+
+#: Logros que se retiran una sola vez, con el nombre de la retirada: se borran de quien los
+#: tenga y su contador vuelve a 0, pero no se devuelve lo que se cobró por ellos. Solo para
+#: cuando la regla estaba mal medida. «Más rico que el banco» se daba sin contar los depósitos
+#: de todos que custodia el banco (10.11.0).
+REVOKED: dict[str, tuple[str, ...]] = {
+    "banco_con_depositos": ("richer_than_bank", "richer_than_both"),
+}
 
 #: Recibe las estadísticas del miembro tras el cambio y los logros que ya
 #: tiene; devuelve los ids de los que acaba de conseguir.
@@ -80,8 +89,28 @@ class AchievementRepository:
                     unlocked_at REAL NOT NULL,
                     PRIMARY KEY (guild_id, user_id, achievement_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS achievement_migrations (
+                    name TEXT PRIMARY KEY,
+                    done_at REAL NOT NULL
+                );
                 """
             )
+            done = {r[0] for r in connection.execute("SELECT name FROM achievement_migrations")}
+            for name, ids in REVOKED.items():
+                if name in done:
+                    continue
+                marks = ", ".join("?" for _ in ids)
+                # La clave del logro es la de su contador (un solo escalón).
+                connection.execute(
+                    f"DELETE FROM achievement_unlocks WHERE achievement_id IN ({marks})", ids
+                )
+                connection.execute(f"DELETE FROM achievement_stats WHERE stat IN ({marks})", ids)
+                connection.execute(
+                    "INSERT INTO achievement_migrations (name, done_at) "
+                    "VALUES (?, julianday('now'))",
+                    (name,),
+                )
 
     async def record(
         self,

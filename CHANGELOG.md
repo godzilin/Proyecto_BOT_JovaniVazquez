@@ -6,7 +6,33 @@ la sección «Versiones» de `Biblia.txt`. Las versiones anteriores a la 5.22.0
 se asignaron a posteriori, revisando cada PR y commit de `main` con el mismo
 criterio.
 
+## 11.x
+
+### 11.0.0 · 2026-11-09
+
+- Fortunas: el Estado sale en la lista con su caja, lo que paga en nóminas públicas y lo que se cobra a sí mismo en impuestos
+- Pala: el sueldo del funcionariado lo paga el Estado de su cuenta, y la retención y las cotizaciones vuelven a ella
+- Fortunas: el banco cuenta como suyos los depósitos de todos (el efectivo de los miembros y las cajas del Estado y del casino); superarlo es casi imposible
+- Fortunas: el casino vale más cuanto más se construya alrededor de sus tragaperras en el Jovaniverso
+- Logros: se retiran una vez *Tú rescatas a Bankia* y *Ahora la banca eres tú* a quien los tenía (lo cobrado no se quita); se pueden volver a ganar con el banco nuevo
+- Logros: *El Estado soy yo*, nóminas del funcionariado y lo que el Estado se cobra a sí mismo con ellas
+- Los logros de puesto en `fortunas` cuentan solo a las personas
+
 ## 10.x
+
+### 10.13.2 · 2026-11-08
+
+- Mascotas: las razas se vuelven a poder comprar desde el panel (salía «Ese artículo ya no está a la venta»)
+
+### 10.13.1 · 2026-11-08
+
+- Despliegue: la imagen vuelve a construirse; el Dockerfile no copiaba `casino_plaza.json`, que la plaza del Jovaniverso importa desde la 10.12
+
+### 10.13.0 · 2026-11-08
+
+- Mascotas: nuevo schnauzer en adopción, en tres tallas (mini, mediano y gigante) y con los colores del estándar (sal y pimienta, negro, negro y plata, blanco), con barba y cejas en el retrato
+- Armario: disfraces de tiburón, de Papa y de papa arrugada, que visten el cuerpo y tapan la cabeza
+- Logros: seis nuevos del schnauzer y de los disfraces
 
 ### 10.12.0 · 2026-11-08
 

@@ -154,6 +154,38 @@ SPECIES: tuple[Species, ...] = (
         adoption=True,
     ),
     Species(
+        "schnauzer", "🐕", "Schnauzer", "animales", "Rara", 8_000,
+        "Barba de abuelo, cejas de juez y opinión sobre todo. Ladra primero y pregunta después.",
+        "Tasa de adopción (la Ley 7/2023 no deja vender perros). Mini, mediano o gigante; "
+        "sal y pimienta, negro, negro y plata o blanco. Con barba y cejas de serie.",
+        "¡guau, guau!",
+        {
+            G: ("{pet} mueve la cola entera, que desde la Ley 7/2023 ya no se corta. Fiesta.",
+                "{pet} da saltitos a tu alrededor. La barba va por libre.",
+                "{pet} ladra de alegría. Tres veces, por si no te habías enterado."),
+            B: ("{pet} frunce las cejas. Esas cejas han juzgado a gente más dura que tú.",
+                "{pet} se tumba a tu lado y suspira. Se le mueve el bigote.",
+                "{pet} le ladra a la pantalla. Alguien tiene la culpa y no eres tú."),
+            N: ("{pet} vigila la ventana. Ningún repartidor pasa sin ser anunciado.",
+                "{pet} bebe agua y la mitad se queda en la barba. Ahora gotea por el pasillo.",
+                "{pet} te mira fijamente. Quiere algo. No piensa decir qué.",
+                "{pet} pide café con cara de abuelo. Hazme café… ¡Quiero café!",
+                "{pet} se planta en la puerta como el portero de una discoteca. Con esas "
+                "zapatillas no entras."),
+            W.TAX: ("{pet} le ladra a {collector} desde la ventana hasta que se va. Seguridad "
+                    "privada incluida.",),
+            W.WORK: ("{pet} te despide en la puerta con cara de capataz. A las ocho, ni un "
+                     "minuto más.",),
+            W.PET_BIRTHDAY: ("{pet} cumple otro año y la barba está más blanca. Le queda de "
+                             "lujo.",),
+        },
+        ("Te da la pata con la seriedad de un notario.",
+         "Ladra una vez por cada timbre. Ni Alexa es tan puntual.",
+         "Se pone a dos patas y pide como un suricato. La barba ayuda."),
+        favourites=("hueso_jamon", "zanahoria"), talk=1.3, gift_rate=1.2,
+        adoption=True,
+    ),
+    Species(
         "hamster", "🐹", "Hámster de rueda", "animales", "Común", 1_200,
         "Corre mucho y no llega a ningún sitio. Como la economía.",
         "Corre 9 km cada noche en su rueda sin moverse de la jaula. Si apuestas, lo hace "

@@ -570,3 +570,25 @@ async def test_las_bases_de_antes_reciben_la_columna_y_el_resumen_una_sola_vez(
     db.close()
     await repo.initialize()
     assert summaries()["borrador"] == ["a mano", ""]
+
+
+async def test_para_valorar_el_casino_solo_lee_las_celdas_con_tragaperras(
+    repo: UniversoMundoRepository,
+) -> None:
+    assert await repo.casino_pieces(1) == (0, {})
+    traga = '{"nombre":"Traga","funcion":{"tipo":"traga"}}'
+    near = '{"objetos":[{"asset":"traga","pos":[1,0,1]}]}'
+    border = '{"objetos":[{"asset":"pino","pos":[85,0,1]}]}'
+    far = '{"objetos":[{"asset":"pino","pos":[900,0,900]}]}'
+    changes = {
+        "a/traga": put(0, traga),
+        "a/pino": put(0, PINO),
+        "c/0/0": put(0, near, "traga"),
+        "c/1/0": put(0, border, "pino"),
+        "c/11/11": put(0, far, "pino"),
+    }
+    await repo.save(1, changes, 10)
+    version = await repo.publish(1, 10)
+    found, pieces = await repo.casino_pieces(1)
+    assert found == version
+    assert set(pieces) == {"a/traga", "a/pino", "c/0/0", "c/1/0"}

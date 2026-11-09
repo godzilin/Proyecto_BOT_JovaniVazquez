@@ -1440,6 +1440,7 @@ FUNCIONARIADO = Job(
     study="temario",
     tenure_from=2,
     seniority=True,
+    public=True,
     positions=(
         Position(
             1, "Interino", 1_700, Mechanic.SORT, 30,
