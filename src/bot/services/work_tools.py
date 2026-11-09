@@ -82,8 +82,9 @@ class Tool:
 
 
 _DIG = frozenset({Mechanic.DIG})
-#: Hablar: los diálogos y la Negociación (ahí la chuleta deja tantear gratis).
-_TALK = frozenset({Mechanic.DIALOGUE, Mechanic.DEAL})
+#: Hablar: los diálogos, la Negociación (ahí la chuleta deja tantear gratis) y el
+#: Despacho (tacha la opción que peor lo deja).
+_TALK = frozenset({Mechanic.DIALOGUE, Mechanic.DEAL, Mechanic.DESK})
 
 #: Todas las herramientas, en el orden del pasillo.
 TOOLS: tuple[Tool, ...] = (

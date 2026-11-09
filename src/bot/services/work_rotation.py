@@ -2053,6 +2053,578 @@ AUDIT_PACKS: dict[str, AuditPack] = {
 }
 
 DESK_PACKS: dict[str, DeskPack] = {
+    # Obra
+    "alcalde": DeskPack(
+        "🏗️ Eres magnate inmobiliario y hoy toca despacho: el ayuntamiento, los vecinos y "
+        "el banco no caben en la misma obra.",
+        ("🏛️ Alcaldía", "💰 Caja", "🏘️ Vecinos", "🏗️ Obra"),
+        (
+            (
+                "El ayuntamiento exige más zona verde en la macrourbanización.",
+                (
+                    ("Ceder una parcela", 2, 1),
+                    ("Plantar cuatro palmeras", 0, 2),
+                    ("Recortar el parque", 1, 0),
+                ),
+            ),
+            (
+                "El banco pide más garantías antes de soltar el crédito.",
+                (
+                    ("Hipotecar los solares", 1, 3),
+                    ("Adelantar la preventa", 3, 2),
+                    ("Pedir un aval público", 3, 0),
+                ),
+            ),
+            (
+                "Una asociación vecinal denuncia ruido de obra desde las siete de la mañana.",
+                (
+                    ("Retrasar el arranque", 2, 3),
+                    ("Pagar el aislamiento", 2, 1),
+                    ("Hablar con el concejal", 0, 2),
+                ),
+            ),
+            (
+                "La licencia de obras lleva tres meses parada en una mesa.",
+                (
+                    ("Presionar al concejal", 3, 0),
+                    ("Esperar sentado", 1, 3),
+                    ("Rehacer el proyecto", 0, 1),
+                ),
+            ),
+            (
+                "Piden convertir un bloque en pisos de protección oficial.",
+                (
+                    ("Aceptar la cuota", 2, 1),
+                    ("Pagar una compensación", 0, 3),
+                    ("Rechazarlo", 1, 0),
+                ),
+            ),
+            (
+                "Aparecen restos romanos en el solar de la torre.",
+                (
+                    ("Taparlos con cemento", 3, 0),
+                    ("Financiar la excavación", 0, 1),
+                    ("Abrir un museíto", 2, 3),
+                ),
+            ),
+            (
+                "Un periódico pregunta por las recalificaciones del último plan.",
+                (
+                    ("Enseñar los papeles", 2, 0),
+                    ("Pagar publicidad", 0, 1),
+                    ("Cambiar de tema", 3, 2),
+                ),
+            ),
+            (
+                "Los compradores de un bloque reclaman la fecha de entrega.",
+                (("Entregar a medias", 2, 3), ("Indemnizar", 2, 1), ("Alargar el plazo", 1, 2)),
+            ),
+            (
+                "El alcalde propone subir las tasas de la nueva avenida.",
+                (
+                    ("Aceptar la subida", 0, 1),
+                    ("Negociar la mitad", 1, 0),
+                    ("Pedir más edificabilidad", 3, 2),
+                ),
+            ),
+            (
+                "Un fondo extranjero quiere comprar medio barrio.",
+                (
+                    ("Vender al fondo", 1, 2),
+                    ("Rechazar la oferta", 2, 1),
+                    ("Asociarte con el fondo", 3, 0),
+                ),
+            ),
+        ),
+    ),
+    "palco": DeskPack(
+        "⚽ Eres presidente de un club de fútbol y hoy toca despacho: afición, vestuario, "
+        "caja y concejal tiran cada uno de su lado.",
+        ("🏟️ Afición", "💰 Caja", "👕 Vestuario", "🏛️ Concejal"),
+        (
+            (
+                "El delantero estrella pide renovar con subida de sueldo.",
+                (("Subirle la ficha", 2, 1), ("Venderlo", 1, 0), ("Mantener la oferta", 0, 2)),
+            ),
+            (
+                "La grada ultra exige entradas gratis para el derbi.",
+                (
+                    ("Regalar las entradas", 0, 1),
+                    ("Subir el abono", 1, 0),
+                    ("Pactar un código ético", 3, 0),
+                ),
+            ),
+            (
+                "El concejal quiere reformar el estadio con dinero del club.",
+                (
+                    ("Aportar la mitad", 3, 1),
+                    ("Pedir suelo a cambio", 1, 3),
+                    ("Prometer estadio nuevo", 0, 1),
+                ),
+            ),
+            (
+                "El entrenador pide dos fichajes a mitad de temporada.",
+                (
+                    ("Fichar a los dos", 2, 1),
+                    ("Fichar a un cedido", 0, 2),
+                    ("Esperar al verano", 1, 0),
+                ),
+            ),
+            (
+                "El concejal ofrece el estadio municipal para un concierto en verano.",
+                (
+                    ("Aceptar el concierto", 3, 0),
+                    ("Pedir parte de la taquilla", 1, 3),
+                    ("Rechazarlo por el césped", 0, 3),
+                ),
+            ),
+            (
+                "Un tribunal deportivo sanciona al club por un cántico de la grada.",
+                (
+                    ("Pagar la multa", 0, 1),
+                    ("Cerrar la grada", 3, 0),
+                    ("Recurrir la sanción", 1, 3),
+                ),
+            ),
+            (
+                "El delantero suplente se queja de que no juega.",
+                (
+                    ("Darle minutos", 2, 0),
+                    ("Ponerlo en venta", 1, 2),
+                    ("Mejorarle el contrato", 2, 1),
+                ),
+            ),
+            (
+                "El concejal pide cerrar la calle los días de partido.",
+                (("Cerrar la calle", 3, 0), ("Pagar lanzaderas", 0, 1), ("Pedir un parking", 1, 3)),
+            ),
+            (
+                "La peña más antigua pide palco gratis por su aniversario.",
+                (("Dárselo", 0, 1), ("Vender sus butacas", 1, 0), ("Invitar al concejal", 3, 2)),
+            ),
+            (
+                "Hay que decidir si se vende al mejor jugador del club.",
+                (("Venderlo", 1, 0), ("Retenerlo", 2, 1), ("Jugar al despiste", 0, 2)),
+            ),
+        ),
+    ),
+    "fomento": DeskPack(
+        "🚄 Eres consejero delegado de una constructora y hoy toca despacho: el "
+        "Ministerio, la plantilla y el calendario no se hablan.",
+        ("🏛️ Gobierno", "💰 Caja", "👷 Plantilla", "🚧 Plazos"),
+        (
+            (
+                "El Ministerio pide rebajar el presupuesto de un tramo del AVE.",
+                (
+                    ("Aceptar la rebaja", 0, 1),
+                    ("Pedir un modificado", 1, 0),
+                    ("Recortar la plantilla", 1, 2),
+                ),
+            ),
+            (
+                "La obra lleva dos meses de retraso por terrenos sin expropiar.",
+                (
+                    ("Pedir una prórroga", 3, 0),
+                    ("Acelerar con turnos", 0, 2),
+                    ("Pagar más por el suelo", 3, 1),
+                ),
+            ),
+            (
+                "El sindicato exige subir el convenio de la obra.",
+                (
+                    ("Pagar un plus", 2, 1),
+                    ("Aplazar la negociación", 1, 2),
+                    ("Subcontratar más", 3, 2),
+                ),
+            ),
+            (
+                "Una asociación ecologista denuncia el trazado por un humedal.",
+                (
+                    ("Desviar el trazado", 0, 3),
+                    ("Encargar otro estudio", 3, 1),
+                    ("Seguir adelante", 1, 0),
+                ),
+            ),
+            (
+                "Aparece una grieta en el viaducto recién entregado.",
+                (
+                    ("Repararla en silencio", 0, 1),
+                    ("Inaugurar igual", 3, 0),
+                    ("Cerrar y revisar", 2, 3),
+                ),
+            ),
+            (
+                "Una subcontrata quiebra y deja la obra sin hormigón.",
+                (
+                    ("Adelantar el pago", 3, 1),
+                    ("Despedir a la subcontrata", 1, 2),
+                    ("Pedir ayuda al Ministerio", 0, 3),
+                ),
+            ),
+            (
+                "El director general de Carreteras insinúa un modificado.",
+                (
+                    ("Aceptar el modificado", 1, 0),
+                    ("Rechazarlo", 0, 1),
+                    ("Ofrecerle un puesto", 0, 2),
+                ),
+            ),
+            (
+                "La plantilla quiere trabajar el sábado para recuperar plazo.",
+                (
+                    ("Pagar horas extra", 2, 1),
+                    ("Contratar refuerzos", 2, 3),
+                    ("Pedirlo sin extra", 3, 2),
+                ),
+            ),
+            (
+                "Un diputado reclama una parada de tren en su pueblo.",
+                (
+                    ("Prometer la estación", 0, 3),
+                    ("Estudiar la viabilidad", 3, 0),
+                    ("Negarse", 1, 0),
+                ),
+            ),
+            (
+                "Un túnel necesita dos meses más de excavación.",
+                (
+                    ("Pedir más plazo", 3, 0),
+                    ("Doblar turnos", 0, 2),
+                    ("Alquilar más máquinas", 2, 1),
+                ),
+            ),
+        ),
+    ),
+    "internacional": DeskPack(
+        "🌍 Eres presidente de una constructora del IBEX y hoy toca despacho: cobrar por "
+        "adelantado es lo primero, lo demás ya se verá.",
+        ("🌍 Clientes", "💰 Anticipos", "🏦 Bancos", "🤝 Embajada"),
+        (
+            (
+                "Un país cliente quiere pagar la obra en tres plazos.",
+                (
+                    ("Exigir el anticipo", 1, 0),
+                    ("Aceptar los plazos", 0, 1),
+                    ("Pedir un aval", 2, 0),
+                ),
+            ),
+            (
+                "La embajada organiza una cena con el ministro local.",
+                (("Ir con regalo", 3, 1), ("Mandar a un director", 0, 3), ("Excusarte", 1, 3)),
+            ),
+            (
+                "Una tormenta de arena retrasa la obra en el desierto.",
+                (
+                    ("Alegar fuerza mayor", 2, 0),
+                    ("Cubrir el sobrecoste", 0, 1),
+                    ("Reprogramar entregas", 3, 2),
+                ),
+            ),
+            (
+                "El banco de desarrollo exige auditar las cuentas de la obra.",
+                (("Abrir los libros", 2, 3), ("Dar un resumen", 3, 2), ("Cambiar de banco", 1, 2)),
+            ),
+            (
+                "Un competidor ofrece hacer la obra un diez por ciento más barata.",
+                (
+                    ("Bajar el precio", 0, 1),
+                    ("Alegar más calidad", 1, 0),
+                    ("Pedir ayuda a la embajada", 3, 2),
+                ),
+            ),
+            (
+                "El país vecino quiere que subcontrates empresas locales.",
+                (
+                    ("Subcontratar locales", 0, 1),
+                    ("Traer a los tuyos", 1, 0),
+                    ("Crear una filial local", 3, 2),
+                ),
+            ),
+            (
+                "Cambia el Gobierno del país y quieren revisar el contrato.",
+                (
+                    ("Renegociar el contrato", 0, 1),
+                    ("Ir al arbitraje", 1, 3),
+                    ("Pedir amparo diplomático", 3, 0),
+                ),
+            ),
+            (
+                "Una moneda local se hunde y los anticipos valen menos.",
+                (
+                    ("Cobrar en divisas", 1, 0),
+                    ("Cubrirte con el banco", 2, 1),
+                    ("Subir el precio", 1, 2),
+                ),
+            ),
+            (
+                "Una ONG denuncia las condiciones del campamento de obra.",
+                (
+                    ("Mejorar los campamentos", 0, 1),
+                    ("Hablar con la embajada", 3, 0),
+                    ("Ignorar la denuncia", 1, 3),
+                ),
+            ),
+            (
+                "El banco ofrece refinanciar la deuda de la obra.",
+                (
+                    ("Aceptar la refinanciación", 2, 1),
+                    ("Pagar al contado", 1, 2),
+                    ("Pedir garantía estatal", 3, 2),
+                ),
+            ),
+        ),
+    ),
+    # Hostelería
+    "cadena_hotelera": DeskPack(
+        "🏨 Eres consejero delegado de una cadena hotelera y hoy toca despacho: el fondo "
+        "quiere margen y las reseñas quieren toallas limpias.",
+        ("📈 Fondo", "👥 Plantilla", "⭐ Reseñas", "💰 Margen"),
+        (
+            (
+                "El fondo pide subir el margen un tres por ciento este trimestre.",
+                (
+                    ("Recortar limpieza", 0, 2),
+                    ("Subir las tarifas", 3, 2),
+                    ("Congelar contrataciones", 0, 1),
+                ),
+            ),
+            (
+                "El comité de empresa pide fijos para las camareras de piso.",
+                (
+                    ("Hacerlas fijas", 1, 3),
+                    ("Externalizar los pisos", 3, 1),
+                    ("Prometer fijos futuros", 0, 1),
+                ),
+            ),
+            (
+                "Un vídeo viral cuenta que las toallas llevan tres semanas sin cambiarse.",
+                (
+                    ("Regalar una noche", 2, 3),
+                    ("Despedir a la gobernanta", 0, 1),
+                    ("Desmentirlo", 3, 2),
+                ),
+            ),
+            (
+                "Llega la temporada alta y faltan camareros en tres hoteles.",
+                (
+                    ("Doblar turnos", 3, 1),
+                    ("Pagar un plus de verano", 1, 3),
+                    ("Cerrar una planta", 2, 3),
+                ),
+            ),
+            (
+                "Un propietario quiere renegociar el alquiler del hotel.",
+                (
+                    ("Subir la renta", 0, 3),
+                    ("Amenazar con irte", 3, 0),
+                    ("Reformar la fachada", 2, 3),
+                ),
+            ),
+            (
+                "El director propone cobrar un extra por la tumbona.",
+                (
+                    ("Cobrar la tumbona", 3, 2),
+                    ("Dejarla incluida", 2, 3),
+                    ("Repartir pulseras", 0, 2),
+                ),
+            ),
+            (
+                "Los clientes se quejan del ruido de la obra del ala nueva.",
+                (
+                    ("Descontar la estancia", 2, 3),
+                    ("Parar la obra", 2, 0),
+                    ("Seguir con la obra", 0, 2),
+                ),
+            ),
+            (
+                "Un buscador de reservas sube su comisión.",
+                (
+                    ("Pagar la comisión", 2, 3),
+                    ("Dejar el buscador", 3, 2),
+                    ("Lanzar una web propia", 1, 0),
+                ),
+            ),
+            (
+                "El fondo quiere vender el hotel de playa a otro fondo.",
+                (
+                    ("Aceptar la venta", 0, 1),
+                    ("Recomprar el hotel", 1, 0),
+                    ("Proponer alquilarlo", 3, 1),
+                ),
+            ),
+            (
+                "La plantilla pide subir los sueldos por la inflación.",
+                (
+                    ("Subir un cinco por ciento", 1, 3),
+                    ("Dar solo un bono", 1, 0),
+                    ("Negarte a subir", 0, 1),
+                ),
+            ),
+        ),
+    ),
+    "patronal": DeskPack(
+        "🏛️ Eres presidente de la patronal turística y hoy toca despacho: hay mesa con "
+        "todos y siempre hay crisis salvo en el balance.",
+        ("🏖️ Hoteleros", "✊ Sindicatos", "🏛️ Gobierno", "📰 Opinión"),
+        (
+            (
+                "Los sindicatos piden subir el convenio un doce por ciento.",
+                (
+                    ("Ofrecer un cuatro", 0, 1),
+                    ("Aceptar la mitad", 1, 0),
+                    ("Plantarte en la mesa", 0, 2),
+                ),
+            ),
+            (
+                "El Gobierno plantea limitar los pisos turísticos.",
+                (
+                    ("Apoyar el límite", 2, 0),
+                    ("Pedir una moratoria", 0, 2),
+                    ("Culpar a las plataformas", 3, 2),
+                ),
+            ),
+            (
+                "Un informe dice que la mitad de los contratos de hostelería son de cuatro horas.",
+                (
+                    ("Encargar otro informe", 2, 3),
+                    ("Prometer fijos", 1, 0),
+                    ("Hablar de empleo récord", 3, 1),
+                ),
+            ),
+            (
+                "Hay ruido por el turismo masivo en los barrios del centro.",
+                (
+                    ("Proponer una tasa", 2, 0),
+                    ("Hablar de convivencia", 3, 2),
+                    ("Defender el modelo", 0, 3),
+                ),
+            ),
+            (
+                "La temporada baja pide ayudas para no cerrar los hoteles.",
+                (
+                    ("Pedir ayudas directas", 0, 2),
+                    ("Pedir rebajas fiscales", 0, 1),
+                    ("Ofrecer abrir en invierno", 1, 0),
+                ),
+            ),
+            (
+                "Una huelga amenaza el puente de agosto.",
+                (
+                    ("Ceder en el plus", 1, 0),
+                    ("Pedir servicios mínimos", 2, 1),
+                    ("Aguantar el pulso", 0, 3),
+                ),
+            ),
+            (
+                "Se habla de un impuesto a las pernoctaciones.",
+                (
+                    ("Aceptarlo con matices", 2, 0),
+                    ("Oponerte en público", 3, 2),
+                    ("Pedir que sea voluntario", 0, 3),
+                ),
+            ),
+            (
+                "Los camareros de piso piden jubilación anticipada.",
+                (("Apoyar la medida", 1, 0), ("Proponer un estudio", 2, 1), ("Rechazarla", 0, 1)),
+            ),
+            (
+                "La región quiere imponer un cupo de visitantes.",
+                (
+                    ("Negociar un cupo flexible", 2, 0),
+                    ("Rechazar los cupos", 0, 3),
+                    ("Aceptar el cupo", 3, 0),
+                ),
+            ),
+            (
+                "Un fondo compra tres hoteles históricos para venderlos como residencias.",
+                (
+                    ("Pedir que se proteja", 3, 2),
+                    ("Mirar hacia otro lado", 2, 3),
+                    ("Ofrecer ayuda al gobierno", 2, 1),
+                ),
+            ),
+        ),
+    ),
+    "dubai": DeskPack(
+        "🏜️ Eres gurú gastronómico con franquicias en Dubái y hoy toca despacho: el "
+        "inversor pone el dinero y tú pones el oro.",
+        ("⭐ Estrellas", "💰 Inversor", "🍽️ Cocina", "📸 Redes"),
+        (
+            (
+                "El inversor quiere que los platos lleven pan de oro.",
+                (
+                    ("Cubrirlo todo de oro", 1, 0),
+                    ("Oro solo en el postre", 2, 1),
+                    ("Negarte al brillo", 0, 1),
+                ),
+            ),
+            (
+                "La guía envía a un inspector a probar la carta nueva.",
+                (
+                    ("Cuidar cada plato", 0, 3),
+                    ("Hacer la carta famosa", 3, 0),
+                    ("Servir lo de siempre", 2, 3),
+                ),
+            ),
+            (
+                "Un centro comercial pide abrir otra sucursal en dos meses.",
+                (
+                    ("Abrir deprisa", 1, 0),
+                    ("Pedir seis meses", 0, 1),
+                    ("Abrir con carta corta", 2, 3),
+                ),
+            ),
+            (
+                "Un cocinero estrella se va a la competencia.",
+                (("Subirle el sueldo", 2, 1), ("Dejarlo marchar", 1, 2), ("Hacerlo socio", 0, 1)),
+            ),
+            (
+                "Una influencer pide mesa gratis y fotos en cocina.",
+                (
+                    ("Invitarla", 3, 2),
+                    ("Cobrarle la cuenta", 1, 3),
+                    ("Darle una mesa discreta", 2, 3),
+                ),
+            ),
+            (
+                "La espuma de la carta ha dado intoxicación a dos clientes.",
+                (("Retirar la espuma", 2, 3), ("Pagar a los afectados", 0, 1), ("Negarlo", 3, 0)),
+            ),
+            (
+                "El proveedor sube el precio del azafrán un cuarenta por ciento.",
+                (
+                    ("Subir el menú", 1, 0),
+                    ("Usar menos azafrán", 2, 0),
+                    ("Cambiar de proveedor", 0, 2),
+                ),
+            ),
+            (
+                "El socio local quiere un menú sin alcohol ni cerdo.",
+                (
+                    ("Adaptar la carta", 1, 0),
+                    ("Mantener la carta", 0, 1),
+                    ("Abrir un salón aparte", 3, 2),
+                ),
+            ),
+            (
+                "Te proponen un programa de cocina con vuelos en jet.",
+                (
+                    ("Aceptar el programa", 3, 2),
+                    ("Seguir en el pase", 2, 3),
+                    ("Pedir cachet", 1, 3),
+                ),
+            ),
+            (
+                "La carta de seis horas ya dura nueve.",
+                (
+                    ("Acortar la carta", 1, 0),
+                    ("Servir el pase largo", 0, 2),
+                    ("Hacerlo en directo", 3, 0),
+                ),
+            ),
+        ),
+    ),
+    # Política
     "control": DeskPack(
         "🏛️ Eres presidente del Gobierno y hoy toca despacho: cada decisión contenta a unos "
         "y cabrea a otros.",
@@ -2113,6 +2685,1209 @@ DESK_PACKS: dict[str, DeskPack] = {
             (
                 "La oposición convoca una manifestación el domingo.",
                 (("Ignorarla", 1, 2), ("Contraprogramar", 2, 3), ("Tender la mano", 1, 0)),
+            ),
+        ),
+    ),
+    "consejo": DeskPack(
+        "💡 Eres consejero de una eléctrica tras dejar el cargo y hoy toca despacho: tu "
+        "agenda de contactos vale más que cualquier central.",
+        ("📈 Dividendo", "🏠 Clientes", "📞 Agenda", "⚖️ Regulador"),
+        (
+            (
+                "Los accionistas piden más dividendo este año.",
+                (
+                    ("Repartir más", 0, 1),
+                    ("Repartir solo la mitad", 1, 0),
+                    ("Invertir en renovables", 3, 0),
+                ),
+            ),
+            (
+                "La factura de la luz sube y los clientes protestan.",
+                (
+                    ("Congelar tarifas", 1, 0),
+                    ("Hablar de impuestos", 2, 1),
+                    ("Ofrecer un bono social", 3, 0),
+                ),
+            ),
+            (
+                "El regulador abre un expediente por precios abusivos.",
+                (
+                    ("Colaborar con el regulador", 3, 2),
+                    ("Llamar a un conocido", 2, 3),
+                    ("Recurrir la multa", 0, 3),
+                ),
+            ),
+            (
+                "Un exministro del consejo pide subir sus honorarios.",
+                (("Subirlos", 2, 0), ("Mantenerlos", 0, 2), ("Pagarle por conferencias", 2, 1)),
+            ),
+            (
+                "Un apagón deja medio barrio sin luz una tarde.",
+                (
+                    ("Indemnizar a los vecinos", 1, 0),
+                    ("Culpar al clima", 0, 1),
+                    ("Invertir en la red", 3, 0),
+                ),
+            ),
+            (
+                "Nace un partido que promete nacionalizar las eléctricas.",
+                (
+                    ("Invitarlo a un café", 2, 3),
+                    ("Hacer campaña de imagen", 1, 0),
+                    ("Pagar a un tertuliano", 0, 1),
+                ),
+            ),
+            (
+                "La CNMC quiere topar los beneficios de la compañía.",
+                (
+                    ("Aceptar el tope", 3, 0),
+                    ("Pedir una excepción", 0, 3),
+                    ("Mover la sede fiscal", 0, 1),
+                ),
+            ),
+            (
+                "Un ministro pide que se contrate a su cuñado.",
+                (
+                    ("Contratar al cuñado", 2, 3),
+                    ("Ofrecerle una beca", 3, 2),
+                    ("Decir que no", 1, 2),
+                ),
+            ),
+            (
+                "Una central cierra y los empleados piden recolocación.",
+                (("Recolocarlos", 1, 0), ("Prejubilarlos", 2, 1), ("Cerrar sin avisar", 0, 2)),
+            ),
+            (
+                "Un tertuliano acusa a la compañía de cobrar por el sol.",
+                (("Contestar en directo", 1, 2), ("Enviarle una cesta", 2, 1), ("Ignorarlo", 3, 1)),
+            ),
+        ),
+    ),
+    "trilogo": DeskPack(
+        "🇪🇺 Eres vicepresidente del Parlamento Europeo y hoy toca despacho: todos quieren "
+        "un acuerdo, siempre que lo firme otro.",
+        ("🗳️ Grupo", "🤝 Consejo", "🏢 Comisión", "📰 Titulares"),
+        (
+            (
+                "El Consejo propone retrasar la norma de plásticos.",
+                (
+                    ("Aceptar el retraso", 1, 0),
+                    ("Ceder en la mitad", 0, 1),
+                    ("Dejar el texto como está", 3, 1),
+                ),
+            ),
+            (
+                "La Comisión presenta un informe de impacto de mil páginas.",
+                (
+                    ("Pedir un resumen", 2, 3),
+                    ("Leerlo por encima", 3, 2),
+                    ("Pedir una enmienda", 0, 2),
+                ),
+            ),
+            (
+                "Tu grupo exige incluir una enmienda sobre la agricultura.",
+                (("Incluirla", 0, 1), ("Negociarla", 1, 0), ("Dejarla fuera", 2, 0)),
+            ),
+            (
+                "La prensa cuenta que llevas un año sin votar una enmienda.",
+                (
+                    ("Votar a lo grande", 3, 0),
+                    ("Aclarar el malentendido", 3, 2),
+                    ("Cambiar de tema", 1, 3),
+                ),
+            ),
+            (
+                "Un lobby ofrece financiar un viaje de estudios.",
+                (
+                    ("Aceptar el viaje", 1, 3),
+                    ("Rechazarlo con foto", 3, 1),
+                    ("Pedir reunión formal", 2, 3),
+                ),
+            ),
+            (
+                "El presidente rotatorio quiere cerrar el expediente antes de Navidad.",
+                (
+                    ("Cerrar deprisa", 1, 2),
+                    ("Pedir más tiempo", 0, 1),
+                    ("Cerrar con letra pequeña", 3, 0),
+                ),
+            ),
+            (
+                "Dos grupos no se ponen de acuerdo en una coma.",
+                (
+                    ("Proponer una coma neutra", 2, 0),
+                    ("Votar la coma", 0, 2),
+                    ("Aplazar la coma", 1, 0),
+                ),
+            ),
+            (
+                "La Comisión quiere una tasa nueva para financiarse.",
+                (("Apoyar la tasa", 2, 3), ("Frenar la tasa", 0, 2), ("Pedir un estudio", 3, 1)),
+            ),
+            (
+                "Un estado miembro amenaza con vetar el paquete.",
+                (("Ceder al veto", 1, 0), ("Plantarle cara", 3, 1), ("Ofrecer fondos", 1, 2)),
+            ),
+            (
+                "El acuerdo final es tan ambiguo que ambos lados lo celebran.",
+                (("Celebrarlo juntos", 3, 0), ("Pedir claridad", 0, 3), ("Firmar sin leer", 2, 3)),
+            ),
+        ),
+    ),
+    "comisario": DeskPack(
+        "🏢 Eres comisario europeo y hoy toca despacho: cada decisión es un trato con "
+        "quien puede bloquearla.",
+        ("🏰 Capitales", "🗳️ Cámara", "💼 Lobbies", "📜 Normativa"),
+        (
+            (
+                "Una capital pide más margen para su déficit.",
+                (("Dar margen", 0, 3), ("Mantener la regla", 3, 0), ("Pedir un plan", 1, 0)),
+            ),
+            (
+                "La Cámara quiere endurecer tu directiva.",
+                (
+                    ("Aceptar los cambios", 1, 2),
+                    ("Defender el texto", 3, 1),
+                    ("Pactar con ellos", 1, 0),
+                ),
+            ),
+            (
+                "Un lobby tecnológico pide una exención en la ley de datos.",
+                (("Dar la exención", 2, 3), ("Negarla", 3, 2), ("Retrasar la norma", 0, 3)),
+            ),
+            (
+                "Una capital amenaza con bloquear el presupuesto.",
+                (
+                    ("Prometer fondos", 0, 3),
+                    ("Aguantar el pulso", 3, 0),
+                    ("Hablar con la Cámara", 1, 0),
+                ),
+            ),
+            (
+                "Un informe filtrado cuestiona el reparto de fondos.",
+                (("Publicarlo entero", 1, 0), ("Negarlo", 2, 1), ("Culpar a la prensa", 0, 1)),
+            ),
+            (
+                "La presidencia quiere simplificar mil páginas de normas.",
+                (
+                    ("Simplificar a lo grande", 3, 2),
+                    ("Aplazar la reforma", 2, 3),
+                    ("Dejarlo en un anexo", 0, 3),
+                ),
+            ),
+            (
+                "Un sector agrícola protesta con tractores en Bruselas.",
+                (
+                    ("Ofrecer ayudas", 0, 3),
+                    ("Hablar de transición", 1, 0),
+                    ("Mantener la norma", 3, 0),
+                ),
+            ),
+            (
+                "Una gran empresa pide una reunión a puerta cerrada.",
+                (("Recibirla", 2, 1), ("Hacerla pública", 1, 2), ("Mandar a un asesor", 3, 2)),
+            ),
+            (
+                "La Cámara pide tu dimisión por un fallo del programa.",
+                (("Pedir perdón", 1, 3), ("Resistir", 2, 1), ("Culpar a la anterior", 0, 1)),
+            ),
+            (
+                "Una capital pide ver un informe antes que las demás.",
+                (("Enseñárselo", 0, 1), ("Dárselo a todos", 1, 0), ("Hacerte el despistado", 3, 0)),
+            ),
+        ),
+    ),
+    # Sanidad
+    "gerencia": DeskPack(
+        "📊 Eres gerente del hospital y hoy toca despacho: la Consejería quiere resultados "
+        "sin gastar más y el hospital, gastar sin resultados.",
+        ("🩺 Plantilla", "🛏️ Pacientes", "💰 Caja", "🏛️ Región"),
+        (
+            (
+                "Urgencias está al límite y hay camas en el pasillo.",
+                (
+                    ("Abrir una planta más", 1, 2),
+                    ("Derivar a otro centro", 3, 1),
+                    ("Pedir refuerzos", 0, 3),
+                ),
+            ),
+            (
+                "La Consejería pide reducir la lista de espera un veinte por ciento.",
+                (
+                    ("Operar por la tarde", 3, 0),
+                    ("Concertar quirófanos", 1, 2),
+                    ("Cambiar las cifras", 3, 1),
+                ),
+            ),
+            (
+                "Los médicos piden cubrir las bajas de verano.",
+                (
+                    ("Contratar sustitutos", 0, 2),
+                    ("Repartir las guardias", 2, 0),
+                    ("Cerrar plantas", 2, 1),
+                ),
+            ),
+            (
+                "La máquina de resonancias lleva un mes averiada.",
+                (
+                    ("Comprar una nueva", 1, 2),
+                    ("Alquilar una externa", 1, 3),
+                    ("Reparar la vieja", 2, 1),
+                ),
+            ),
+            (
+                "Un sindicato convoca huelga de enfermería.",
+                (
+                    ("Ceder en turnos", 0, 2),
+                    ("Pedir servicios mínimos", 3, 0),
+                    ("Hablar con la Consejería", 3, 1),
+                ),
+            ),
+            (
+                "Los pacientes se quejan de la comida del hospital.",
+                (
+                    ("Cambiar la empresa", 1, 2),
+                    ("Subir el menú", 1, 3),
+                    ("Ignorar las quejas", 2, 1),
+                ),
+            ),
+            (
+                "La Consejería quiere inaugurar el ala nueva sin plantilla.",
+                (("Inaugurarla", 3, 0), ("Posponerla", 0, 3), ("Abrirla a medias", 1, 2)),
+            ),
+            (
+                "Un médico jefe pide dejar la gerencia por un cargo mejor.",
+                (("Mejorarle el puesto", 0, 2), ("Dejarlo marchar", 2, 0), ("Promocionarlo", 3, 2)),
+            ),
+            (
+                "Un periodista pregunta por los contratos de la limpieza.",
+                (
+                    ("Contestar claro", 1, 3),
+                    ("Pasarle el expediente", 3, 1),
+                    ("Llamar al director", 3, 0),
+                ),
+            ),
+            (
+                "Llega un brote de gripe más fuerte de lo previsto.",
+                (
+                    ("Suspender consultas", 1, 0),
+                    ("Pedir material", 0, 2),
+                    ("Pedir voluntarios", 3, 0),
+                ),
+            ),
+        ),
+    ),
+    "consejeria": DeskPack(
+        "🏛️ Eres consejero de Sanidad y hoy toca despacho: las listas de espera, los "
+        "médicos y las cuentas tienen que cuadrar a la vez.",
+        ("🩺 Médicos", "👥 Ciudadanos", "💰 Hacienda", "🗳️ Escaños"),
+        (
+            (
+                "La oposición saca a la luz las listas de espera.",
+                (("Anunciar un plan", 1, 2), ("Culpar al Estado", 3, 1), ("Abrir los datos", 1, 3)),
+            ),
+            (
+                "Los médicos exigen revisar el sistema de guardias.",
+                (
+                    ("Subir las guardias", 0, 2),
+                    ("Pedir paciencia", 2, 0),
+                    ("Crear una comisión", 3, 0),
+                ),
+            ),
+            (
+                "Hacienda recorta el presupuesto de sanidad un cinco por ciento.",
+                (
+                    ("Aceptar el recorte", 2, 1),
+                    ("Plantarte en el pleno", 1, 2),
+                    ("Recortar la plantilla", 2, 0),
+                ),
+            ),
+            (
+                "Se cierra el hospital de una comarca pequeña.",
+                (
+                    ("Cerrarlo", 2, 1),
+                    ("Mantenerlo a medias", 1, 2),
+                    ("Hacerte una foto allí", 3, 1),
+                ),
+            ),
+            (
+                "Un hospital nuevo no tiene personal para abrir.",
+                (
+                    ("Inaugurar sin personal", 3, 0),
+                    ("Contratar de golpe", 0, 2),
+                    ("Esperar un año", 0, 3),
+                ),
+            ),
+            (
+                "Una plataforma ciudadana recoge firmas por la lista de espera.",
+                (("Recibirlos", 1, 3), ("Desmentirlos", 3, 1), ("Ofrecer un teléfono", 3, 2)),
+            ),
+            (
+                "Los sindicatos piden estabilizar a los interinos.",
+                (
+                    ("Estabilizar a todos", 0, 2),
+                    ("Hacerlo por fases", 3, 0),
+                    ("Prometer una oposición", 2, 0),
+                ),
+            ),
+            (
+                "Hay que decidir si se privatizan las lavanderías.",
+                (
+                    ("Externalizarlas", 2, 1),
+                    ("Mantenerlas públicas", 1, 2),
+                    ("Hacer un estudio", 3, 1),
+                ),
+            ),
+            (
+                "El presidente quiere anunciar un hospital por sorpresa.",
+                (
+                    ("Anunciarlo ya", 3, 2),
+                    ("Pedir un estudio", 2, 3),
+                    ("Pedir los fondos antes", 0, 3),
+                ),
+            ),
+            (
+                "Una pandemia nueva aparece en las noticias.",
+                (
+                    ("Declarar la alerta", 1, 3),
+                    ("Quitarle importancia", 3, 1),
+                    ("Comprar material", 0, 2),
+                ),
+            ),
+        ),
+    ),
+    "conciertos": DeskPack(
+        "🤝 Eres consejero delegado de un grupo hospitalario y hoy toca despacho: la "
+        "pública no da abasto y tú tienes quirófanos libres.",
+        ("🤝 Consejería", "💰 Margen", "🩺 Médicos", "⭐ Prestigio"),
+        (
+            (
+                "La Consejería quiere concertarte seiscientas operaciones.",
+                (
+                    ("Aceptar el concierto", 0, 3),
+                    ("Subir la tarifa", 1, 0),
+                    ("Pedir un contrato largo", 1, 3),
+                ),
+            ),
+            (
+                "Los médicos piden cobrar más por operar de tarde.",
+                (
+                    ("Pagar un plus", 2, 1),
+                    ("Contratar fuera", 1, 2),
+                    ("Prometer horas libres", 2, 3),
+                ),
+            ),
+            (
+                "Un periódico habla de tus quirófanos subvencionados.",
+                (("Enseñar las cuentas", 3, 1), ("Pagar una campaña", 3, 0), ("Callar", 1, 3)),
+            ),
+            (
+                "La pública deriva pacientes complicados a tu clínica.",
+                (("Aceptarlos", 0, 1), ("Rechazarlos", 1, 0), ("Derivar a especialistas", 3, 2)),
+            ),
+            (
+                "Un fondo quiere comprar parte del grupo.",
+                (
+                    ("Vender una parte", 1, 3),
+                    ("Rechazar la oferta", 3, 1),
+                    ("Buscar un socio", 0, 3),
+                ),
+            ),
+            (
+                "Un paciente denuncia una factura inesperada.",
+                (
+                    ("Devolverle el dinero", 3, 1),
+                    ("Alegar el contrato", 1, 3),
+                    ("Ofrecer una revisión", 3, 2),
+                ),
+            ),
+            (
+                "Un cirujano famoso se va a la competencia.",
+                (("Igualar la oferta", 2, 1), ("Dejarlo ir", 1, 2), ("Pagarle una consulta", 2, 3)),
+            ),
+            (
+                "La Comunidad cambia al partido que firmó el concierto.",
+                (("Renegociar", 0, 1), ("Dar una cena", 0, 3), ("Esperar", 1, 0)),
+            ),
+            (
+                "Hay lista de espera en tu clínica privada.",
+                (
+                    ("Operar fines de semana", 3, 2),
+                    ("Contratar cirujanos", 2, 1),
+                    ("Derivar a la pública", 0, 3),
+                ),
+            ),
+            (
+                "La Consejería pide auditar la facturación.",
+                (
+                    ("Abrir las cuentas", 0, 1),
+                    ("Contratar auditor propio", 3, 1),
+                    ("Resistir", 1, 0),
+                ),
+            ),
+        ),
+    ),
+    "aseguradora": DeskPack(
+        "📈 Eres dueño de una aseguradora de salud y hoy toca despacho: lo que cobras es "
+        "prima, lo que pagas es siniestralidad.",
+        ("📈 Junta", "👥 Asegurados", "🏥 Hospitales", "💰 Primas"),
+        (
+            (
+                "La junta pide subir los beneficios dos puntos.",
+                (
+                    ("Subir las primas", 0, 1),
+                    ("Recortar cobertura", 3, 1),
+                    ("Bajar tarifas a hospitales", 0, 2),
+                ),
+            ),
+            (
+                "Un hospital concertado sube sus precios.",
+                (
+                    ("Aceptar la subida", 2, 3),
+                    ("Cambiar de hospital", 1, 2),
+                    ("Negociar la mitad", 3, 2),
+                ),
+            ),
+            (
+                "Un asegurado reclama una prueba que la póliza excluye.",
+                (
+                    ("Cubrirla", 1, 0),
+                    ("Alegar la letra pequeña", 0, 1),
+                    ("Ofrecer descuento", 1, 3),
+                ),
+            ),
+            (
+                "La actuaria avisa de que sube la siniestralidad.",
+                (("Subir la prima", 3, 1), ("Dejarlo estar", 1, 3), ("Revisar los casos", 0, 3)),
+            ),
+            (
+                "Un tertuliano critica las exclusiones de tu póliza.",
+                (
+                    ("Contestar en el programa", 1, 0),
+                    ("Comprar publicidad", 0, 3),
+                    ("Cambiar la letra", 1, 3),
+                ),
+            ),
+            (
+                "Un hospital del grupo pide ampliar quirófanos.",
+                (("Invertir", 2, 3), ("Aplazar", 3, 2), ("Pedir un préstamo", 2, 0)),
+            ),
+            (
+                "Los asegurados jóvenes se cambian a la competencia.",
+                (
+                    ("Bajar la prima joven", 1, 3),
+                    ("Hacer campaña de redes", 2, 1),
+                    ("Dejarlos ir", 0, 1),
+                ),
+            ),
+            (
+                "La administración abre una inspección de seguros.",
+                (("Colaborar", 1, 3), ("Alegar el cumplimiento", 0, 2), ("Cambiar de jefe", 3, 0)),
+            ),
+            (
+                "Se acerca un invierno de gripe fuerte.",
+                (
+                    ("Reforzar cobertura", 1, 0),
+                    ("Subir los copagos", 3, 1),
+                    ("Comprar vacunas", 2, 3),
+                ),
+            ),
+            (
+                "El fondo inversor ofrece comprar la mayoría.",
+                (("Vender", 0, 2), ("Rechazar la compra", 2, 0), ("Buscar socio", 3, 1)),
+            ),
+        ),
+    ),
+    # Oficina
+    "comite": DeskPack(
+        "🤝 Eres socio de la consultora y hoy toca despacho: aquí se factura la hora, no "
+        "el resultado, y todos quieren su parte del cliente.",
+        ("💼 Cliente", "⏱️ Horas", "👥 Equipo", "🤝 Socios"),
+        (
+            (
+                "El cliente pide terminar el informe una semana antes.",
+                (("Prometerlo", 0, 2), ("Pedir más horas", 1, 0), ("Subcontratar", 1, 3)),
+            ),
+            (
+                "El director de ventas quiere vender un proyecto nuevo.",
+                (
+                    ("Aceptarlo", 3, 2),
+                    ("Esperar a otro trimestre", 2, 3),
+                    ("Cobrar la propuesta", 1, 0),
+                ),
+            ),
+            (
+                "El equipo lleva tres fines de semana trabajando.",
+                (("Darles un día libre", 2, 1), ("Dar un bono", 2, 3), ("Seguir igual", 3, 2)),
+            ),
+            (
+                "Un cliente discute la factura de horas.",
+                (
+                    ("Rebajar la factura", 0, 1),
+                    ("Justificar las horas", 1, 0),
+                    ("Pedir una reunión", 3, 0),
+                ),
+            ),
+            (
+                "Un júnior pide ascenso tras un año.",
+                (("Ascenderlo", 2, 1), ("Prometer otro año", 1, 2), ("Pasarle más horas", 1, 3)),
+            ),
+            (
+                "Otro socio pide un reparto de beneficios distinto.",
+                (("Aceptar el cambio", 3, 1), ("Negociar", 1, 3), ("Quedarte como estás", 2, 3)),
+            ),
+            (
+                "La licitación está hecha a medida de otra consultora.",
+                (("Retirarte", 2, 0), ("Presentarte igual", 0, 2), ("Hacer una alianza", 3, 0)),
+            ),
+            (
+                "Un cliente pide una presentación bonita sin datos.",
+                (
+                    ("Hacerla sin datos", 0, 1),
+                    ("Añadir los datos", 1, 0),
+                    ("Pedir un anticipo", 3, 0),
+                ),
+            ),
+            (
+                "RR. HH. propone un viernes de pizza y juegos.",
+                (("Aprobarlo", 2, 1), ("Descartarlo", 1, 2), ("Cobrarlo al cliente", 3, 0)),
+            ),
+            (
+                "Un colega dice que el proyecto es inviable.",
+                (("Escucharlo", 2, 0), ("No hacerle caso", 0, 2), ("Cambiar el alcance", 1, 3)),
+            ),
+        ),
+    ),
+    "socio_director": DeskPack(
+        "🏛️ Eres socio director de la consultora y hoy toca despacho: el Gobierno de "
+        "turno tiene que seguir siendo cliente, gane quien gane.",
+        ("🏛️ Gabinete", "💼 Socios", "💰 Facturas", "📞 Contactos"),
+        (
+            (
+                "Un gabinete pide rebajar un diez por ciento el contrato.",
+                (
+                    ("Rebajar el precio", 0, 2),
+                    ("Ofrecer más horas", 2, 0),
+                    ("Pedir un modificado", 2, 3),
+                ),
+            ),
+            (
+                "Cambia el partido del Gobierno y llegan nuevos directores.",
+                (
+                    ("Invitarlos a comer", 3, 1),
+                    ("Contratar a su asesor", 3, 2),
+                    ("Esperar a que llamen", 1, 3),
+                ),
+            ),
+            (
+                "Un socio quiere dejar la firma y llevarse clientes.",
+                (("Ofrecerle más reparto", 1, 2), ("Dejarlo ir", 2, 1), ("Pleitear", 0, 1)),
+            ),
+            (
+                "La licitación pública sale con requisitos a tu medida.",
+                (("Presentarte", 2, 0), ("Pedir más requisitos", 0, 3), ("Retirarte", 1, 2)),
+            ),
+            (
+                "La app pública que desarrolláis se cae el primer día.",
+                (
+                    ("Asumir el fallo", 1, 0),
+                    ("Culpar al proveedor", 0, 1),
+                    ("Cobrar el arreglo", 2, 0),
+                ),
+            ),
+            (
+                "Un periódico publica un correo con la palabra «comisión».",
+                (("Desmentirlo", 3, 1), ("Aclararlo", 0, 3), ("Pagar una auditoría", 1, 2)),
+            ),
+            (
+                "Un cliente nuevo no paga hasta dentro de seis meses.",
+                (
+                    ("Esperar al cobro", 2, 1),
+                    ("Aplicar intereses", 1, 0),
+                    ("Pedir un anticipo", 2, 0),
+                ),
+            ),
+            (
+                "La patronal tecnológica pide apoyo para un manifiesto.",
+                (("Firmarlo", 3, 1), ("Negarte con elegancia", 1, 3), ("Mandar a un socio", 0, 3)),
+            ),
+            (
+                "El equipo pide retribución por el hackatón.",
+                (("Pagarlo", 1, 2), ("Dar una camiseta", 2, 1), ("Ofrecer un puesto", 3, 1)),
+            ),
+            (
+                "Un directivo del cliente te pide un favor sin papeles.",
+                (("Hacerlo", 0, 2), ("Pedir por escrito", 2, 0), ("Escurrir el bulto", 1, 3)),
+            ),
+        ),
+    ),
+    "red_social": DeskPack(
+        "📢 Eres tecnomillonario dueño de una red social y hoy toca despacho: anunciantes, "
+        "reguladores y usuarios discuten el derecho a opinar, sobre todo el tuyo.",
+        ("💰 Anuncios", "⚖️ Regulador", "👥 Usuarios", "😎 Ego"),
+        (
+            (
+                "Un anunciante grande amenaza con retirar su publicidad.",
+                (
+                    ("Cambiar las reglas", 0, 3),
+                    ("Plantarte", 3, 0),
+                    ("Ofrecerle un descuento", 0, 2),
+                ),
+            ),
+            (
+                "El regulador multa a la red por no moderar contenido.",
+                (("Pagar la multa", 1, 0), ("Recurrir", 3, 1), ("Contratar moderadores", 1, 3)),
+            ),
+            (
+                "Los usuarios piden volver al orden cronológico.",
+                (("Aceptar el cambio", 2, 0), ("Ignorarlos", 0, 2), ("Hacer una encuesta", 3, 2)),
+            ),
+            (
+                "Un moderador despedido filtra las normas internas.",
+                (("Publicar las normas", 2, 3), ("Demandarlo", 3, 2), ("Negarlo en directo", 3, 1)),
+            ),
+            (
+                "Te piden quitar una cuenta famosa por insultos.",
+                (("Suspenderla", 1, 3), ("Dejarla", 0, 1), ("Ponerle un aviso", 2, 0)),
+            ),
+            (
+                "Un bot inunda la red con mensajes falsos.",
+                (("Bloquearlo", 2, 3), ("Ignorarlo", 0, 2), ("Cobrar la verificación", 0, 1)),
+            ),
+            (
+                "La red quiere cobrar por tener tick azul.",
+                (
+                    ("Cobrarlo", 0, 2),
+                    ("Mantenerlo gratis", 2, 0),
+                    ("Venderlo al mejor postor", 3, 1),
+                ),
+            ),
+            (
+                "Una periodista cuenta tus gastos en viajes.",
+                (
+                    ("Bloquearla", 3, 2),
+                    ("Contestarle en público", 2, 1),
+                    ("Invitarla a cenar", 3, 0),
+                ),
+            ),
+            (
+                "Una ley europea obliga a abrir los algoritmos.",
+                (
+                    ("Cumplir la ley", 1, 3),
+                    ("Amenazar con irte", 3, 1),
+                    ("Abrir solo una parte", 1, 2),
+                ),
+            ),
+            (
+                "Se cae la red la noche de unas elecciones.",
+                (
+                    ("Pedir disculpas", 2, 3),
+                    ("Culpar a un hacker", 3, 1),
+                    ("Prometer más servidores", 2, 0),
+                ),
+            ),
+        ),
+    ),
+    # Reparto
+    "direccion_correos": DeskPack(
+        "📮 Eres director general de Correos y hoy toca despacho: si la empresa pierde "
+        "dinero es servicio público y si gana, gestión eficiente.",
+        ("📮 Servicio", "✊ Sindicatos", "🏛️ Ministro", "💰 Caja"),
+        (
+            (
+                "El ministerio quiere cerrar tres oficinas rurales.",
+                (("Cerrarlas", 3, 0), ("Mantenerlas", 0, 2), ("Abrir una al día", 1, 3)),
+            ),
+            (
+                "Los sindicatos piden más plantilla para el reparto.",
+                (("Contratar", 1, 3), ("Pagar horas extra", 1, 0), ("Subcontratar", 3, 1)),
+            ),
+            (
+                "Una saca de cartas aparece en un contenedor.",
+                (
+                    ("Abrir una investigación", 2, 3),
+                    ("Culparse en la prensa", 0, 2),
+                    ("Cerrar el caso", 3, 0),
+                ),
+            ),
+            (
+                "La paquetería privada se queda con los clientes grandes.",
+                (
+                    ("Bajar el precio", 0, 3),
+                    ("Mejorar la entrega", 0, 1),
+                    ("Pedir una ayuda pública", 3, 2),
+                ),
+            ),
+            (
+                "Hace calor y los repartidores piden cambiar el turno.",
+                (("Cambiar el turno", 1, 0), ("Dar más agua", 1, 3), ("Mantener el turno", 0, 1)),
+            ),
+            (
+                "Un pueblo pide que vuelva el cartero diario.",
+                (
+                    ("Devolver el servicio", 0, 2),
+                    ("Hacerlo dos días", 3, 0),
+                    ("Mandar una furgoneta", 0, 1),
+                ),
+            ),
+            (
+                "El director financiero avisa de pérdidas este trimestre.",
+                (
+                    ("Recortar rutas", 3, 0),
+                    ("Pedir una inyección", 3, 2),
+                    ("Privatizar rutas", 2, 1),
+                ),
+            ),
+            (
+                "Una app nueva promete seguimiento en tiempo real.",
+                (
+                    ("Contratar la app", 2, 3),
+                    ("Desarrollar la propia", 0, 3),
+                    ("Esperar a otro año", 3, 0),
+                ),
+            ),
+            (
+                "Se acumulan las quejas por cartas que llegan tarde.",
+                (("Pedir perdón", 0, 3), ("Culpar al sistema", 2, 0), ("Abrir otro centro", 1, 3)),
+            ),
+            (
+                "Una elección se acerca y hay voto por correo.",
+                (
+                    ("Reforzar la plantilla", 1, 3),
+                    ("Pedir ayuda a la policía", 2, 1),
+                    ("Cuadrar turnos", 0, 1),
+                ),
+            ),
+        ),
+    ),
+    "presidencia_correos": DeskPack(
+        "🏛️ Eres presidente de Correos y hoy toca despacho: lo tuyo es la lealtad, no la "
+        "contabilidad, y hoy tocan nombramientos y pérdidas.",
+        ("🤝 Lealtad", "📊 Cuentas", "✊ Comité", "📰 Prensa"),
+        (
+            (
+                "El ministro que te nombró quiere colocar a un conocido.",
+                (
+                    ("Contratarlo", 0, 3),
+                    ("Darle un contrato menor", 0, 2),
+                    ("Negarte al favor", 1, 0),
+                ),
+            ),
+            (
+                "El auditor pide revisar las cuentas del año.",
+                (
+                    ("Abrir los libros", 1, 0),
+                    ("Pedir más tiempo", 0, 3),
+                    ("Contratar otro auditor", 0, 1),
+                ),
+            ),
+            (
+                "El comité de empresa pide subir el sueldo de los carteros.",
+                (("Subirlo", 2, 1), ("Hacerlo por fases", 1, 2), ("Hablar de la inflación", 3, 2)),
+            ),
+            (
+                "Un reportaje revela las pérdidas de la empresa.",
+                (("Dar la cara", 3, 0), ("Callar", 0, 3), ("Hablar de servicio público", 3, 1)),
+            ),
+            (
+                "El consejo propone un plan de reestructuración.",
+                (("Aprobarlo", 1, 2), ("Aplazarlo", 2, 1), ("Presentarlo en prensa", 3, 1)),
+            ),
+            (
+                "Hay que elegir al director de una región.",
+                (("Elegir al amigo", 0, 1), ("Elegir al mejor", 1, 0), ("Hacer un concurso", 3, 0)),
+            ),
+            (
+                "La competencia ofrece comprar el servicio de paquetería.",
+                (("Vender", 1, 2), ("Cerrar la puerta", 2, 1), ("Alquilar rutas", 1, 0)),
+            ),
+            (
+                "La plantilla pide más seguridad en los reparto rurales.",
+                (("Comprar furgonetas", 2, 1), ("Dar formación", 2, 3), ("Aplazar el gasto", 1, 2)),
+            ),
+            (
+                "Una consejera pide explicaciones por los viajes de la empresa.",
+                (
+                    ("Enseñar los billetes", 1, 0),
+                    ("Hablar de eficiencia", 3, 1),
+                    ("Hablar del tiempo", 0, 3),
+                ),
+            ),
+            (
+                "Se acerca una huelga el día de Reyes.",
+                (
+                    ("Ceder en turnos", 2, 1),
+                    ("Pedir servicios mínimos", 3, 2),
+                    ("Hablar con el ministro", 0, 2),
+                ),
+            ),
+        ),
+    ),
+    "cohete": DeskPack(
+        "🚀 Eres multimillonario con cohete propio y hoy toca despacho: la agencia, el "
+        "pueblo y los inversores quieren cosas distintas pagadas con dinero público.",
+        ("🚀 Misión", "🏛️ Agencia", "💰 Subvención", "🏘️ Pueblo"),
+        (
+            (
+                "La agencia espacial pide adelantar el lanzamiento un mes.",
+                (("Adelantarlo", 1, 0), ("Pedir más fondos", 0, 1), ("Mantener la fecha", 3, 1)),
+            ),
+            (
+                "El pueblo de la base protesta por el ruido de los motores.",
+                (
+                    ("Pagar insonorización", 3, 2),
+                    ("Dar entradas gratis", 3, 0),
+                    ("Ignorarlos", 0, 3),
+                ),
+            ),
+            (
+                "Un tanque falla en la prueba de presión.",
+                (
+                    ("Repetir la prueba", 0, 2),
+                    ("Arreglar en silencio", 2, 0),
+                    ("Enseñarlo al público", 1, 2),
+                ),
+            ),
+            (
+                "Hace falta una subvención para el próximo cohete.",
+                (
+                    ("Pedirla en grande", 2, 3),
+                    ("Pedirla con detalle", 1, 2),
+                    ("Dar un discurso", 2, 1),
+                ),
+            ),
+            (
+                "La alcaldesa pide una escuela nueva en el pueblo.",
+                (("Financiarla", 3, 2), ("Prometerla", 1, 3), ("Hablar de empleo", 3, 0)),
+            ),
+            (
+                "Un inversor quiere un viaje turístico al espacio.",
+                (("Vender el viaje", 2, 0), ("Posponerlo", 0, 3), ("Hacer un sorteo", 3, 2)),
+            ),
+            (
+                "La ministra pide un informe de impacto ambiental.",
+                (
+                    ("Hacer el informe", 1, 0),
+                    ("Retrasar el informe", 0, 1),
+                    ("Contratar una consultora", 1, 2),
+                ),
+            ),
+            (
+                "Un ingeniero denuncia falta de seguridad.",
+                (("Escucharlo", 0, 2), ("Despedirlo", 2, 0), ("Mejorarle el sueldo", 0, 1)),
+            ),
+            (
+                "El cohete cae al mar lejos de la costa.",
+                (
+                    ("Celebrar el éxito parcial", 3, 1),
+                    ("Pedir perdón", 1, 2),
+                    ("Pedir otro lanzamiento", 0, 1),
+                ),
+            ),
+            (
+                "La prensa pregunta quién paga el cohete.",
+                (("Hablar de ciencia", 1, 2), ("Hablar de empleo", 3, 0), ("Callar", 2, 3)),
+            ),
+        ),
+    ),
+    # Funcionariado
+    "subsecretarios": DeskPack(
+        "🗓️ Eres subsecretario en la comisión del lunes a las 9:00 y hoy toca despacho: "
+        "se pacta hoy para que mañana parezca que nadie ha decidido nada.",
+        ("🏛️ Ministro", "🗂️ Trámite", "🤝 Pacto", "🕶️ Sigilo"),
+        (
+            (
+                "El ministro quiere llevar un decreto sin informe previo.",
+                (
+                    ("Saltarse el informe", 0, 1),
+                    ("Pedir el informe", 1, 0),
+                    ("Hacerlo en urgencia", 2, 3),
+                ),
+            ),
+            (
+                "Otro ministerio no firma si no se incluye su enmienda.",
+                (("Incluirla", 2, 1), ("Negociarla", 1, 2), ("Quitarla en secreto", 3, 2)),
+            ),
+            (
+                "Un periódico tiene el borrador del decreto.",
+                (("Desmentir", 3, 0), ("Confirmar", 0, 3), ("Hacerlo oficial", 1, 3)),
+            ),
+            (
+                "La comisión se alarga hasta las tres de la tarde.",
+                (("Cerrar con un pacto", 2, 1), ("Aplazar a mañana", 1, 2), ("Dar un café", 2, 3)),
+            ),
+            (
+                "Hay que redactar el BOE a las 23:59.",
+                (
+                    ("Publicar tal cual", 1, 3),
+                    ("Corregir la coma", 3, 1),
+                    ("Dejarlo al día siguiente", 0, 1),
+                ),
+            ),
+            (
+                "Un secretario de Estado pide un nombramiento a dedo.",
+                (("Nombrarlo", 2, 1), ("Abrir una convocatoria", 1, 2), ("Dar largas", 3, 2)),
+            ),
+            (
+                "La oposición pregunta en el Congreso por el decreto.",
+                (("Responder largo", 3, 1), ("Responder poco", 0, 3), ("Dar los datos", 1, 0)),
+            ),
+            (
+                "Un ministro pide cambiar el texto a última hora.",
+                (("Cambiarlo", 0, 2), ("Decir que es tarde", 2, 0), ("Hacer una nota", 1, 3)),
+            ),
+            (
+                "Dos subsecretarios discuten por una competencia.",
+                (("Repartirla", 2, 1), ("Quedarte con ella", 0, 2), ("Crear una comisión", 1, 0)),
+            ),
+            (
+                "Llega un recurso que invalida un trámite.",
+                (
+                    ("Repetir el trámite", 1, 0),
+                    ("Ignorar el recurso", 3, 1),
+                    ("Pedir un informe", 3, 0),
+                ),
+            ),
+        ),
+    ),
+    "consejo_estado": DeskPack(
+        "🏛️ Eres consejero de Estado y hoy toca despacho: el dictamen no es vinculante y "
+        "por eso nadie lo lee, pero todos quieren que diga lo suyo.",
+        ("📜 Dictamen", "🎩 Peso", "🤝 Gobierno", "⏳ Plazo"),
+        (
+            (
+                "El Gobierno pide un dictamen favorable a su ley.",
+                (
+                    ("Redactarlo favorable", 2, 0),
+                    ("Escribir con reservas", 0, 2),
+                    ("Pedir más tiempo", 3, 2),
+                ),
+            ),
+            (
+                "La ponente propone cambiar un párrafo clave.",
+                (
+                    ("Aceptar el cambio", 0, 2),
+                    ("Mantener el párrafo", 2, 0),
+                    ("Añadir una nota", 1, 3),
+                ),
+            ),
+            (
+                "Un consejero nato no ha leído el expediente.",
+                (("Dejar que vote", 3, 0), ("Resumirle todo", 0, 3), ("Aplazar el pleno", 3, 1)),
+            ),
+            (
+                "El presidente del Consejo quiere cerrar antes del puente.",
+                (("Cerrarlo ya", 3, 0), ("Hacer el pleno largo", 0, 3), ("Votar a ciegas", 3, 1)),
+            ),
+            (
+                "Un periódico critica que nadie lee los dictámenes.",
+                (
+                    ("Publicar un resumen", 1, 3),
+                    ("Hacer una nota de prensa", 1, 2),
+                    ("Dejarlo pasar", 3, 1),
+                ),
+            ),
+            (
+                "El Gobierno quiere saltarse el dictamen por urgencia.",
+                (("Protestar", 1, 2), ("Aceptar la urgencia", 2, 1), ("Mandar un borrador", 3, 0)),
+            ),
+            (
+                "Un exministro del Consejo defiende otra postura.",
+                (("Escucharlo", 1, 0), ("Callarlo con tacto", 0, 1), ("Votar contra él", 2, 1)),
+            ),
+            (
+                "La norma choca con una sentencia reciente.",
+                (
+                    ("Señalar el choque", 0, 2),
+                    ("Pasarlo por alto", 2, 0),
+                    ("Pedir una aclaración", 3, 2),
+                ),
+            ),
+            (
+                "Te ofrecen un cargo más alto en el Consejo.",
+                (
+                    ("Aceptarlo", 1, 2),
+                    ("Rechazarlo con humildad", 0, 1),
+                    ("Pedir algo a cambio", 2, 3),
+                ),
+            ),
+            (
+                "Hay que decidir si se publica el voto particular.",
+                (("Publicarlo", 0, 2), ("Guardarlo", 2, 1), ("Reducirlo a una nota", 3, 0)),
+            ),
+        ),
+    ),
+    "andorra": DeskPack(
+        "🏔️ Eres asesor de fortunas en Andorra y hoy toca despacho: tu cliente vive aquí "
+        "según los papeles y nadie en Chamberí se entera.",
+        ("🏔️ Cliente", "🏦 Banco", "🕵️ Hacienda", "🪪 Residencia"),
+        (
+            (
+                "El cliente quiere comprar un yate sin que se note.",
+                (("Ponerlo a nombre de otro", 1, 2), ("Declararlo", 2, 0), ("Alquilarlo", 3, 0)),
+            ),
+            (
+                "El banco andorrano pide justificar el origen de los fondos.",
+                (("Enseñar los papeles", 1, 0), ("Dar largas", 0, 1), ("Mover el dinero", 0, 2)),
+            ),
+            (
+                "Hacienda abre un expediente por residencia fiscal.",
+                (("Probar los días", 2, 0), ("Recurrir", 3, 2), ("Pagar algo", 2, 3)),
+            ),
+            (
+                "El cliente quiere vivir tres meses en Madrid.",
+                (
+                    ("Contar los días", 3, 0),
+                    ("Cambiar los billetes", 0, 3),
+                    ("Alquilar un piso aquí", 3, 2),
+                ),
+            ),
+            (
+                "Un periodista pregunta por una sociedad en Panamá.",
+                (("Negar", 1, 2), ("Contestar claro", 2, 0), ("Llamar al abogado", 1, 3)),
+            ),
+            (
+                "El cliente propone una donación a una fundación.",
+                (("Hacerla", 2, 1), ("Esperar un año", 0, 2), ("Dar menos", 1, 0)),
+            ),
+            (
+                "Un notario pide papeles que no existen.",
+                (("Crearlos", 3, 2), ("Cambiar de notario", 0, 3), ("Pedir un plazo", 3, 1)),
+            ),
+            (
+                "La residencia pide demostrar actividad en el país.",
+                (
+                    ("Montar una oficina", 3, 1),
+                    ("Alquilar un piso", 3, 2),
+                    ("Contratar a un amigo", 0, 2),
+                ),
+            ),
+            (
+                "El cliente critica tu comisión.",
+                (("Bajarla", 0, 1), ("Justificarla", 1, 0), ("Ofrecer otro servicio", 3, 0)),
+            ),
+            (
+                "Un banco ofrece tipos mejores si mueves la cartera.",
+                (("Mover la cartera", 1, 0), ("Quedarte", 0, 1), ("Dividirla", 2, 3)),
+            ),
+        ),
+    ),
+    # Influencer
+    "rtve": DeskPack(
+        "📡 Eres presidente de RTVE y hoy toca despacho: el consejo se reparte por cuotas "
+        "y todos los partidos quieren su silla.",
+        ("🏛️ Partidos", "📺 Audiencia", "🗞️ Redacción", "💰 Caja"),
+        (
+            (
+                "Un partido pide más minutos en el informativo.",
+                (("Dárselos", 0, 2), ("Dar la mitad", 2, 0), ("Hacer un debate", 1, 0)),
+            ),
+            (
+                "La audiencia cae en la franja de tarde.",
+                (
+                    ("Fichar a un tertuliano", 1, 3),
+                    ("Estrenar un concurso", 1, 2),
+                    ("Repetir el programa", 3, 1),
+                ),
+            ),
+            (
+                "La redacción denuncia manipulación en un titular.",
+                (("Corregirlo", 2, 0), ("Mantenerlo", 0, 2), ("Abrir un debate", 2, 1)),
+            ),
+            (
+                "El consejo propone un director de informativos nuevo.",
+                (("Aprobarlo", 0, 2), ("Vetarlo", 2, 0), ("Pedir un concurso", 3, 0)),
+            ),
+            (
+                "Un programa de humor critica a un partido.",
+                (("Mantenerlo", 1, 0), ("Cancelarlo", 0, 1), ("Cambiar la hora", 3, 1)),
+            ),
+            (
+                "La corporación pierde dinero por los derechos del fútbol.",
+                (("Renunciar al fútbol", 3, 1), ("Pagar más", 1, 3), ("Compartir derechos", 0, 1)),
+            ),
+            (
+                "Hay que decidir el concierto de las campanadas.",
+                (
+                    ("Elegir al favorito", 1, 3),
+                    ("Elegir al barato", 3, 1),
+                    ("Hacer un casting", 2, 3),
+                ),
+            ),
+            (
+                "Una periodista veterana pide más libertad de edición.",
+                (("Dársela", 2, 0), ("Aplazar la petición", 0, 2), ("Subirle el sueldo", 2, 3)),
+            ),
+            (
+                "Un diputado llama para quejarse de una entrevista.",
+                (
+                    ("Disculparte", 0, 2),
+                    ("Responder por carta", 3, 0),
+                    ("Ignorar la llamada", 2, 0),
+                ),
+            ),
+            (
+                "La audiencia pide un informativo más breve.",
+                (("Acortarlo", 1, 2), ("Dejarlo igual", 2, 1), ("Añadir deportes", 1, 3)),
+            ),
+        ),
+    ),
+    "partido": DeskPack(
+        "🏛️ Eres fundador de un partido antisistema con escaño y hoy toca despacho: "
+        "contra el sistema en directo y con el sueldo del sistema en el banco.",
+        ("🗳️ Votantes", "✊ Militancia", "💰 Sueldo", "📰 Prensa"),
+        (
+            (
+                "La militancia pide revisar el sueldo de los cargos.",
+                (
+                    ("Bajar los sueldos", 1, 2),
+                    ("Subir las dietas", 2, 1),
+                    ("Votar en asamblea", 1, 3),
+                ),
+            ),
+            (
+                "Un periodista descubre tu chalet en el campo.",
+                (
+                    ("Enseñarlo", 3, 0),
+                    ("Decir que es de un amigo", 2, 3),
+                    ("Cambiar de tema", 0, 3),
+                ),
+            ),
+            (
+                "Un eurodiputado de tu lista vota con el enemigo.",
+                (("Expulsarlo", 1, 3), ("Pedir explicaciones", 3, 1), ("Perdonarlo", 2, 1)),
+            ),
+            (
+                "Las encuestas bajan y hay que cambiar el discurso.",
+                (
+                    ("Subir el tono", 1, 0),
+                    ("Suavizarlo", 0, 1),
+                    ("Fichar a una cara conocida", 3, 1),
+                ),
+            ),
+            (
+                "Te ofrecen un cargo en un gobierno de coalición.",
+                (("Aceptar", 2, 0), ("Rechazar", 1, 2), ("Pedir una consejería", 0, 1)),
+            ),
+            (
+                "La asamblea quiere echar al secretario.",
+                (("Defenderlo", 2, 1), ("Dejar que caiga", 1, 3), ("Convocar una votación", 1, 2)),
+            ),
+            (
+                "Una cadena de tele quiere pagarte por una tertulia.",
+                (("Ir", 2, 0), ("Rechazar", 1, 2), ("Mandar a un portavoz", 3, 1)),
+            ),
+            (
+                "Un diario acusa de pagos opacos a tu fundación.",
+                (("Abrir las cuentas", 0, 3), ("Demandar", 3, 0), ("Guardar silencio", 2, 3)),
+            ),
+            (
+                "Un sector crítico pide que se refunde el partido.",
+                (("Refundar", 1, 0), ("Resistir", 2, 1), ("Cambiar de logo", 0, 1)),
+            ),
+            (
+                "Hay que decidir si se pacta con la casta.",
+                (("Pactar", 2, 0), ("Negarse", 0, 2), ("Pactar en secreto", 2, 3)),
             ),
         ),
     ),

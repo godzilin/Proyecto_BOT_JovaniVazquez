@@ -376,6 +376,10 @@ class Mechanic(StrEnum):
     PLAN = "cuadrante"
     #: Negociación: apretar o cerrar contra alguien con un aguante oculto.
     DEAL = "negociar"
+    #: Auditoría: un buscaminas (abrir las buenas sin tocar las malas).
+    AUDIT = "auditoria"
+    #: Despacho: cuatro barras del cargo y decisiones que suben unas y bajan otras.
+    DESK = "despacho"
 
 
 #: Contador de las tareas de minijuego de un puesto según su motor de siempre (cavar y

@@ -17,8 +17,9 @@ Modelo (lo usa `docs/economia_sim.py`):
   el primer día si la tarea pide extras.
 - Sin deseo del día ni barra de los eventos, sin accidentes ni herramientas de la tienda.
 - De P5 en adelante el minijuego rota (`Position.on`): cada día se juega el que toca, con el
-  acierto ajustado a la misma nota media en cada uno. En el Cuadrante y la Negociación el
-  jugador pulsa con probabilidad q el botón de `best()` y, si no, otro al azar.
+  acierto ajustado a la misma nota media en cada uno. En el Cuadrante, la Negociación, la
+  Auditoría y el Despacho el jugador pulsa con probabilidad q el botón de `best()` y, si no,
+  otro al azar. El órdago final no se juega (es a cara o cruz).
 
 Para cada puesto juega `RUNS` carreras día a día hasta llenar la barra y cumplir las tareas
 de `work.promotion_blockers` y da la media de días. Los días que pide el puesto no cuentan
@@ -49,7 +50,15 @@ from bot.services.work import (  # noqa: E402
     required_days,
 )
 from bot.services.work_catalog import JOBS, events_for  # noqa: E402
-from bot.services.work_games import new_game  # noqa: E402
+from bot.services.work_games import (  # noqa: E402
+    ORDAGO_PASS,
+    AuditGame,
+    DeskGame,
+    new_game,
+)
+
+#: Los minijuegos de la rotación: se juegan de verdad, pulsando `best()` con probabilidad q.
+ROTATING = (Mechanic.PLAN, Mechanic.DEAL, Mechanic.AUDIT, Mechanic.DESK)
 
 FELIZ = FAMILY_TIERS[0]
 STAT_OF = {
@@ -64,12 +73,20 @@ STAT_OF = {
 def play(pos: Position, q: float, rng: random.Random, guard: bool = False, retries: int = 0):
     """Juega una partida real del puesto con acierto q. Devuelve `(nota, contadores)`."""
     g = new_game(pos, rng, now=0, guard=guard)
-    if g.mechanic in (Mechanic.PLAN, Mechanic.DEAL):
+    if g.mechanic in ROTATING:
+        # Sin órdago: es a cara o cruz y no cambia la nota media.
+        g.ordago = ORDAGO_PASS
         while (current := g.current) is not None:
             best = g.best()
-            others = [i for i in range(len(current.options)) if i != best]
+            moves = g.moves() if isinstance(g, AuditGame) else range(len(current.options))
+            others = [i for i in moves if i != best]
             g.press(best if rng.random() < q or not others else rng.choice(others), 0)
-        score = round(100 * max(0, g.points) / g.max_points + rng.uniform(1, 5))
+        if isinstance(g, DeskGame):
+            # La nota del Despacho sale de cómo queda, no de puntos por jugada.
+            g.finished_at = None
+            score = round(g.score() + (0 if g.crisis else rng.uniform(1, 5)))
+        else:
+            score = round(100 * max(0, g.points) / g.max_points + rng.uniform(1, 5))
         # Las tareas cuentan en el contador del minijuego de siempre (como `PalaService`).
         usual = pos.task_mechanic
         if usual is Mechanic.DIG:

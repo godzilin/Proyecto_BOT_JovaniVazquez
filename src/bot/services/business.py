@@ -91,6 +91,9 @@ REPUTATION_DRIFT = 1.0
 DAILY_POOL_TURNS = 8
 #: Lo que suman como mucho la campaña y el community manager a los clientes y al cupo.
 BOOST_CAP = 0.5
+#: Lo que mueve los clientes de la semana el Consejo (`Business.council`): con un 100,
+#: esto de más; con un 0 o una crisis, esto de menos; con un 50, nada.
+COUNCIL_BOOST = 0.05
 #: Noches sin pagar el alquiler tras las que el casero rescinde el contrato.
 EVICTION_NIGHTS = 3
 #: Fianza del local en mensualidades (art. 36.1 de la Ley 29/1994, uso distinto de vivienda).
@@ -124,6 +127,10 @@ REPUTATION: dict[str, float] = {
     "rejected": -0.05,
     "no_part": -0.2,
     "cheap_quote": 0.1,
+    # Clientes especiales (`business_games.SPECIALS`): concederle lo que pide y que se
+    # vaya molesto.
+    "special": 0.3,
+    "special_bad": -0.3,
 }
 #: Clientes de un turno de referencia: la reputación de un turno se escala a ellos, así un
 #: sector con pocos clientes por turno (el taller) sube y baja al mismo ritmo por turno.
@@ -248,7 +255,10 @@ class Business:
             la 9.41.0, `role` y `franjas`.
         support: Lo que dejó la plantilla de apoyo la última noche cerrada para el día
             siguiente (9.41.0, `business_staff.support`): `clients` (el community manager) y
-            `patience` (la limpieza).
+            `patience` (la limpieza). También `direction`: la mano del dueño si hoy ha
+            dirigido el turno (`business_direct.direction_lead`); se borra con la noche.
+        council: El Consejo de la semana (`business_direct`): `week` (lunes ISO) y `score`
+            (0-100). Mueve los clientes esa semana (`council_boost`).
     """
 
     user_id: int
@@ -305,6 +315,7 @@ class Business:
     sold_days: dict[str, dict[str, int]] = field(default_factory=dict)
     vacancies: list[dict[str, Any]] = field(default_factory=list)
     support: dict[str, float] = field(default_factory=dict)
+    council: dict[str, Any] = field(default_factory=dict)
     id: int = 0
 
     @property
@@ -608,7 +619,16 @@ def boost(business: Business, today: date | None) -> float:
     """Lo que suman hoy a los clientes y al cupo la campaña y el community manager (lo que
     publicó anoche, `Business.support`), con el tope de `BOOST_CAP`."""
     campaign = campaign_boost(business, today) if today else 0.0
-    return min(BOOST_CAP, campaign + business.support.get("clients", 0.0))
+    return min(BOOST_CAP, campaign + business.support.get("clients", 0.0)) + council_boost(business)
+
+
+def council_boost(business: Business) -> float:
+    """Lo que suma (o quita) a los clientes el Consejo de esta semana: de −5 % a +5 %
+    (`COUNCIL_BOOST`). Nada si esta semana no se ha celebrado."""
+    council = business.council
+    if not council or council.get("week") != business.week:
+        return 0.0
+    return round(COUNCIL_BOOST * (int(council.get("score", 50)) - 50) / 50, 4)
 
 
 def pool_factor(business: Business, today: date) -> float:

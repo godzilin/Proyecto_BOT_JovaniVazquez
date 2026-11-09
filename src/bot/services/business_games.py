@@ -29,7 +29,7 @@ acepta el presupuesto. Pintar por adelantado no cambia nada.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from bot.services.business import (
     LOYALTY_MAX,
@@ -113,6 +113,7 @@ class Client:
         cue: La pista que se dibuja en el coche.
         car_color: Color del coche.
         car_model: Modelo del coche (0-3, lo dibuja la escena).
+        special: Clave de `SPECIALS` si es un cliente especial (`""` si no).
     """
 
     seed: int
@@ -128,6 +129,7 @@ class Client:
     cue: str = ""
     car_color: str = ""
     car_model: int = 0
+    special: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +150,8 @@ class Outcome:
         quote: Presupuesto elegido en el taller.
         exact: Si se dio el cambio exacto.
         usual_hit: Si acertaste «lo de siempre» de un habitual.
+        special: Clave del cliente especial, si lo era.
+        granted: Si se le concedió lo que pedía.
     """
 
     client: Client
@@ -162,6 +166,8 @@ class Outcome:
     quote: str = ""
     exact: bool = False
     usual_hit: bool = False
+    special: str = ""
+    granted: bool = False
 
     @property
     def served(self) -> bool:
@@ -213,6 +219,84 @@ def _paid(total: int, rng: random.Random) -> int:
     if total >= BILLS[2]:
         bill = BILLS[1]
     return -(-total // bill) * bill if total % bill else total + bill
+
+
+@dataclass(frozen=True, slots=True)
+class Special:
+    """Un cliente especial: llega con una petición y el dueño decide si se la concede.
+
+    Solo salen en los turnos del dueño (`mark_special`); la plantilla no los ve. Lo que
+    cambia se aplica al cerrar al cliente, si se le atendió bien (`TurnGame._special`).
+
+    Attributes:
+        key: Clave estable (va en las estadísticas de los logros).
+        emoji: Su emoji.
+        ask: Lo que pide al llegar.
+        take: Botón de concedérselo.
+        skip: Botón de tratarle como a cualquiera.
+        told: Qué pasa si se lo concedes, en una línea, para el panel.
+        revenue: Por cuánto se multiplica lo cobrado si se lo concedes.
+        praise: Veces que suma `REPUTATION["special"]` si se lo concedes.
+        dare: Si es un reto de rapidez: atendido rápido deja `DARE_TIP` de propina; si no,
+            se va molesto.
+        grudge: Si, al no concedérselo, la mitad de las veces se va molesto.
+    """
+
+    key: str
+    emoji: str
+    ask: str
+    take: str
+    skip: str
+    told: str
+    revenue: float = 1.0
+    praise: int = 0
+    dare: bool = False
+    grudge: bool = False
+
+
+#: Probabilidad de que en un turno del dueño venga un cliente especial.
+SPECIAL_CHANCE = 0.6
+#: Propina del que tiene prisa si se le atiende rápido, sobre lo cobrado.
+DARE_TIP = 0.5
+SPECIALS: tuple[Special, ...] = (
+    Special(
+        "influencer", "🤳",
+        "Es influencer: «¿Me haces precio de amigo y te saco en una historia?»",
+        "🤳 Precio de amigo", "💶 Paga como todos",
+        "cobras la mitad y gana reputación como dos clientes encantados.",
+        revenue=0.5, praise=2,
+    ),
+    Special(
+        "regateo", "🤑",
+        "Regatea: «Por ser yo, ¿me quitas algo?»",
+        "🏷️ Rebajarle", "✋ El precio es el precio",
+        "cobras un 20 % menos y se va contento. Si no, puede irse rezongando.",
+        revenue=0.8, praise=1, grudge=True,
+    ),
+    Special(
+        "prisas", "⏱️",
+        "Tiene el taxi en la puerta: «Si me atiendes volando, te dejo una buena propina».",
+        "⚡ Acepto el reto", "🐢 Sin prisas",
+        "si le atiendes rápido deja media cuenta de propina; si no, se va molesto.",
+        dare=True,
+    ),
+    Special(
+        "queja", "😤",
+        "Viene quejándose de lo de ayer: «Esto no puede ser. ¿Qué me vas a hacer?»",
+        "🙏 Compensarle", "🙄 Discutírselo",
+        "cobras un 30 % menos y arreglas la reseña. Si no, puede irse peor.",
+        revenue=0.7, praise=2, grudge=True,
+    ),
+)  # fmt: skip
+SPECIAL_BY_KEY: dict[str, Special] = {special.key: special for special in SPECIALS}
+
+
+def mark_special(clients: list[Client], seed: int) -> None:
+    """Sortea si en la cola viene un cliente especial y cuál (con su propia semilla: no
+    cambia la cola ni lo que ya se pintó por adelantado)."""
+    rng = random.Random(f"especial:{seed}")
+    if clients and rng.random() < SPECIAL_CHANCE:
+        rng.choice(clients).special = rng.choice(SPECIALS).key
 
 
 def make_clients(
@@ -329,6 +413,9 @@ class TurnGame:
         self.diagnosis: str | None = None
         self.paid = clients[0].paid if clients else 0
         self.extra = 0
+        #: Lo decidido con el cliente especial de ahora: `True` se le concede, `False`
+        #: no y `None` aún no se ha decidido (al cerrar, cuenta como no).
+        self.granted: bool | None = None
 
     # -- Lo que se ve -------------------------------------------------------------------
 
@@ -428,6 +515,9 @@ class TurnGame:
             return
         game = self.sector.game
         verb, _, arg = action.partition(":")
+        if verb == "s":
+            self._decide(arg == "1")
+            return
         if game == "comandas":
             self._comandas(verb, arg, now)
         elif game == "caja":
@@ -629,7 +719,45 @@ class TurnGame:
             now,
         )  # fmt: skip
 
+    def _decide(self, grant: bool) -> None:
+        """Contesta al cliente especial de ahora (una vez)."""
+        client = self.current
+        special = SPECIAL_BY_KEY.get(client.special) if client is not None else None
+        if special is None or self.granted is not None:
+            return
+        self.granted = grant
+        self.last = (
+            f"{special.emoji} {special.take if grant else special.skip}: hecho. Ahora, atiéndele."
+        )
+
+    def _special(self, outcome: Outcome) -> Outcome:
+        """Lo que cambia en un cliente especial bien atendido, según lo decidido."""
+        special = SPECIAL_BY_KEY.get(outcome.client.special)
+        if special is None:
+            return outcome
+        granted = bool(self.granted)
+        outcome = replace(outcome, special=special.key, granted=granted)
+        if outcome.result != "ok":
+            return outcome
+        sour = (*outcome.events, "special_bad")
+        if not granted:
+            # A quien no se le da lo que pide, la mitad de las veces le sienta mal.
+            if special.grudge and outcome.client.seed % 2 == 0:
+                return replace(outcome, events=sour)
+            return outcome
+        if special.dare:
+            if outcome.speed == "fast":
+                return replace(outcome, tip=outcome.tip + round(outcome.revenue * DARE_TIP))
+            return replace(outcome, events=sour)
+        return replace(
+            outcome,
+            revenue=round(outcome.revenue * special.revenue),
+            events=(*outcome.events, *("special",) * special.praise),
+        )
+
     def _close(self, outcome: Outcome, now: float) -> None:
+        outcome = self._special(outcome)
+        self.granted = None
         self.outcomes.append(outcome)
         self.index += 1
         self.round += 1

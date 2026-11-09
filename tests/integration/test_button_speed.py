@@ -2071,6 +2071,38 @@ async def press_business_pick_local(client: BotClient, owner: MagicMock) -> Clic
     return click
 
 
+async def press_business_direct(client: BotClient, owner: MagicMock) -> Click:
+    panel = await staffed_panel(client, owner)
+    service = client.get_cog("Negocio").service
+    business = await service.business(GUILD_ID, owner.id)
+    candidate = service.candidates(business)[0]
+    await service.hire(
+        GUILD_ID, owner.id, candidate["key"], contract="indefinido",
+        jornada=2 if candidate["part_time"] else 4, shift="manana",
+    )  # fmt: skip
+    await panel.refresh()
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.message = MagicMock(edit=AsyncMock())
+        await panel._direct(interaction)
+
+    return click
+
+
+async def press_business_council(client: BotClient, owner: MagicMock) -> Click:
+    panel = await business_panel(client, owner)
+    await client.get_cog("Negocio").service.open(
+        GUILD_ID, owner.id, sector="tienda", barrio="ofra", name="Súper", palette=0, emblem=0
+    )
+    await panel.refresh()
+
+    async def click(interaction: MagicMock) -> None:
+        interaction.message = MagicMock(edit=AsyncMock())
+        await panel._council(interaction)
+
+    return click
+
+
 async def press_business_nave(client: BotClient, owner: MagicMock) -> Click:
     panel = await business_panel(client, owner)
 
@@ -3392,6 +3424,8 @@ CASES: dict[str, Press] = {
     "negocio: montarlo": press_business_open,
     "negocio: comprar al mayorista": press_business_buy,
     "negocio: abrir un turno": press_business_turn,
+    "negocio: dirigir el turno": press_business_direct,
+    "negocio: celebrar el consejo": press_business_council,
     "negocio: precios": press_business_price,
     "negocio: cerrarlo": press_business_close,
     "negocio: ir al almacén": press_business_screen,

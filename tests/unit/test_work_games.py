@@ -287,7 +287,8 @@ def test_el_tiempo_sobrante_solo_cuenta_si_se_acaban_las_rondas() -> None:
     game = new_game(JOBS[0].position(1), random.Random(17), now=NOW)
     end = play_perfect(game, step=0.5)
     assert game.completed
-    assert game.time_left == pytest.approx(game.deadline - (end - 0.5))
+    # La última pulsación fue plantarse en el órdago: el extra se midió una antes.
+    assert game.time_left == pytest.approx(game.deadline - (end - 1.0))
     late = new_game(JOBS[0].position(1), random.Random(17), now=NOW)
     late.finish(late.deadline)
     assert not late.completed and late.time_left == 0

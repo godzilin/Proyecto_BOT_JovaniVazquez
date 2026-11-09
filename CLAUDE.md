@@ -542,8 +542,10 @@ obliga a recalibrar nada si sigue estos pasos.
    - Días de los puestos de rama: `days=BRANCH_DAYS[nivel]`.
    - De P5 en adelante cada puesto rota su minijuego con otro, un día cada uno:
      `alts=((Mechanic.PLAN, "clave"),)` (Cuadrante, para memoria, clasificar y cavar) o
-     `Mechanic.DEAL` (Negociación, para diálogo y detectar), con su pack en
-     `work_rotation.py` (`PLAN_PACKS`, `DEAL_PACKS`). Lo comprueba
+     `Mechanic.DEAL` (Negociación, para diálogo y detectar). Los de detectar llevan
+     además `Mechanic.AUDIT` (Auditoría) y los diálogos de P9-P10, `Mechanic.DESK`
+     (Despacho). Cada uno con su pack en `work_rotation.py` (`PLAN_PACKS`,
+     `DEAL_PACKS`, `AUDIT_PACKS`, `DESK_PACKS`). Lo comprueba
      `tests/unit/test_work_rotation.py`.
    - Formaciones: `_OFICIO.course(nivel, turnos, clase)`, de 2 a 4 turnos.
    - Cada rama declara su clase (`kind=BranchKind.RISKY`; si no dice nada, es segura).

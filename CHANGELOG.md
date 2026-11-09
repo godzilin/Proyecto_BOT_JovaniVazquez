@@ -10,7 +10,9 @@ criterio.
 
 ### 11.1.0 · 2026-11-09
 
-- Pala: de P5 en adelante el minijuego rota cada día con el Cuadrante o la Negociación
+- Pala: de P5 en adelante el minijuego cambia cada día (Cuadrante, Negociación, Auditoría y Despacho)
+- Pala: órdago final, el extra de tiempo a doble o nada
+- Negocios: clientes especiales, dirigir el turno de la plantilla y el Consejo de la semana
 
 ### 11.0.0 · 2026-11-09
 

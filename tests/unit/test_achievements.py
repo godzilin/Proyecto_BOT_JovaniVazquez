@@ -268,6 +268,10 @@ PRODUCED_STATS = {
     "pet_breed_changes", "pet_breed_rock", "pet_shows", "pet_shows_dressed", "pet_shows_night",
     "pet_photos", "pet_walked", "pet_visits", "pet_hosted", "pet_years",
     # 🏪 Negocio propio de pala (`business_stats` y las acciones del negocio)
+    "biz_special", "biz_special_granted", "biz_special_sour", "biz_dare_won",
+    "biz_special_influencer", "biz_special_regateo", "biz_special_prisas",
+    "biz_special_queja", "biz_direct", "biz_direct_perfect", "biz_direct_low",
+    "biz_council", "biz_council_top", "biz_council_crisis",
     "biz_opened", "biz_turns", "biz_turns_cafeteria", "biz_turns_tienda", "biz_turns_taller",
     "biz_sales", "biz_tips", "biz_best_turn", "biz_clients_turn_max", "biz_stars_max",
     "biz_loyalty_max", "biz_usual_hit", "biz_perfect", "biz_grade_d", "biz_wrong", "biz_exact",
@@ -859,6 +863,10 @@ PRODUCED_STATS = {
     "work_deal_shifts", "work_deal_best", "work_deal_clean", "work_deal_hundred",
     "work_deal_probes", "work_deal_poker_blind", "work_deal_walked",
     "work_deal_all_walked", "work_deal_timid",
+    "work_audit_shifts", "work_audit_clean", "work_audit_fast", "work_audit_blown",
+    "work_audit_all_blown", "work_desk_shifts", "work_desk_full", "work_desk_calm",
+    "work_desk_edge", "work_desk_later", "work_desk_crisis", "work_desk_crisis_fast",
+    "work_ordago", "work_ordago_won", "work_ordago_lost", "work_ordago_pass",
     "work_memory_flawless", "work_posters", "work_clean_digs", "work_board",
     # Oficios nuevos: reparto, funcionariado e influencer (work_stats y eventos)
     "work_orders", "work_routes", "work_fleet", "work_founder", "work_rain", "work_calima",

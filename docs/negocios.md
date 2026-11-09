@@ -1637,3 +1637,65 @@ repartidor de una heladería. Cambiar de horario se puede forzar sin coste, así
 - El preaviso de 15 días de la modificación sustancial y la opción del trabajador de irse con 20 días por año
   (art. 41.3 ET) no están: el cambio vale al día siguiente y cuesta humor.
 - Los horarios no miran el día de la semana: la demanda es la misma todos los días.
+
+
+## Clientes especiales, dirigir y el Consejo (11.1.0)
+
+El local crecía (plantilla, cadena) pero el turno del dueño era el mismo el día 1 y el día 60.
+Tres cosas que cambian lo que hace el dueño según lo que tiene, sin dinero nuevo.
+
+### Clientes especiales (`business_games.SPECIALS`)
+
+- En seis de cada diez turnos **del dueño** (`SPECIAL_CHANCE`) uno de los clientes es especial.
+  Sale de su propia semilla (`mark_special`): no cambia la cola ni lo pintado por adelantado, y
+  la plantilla y el simulador no los ven.
+- Llega con una petición y dos botones (`s:1`, concedérsela; `s:0`, tratarle como a todos). Se
+  contesta una vez; sin contestar, cuenta como que no. Lo que cambia se aplica al cerrarle y
+  solo si se le atendió bien (`TurnGame._special`).
+
+| Cliente | Si se lo concedes | Si no |
+|---|---|---|
+| 🤳 Influencer | Cobras la mitad y la reputación sube como dos clientes encantados | Nada |
+| 🤑 El que regatea | Cobras un 20 % menos y se va contento | La mitad de las veces se va molesto |
+| ⏱️ El que tiene prisa | Atendido rápido deja media cuenta de propina; si no, se va molesto | Nada |
+| 😤 El que se queja | Cobras un 30 % menos y arreglas la reseña | La mitad de las veces se va molesto |
+
+- Reputación: `REPUTATION["special"]` (+0,3, como tres clientes bien atendidos) y
+  `"special_bad"` (−0,3).
+
+### Dirigir el turno (`business_direct.DirectGame`)
+
+- Con **dos o más empleados que atienden** (`role.plays == "mostrador"`), una vez al día. Gasta
+  una franja y batería como abrir (`start_direct`); no mueve dinero ni clientes del cupo.
+- El juego: seis tareas (cuatro con dos empleados), cada una pide acierto, rapidez o trato; se
+  ven las habilidades de hasta cuatro empleados y cada uno coge dos como mucho. La nota es lo
+  repartido frente al mejor reparto (`best_total`), más el extra de tiempo.
+- Lo que deja: `Business.support["direction"]`, de 0 a `DIRECT_LEAD` (1,0) según la nota. En las
+  franjas de la plantilla de lo que queda de día se suma a la mano del encargado de turno
+  (`staff.lead`), con tope `LEAD_CAP` (1,5); cada punto baja los fallos un 45 % (`LEAD_MISS`).
+  No vale para el repartidor. La noche lo borra al rehacer `support`.
+- Equilibrio: un dueño sin encargado que dirige con un 100 deja a su plantilla como si tuviera
+  un encargado de trato 50 ese día, a cambio de no atender él esa franja.
+
+### El Consejo de la semana (`business_direct.council_game`)
+
+- Para quien tiene **una sociedad o varios locales**, una vez por semana. No gasta franja ni
+  batería ni mueve dinero.
+- Es un Despacho (`work_games.DeskGame`, el de los jefes de `pala`) con las barras 💰 Caja,
+  👥 Plantilla, ⭐ Clientes y 🧾 Hacienda y ocho decisiones de diez (`COUNCIL_PACK`).
+- Su nota se apunta en todos los locales (`Business.council`: `week` y `score`) y mueve los
+  clientes y el cupo esa semana (`business.council_boost`): `COUNCIL_BOOST × (nota − 50) / 50`,
+  de −5 % a +5 %. Va aparte del tope de la campaña y el community manager (`BOOST_CAP`).
+- Al empezar se apunta ya con un 50 (nada): si el panel caduca a medias, no se repite.
+
+### Logros (20, 3 secretos)
+
+Clientes especiales atendidos, concederle lo suyo a los cuatro tipos, el reto de las prisas,
+los que se van molestos; turnos dirigidos, con un 100 y con menos de 50; Consejos celebrados
+(1, 4, 12 y 26), con 90 o más y en crisis.
+
+### Sin comprobar o simplificado
+
+- `docs/negocio_sim.py` no juega clientes especiales, ni dirige, ni celebra consejos: las
+  cifras de «Equilibrio» siguen siendo las de antes.
+- El cliente especial no cambia el dibujo del cliente: se ve en el texto y en sus botones.
