@@ -170,6 +170,7 @@ OBRA = Job(
             ),
             days=4,
             content="sobrecostes",
+            alts=((Mechanic.DEAL, "sobrecostes"), (Mechanic.AUDIT, "sobrecostes")),
             self_employed=True,
             training=Training(
                 "rea", "el alta en el Registro de Empresas Acreditadas", _OBRA.course(5, 4)
@@ -207,6 +208,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[6],
                     content="pisos:4",
+                    alts=((Mechanic.PLAN, "pisos"),),
                     self_employed=True,
                     perk=Perk(
                         "Oficina de ventas en primera línea: +5 % de tiempo.", extra_time=0.05
@@ -225,6 +227,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[7],
                     content="terrenos",
+                    alts=((Mechanic.PLAN, "terrenos"),),
                     self_employed=True,
                     training=Training(
                         "costas",
@@ -248,6 +251,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[8],
                     content="banco",
+                    alts=((Mechanic.DEAL, "banco"),),
                     self_employed=True,
                     perk=Perk("Asesor fiscal en Andorra: un fallo gratis por turno.", retry=True),
                 ),
@@ -264,6 +268,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[9],
                     content="alcalde",
+                    alts=((Mechanic.DEAL, "alcalde"), (Mechanic.DESK, "alcalde")),
                     self_employed=True,
                     training=Training(
                         "convenio",
@@ -283,6 +288,7 @@ OBRA = Job(
                     (),
                     days=0,
                     content="palco",
+                    alts=((Mechanic.DEAL, "palco"), (Mechanic.DESK, "palco")),
                     self_employed=True,
                     perk=Perk("Palco VIP con catering: +10 % de tiempo.", extra_time=0.10),
                 ),
@@ -311,6 +317,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[6],
                     content="cavar:5",
+                    alts=((Mechanic.PLAN, "cavar"),),
                     perk=Perk(
                         "Caseta de obra con aire acondicionado: cada turno cansa un 5 % menos.",
                         battery=0.05,
@@ -329,6 +336,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[7],
                     content="licitaciones",
+                    alts=((Mechanic.PLAN, "licitaciones"),),
                     training=Training(
                         "clasificacion",
                         "la clasificación de contratista del Estado",
@@ -356,6 +364,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[8],
                     content="concesiones:4",
+                    alts=((Mechanic.PLAN, "concesiones"),),
                     perk=Perk("Jefe de gabinete: un fallo gratis por turno.", retry=True),
                 ),
                 Position(
@@ -371,6 +380,7 @@ OBRA = Job(
                     ),
                     days=BRANCH_DAYS[9],
                     content="fomento",
+                    alts=((Mechanic.DEAL, "fomento"), (Mechanic.DESK, "fomento")),
                     training=Training(
                         "ute",
                         "la UTE con las otras cinco grandes",
@@ -387,6 +397,7 @@ OBRA = Job(
                     (),
                     days=0,
                     content="internacional",
+                    alts=((Mechanic.DEAL, "internacional"), (Mechanic.DESK, "internacional")),
                     perk=Perk("Avión privado del consejo: +10 % de tiempo.", extra_time=0.10),
                 ),
             ),
@@ -439,6 +450,7 @@ HOSTELERIA = Job(
             (Task("smooth", "Sobrevive a 25 clientes en el chiringuito", "smooth", 25),
              _good(6), _events(3)),
             days=4, content="chiringuito", self_employed=True,
+            alts=((Mechanic.DEAL, "chiringuito"),),
             training=Training("apertura", "la licencia de apertura del chiringuito",
                               _HOSTELERIA.course(5, 4)),
             perk=Perk("Tu cuñado en la barra, que te sopla: una respuesta mala tachada en los "
@@ -460,6 +472,7 @@ HOSTELERIA = Job(
                     (Task("perfect", "Reparte las pulseras de 15 huéspedes sin liarla",
                           "perfect_rounds", 15), _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="pulseras:4",
+                    alts=((Mechanic.PLAN, "pulseras"),),
                     perk=Perk("Carrito de golf para ir de la recepción al buffet: cada turno "
                               "cansa un 5 % menos.", battery=0.05),
                 ),
@@ -469,6 +482,7 @@ HOSTELERIA = Job(
                     (Task("sorted", "Manda 30 reseñas a su departamento", "sorted", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="quejas",
+                    alts=((Mechanic.PLAN, "quejas"),),
                     training=Training(
                         "master_hotelero",
                         "el máster en Dirección Hotelera (en inglés, en Suiza y con tu "
@@ -483,6 +497,7 @@ HOSTELERIA = Job(
                     (Task("caught", "Pilla a 25 colados en el buffet", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="colados",
+                    alts=((Mechanic.DEAL, "colados"), (Mechanic.AUDIT, "colados")),
                     perk=Perk("Un jefe de recepción que te cubre las espaldas (y los check-in): "
                               "un fallo gratis por turno.", retry=True),
                 ),
@@ -492,6 +507,7 @@ HOSTELERIA = Job(
                     (Task("smooth", "Sobrevive a 30 juntas con los inversores", "smooth", 30),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="cadena_hotelera",
+                    alts=((Mechanic.DEAL, "cadena_hotelera"), (Mechanic.DESK, "cadena_hotelera")),
                     training=Training(
                         "familia_fundadora",
                         "la confianza de la familia fundadora (que te cuesta una cena de "
@@ -505,6 +521,7 @@ HOSTELERIA = Job(
                     10, "Presidente de la patronal turística", _HOSTELERIA.pay(10, _SAFE),
                     Mechanic.DIALOGUE, 60, (),
                     days=0, content="patronal",
+                    alts=((Mechanic.DEAL, "patronal"), (Mechanic.DESK, "patronal")),
                     perk=Perk("El Falcon del presidente, «en comisión de servicio»: +10 % de "
                               "tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -525,6 +542,7 @@ HOSTELERIA = Job(
                     (Task("perfect", "Emplata 15 platos tal como mandaba la carta",
                           "perfect_rounds", 15), _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="emplatado:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "emplatado"),),
                     perk=Perk("Pinzas de emplatar de titanio (y un pulso que no tiembla): +5 % "
                               "de tiempo en el minijuego.", extra_time=0.05),
                 ),
@@ -533,6 +551,7 @@ HOSTELERIA = Job(
                     (Task("caught", "Pilla a 25 inspectores de la Guía", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="inspector", self_employed=True,
+                    alts=((Mechanic.DEAL, "inspector"), (Mechanic.AUDIT, "inspector")),
                     training=Training(
                         "stage_tres_estrellas",
                         "un stage gratis de seis meses en un tres estrellas (fregando "
@@ -547,6 +566,7 @@ HOSTELERIA = Job(
                     (Task("smooth", "Aguanta 25 galas del talent de cocina", "smooth", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="plato_tv", self_employed=True,
+                    alts=((Mechanic.DEAL, "plato_tv"),),
                     perk=Perk("Maquilladora de plató (te quita las ojeras de las grabaciones): "
                               "cada turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -556,6 +576,7 @@ HOSTELERIA = Job(
                     (Task("sorted", "Manda a 30 cocineros a su partida", "sorted", 30),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="brigada", self_employed=True,
+                    alts=((Mechanic.PLAN, "brigada"),),
                     training=Training(
                         "socio_inversor",
                         "la entrada de un fondo y de un socio con dinero de procedencia "
@@ -569,6 +590,7 @@ HOSTELERIA = Job(
                     Mechanic.DIALOGUE,
                     60, (),
                     days=0, content="dubai", self_employed=True,
+                    alts=((Mechanic.DEAL, "dubai"), (Mechanic.DESK, "dubai")),
                     perk=Perk("Jet privado con cocina de inducción: +10 % de tiempo en el "
                               "minijuego.", extra_time=0.10),
                 ),
@@ -658,6 +680,7 @@ POLITICA = Job(
             ),
             days=4,
             content="portavoz",
+            alts=((Mechanic.DEAL, "portavoz"),),
             training=Training(
                 "portavoz", "el móvil de portavoz (nunca se apaga)", _POLITICA.course(5, 3)
             ),
@@ -688,6 +711,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[6],
                     content="decretos",
+                    alts=((Mechanic.PLAN, "decretos"),),
                     perk=Perk("Chófer oficial: cada turno cansa un 5 % menos.", battery=0.05),
                 ),
                 Position(
@@ -703,6 +727,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[7],
                     content="ministerio",
+                    alts=((Mechanic.DEAL, "ministerio"),),
                     training=Training(
                         "ministerio",
                         "la cartera ministerial (otra cena en Ferraz)",
@@ -730,6 +755,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[8],
                     content="socios:4",
+                    alts=((Mechanic.PLAN, "socios"),),
                     perk=Perk("Falcon a demanda: cada turno cansa un 5 % menos.", battery=0.05),
                 ),
                 Position(
@@ -750,6 +776,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[9],
                     content="control",
+                    alts=((Mechanic.DEAL, "control"), (Mechanic.DESK, "control")),
                     training=Training(
                         "investidura",
                         "una investidura (pactos incluidos)",
@@ -766,6 +793,7 @@ POLITICA = Job(
                     (),
                     days=0,
                     content="consejo",
+                    alts=((Mechanic.DEAL, "consejo"), (Mechanic.DESK, "consejo")),
                     # Clave heredada del antiguo puesto 5: quien ya la compró la conserva.
                     training=Training(
                         "giratoria",
@@ -798,6 +826,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[6],
                     content="plenos:4",
+                    alts=((Mechanic.PLAN, "plenos"),),
                     perk=Perk(
                         "Dietas de Estrasburgo: cada turno cansa un 5 % menos.", battery=0.05
                     ),
@@ -815,6 +844,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[7],
                     content="enmiendas",
+                    alts=((Mechanic.PLAN, "enmiendas"),),
                     training=Training(
                         "ponencia",
                         "la ponencia de un reglamento (te la cede tu grupo)",
@@ -837,6 +867,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[8],
                     content="lobbies",
+                    alts=((Mechanic.DEAL, "lobbies"),),
                     perk=Perk("Asistente acreditado: un fallo gratis por turno.", retry=True),
                 ),
                 Position(
@@ -852,6 +883,7 @@ POLITICA = Job(
                     ),
                     days=BRANCH_DAYS[9],
                     content="trilogo",
+                    alts=((Mechanic.DEAL, "trilogo"), (Mechanic.DESK, "trilogo")),
                     training=Training(
                         "vicepresidencia",
                         "el apoyo de los grandes grupos para la vicepresidencia",
@@ -871,6 +903,7 @@ POLITICA = Job(
                     (),
                     days=0,
                     content="comisario",
+                    alts=((Mechanic.DEAL, "comisario"), (Mechanic.DESK, "comisario")),
                     perk=Perk("Gabinete de veinte personas: +10 % de tiempo.", extra_time=0.10),
                 ),
             ),
@@ -928,6 +961,7 @@ SANIDAD = Job(
             (Task("smooth", "Pasa 25 consultas sin una sola reclamación", "smooth", 25),
              _guards(6), _events(3)),
             days=4, content="consulta",
+            alts=((Mechanic.DEAL, "consulta"),),
             training=Training("ope", "la plaza de adjunto (oposición, OPE)", _SANIDAD.course(5, 4)),
             perk=Perk(
                 "El residente te sopla: una respuesta mala tachada en los diálogos.", fifty=True
@@ -947,6 +981,7 @@ SANIDAD = Job(
                     (Task("perfect", "Cuadra 15 partes de quirófano sin tachones",
                           "perfect_rounds", 15), _guards(6), _events(2)),
                     days=BRANCH_DAYS[6], content="quirofano:4",
+                    alts=((Mechanic.PLAN, "quirofano"),),
                     perk=Perk(
                         "Despacho con ventana (al patio de luces): cada turno cansa un 5 % "
                         "menos.", battery=0.05,
@@ -957,6 +992,7 @@ SANIDAD = Job(
                     (Task("sorted", "Manda 30 pacientes a su sitio", "sorted", 30),
                      _guards(6), _events(3)),
                     days=BRANCH_DAYS[7], content="derivaciones",
+                    alts=((Mechanic.PLAN, "derivaciones"),),
                     training=Training(
                         "jefatura",
                         "la jefatura de servicio por concurso de méritos (y un café con el "
@@ -972,6 +1008,7 @@ SANIDAD = Job(
                     (Task("smooth", "Apaga 25 incendios en la junta técnico-asistencial",
                           "smooth", 25), _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="direccion",
+                    alts=((Mechanic.DEAL, "direccion"),),
                     perk=Perk("Un jefe de guardia que no te llama: un fallo gratis por turno.",
                               retry=True),
                 ),
@@ -980,6 +1017,7 @@ SANIDAD = Job(
                     (Task("smooth", "Sobrevive a 30 reuniones con la Consejería", "smooth", 30),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="gerencia",
+                    alts=((Mechanic.DEAL, "gerencia"), (Mechanic.DESK, "gerencia")),
                     training=Training(
                         "gerencia",
                         "el nombramiento de gerente (libre designación, del partido que toque)",
@@ -991,6 +1029,7 @@ SANIDAD = Job(
                 Position(
                     10, "Consejero de Sanidad", _SANIDAD.pay(10, _SAFE), Mechanic.DIALOGUE, 60, (),
                     days=0, content="consejeria",
+                    alts=((Mechanic.DEAL, "consejeria"), (Mechanic.DESK, "consejeria")),
                     perk=Perk("Coche oficial con sirena (de adorno): +10 % de tiempo.",
                               extra_time=0.10),
                 ),
@@ -1010,6 +1049,7 @@ SANIDAD = Job(
                     (Task("caught", "Encuentra 25 cláusulas de letra pequeña", "caught", 25),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="letra_pequena", self_employed=True,
+                    alts=((Mechanic.DEAL, "letra_pequena"), (Mechanic.AUDIT, "letra_pequena")),
                     perk=Perk(
                         "Consultas de diez minutos (el doble que en la pública): cada turno "
                         "cansa un 5 % menos.", battery=0.05,
@@ -1020,6 +1060,7 @@ SANIDAD = Job(
                     (Task("perfect", "Haz 15 retoques tal como los pidió el cliente",
                           "perfect_rounds", 15), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="retoques:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "retoques"),),
                     training=Training(
                         "estetica",
                         "el máster en Medicina Estética (un fin de semana en Marbella)",
@@ -1034,6 +1075,7 @@ SANIDAD = Job(
                     (Task("smooth", "Atiende a 25 clientes VIP sin perder ninguno", "smooth",
                           25), _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="clinica", self_employed=True,
+                    alts=((Mechanic.DEAL, "clinica"),),
                     perk=Perk("Recepcionista que lo filtra todo: un fallo gratis por turno.",
                               retry=True),
                 ),
@@ -1043,6 +1085,7 @@ SANIDAD = Job(
                     (Task("smooth", "Cierra 30 conciertos con la Comunidad", "smooth", 30),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="conciertos", self_employed=True,
+                    alts=((Mechanic.DEAL, "conciertos"), (Mechanic.DESK, "conciertos")),
                     training=Training(
                         "fondo_salud",
                         "la entrada de un fondo de inversión en el accionariado",
@@ -1055,6 +1098,7 @@ SANIDAD = Job(
                     10, "Dueño de una aseguradora de salud", _SANIDAD.pay(10, _RISKY),
                     Mechanic.DIALOGUE, 60, (),
                     days=0, content="aseguradora", self_employed=True,
+                    alts=((Mechanic.DEAL, "aseguradora"), (Mechanic.DESK, "aseguradora")),
                     perk=Perk("Póliza de oro para ti (sin carencias): +10 % de tiempo.",
                               extra_time=0.10),
                 ),
@@ -1112,6 +1156,7 @@ OFICINA = Job(
             5, "CTO de startup", _OFICINA.pay(5), Mechanic.DIALOGUE, 60,
             (Task("smooth", "Convence a 25 inversores", "smooth", 25), _good(6), _events(3)),
             days=4, content="inversores",
+            alts=((Mechanic.DEAL, "inversores"),),
             training=Training("mba", "el MBA de una escuela de negocios", _OFICINA.course(5, 4)),
             perk=Perk("Un ingeniero que te sopla por el chat qué decir (y qué no) a los "
                       "inversores: una respuesta mala tachada en los diálogos.", fifty=True),
@@ -1131,6 +1176,7 @@ OFICINA = Job(
                     (Task("sorted", "Imputa 30 horas al cliente que toca", "sorted", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="horas",
+                    alts=((Mechanic.PLAN, "horas"),),
                     perk=Perk("Un Excel de imputación de horas con una pestaña oculta que solo "
                               "abres tú: cada turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1139,6 +1185,7 @@ OFICINA = Job(
                     (Task("perfect", "Cierra 15 licitaciones sin que salte la alarma",
                           "perfect_rounds", 15), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="licitacion:4",
+                    alts=((Mechanic.PLAN, "licitacion"),),
                     training=Training(
                         "pmp",
                         "la certificación de gestión de proyectos (y un PowerPoint de 80 "
@@ -1154,6 +1201,7 @@ OFICINA = Job(
                     (Task("caught", "Encuentra 25 fallos que tumban la app pública", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="app_publica",
+                    alts=((Mechanic.DEAL, "app_publica"), (Mechanic.AUDIT, "app_publica")),
                     perk=Perk("Un «comité de seguimiento» que se reúne cuando algo falla y "
                               "decide que no ha fallado: un fallo gratis por turno.",
                               retry=True),
@@ -1163,6 +1211,7 @@ OFICINA = Job(
                     (Task("smooth", "Sal airoso de 25 comités de socios", "smooth", 25),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="comite",
+                    alts=((Mechanic.DEAL, "comite"), (Mechanic.DESK, "comite")),
                     training=Training(
                         "cuota_socio",
                         "la cuota de entrada como socio (se paga en cómodos plazos… de por "
@@ -1174,6 +1223,7 @@ OFICINA = Job(
                 Position(
                     10, "Socio director", _OFICINA.pay(10, _SAFE), Mechanic.DIALOGUE, 60, (),
                     days=0, content="socio_director",
+                    alts=((Mechanic.DEAL, "socio_director"), (Mechanic.DESK, "socio_director")),
                     perk=Perk("Un coche con chófer y una agenda con el móvil del ministro: "
                               "+10 % de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1194,6 +1244,7 @@ OFICINA = Job(
                     (Task("smooth", "Vende humo a 30 inversores", "smooth", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="pitch", self_employed=True,
+                    alts=((Mechanic.DEAL, "pitch"),),
                     perk=Perk("Una camiseta con el logo y un sofá-puf en la oficina: cada turno "
                               "cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1202,6 +1253,7 @@ OFICINA = Job(
                     (Task("sorted", "Pivota 30 ideas a la moda del momento", "sorted", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="pivotar", self_employed=True,
+                    alts=((Mechanic.PLAN, "pivotar"),),
                     training=Training(
                         "serie_a",
                         "la ronda serie A (con un fondo que no ha leído el plan de negocio)",
@@ -1215,6 +1267,7 @@ OFICINA = Job(
                     (Task("caught", "Encuentra 25 gastos que queman la caja", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="runway", self_employed=True,
+                    alts=((Mechanic.DEAL, "runway"), (Mechanic.AUDIT, "runway")),
                     perk=Perk("Un director financiero que dice «es una inversión» por ti: un "
                               "fallo gratis por turno.", retry=True),
                 ),
@@ -1223,6 +1276,7 @@ OFICINA = Job(
                     (Task("perfect", "Repasa 15 historiales de rondas sin equivocarte",
                           "perfect_rounds", 15), _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="rondas:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "rondas"),),
                     training=Training(
                         "family_office",
                         "el family office (con un gestor que te dice «sí, claro» a todo)",
@@ -1235,6 +1289,7 @@ OFICINA = Job(
                     10, "Tecnomillonario con red social propia", _OFICINA.pay(10, _RISKY),
                     Mechanic.DIALOGUE, 60,
                     (), days=0, content="red_social", self_employed=True,
+                    alts=((Mechanic.DEAL, "red_social"), (Mechanic.DESK, "red_social")),
                     perk=Perk("Un megáfono que llega a todo el mundo, tengas razón o no: +10 % "
                               "de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1294,6 +1349,7 @@ REPARTO = Job(
             (Task("smooth", "Sobrevive a 25 preguntas como fundador de la app", "smooth", 25),
              _good(6), _events(3)),
             days=4, content="fundador", self_employed=True,
+            alts=((Mechanic.DEAL, "fundador"),),
             training=Training("semilla", "la ronda semilla (familia, amigos y algún incauto)",
                               _REPARTO.course(5, 4)),
             perk=Perk("Un abogado laboralista en nómina (del otro lado del pasillo): una "
@@ -1314,6 +1370,7 @@ REPARTO = Job(
                     (Task("sorted", "Manda 30 envíos a su sitio", "sorted", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="paquetes",
+                    alts=((Mechanic.PLAN, "paquetes"),),
                     perk=Perk("Furgoneta de Correos con aire acondicionado (el de 1994, pero "
                               "aire): cada turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1322,6 +1379,7 @@ REPARTO = Job(
                     (Task("perfect", "Haz 15 rutas rurales perfectas", "perfect_rounds", 15),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="ruta_rural:4",
+                    alts=((Mechanic.PLAN, "ruta_rural"),),
                     training=Training(
                         "oposicion_correos",
                         "la oposición de Correos (decenas de miles de aspirantes para unas "
@@ -1336,6 +1394,7 @@ REPARTO = Job(
                     (Task("caught", "Encuentra 25 paquetes perdidos", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="perdido",
+                    alts=((Mechanic.DEAL, "perdido"), (Mechanic.AUDIT, "perdido")),
                     perk=Perk("Un cartero veterano que sabe en qué estante de Zaragoza duerme "
                               "cada carta: un fallo gratis por turno.", retry=True),
                 ),
@@ -1344,6 +1403,10 @@ REPARTO = Job(
                     (Task("smooth", "Sobrevive a 30 consejos de administración", "smooth", 30),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="direccion_correos",
+                    alts=(
+                        (Mechanic.DEAL, "direccion_correos"),
+                        (Mechanic.DESK, "direccion_correos"),
+                    ),
                     training=Training(
                         "llamada_moncloa",
                         "una llamada de Moncloa (el currículum es lo de menos, pero el "
@@ -1355,6 +1418,10 @@ REPARTO = Job(
                 Position(
                     10, "Presidente de Correos", _REPARTO.pay(10, _SAFE), Mechanic.DIALOGUE, 60, (),
                     days=0, content="presidencia_correos",
+                    alts=(
+                        (Mechanic.DEAL, "presidencia_correos"),
+                        (Mechanic.DESK, "presidencia_correos"),
+                    ),
                     perk=Perk("Un sello conmemorativo con tu cara, que abre cualquier "
                               "puerta: +10 % de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1374,6 +1441,7 @@ REPARTO = Job(
                     (Task("perfect", "Prepara 15 pedidos de 10 minutos en orden",
                           "perfect_rounds", 15), _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="dark_store:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "dark_store"),),
                     perk=Perk("Persiana con mando a distancia (la tienda abre y cierra en un "
                               "segundo): +5 % de tiempo en el minijuego.", extra_time=0.05),
                 ),
@@ -1383,6 +1451,7 @@ REPARTO = Job(
                     (Task("smooth", "Sobrevive a 25 reuniones en el Ministerio de Trabajo",
                           "smooth", 25), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="ley_rider", self_employed=True,
+                    alts=((Mechanic.DEAL, "ley_rider"),),
                     training=Training(
                         "bufete_colaboradores",
                         "el bufete que convierte riders en «colaboradores» (con una sola "
@@ -1396,6 +1465,7 @@ REPARTO = Job(
                     (Task("sorted", "Manda 30 pedidos a su reparto", "sorted", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="ultima_milla", self_employed=True,
+                    alts=((Mechanic.PLAN, "ultima_milla"),),
                     perk=Perk("Una flota de drones que reparten mientras duermes (los que no "
                               "se caen): cada turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1404,6 +1474,10 @@ REPARTO = Job(
                     (Task("caught", "Descubre a 25 inspectoras de Trabajo infiltradas",
                           "caught", 25), _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="inspector_trabajo", self_employed=True,
+                    alts=(
+                        (Mechanic.DEAL, "inspector_trabajo"),
+                        (Mechanic.AUDIT, "inspector_trabajo"),
+                    ),
                     training=Training(
                         "salida_bolsa",
                         "la salida a bolsa (con campana, banquero y nota de prensa)",
@@ -1416,6 +1490,7 @@ REPARTO = Job(
                     10, "Multimillonario con cohete propio", _REPARTO.pay(10, _RISKY),
                     Mechanic.DIALOGUE, 60, (),
                     days=0, content="cohete", self_employed=True,
+                    alts=((Mechanic.DEAL, "cohete"), (Mechanic.DESK, "cohete")),
                     perk=Perk("Un cohete privado con asiento para ti y otro para tu ego: "
                               "+10 % de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1480,6 +1555,7 @@ FUNCIONARIADO = Job(
             (Task("caught", "Destapa 25 declaraciones con trampa", "caught", 25), _good(6),
              _events(3)),
             days=4, content="inspeccion",
+            alts=((Mechanic.DEAL, "inspeccion"), (Mechanic.AUDIT, "inspeccion")),
             training=Training("ope_a1", "la oposición a Inspector de Hacienda (cinco años de "
                               "academia)", _FUNCIONARIADO.course(5, 4)),
             perk=Perk("La base de datos que lo cruza todo (y no te deja ni fingir que no te "
@@ -1501,6 +1577,7 @@ FUNCIONARIADO = Job(
                     (Task("sorted", "Manda 30 disposiciones a su sección del BOE", "sorted", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="boe",
+                    alts=((Mechanic.PLAN, "boe"),),
                     perk=Perk("Plaza de garaje en el ministerio (con tu nombre pintado): cada "
                               "turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1509,6 +1586,7 @@ FUNCIONARIADO = Job(
                     (Task("perfect", "Tramita 15 expedientes sin saltarte ningún trámite",
                           "perfect_rounds", 15), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="expediente:4",
+                    alts=((Mechanic.PLAN, "expediente"),),
                     training=Training(
                         "libre_designacion",
                         "el nombramiento por libre designación (y el carné del partido que "
@@ -1523,6 +1601,7 @@ FUNCIONARIADO = Job(
                     (Task("caught", "Pilla 25 disposiciones adicionales coladas", "caught", 25),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="colada",
+                    alts=((Mechanic.DEAL, "colada"), (Mechanic.AUDIT, "colada")),
                     perk=Perk("El letrado que se lee hasta la última página (el único): un "
                               "fallo gratis por turno.", retry=True),
                 ),
@@ -1531,6 +1610,7 @@ FUNCIONARIADO = Job(
                     (Task("smooth", "Sobrevive a 30 lunes en la Comisión de Subsecretarios",
                           "smooth", 30), _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="subsecretarios",
+                    alts=((Mechanic.DEAL, "subsecretarios"), (Mechanic.DESK, "subsecretarios")),
                     training=Training(
                         "cuerpo_elite",
                         "pertenecer a un cuerpo de élite y comer, cada martes, con el ministro",
@@ -1543,6 +1623,7 @@ FUNCIONARIADO = Job(
                     10, "Consejero de Estado", _FUNCIONARIADO.pay(10, _SAFE), Mechanic.DIALOGUE, 60,
                     (),
                     days=0, content="consejo_estado",
+                    alts=((Mechanic.DEAL, "consejo_estado"), (Mechanic.DESK, "consejo_estado")),
                     perk=Perk("Despacho con vistas y sin plazo para dictaminar: +10 % de tiempo "
                               "en el minijuego.", extra_time=0.10),
                 ),
@@ -1564,6 +1645,7 @@ FUNCIONARIADO = Job(
                     (Task("sorted", "Manda 30 bienes a su escondite legal", "sorted", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="patrimonio", self_employed=True,
+                    alts=((Mechanic.PLAN, "patrimonio"),),
                     perk=Perk("Una agenda con el móvil del gerente de cada banco andorrano: un "
                               "fallo gratis por turno.", retry=True),
                 ),
@@ -1573,6 +1655,7 @@ FUNCIONARIADO = Job(
                     (Task("smooth", "Sobrevive a 30 reuniones con clientes a los que también "
                           "auditas", "smooth", 30), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="big_four", self_employed=True,
+                    alts=((Mechanic.DEAL, "big_four"),),
                     training=Training(
                         "excedencia_voluntaria",
                         "la excedencia voluntaria y un despacho con vistas a la Castellana (el "
@@ -1587,6 +1670,7 @@ FUNCIONARIADO = Job(
                     (Task("perfect", "Traza 15 rutas del dinero sin perder un yapdollar por el "
                           "camino", "perfect_rounds", 15), _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="sandwich:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "sandwich"),),
                     perk=Perk("Un mapa del mundo con los paraísos fiscales marcados en "
                               "fosforito: +5 % de tiempo en el minijuego.", extra_time=0.05),
                 ),
@@ -1595,6 +1679,7 @@ FUNCIONARIADO = Job(
                     (Task("caught", "Encuentra a 25 inversores de verdad entre los mariachis",
                           "caught", 25), _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="mariachis", self_employed=True,
+                    alts=((Mechanic.DEAL, "mariachis"), (Mechanic.AUDIT, "mariachis")),
                     training=Training(
                         "capital_sicav",
                         "el capital mínimo de la SICAV y cien mariachis que firmen donde les "
@@ -1607,6 +1692,7 @@ FUNCIONARIADO = Job(
                     10, "Asesor de fortunas en Andorra", _FUNCIONARIADO.pay(10, _RISKY),
                     Mechanic.DIALOGUE, 60, (),
                     days=0, content="andorra", self_employed=True,
+                    alts=((Mechanic.DEAL, "andorra"), (Mechanic.DESK, "andorra")),
                     perk=Perk("Un piso en Andorra con luz, agua y el padrón al día (y vacío): "
                               "+10 % de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1665,6 +1751,7 @@ INFLUENCER = Job(
             (Task("smooth", "Sal airoso de 25 preguntas en plató", "smooth", 25), _good(6),
              _events(3)),
             days=4, content="plato", self_employed=True,
+            alts=((Mechanic.DEAL, "plato"),),
             training=Training("reality", "el casting de un reality en una isla desierta",
                               _INFLUENCER.course(5, 4)),
             perk=Perk("El guionista del reality, que te sopla qué decir (y a quién): una "
@@ -1685,6 +1772,7 @@ INFLUENCER = Job(
                     (Task("smooth", "Opina con aplomo de 30 temas que no dominas", "smooth", 30),
                      _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="tertulia",
+                    alts=((Mechanic.DEAL, "tertulia"),),
                     perk=Perk("Un cartel con tu nombre y la palabra «analista» (nadie sabe de "
                               "qué): cada turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1693,6 +1781,7 @@ INFLUENCER = Job(
                     (Task("perfect", "Cumple la escaleta 15 veces sin que se caiga el programa",
                           "perfect_rounds", 15), _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="escaleta:4",
+                    alts=((Mechanic.PLAN, "escaleta"),),
                     training=Training(
                         "exclusividad_cadena",
                         "el contrato de exclusividad con la cadena (no puedes ni felicitar la "
@@ -1706,6 +1795,7 @@ INFLUENCER = Job(
                     (Task("sorted", "Manda 30 invitados a su bloque del programa", "sorted", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="invitados",
+                    alts=((Mechanic.PLAN, "invitados"),),
                     perk=Perk("Un pinganillo por el que el director te dice «alarga, alarga»: "
                               "un fallo gratis por turno.", retry=True),
                 ),
@@ -1714,6 +1804,7 @@ INFLUENCER = Job(
                     (Task("caught", "Encuentra a 25 programas que hunden la audiencia",
                           "caught", 25), _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="share",
+                    alts=((Mechanic.DEAL, "share"), (Mechanic.AUDIT, "share")),
                     training=Training(
                         "voto_consejo",
                         "el voto del consejo de administración (repartido por cuotas, como "
@@ -1725,6 +1816,7 @@ INFLUENCER = Job(
                 Position(
                     10, "Presidente de RTVE", _INFLUENCER.pay(10, _SAFE), Mechanic.DIALOGUE, 60, (),
                     days=0, content="rtve",
+                    alts=((Mechanic.DEAL, "rtve"), (Mechanic.DESK, "rtve")),
                     perk=Perk("Un sillón de presidente que gira solo hacia el partido que "
                               "toque: +10 % de tiempo en el minijuego.", extra_time=0.10),
                 ),
@@ -1746,6 +1838,7 @@ INFLUENCER = Job(
                     (Task("perfect", "Atiende 15 subathons sin perderte una alerta",
                           "perfect_rounds", 15), _good(5), _events(2)),
                     days=BRANCH_DAYS[6], content="subathon:4", self_employed=True,
+                    alts=((Mechanic.PLAN, "subathon"),),
                     perk=Perk("Un monitor extra para el chat (el otro es para Hacienda): cada "
                               "turno cansa un 5 % menos.", battery=0.05),
                 ),
@@ -1755,6 +1848,7 @@ INFLUENCER = Job(
                     (Task("sorted", "Manda 30 ideas de negocio a su cajón", "sorted", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[7], content="marca", self_employed=True,
+                    alts=((Mechanic.PLAN, "marca"),),
                     training=Training(
                         "marca_propia",
                         "la marca propia (con su registro en la OEPM y una lata que sabe a "
@@ -1769,6 +1863,7 @@ INFLUENCER = Job(
                     (Task("smooth", "Vende 30 combates entre streamers", "smooth", 30),
                      _good(6), _events(3)),
                     days=BRANCH_DAYS[8], content="velada", self_employed=True,
+                    alts=((Mechanic.DEAL, "velada"),),
                     perk=Perk("Un promotor que te cubre el ojo morado antes del directo: un "
                               "fallo gratis por turno.", retry=True),
                 ),
@@ -1777,6 +1872,7 @@ INFLUENCER = Job(
                     (Task("caught", "Detecta a 25 proyectos que son un timo", "caught", 25),
                      _good(6), _events(4)),
                     days=BRANCH_DAYS[9], content="rugpull", self_employed=True,
+                    alts=((Mechanic.DEAL, "rugpull"), (Mechanic.AUDIT, "rugpull")),
                     training=Training(
                         "whitepaper_ia",
                         "el whitepaper (escrito por una IA en una tarde, con tres gráficos que "
@@ -1789,6 +1885,7 @@ INFLUENCER = Job(
                     10, "Fundador de un partido antisistema", _INFLUENCER.pay(10, _RISKY),
                     Mechanic.DIALOGUE, 60, (),
                     days=0, content="partido", self_employed=True,
+                    alts=((Mechanic.DEAL, "partido"), (Mechanic.DESK, "partido")),
                     perk=Perk("Un escaño en Estrasburgo con inmunidad y todo: +10 % de tiempo "
                               "en el minijuego.", extra_time=0.10),
                 ),

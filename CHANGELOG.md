@@ -8,6 +8,12 @@ criterio.
 
 ## 11.x
 
+### 11.1.0 · 2026-11-09
+
+- Pala: de P5 en adelante el minijuego cambia cada día (Cuadrante, Negociación, Auditoría y Despacho)
+- Pala: órdago final, el extra de tiempo a doble o nada
+- Negocios: clientes especiales, dirigir el turno de la plantilla y el Consejo de la semana
+
 ### 11.0.0 · 2026-11-09
 
 - Fortunas: el Estado sale en la lista con su caja, lo que paga en nóminas públicas y lo que se cobra a sí mismo en impuestos

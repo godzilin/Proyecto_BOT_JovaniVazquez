@@ -62,11 +62,13 @@ from bot.repositories.economy import BANK_LOAN_CONCEPT, company_account
 from bot.repositories.housing import BusinessLoanDesk, HousingError
 from bot.repositories.housing_finance import Loan, business_loans_in, close_loan_in
 from bot.services import business_chain as chain
+from bot.services import business_direct as direct
 from bot.services import business_sl as sl
 from bot.services import business_staff as staff
 from bot.services import loans as lending
 from bot.services.agenda import FRANJAS_DIA, Agenda
 from bot.services.business import (
+    COUNCIL_BOOST,
     EVICTION_NIGHTS,
     FLAT_RATE_DAYS,
     MAX_LOCALES,
@@ -117,6 +119,7 @@ from bot.services.business_games import (
     TurnSummary,
     apply_loyalty,
     make_clients,
+    mark_special,
 )
 from bot.services.business_staff import Dismissal, Payroll
 from bot.services.economy import (
@@ -141,6 +144,7 @@ from bot.services.work import (
     TIRED,
     week_of,
 )
+from bot.services.work_games import DeskGame
 
 if TYPE_CHECKING:
     from bot.repositories.housing import HousingRepository
@@ -2225,7 +2229,12 @@ class BusinessService:
                 )  # fmt: skip
                 game = staff.play_turn(
                     business, employee, clients, start=start, franja=franja,
-                    lead=staff.lead(boss) if led and boss is not None else 0.0,
+                    # La mano del encargado de turno y la del dueño, si hoy ha dirigido.
+                    lead=min(
+                        direct.LEAD_CAP,
+                        (staff.lead(boss) if led and boss is not None else 0.0)
+                        + (0.0 if away else business.support.get("direction", 0.0)),
+                    ),
                 )  # fmt: skip
                 summary = game.summary()
                 _apply_turn(business, summary, f"{start}:{employee['id']}", day)
@@ -2315,6 +2324,118 @@ class BusinessService:
 
     # -- Un turno -----------------------------------------------------------------------
 
+    # -- Dirigir y el Consejo (`business_direct`) ---------------------------------------
+
+    @staticmethod
+    def hands(business: Business) -> list[direct.Hand]:
+        """Los empleados que atienden, como entran en el reparto de Dirigir."""
+        return [
+            direct.Hand(e["name"], {key: staff.skill(e, key) for key in direct.SKILLS})
+            for e in business.staff
+            if staff.role_of(e).plays == "mostrador"
+        ]
+
+    def direct_blocker(self, status: BusinessStatus) -> str | None:
+        """Lo que impide dirigir el turno ahora, o `None`."""
+        if len(self.hands(status.business)) < 2:
+            return "Para dirigir hacen falta dos empleados que atiendan."
+        if "direction" in status.business.support:
+            return "Hoy ya has dirigido el turno."
+        if not status.agenda.fits(1):
+            return "No te quedan franjas hoy."
+        if status.battery <= BATTERY_MIN:
+            return "Estás tan reventado que te quedas dormido de pie. Descansa un poco."
+        return None
+
+    async def start_direct(
+        self, guild_id: int, user_id: int, *, biz: int | None = None
+    ) -> tuple[Business, direct.DirectGame, float]:
+        """Empieza a dirigir el turno: gasta una franja y batería, como abrir. No mueve dinero.
+
+        Devuelve el negocio, el juego y la batería de antes.
+
+        Raises:
+            BusinessError: Sin negocio o si algo lo impide (`direct_blocker`).
+        """
+        async with self._lock(guild_id, user_id):
+            status = await self.status(guild_id, user_id, biz)
+            if status is None:
+                raise BusinessError("No tienes negocio. Móntalo desde `pala`.")
+            if (blocker := self.direct_blocker(status)) is not None:
+                raise BusinessError(blocker)
+            business = status.business
+            business.turns_today += 1
+            # Queda apuntado ya, aunque el panel caduque a medias: una vez al día.
+            business.support["direction"] = 0.0
+            await self.repository.save(guild_id, business)
+            before = await self.work.spend_battery(guild_id, user_id, SHIFT_COST)
+            game = direct.direct_game(self.hands(business), self.rng, now=status.now)
+            return business, game, before
+
+    async def finish_direct(
+        self, guild_id: int, user_id: int, biz: int, game: direct.DirectGame
+    ) -> float:
+        """Cierra el turno dirigido y apunta la mano del dueño para lo que queda de día.
+
+        Devuelve lo que bajan hoy los fallos de la plantilla, en tanto por uno.
+        """
+        async with self._lock(guild_id, user_id):
+            game.finish(self._clock())
+            lead = direct.direction_lead(game.score())
+
+            def write(connection: sqlite3.Connection) -> None:
+                business = self.repository.business_in(connection, guild_id, user_id, biz)
+                if business is not None:
+                    business.support["direction"] = lead
+                    self.repository.save_in(connection, guild_id, business)
+
+            await self.repository.read(write)
+            return staff.LEAD_MISS * lead
+
+    @staticmethod
+    def council_blocker(chain_: list[Business]) -> str | None:
+        """Lo que impide celebrar el Consejo de la semana, o `None`."""
+        if not chain_:
+            return "No tienes negocio."
+        if len(chain_) < 2 and all(b.form != "sl" for b in chain_):
+            return "El Consejo es para quien tiene una sociedad o varios locales."
+        if any(b.council.get("week") == b.week for b in chain_):
+            return "El Consejo de esta semana ya se ha celebrado."
+        return None
+
+    async def start_council(self, guild_id: int, user_id: int) -> DeskGame:
+        """Empieza el Consejo de la semana. No gasta franja ni batería ni mueve dinero.
+
+        Raises:
+            BusinessError: Si algo lo impide (`council_blocker`).
+        """
+        async with self._lock(guild_id, user_id):
+            owned = await self.owned(guild_id, user_id)
+            if (blocker := self.council_blocker(owned)) is not None:
+                raise BusinessError(blocker)
+            await self._save_council(guild_id, user_id, 50)
+            return direct.council_game(self.rng, now=self._clock())
+
+    async def finish_council(self, guild_id: int, user_id: int, game: DeskGame) -> float:
+        """Cierra el Consejo y apunta su nota en todos los locales. Devuelve lo que mueve los
+        clientes esta semana, en tanto por uno (de −`COUNCIL_BOOST` a +`COUNCIL_BOOST`)."""
+        async with self._lock(guild_id, user_id):
+            game.finish(self._clock())
+            score = game.score()
+            await self._save_council(guild_id, user_id, score)
+            return round(COUNCIL_BOOST * (score - 50) / 50, 4)
+
+    async def _save_council(self, guild_id: int, user_id: int, score: int) -> None:
+        today, week = self._today(self._clock())
+
+        def write(connection: sqlite3.Connection) -> None:
+            for business in self.repository.owned_in(connection, guild_id, user_id):
+                business.roll_over(today, week)
+                business.council = {"week": business.week, "score": score}
+                self.repository.save_in(connection, guild_id, business)
+
+        await self.repository.read(write)
+
     def plan(self) -> TurnPlan:
         """Sortea el azar del próximo turno (lo gasta `start_turn`)."""
         return TurnPlan(self.rng.random(), self.rng.randrange(2**31))
@@ -2365,7 +2486,10 @@ class BusinessService:
             if (blocker := status.blocker) is not None:
                 raise BusinessError(blocker)
             business, now = status.business, status.now
-            clients = self._queue(status, plan or self.plan())
+            plan = plan or self.plan()
+            clients = self._queue(status, plan)
+            # Solo en los turnos del dueño: la plantilla no los ve.
+            mark_special(clients, plan.seed)
             if not clients:
                 raise BusinessError("No tienes nada que vender: pasa por el 📦 almacén.")
             today = local_day(now)

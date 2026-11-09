@@ -247,6 +247,20 @@ from bot.services.work import (
     Mechanic,
 )
 from bot.services.work_catalog import JOBS as WORK_JOBS
+from bot.services.work_games import (
+    DEAL_PROBE,
+    DEAL_START,
+    DESK_START,
+    ORDAGO_LOST,
+    ORDAGO_MIN,
+    ORDAGO_PASS,
+    ORDAGO_WON,
+    AuditGame,
+    DealGame,
+    DeskGame,
+    MiniGame,
+    PlanGame,
+)
 from bot.services.work_tools import TOOLS as WORK_TOOLS
 
 if TYPE_CHECKING:
@@ -12493,6 +12507,172 @@ def _build_catalog() -> tuple[Achievement, ...]:
          "Haz perfectas todas las rondas de memoria en 50 turnos.", R),
     ])  # fmt: skip
 
+    # Los minijuegos que rotan de P5 en adelante: Cuadrante y Negociación.
+    a += _tiers("work", "work_plan_shifts", [
+        (1, "plan_1", "Encaje de bolillos", "Juega un turno de Cuadrante.", C),
+        (50, "plan_50", "La cuadratura del círculo", "Juega 50 turnos de Cuadrante.", E),
+        (200, "plan_200", "Tetris con corbata", "Juega 200 turnos de Cuadrante.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_full", [
+        (1, "plan_full_1", "Todo cuadra", "Encaja todas las piezas de un Cuadrante.", C),
+        (25, "plan_full_25", "Sin calzador", "Encaja todas las piezas en 25 Cuadrantes.", R),
+        (100, "plan_full_100", "Overbooking cero",
+         "Encaja todas las piezas en 100 Cuadrantes.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_pieces", [
+        (100, "plan_pieces_100", "Mover ficha", "Encaja 100 piezas en Cuadrantes.", R),
+        (1_000, "plan_pieces_1000", "El puzle de mil piezas",
+         "Encaja 1.000 piezas en Cuadrantes.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_fast", [
+        (1, "plan_fast", "Visto y encajado",
+         "Encaja todas las piezas de un Cuadrante con más de la mitad del tiempo.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_undo", [
+        (1, "plan_undo_1", "Regreso al paso anterior", "Deshaz una jugada en un Cuadrante.", C),
+        (25, "plan_undo_25", "Rebobina, por favor", "Deshaz 25 jugadas en Cuadrantes.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_last_out", [
+        (1, "plan_last_out", "Morir en la orilla",
+         "Deja fuera solo la última pieza de un Cuadrante.", C),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_out3", [
+        (1, "plan_out3", "Lista de espera",
+         "Deja 3 piezas o más fuera en un mismo Cuadrante.", C, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_plan_none", [
+        (1, "plan_none", "Agenda en blanco",
+         "Deja fuera todas las piezas de un Cuadrante.", C, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_shifts", [
+        (1, "deal_1", "Siéntese, por favor", "Juega un turno de Negociación.", C),
+        (50, "deal_50", "Hablando se entiende la gente", "Juega 50 turnos de Negociación.", E),
+        (200, "deal_200", "Negociado de negociaciones",
+         "Juega 200 turnos de Negociación.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_best", [
+        (1, "deal_best_1", "Ni para ti ni para mí: para mí",
+         "Cierra un trato justo en el límite del otro.", C),
+        (50, "deal_best_50", "El precio justo", "Cierra 50 tratos justo en el límite.", R),
+        (250, "deal_best_250", "Quien regatea, gana", "Cierra 250 tratos justo en el límite.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_clean", [
+        (1, "deal_clean_1", "Hat-trick de despacho",
+         "Cierra en su límite todos los tratos de un turno.", R),
+        (25, "deal_clean_25", "A la tercera va la firma",
+         "Cierra en su límite todos los tratos en 25 turnos.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_hundred", [
+        (1, "deal_100_1", "Pide por esa boquita",
+         "Cierra un trato al 100 % de lo que pedías.", C),
+        (25, "deal_100_25", "Una oferta que no pudieron rechazar",
+         "Cierra 25 tratos al 100 % de lo que pedías.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_probes", [
+        (1, "deal_probe_1", "Tantear el terreno", "Tantea en una Negociación.", C),
+        (50, "deal_probe_50", "Catador de paciencias", "Tantea 50 veces.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_poker_blind", [
+        (1, "deal_poker_1", "P-p-p-poker face",
+         "Sácale el máximo a un cara de póker sin tantear.", R),
+        (15, "deal_poker_15", "Vidente con traje",
+         "Sácale el máximo a un cara de póker sin tantear 15 veces.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_walked", [
+        (1, "deal_walk_1", "Portazo", "Aprieta hasta que se levanten de la mesa.", C),
+        (25, "deal_walk_25", "Diplomacia de portazo",
+         "Haz que se levanten de la mesa 25 veces.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_all_walked", [
+        (1, "deal_all_walked", "Mesa para uno",
+         "Haz que se levanten de la mesa en todos los tratos de un turno.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_deal_timid", [
+        (1, "deal_timid", "Lo que usted diga",
+         "Cierra todos los tratos de un turno sin apretar ni una vez.", C, True),
+    ])  # fmt: skip
+
+    # Auditoría, Despacho y el órdago final.
+    a += _tiers("work", "work_audit_shifts", [
+        (1, "audit_1", "Cuadrar el balance a martillazos", "Juega un turno de Auditoría.", C),
+        (50, "audit_50", "El algodón no engaña", "Juega 50 turnos de Auditoría.", E),
+        (200, "audit_200", "Sherlock de la partida doble", "Juega 200 turnos de Auditoría.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_audit_clean", [
+        (1, "audit_clean_1", "Limpio de polvo y paja",
+         "Acaba un tablero de Auditoría sin abrir ninguna mala.", C),
+        (25, "audit_clean_25", "Donde pongo el ojo, pongo el sello",
+         "Acaba 25 tableros de Auditoría sin abrir ninguna mala.", R),
+        (100, "audit_clean_100", "Buscaminas sin minas",
+         "Acaba 100 tableros de Auditoría sin abrir ninguna mala.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_audit_fast", [
+        (1, "audit_fast", "Visto para sentencia",
+         "Acaba una Auditoría limpia con más de la mitad del tiempo.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_audit_blown", [
+        (1, "audit_blown_1", "Pisar el charco", "Abre una casilla mala en una Auditoría.", C),
+        (25, "audit_blown_25", "Campo de minas",
+         "Abre 25 casillas malas en Auditorías.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_audit_all_blown", [
+        (1, "audit_all_blown", "No dejé una sana",
+         "Abre todas las casillas malas de una Auditoría.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_shifts", [
+        (1, "desk_1", "Despacho oval", "Juega un turno de Despacho.", C),
+        (50, "desk_50", "Asuntos propios", "Juega 50 turnos de Despacho.", E),
+        (200, "desk_200", "Inquilino del despacho", "Juega 200 turnos de Despacho.", L),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_full", [
+        (1, "desk_full_1", "Todo bajo control",
+         "Acaba un Despacho con las cuatro barras por encima de como empezaron.", C),
+        (25, "desk_full_25", "Equilibrista",
+         "Acaba 25 Despachos con las cuatro barras por encima de como empezaron.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_calm", [
+        (1, "desk_calm_1", "Balsa de aceite",
+         "Acaba un Despacho sin que ninguna barra baje de 2 en todo el turno.", C),
+        (25, "desk_calm_25", "Mar en calma",
+         "Acaba 25 Despachos sin que ninguna barra baje de 2 en todo el turno.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_edge", [
+        (1, "desk_edge", "Funambulista",
+         "Acaba un Despacho sin crisis después de tener una barra en 1.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_later", [
+        (1, "desk_later_1", "Patada a seguir",
+         "Elige en un Despacho una opción que se paga más tarde.", C),
+        (50, "desk_later_50", "Ya lo pagará el siguiente",
+         "Elige 50 opciones que se pagan más tarde.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_crisis", [
+        (1, "desk_crisis_1", "Gabinete de crisis", "Deja una barra a cero en un Despacho.", C),
+        (25, "desk_crisis_25", "Cesado en diferido",
+         "Acaba 25 Despachos en crisis.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_desk_crisis_fast", [
+        (1, "desk_crisis_fast", "Mandato exprés",
+         "Entra en crisis en las tres primeras decisiones de un Despacho.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_ordago", [
+        (1, "ordago_1", "¡Órdago a la grande!", "Juégate el extra de tiempo a un órdago.", C),
+        (50, "ordago_50", "Ludópata del reloj", "Juégate 50 órdagos.", R),
+    ])  # fmt: skip
+    a += _tiers("work", "work_ordago_won", [
+        (1, "ordago_won_1", "Doble o nada: doble", "Gana un órdago.", C),
+        (25, "ordago_won_25", "Cara, siempre cara", "Gana 25 órdagos.", R),
+        (100, "ordago_won_100", "Tahúr del Misisipi", "Gana 100 órdagos.", E),
+    ])  # fmt: skip
+    a += _tiers("work", "work_ordago_lost", [
+        (1, "ordago_lost_1", "Nada por aquí, nada por allá", "Pierde un órdago.", C),
+        (25, "ordago_lost_25", "Cruz y raya", "Pierde 25 órdagos.", R, True),
+    ])  # fmt: skip
+    a += _tiers("work", "work_ordago_pass", [
+        (25, "ordago_pass_25", "Más vale pájaro en mano",
+         "Plántate 25 veces cuando te ofrecen el órdago.", R),
+    ])  # fmt: skip
+
     # 👷 Oficios ------------------------------------------------------------------------
     a += _tiers("jobs", "work_pipes", [
         (1, "tuberia", "Tubería rota", "Rompe algo cavando.", C),
@@ -22529,6 +22709,64 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ]  # fmt: skip
 
     # 🏪 Negocio ------------------------------------------------------------------------
+    # Clientes especiales, dirigir el turno y el Consejo de la semana.
+    a += _tiers("negocio", "biz_special", [
+        (1, "biz_special_1", "Trato preferente", "Atiende a un cliente especial.", C),
+        (25, "biz_special_25", "Don de gentes", "Atiende a 25 clientes especiales.", R),
+        (100, "biz_special_100", "Relaciones públicas", "Atiende a 100 clientes especiales.", E),
+    ])  # fmt: skip
+    a.append(Achievement(
+        id="biz_special_all", name="El cliente siempre tiene la razón",
+        description="Concédele lo que pide a cada tipo de cliente especial: al influencer, "
+        "al que regatea, al que tiene prisa y al que se queja.",
+        category="negocio", rarity=R,
+        conditions=tuple(
+            (f"biz_special_{key}", 1) for key in ("influencer", "regateo", "prisas", "queja")
+        ),
+    ))  # fmt: skip
+    a += _tiers("negocio", "biz_special_influencer", [
+        (10, "biz_influencer_10", "Canje y trueque",
+         "Hazle precio de amigo a 10 influencers.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_dare_won", [
+        (1, "biz_dare_1", "Siga a esa propina",
+         "Atiende rápido al cliente con prisa después de aceptar su reto.", C),
+        (25, "biz_dare_25", "Speedrun con propina",
+         "Gana 25 retos del cliente con prisa.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_special_sour", [
+        (1, "biz_sour_1", "Una estrella en camino",
+         "Deja que un cliente especial se vaya molesto.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_direct", [
+        (1, "biz_direct_1", "Jefe por un día", "Dirige un turno de tu plantilla.", C),
+        (25, "biz_direct_25", "Director de orquesta", "Dirige 25 turnos.", R),
+        (100, "biz_direct_100", "Batuta de oro", "Dirige 100 turnos.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_direct_perfect", [
+        (1, "biz_direct_perfect_1", "Cada oveja con su pareja",
+         "Saca un 100 dirigiendo un turno.", R),
+        (25, "biz_direct_perfect_25", "Cazatalentos de barrio",
+         "Saca un 100 dirigiendo 25 turnos.", E),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_direct_low", [
+        (1, "biz_direct_low", "El principio de Peter",
+         "Saca menos de 50 dirigiendo un turno.", C, True),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_council", [
+        (1, "biz_council_1", "Orden del día", "Celebra un Consejo de la semana.", C),
+        (4, "biz_council_4", "Consejo de sabios", "Celebra 4 Consejos.", R),
+        (12, "biz_council_12", "Silla de presidente", "Celebra 12 Consejos.", E),
+        (26, "biz_council_26", "Consejero vitalicio", "Celebra 26 Consejos.", L),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_council_top", [
+        (1, "biz_council_top", "Aprobado por unanimidad",
+         "Saca 90 o más en un Consejo.", R),
+    ])  # fmt: skip
+    a += _tiers("negocio", "biz_council_crisis", [
+        (1, "biz_council_crisis", "Se levanta la sesión",
+         "Acaba un Consejo en crisis.", C, True),
+    ])  # fmt: skip
     a += _tiers("negocio", "biz_opened", [
         (1, "biz_opened_1", "Mi casa es tu local", "Abre tu primer negocio.", C),
     ])  # fmt: skip
@@ -30984,6 +31222,107 @@ def _work_game_stats(outcome: ShiftOutcome, add: dict[str, int]) -> None:
         and game.perfect_rounds == len(game.rounds)
     ):
         add["work_memory_flawless"] = 1
+    if isinstance(game, PlanGame):
+        _plan_stats(game, add)
+    elif isinstance(game, DealGame):
+        _deal_stats(game, add)
+    elif isinstance(game, AuditGame):
+        _audit_stats(game, add)
+    elif isinstance(game, DeskGame):
+        _desk_stats(game, add)
+    if game.ordago == ORDAGO_PASS and game.stake >= ORDAGO_MIN and game.completed:
+        add["work_ordago_pass"] = 1
+    elif game.ordago in (ORDAGO_WON, ORDAGO_LOST):
+        add["work_ordago"] = 1
+        add["work_ordago_won" if game.ordago == ORDAGO_WON else "work_ordago_lost"] = 1
+
+
+def _audit_stats(game: AuditGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Auditoría: tableros limpios y malas abiertas."""
+    add["work_audit_shifts"] = 1
+    if game.clean_boards:
+        add["work_audit_clean"] = game.clean_boards
+    if game.blown:
+        add["work_audit_blown"] = game.blown
+    if not game.completed:
+        return
+    if game.clean_boards == game.boards and game.time_left >= game.seconds / 2:
+        add["work_audit_fast"] = 1
+    if game.blown >= game.bad_count * game.boards:
+        add["work_audit_all_blown"] = 1
+
+
+def _desk_stats(game: DeskGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Despacho: crisis, equilibrio y lo que se deja a deber."""
+    add["work_desk_shifts"] = 1
+    if game.later_used:
+        add["work_desk_later"] = game.later_used
+    if game.crisis:
+        add["work_desk_crisis"] = 1
+        if game.turn <= DESK_FAST_CRISIS:
+            add["work_desk_crisis_fast"] = 1
+        return
+    if not game.completed:
+        return
+    if min(game.bars) > DESK_START:
+        add["work_desk_full"] = 1
+    if game.low == 1:
+        add["work_desk_edge"] = 1
+    if game.calm == len(game.cards):
+        add["work_desk_calm"] = 1
+
+
+#: Una crisis de Despacho en estas decisiones o antes tiene logro propio.
+DESK_FAST_CRISIS = 3
+
+
+def _plan_stats(game: PlanGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Cuadrante: piezas encajadas, las que se quedan fuera y deshacer."""
+    add["work_plan_shifts"] = 1
+    out = sum(1 for lane in game.placed if lane is None)
+    if game.correct:
+        add["work_plan_pieces"] = game.correct
+    if game.undone:
+        add["work_plan_undo"] = game.undone
+    if not game.completed:
+        return
+    if out == 0:
+        add["work_plan_full"] = 1
+        if game.time_left >= game.seconds / 2:
+            add["work_plan_fast"] = 1
+    elif out == len(game.pieces):
+        add["work_plan_none"] = 1
+    elif out == 1 and game.placed[-1] is None:
+        add["work_plan_last_out"] = 1
+    if out >= 3:
+        add["work_plan_out3"] = 1
+
+
+def _deal_stats(game: DealGame, add: dict[str, int]) -> None:
+    """Lo de un turno de Negociación: tratos al límite, portazos, tanteos y timidez."""
+    add["work_deal_shifts"] = 1
+    if game.probes:
+        add["work_deal_probes"] = game.probes
+    if game.walked:
+        add["work_deal_walked"] = game.walked
+    closed = list(zip(game.deals, game.got, game.peeked, strict=False))
+    limit = [deal for deal, got, _peek in closed if deal.best - got <= DEAL_PROBE]
+    if limit:
+        add["work_deal_best"] = len(limit)
+    if hundred := sum(1 for _deal, got, _peek in closed if got >= 100):
+        add["work_deal_hundred"] = hundred
+    if blind := sum(
+        1 for deal, got, peek in closed if deal.kind == "poker" and got == deal.best and not peek
+    ):
+        add["work_deal_poker_blind"] = blind
+    if not game.completed:
+        return
+    if game.walked == len(game.deals):
+        add["work_deal_all_walked"] = 1
+    if len(limit) == len(game.deals):
+        add["work_deal_clean"] = 1
+    if all(got <= DEAL_START for got in game.got) and not game.walked:
+        add["work_deal_timid"] = 1
 
 
 #: Contenidos de memoria: cuentan las rondas perfectas, no los aciertos sueltos.
@@ -31064,6 +31403,18 @@ def business_stats(result: TurnResult, *, tired: bool = False) -> StatDelta:
         "biz_reviews": len(result.reviews),
         "biz_reviews_5": sum(1 for _, stars, _ in result.reviews if stars == 5),
         "biz_reviews_1": sum(1 for _, stars, _ in result.reviews if stars == 1),
+        # Clientes especiales (`business_games.SPECIALS`).
+        "biz_special": sum(1 for o in outcomes if o.special),
+        "biz_special_granted": sum(1 for o in outcomes if o.granted and o.result == "ok"),
+        "biz_special_sour": sum(1 for o in outcomes if "special_bad" in o.events),
+        "biz_dare_won": sum(
+            1 for o in outcomes if o.special == "prisas" and o.granted and o.speed == "fast"
+        ),
+        **{
+            f"biz_special_{o.special}": 1
+            for o in outcomes
+            if o.special and o.granted and o.result == "ok"
+        },
     }
     return StatDelta(
         add={stat: value for stat, value in add.items() if value},
@@ -31078,6 +31429,25 @@ def business_stats(result: TurnResult, *, tired: bool = False) -> StatDelta:
             "balance_max": result.balance,
         },
     )
+
+
+def mesa_stats(kind: str, game: MiniGame) -> StatDelta:
+    """Estadísticas de dirigir un turno (`kind == "dirigir"`) o del Consejo de la semana
+    (`bot.services.business_direct`)."""
+    score = game.score()
+    if kind == "dirigir":
+        add = {
+            "biz_direct": 1,
+            "biz_direct_perfect": int(score >= 100),
+            "biz_direct_low": int(score < 50),
+        }
+    else:
+        add = {
+            "biz_council": 1,
+            "biz_council_top": int(score >= 90),
+            "biz_council_crisis": int(bool(getattr(game, "crisis", False))),
+        }
+    return StatDelta(add=_nonzero(add))
 
 
 def _nonzero(add: Mapping[str, int]) -> dict[str, int]:

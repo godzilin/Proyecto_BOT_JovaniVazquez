@@ -839,3 +839,75 @@ def test_la_oferta_del_b_dice_el_riesgo_de_dia_y_el_de_noche() -> None:
     night = black_offer_text(2)
     assert "2.ª franja de noche" in night and "40 % de que te pille la Inspección" in night
     assert "turno doble" in night
+
+
+@pytest.mark.parametrize(
+    ("day", "level", "branch", "mechanic", "shown", "result"),
+    [
+        (1, 5, "", Mechanic.DEAL, "Trato 1/3", "Tratos:"),
+        (1, 6, "moncloa", Mechanic.PLAN, "Ahora (1/", "piezas encajadas"),
+        (2, 9, "moncloa", Mechanic.DESK, "Decisión 1/8", "/6"),
+    ],
+)
+async def test_el_dia_de_rotacion_se_juega_el_otro_minijuego_con_botones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    day: int,
+    level: int,
+    branch: str,
+    mechanic: Mechanic,
+    shown: str,
+    result: str,
+) -> None:
+    monkeypatch.setattr(pala, "rotation_day", lambda now: day)
+    cog, panel, _send = await politics_panel(tmp_path)
+    await set_career(cog, level, branch)
+    await panel.refresh(make_interaction())
+    assert work_cog.MECHANIC_NAMES[mechanic] in texts(panel)
+    await panel._clock_in(make_interaction())
+    assert panel.shift is not None
+    game = panel.shift.game
+    assert game.mechanic is mechanic and shown in texts(panel)
+    check_limits(panel)
+    while panel.shift is not None:
+        await panel.game_click(make_interaction(), game.index, game.best())
+        if panel.shift is not None:
+            check_limits(panel)
+    # En el Despacho no hay jugada perfecta; en los demás, jugar lo mejor es un 100.
+    assert result in texts(panel)
+    assert mechanic is Mechanic.DESK or "100/100" in texts(panel)
+    check_limits(panel)
+    # Las tareas del puesto cuentan en su contador de siempre aunque hoy rote.
+    contract = await cog.service.repository.contract(GUILD, OWNER)
+    usual = JOB_BY_KEY["politica"].position(level, branch).mechanic
+    stat = {Mechanic.DIALOGUE: "smooth", Mechanic.SORT: "sorted"}[usual]
+    assert contract is not None and contract.progress[stat] == game.correct
+    await asyncio.sleep(0)
+
+
+async def test_la_auditoria_se_juega_desde_el_panel_con_su_rejilla_de_botones(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pala, "rotation_day", lambda now: 2)
+    cog = await make_cog(tmp_path)
+    panel, _ = await open_panel(cog)
+    assert panel is not None
+    await panel._hire(make_interaction(), "obra")
+    contract = await cog.service.repository.contract(GUILD, OWNER)
+    assert contract is not None
+    contract.level = 5
+    await cog.service.repository.save_contract(GUILD, OWNER, contract)
+    await panel.refresh(make_interaction())
+    await panel._clock_in(make_interaction())
+    assert panel.shift is not None
+    game = panel.shift.game
+    assert game.mechanic is Mechanic.AUDIT
+    grid = [b for b in buttons(panel) if parse_game_id(b.custom_id or "") is not None]
+    assert len(grid) == 20
+    check_limits(panel)
+    while panel.shift is not None:
+        await panel.game_click(make_interaction(), game.index, game.best())
+        if panel.shift is not None:
+            check_limits(panel)
+    assert "100/100" in texts(panel) and "tableros limpios" in texts(panel)
+    await asyncio.sleep(0)

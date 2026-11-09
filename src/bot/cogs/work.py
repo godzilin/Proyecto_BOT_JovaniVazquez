@@ -180,7 +180,18 @@ from bot.services.work_catalog import (
     NIGHT_CAUGHT_TEXT,
     Event,
 )
-from bot.services.work_games import GRACE_SECONDS
+from bot.services.work_games import (
+    AUDIT_HIT,
+    DEAL_BREAK,
+    DESK_MAX,
+    GRACE_SECONDS,
+    ORDAGO_LOST,
+    ORDAGO_WON,
+    AuditGame,
+    DealGame,
+    DeskGame,
+    PlanGame,
+)
 from bot.services.work_tools import TOOL_KEYS
 from bot.utils.channels import wrong_channel
 from bot.utils.cogs import find_cog
@@ -207,6 +218,10 @@ MECHANIC_NAMES = {
     Mechanic.DIALOGUE: "diálogo",
     Mechanic.SORT: "clasificar",
     Mechanic.CALC: "calcular",
+    Mechanic.PLAN: "cuadrante",
+    Mechanic.DEAL: "negociación",
+    Mechanic.AUDIT: "auditoría",
+    Mechanic.DESK: "despacho",
 }
 #: Cómo se ve el tiempo en el panel del reparto.
 WEATHER_TEXT = {
@@ -233,6 +248,17 @@ HOW_TO = {
     Mechanic.DIALOGUE: "Lee la situación y elige la mejor respuesta.",
     Mechanic.SORT: "Lee el papel y mándalo a su sitio con el botón que toque.",
     Mechanic.CALC: "Haz la cuenta y elige la mejor oferta. La buena gana por goleada.",
+    Mechanic.PLAN: "Manda cada pieza a un sitio donde quepa. Ves la cola entera y todo "
+    "encaja si lo piensas: lo que se queda fuera resta. Con un fallo gratis puedes deshacer.",
+    Mechanic.DEAL: "Aprieta para sacar más y cierra antes de que se levante: si se va, te "
+    f"quedas con el {DEAL_BREAK} %. Fíjate en lo que hace y en su carácter. Tantear dice "
+    "cuánto aguanta.",
+    Mechanic.AUDIT: "Abre todas las casillas buenas sin tocar las malas. Cada casilla "
+    "abierta dice cuántas malas tiene al lado. La primera nunca falla; abrir una mala "
+    f"resta {AUDIT_HIT}.",
+    Mechanic.DESK: "Cada opción sube una barra y baja otra. Tu nota es cómo queda el "
+    "despacho al final: la suma de las barras, con la más baja contando triple. Si una "
+    "llega a cero, crisis: se acaba el turno.",
 }
 #: Pasillo de la tienda con los regalos para la familia (botón 🎁 del panel).
 GIFT_AISLE = "familia"
@@ -898,6 +924,30 @@ def outcome_text(outcome: ShiftOutcome) -> str:
         detail += f" · 💥 {game.broken} roturas"
     if game.mechanic is Mechanic.MEMORY:
         detail = f"{game.perfect_rounds} rondas perfectas"
+    if isinstance(game, PlanGame):
+        detail = f"{game.correct} de {len(game.pieces)} piezas encajadas"
+    if isinstance(game, DealGame):
+        detail = "Tratos: " + " · ".join(
+            f"{got} % de {deal.best} %" for got, deal in zip(game.got, game.deals, strict=False)
+        )
+        if game.walked:
+            detail += f" · 🚪 {game.walked} se levantaron"
+    if isinstance(game, AuditGame):
+        detail = f"{game.clean_boards} de {game.boards} tableros limpios"
+        if game.blown:
+            detail += f" · {game.blown} malas abiertas"
+    if isinstance(game, DeskGame):
+        assert game.pack is not None
+        detail = " · ".join(
+            f"{name} {value}/{DESK_MAX}"
+            for name, value in zip(game.pack.bars, game.bars, strict=True)
+        )
+        if game.crisis:
+            detail += f" · 🚨 crisis en la decisión {game.turn}"
+    if game.ordago == ORDAGO_WON:
+        detail += " · 🎲 órdago ganado: extra doble"
+    elif game.ordago == ORDAGO_LOST:
+        detail += " · 🎲 órdago perdido: sin extra"
     lines.append(f"-# {detail}")
     if outcome.weather == "lluvia":
         lines.append(f"🌧️ Con lluvia, el turno paga ×{str(RAIN_PAY).replace('.', ',')}.")
@@ -1449,7 +1499,8 @@ class PalaPanel(ui.LayoutView):
             todo = ["❔"] * (len(current.answer) - game.step)
             body += f"\nLlevas: {' → '.join(done + todo)} ({game.step}/{len(current.answer)})"
         indices = list(range(len(current.options)))
-        if shift.tremors:
+        # En la Auditoría el sitio de cada casilla es el juego: ahí no bailan.
+        if shift.tremors and game.mechanic is not Mechanic.AUDIT:
             self.service.rng.shuffle(indices)
         row = ui.ActionRow()
         for i in indices:

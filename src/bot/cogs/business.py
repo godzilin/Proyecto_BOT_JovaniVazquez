@@ -85,6 +85,7 @@ from bot.services.achievements import (
     StatDelta,
     business_loan_night_stats,
     business_stats,
+    mesa_stats,
     staff_course_stats,
     staff_fire_stats,
     staff_hire_stats,
@@ -121,7 +122,8 @@ from bot.services.business_catalog import (
     equipment_for,
 )
 from bot.services.business_chain import Nave, SaleOffer
-from bot.services.business_games import COINS, QUOTES, TurnGame
+from bot.services.business_direct import DirectGame
+from bot.services.business_games import COINS, QUOTES, SPECIAL_BY_KEY, TurnGame
 from bot.services.business_scene import BusinessScene
 from bot.services.business_view import (
     CONTRACT_NAMES,
@@ -171,6 +173,7 @@ from bot.services.pets import Moment, Mood
 from bot.services.taxes import TAX_COLLECTOR, igic
 from bot.services.telemetry import LISTENER_ITEM, TimedLock
 from bot.services.work import week_of
+from bot.services.work_games import DeskGame, MiniGame
 from bot.utils.cogs import find_cog
 from bot.utils.interactions import ack, claim_custom_ids, edit, notify
 
@@ -203,6 +206,14 @@ PRODUCT_EMOJI: dict[str, str] = {
     "correa": "⛓️", "bujias": "⚡", "neumatico": "🛞",
 }  # fmt: skip
 #: Cómo se juega cada minijuego, en una línea.
+#: Cómo se juegan Dirigir y el Consejo, en una línea.
+MESA_HOW_TO = {
+    "dirigir": "Da cada tarea a quien tenga más alta la habilidad que pide. Lo que queda de "
+    "día, tu plantilla falla menos cuanto mejor repartas.",
+    "consejo": "Cada opción sube una barra y baja otra. Cómo quede el consejo mueve los "
+    "clientes de tus locales esta semana, hasta un 5 % arriba o abajo. Si una barra llega a "
+    "cero, crisis.",
+}
 HOW_TO = {
     "comandas": "Pulsa lo que pide la mesa y luego ✅ Servir. Rápido deja propina.",
     "caja": "Da el cambio con las monedas y pulsa ✅ Cobrar. Si alguien esconde algo, 👀.",
@@ -230,6 +241,8 @@ DESPIDO = "despido"
 CADENA = "cadena"
 NAVE = "nave"
 VENTA = "venta"
+#: Dirigir el turno y el Consejo: un juego de botones sin imagen (`business_direct`).
+MESA = "mesa"
 #: Los contratos que se ofrecen: `(clave, nombre, descripción)`. Desde la 9.41.0 el gerente
 #: es un puesto (`business_staff.ROLES`), no un contrato.
 CONTRACTS: tuple[tuple[str, str, str], ...] = (
@@ -402,6 +415,8 @@ class NegocioPanel(ui.LayoutView):
         }  # fmt: skip
         self.turn: Turn | None = None
         self.result: TurnResult | None = None
+        #: 🧭 Dirigir o 🏛️ Consejo en marcha: cuál (`dirigir` o `consejo`) y su juego.
+        self.mesa: tuple[str, MiniGame] | None = None
         #: El azar del próximo turno, para pintar su primer cliente antes de 🔑 Abrir.
         self.plan: TurnPlan | None = None
         #: Lo elegido en 🛠️ Mejoras: la mejora y la campaña.
@@ -699,6 +714,8 @@ class NegocioPanel(ui.LayoutView):
                     )
                 )
                 lines.append("\n**¿Lo montas?** La fianza vuelve al cerrar; lo demás, no.")
+        elif self.screen == MESA and self.mesa is not None:
+            lines.extend(self._mesa_text())
         elif status is not None and self.screen == CADENA:
             lines.extend(self._cadena_lines())
         elif status is not None and self.screen == NAVE:
@@ -1131,6 +1148,10 @@ class NegocioPanel(ui.LayoutView):
         if client is None:
             return lines
         who = f"**{client.regular}** (habitual)" if client.regular else "Un cliente"
+        if (special := SPECIAL_BY_KEY.get(client.special)) is not None:
+            lines.append(f"{special.emoji} **Cliente especial.** {special.ask}")
+            if game.granted is None:
+                lines.append(f"-# Si se lo concedes, {special.told} Decide antes de cobrarle.")
         if game.sector.game == "comandas":
             if client.usual:
                 lines.append(f"{who}: «Lo de siempre». Tienes que acordarte.")
@@ -1171,6 +1192,19 @@ class NegocioPanel(ui.LayoutView):
             f"⏳ Se va <t:{int(game.client_deadline) + 1}:R> · caja del turno {signed(cash)} · "
             f"cierras <t:{int(game.deadline) + 1}:R>"
         )
+        return lines
+
+    def _mesa_text(self) -> list[str]:
+        """Dirigir o el Consejo: cómo se juega, lo último que ha pasado y la jugada de ahora."""
+        assert self.mesa is not None
+        kind, game = self.mesa
+        title = "## 🧭 Dirigir el turno" if kind == "dirigir" else "## 🏛️ Consejo de la semana"
+        lines = [title, f"-# 🎮 {MESA_HOW_TO[kind]}", game.header]
+        if game.last:
+            lines.append(f"**{game.last}**")
+        if (current := game.current) is not None:
+            lines.append(current.prompt)
+            lines.append(f"⏱️ Se acaba <t:{int(game.deadline) + 1}:R>")
         return lines
 
     def _result_text(self) -> list[str]:
@@ -1322,6 +1356,8 @@ class NegocioPanel(ui.LayoutView):
             return [confirm]
         if self.screen == TURNO:
             return self._game_rows()
+        if self.screen == MESA:
+            return self._mesa_rows()
         if self.status is None:
             return [ui.ActionRow(home)]
         business = self.status.business
@@ -1489,7 +1525,30 @@ class NegocioPanel(ui.LayoutView):
         price_row = ui.ActionRow(self._select("🏷️ Precios", prices, "precio", self._set_price))
         team = self._button("👥 Plantilla", self._plantilla, "plantilla", style=blue)
         chain_ = self._button("🗺️ Cadena", self._cadena, "cadena", style=blue)
-        return [main, more, price_row, ui.ActionRow(team, chain_, home)]
+        last = ui.ActionRow(team, chain_)
+        # Solo salen si alguna vez se pueden usar: con plantilla que dirigir o con una
+        # sociedad o varios locales que llevar al Consejo.
+        if len(self.service.hands(business)) >= 2:
+            last.add_item(
+                self._button(
+                    "🧭 Dirigir · 1 franja",
+                    self._direct,
+                    "dirigir",
+                    style=green,
+                    disabled=self.service.direct_blocker(self.status) is not None,
+                )
+            )
+        if len(self.chain) > 1 or any(b.form == "sl" for b in self.chain):
+            last.add_item(
+                self._button(
+                    "🏛️ Consejo",
+                    self._council,
+                    "consejo",
+                    disabled=self.service.council_blocker(self.chain) is not None,
+                )
+            )
+        last.add_item(home)
+        return [main, more, price_row, last]
 
     def _fetch_row(self, business: Business) -> ui.ActionRow | None:
         """🏭 Traer lotes de la nave al almacén, si la nave es de su isla y tiene de eso."""
@@ -2160,6 +2219,29 @@ class NegocioPanel(ui.LayoutView):
             ),
         ]
 
+    def _mesa_rows(self) -> list[ui.ActionRow]:
+        """Los botones de la jugada de ahora de Dirigir o del Consejo."""
+        assert self.mesa is not None
+        game = self.mesa[1]
+        current = game.current
+        if current is None:
+            return []
+        rows: list[ui.ActionRow] = []
+        row = ui.ActionRow()
+        for index, label in enumerate(current.options):
+            if len(row.children) == 5:
+                rows.append(row)
+                row = ui.ActionRow()
+            button: ui.Button = ui.Button(
+                label=label[:80],
+                style=discord.ButtonStyle.secondary,
+                custom_id=game_id(self.token, game.index, f"m:{index}"),
+            )
+            setattr(button, LISTENER_ITEM, True)
+            row.add_item(button)
+        rows.append(row)
+        return rows
+
     def _game_rows(self) -> list[ui.ActionRow]:
         assert self.turn is not None
         game = self.turn.game
@@ -2177,6 +2259,15 @@ class NegocioPanel(ui.LayoutView):
             row.add_item(button)
 
         green = discord.ButtonStyle.success
+        special = SPECIAL_BY_KEY.get(client.special)
+        if special is not None and game.granted is None:
+            # Su fila propia, arriba: no descoloca los botones de siempre.
+            rows.append(
+                ui.ActionRow(
+                    self._game_button(special.take, "s:1", style=discord.ButtonStyle.primary),
+                    self._game_button(special.skip, "s:0"),
+                )
+            )
         if game.sector.game == "comandas":
             for product in game.sector.products:
                 left = game.available(product.key)
@@ -2301,6 +2392,8 @@ class NegocioPanel(ui.LayoutView):
         """Caduca: si había un turno a medias, se cierra y se cobra."""
         if self.turn is not None:
             await self._finish(None)
+        if self.mesa is not None:
+            await self._finish_mesa(None)
         self.cog.panels.discard(self)
         for item in self.walk_children():
             if isinstance(item, ui.Button | ui.Select):
@@ -3639,6 +3732,108 @@ class NegocioPanel(ui.LayoutView):
             self.cog.timers.add(self._timer)
             self._timer.add_done_callback(self.cog.timers.discard)
 
+    async def _open_mesa(self, interaction: discord.Interaction, kind: str) -> None:
+        """Empieza a Dirigir o el Consejo: contesta ya y luego toca la base de datos."""
+        await ack(interaction)
+        async with self._lock:
+            if self.turn is not None or self.mesa is not None:
+                return
+            key = (self.guild_id, self.owner.id)
+            from bot.cogs import work as curro  # la pala y el negocio no se juegan a la vez
+
+            if key in self.cog.working or curro.busy(self.cog.bot, *key):
+                await notify(interaction, "Ya estás currando en otro panel. Una cosa cada vez.")
+                return
+            try:
+                if kind == "dirigir":
+                    business, game, _before = await self.service.start_direct(
+                        self.guild_id, self.owner.id, biz=self.biz
+                    )
+                    self.biz = business.id
+                else:
+                    game = await self.service.start_council(self.guild_id, self.owner.id)
+            except BusinessError as error:
+                await notify(interaction, str(error))
+                return
+            self.cog.working.add(key)
+            self.mesa, self._finishing = (kind, game), False
+            self.screen = MESA
+            await self.show(interaction, reload=False)
+            self._timer = asyncio.create_task(self._mesa_deadline(game))
+            self.cog.timers.add(self._timer)
+            self._timer.add_done_callback(self.cog.timers.discard)
+
+    async def _direct(self, interaction: discord.Interaction) -> None:
+        await self._open_mesa(interaction, "dirigir")
+
+    async def _council(self, interaction: discord.Interaction) -> None:
+        await self._open_mesa(interaction, "consejo")
+
+    async def _mesa_deadline(self, game: MiniGame) -> None:
+        """Cierra Dirigir o el Consejo al acabarse el tiempo aunque nadie pulse nada."""
+        while (delay := game.deadline + GRACE_SECONDS - self.service.now()) > 0:
+            await asyncio.sleep(min(delay, 1.0))
+        if self.mesa is not None and self.mesa[1] is game:
+            await self._finish_mesa(None)
+
+    async def _mesa_click(
+        self, interaction: discord.Interaction, round_index: int, action: str
+    ) -> None:
+        """Un clic en Dirigir o en el Consejo: solo cambia memoria, contesta directamente."""
+        assert self.mesa is not None
+        game = self.mesa[1]
+        verb, _, arg = action.partition(":")
+        if self._finishing or round_index != game.index or verb != "m" or not arg.isdigit():
+            await ack(interaction)
+            return
+        now = self.service.now()
+        game.press(int(arg), now)
+        if game.finished(now):
+            await self._finish_mesa(interaction)
+            return
+        self.rebuild(has_image=bool(self._shown))
+        await self._edit(interaction, view=self)
+
+    async def _finish_mesa(self, interaction: discord.Interaction | None) -> None:
+        """Apunta lo que deja Dirigir o el Consejo y vuelve a la portada (una sola vez)."""
+        mesa = self.mesa
+        if self._finishing or mesa is None:
+            if interaction is not None:
+                await ack(interaction)
+            return
+        self._finishing = True
+        if interaction is not None:
+            await ack(interaction)
+        if self._timer is not None and asyncio.current_task() is not self._timer:
+            self._timer.cancel()
+        kind, game = mesa
+        try:
+            if isinstance(game, DirectGame):
+                assert self.biz is not None
+                saved = await self.service.finish_direct(
+                    self.guild_id, self.owner.id, self.biz, game
+                )
+                self.notes.append(
+                    f"🧭 **Turno dirigido: {game.score()}/100.** Lo que queda de día, tu plantilla "
+                    f"falla un {round(saved * 100)} % menos."
+                )
+            else:
+                assert isinstance(game, DeskGame)
+                moved = await self.service.finish_council(self.guild_id, self.owner.id, game)
+                crisis = " Ha acabado en crisis." if game.crisis else ""
+                self.notes.append(
+                    f"🏛️ **Consejo de la semana: {game.score()}/100.**{crisis} Esta semana tus "
+                    f"locales tienen un {abs(round(moved * 100, 1)):g} % "
+                    f"{'más' if moved >= 0 else 'menos'} de clientes."
+                )
+        finally:
+            self.cog.working.discard((self.guild_id, self.owner.id))
+            self.mesa = None
+        self.screen = PORTADA
+        async with self._render_lock:
+            await self.show(interaction)
+        await self._track(mesa_stats(kind, game))
+
     async def _patience(self, turn: Turn) -> None:
         """Despide a los clientes a los que se les acaba la paciencia aunque nadie pulse."""
         game = turn.game
@@ -3664,6 +3859,9 @@ class NegocioPanel(ui.LayoutView):
             await interaction.response.send_message(
                 f"Este negocio es de {self.owner.display_name}. El tuyo, en `pala`.", ephemeral=True
             )
+            return
+        if self.mesa is not None:
+            await self._mesa_click(interaction, round_index, action)
             return
         turn = self.turn
         if turn is None or self._finishing or round_index != turn.game.round:
@@ -3756,6 +3954,7 @@ def _advanced(game: TurnGame) -> TurnGame:
     ahead.step = "diagnostico"
     ahead.paid = game.clients[ahead.index].paid
     ahead.extra = 0
+    ahead.granted = None
     return ahead
 
 

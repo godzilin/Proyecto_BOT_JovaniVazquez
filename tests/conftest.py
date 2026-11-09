@@ -8,7 +8,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from bot.services import credit
+from bot.services import credit, pala
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +18,14 @@ def _ipc_a_cero() -> Iterator[None]:
     credit._IPC.clear()
     yield
     credit._IPC.clear()
+
+
+@pytest.fixture(autouse=True)
+def _sin_rotacion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """De P5 en adelante el minijuego de `pala` cambia según el día: en las pruebas toca
+    siempre el de siempre, para que no pasen o fallen según la fecha. La prueba que quiere
+    el otro pone `pala.rotation_day` a 1."""
+    monkeypatch.setattr(pala, "rotation_day", lambda now: 0)
 
 
 # --- Vigilancia del tiempo (Biblia, «Pruebas rápidas») ---------------------------------------

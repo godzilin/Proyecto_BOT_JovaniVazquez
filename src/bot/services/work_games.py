@@ -32,6 +32,29 @@ romper algo al cavar no reste y la chuleta que tacha una respuesta mala.
 - **Calcular**: varias ofertas con números y una cuenta (Y$ por kilómetro,
   me gusta por visita). Elegir la mejor suma; siempre gana por un margen claro
   (`CALC_MARGIN`), para que no dependa de redondeos.
+
+De P5 en adelante el minijuego del puesto alterna, un día cada uno, con otro que no es de
+acertar una respuesta sino de decidir con lo que hay en la mesa (`Position.alts`). Su
+contenido está en `bot.services.work_rotation`:
+
+- **Cuadrante** (`PlanGame`): unas piezas con su tamaño y unos carriles con sitio contado
+  (operaciones y quirófanos, palés y muelles). Se ve la cola entera y cada pieza se manda
+  a un carril donde quepa o se deja fuera. Siempre hay una forma de encajarlo todo; lo
+  que se queda fuera resta. El fallo gratis de las herramientas deshace una jugada.
+- **Negociación** (`DealGame`): varios tratos contra alguien con un aguante oculto. Cada
+  apretón sube lo que sacas; si aprietas cuando ya no aguanta, se levanta y te quedas con
+  el mínimo. Lo que hace (mira el reloj, recoge los papeles) dice cuánto le queda, según
+  su carácter: el de libro no engaña, el farolero exagera y el de cara de póker no enseña
+  nada. Tantear dice lo que aguanta, a cambio de un poco del trato (gratis con chuleta).
+- **Auditoría** (`AuditGame`): un buscaminas de 20 casillas. Abrir una buena dice cuántas
+  malas tiene al lado; hay que abrir todas las buenas sin tocar las malas, que restan.
+  La primera casilla nunca falla.
+- **Despacho** (`DeskGame`): cuatro barras del cargo y ocho decisiones. Cada opción sube
+  una barra y baja otra, alguna se paga más tarde y de vez en cuando una se desgasta
+  sola. La nota es cómo queda el despacho al final; si una barra llega a 0, crisis.
+
+**Órdago final** (todos los minijuegos): quien acaba con tiempo de sobra puede jugarse el
+extra de tiempo a doble o nada (`MiniGame.ordago`). Si no contesta, se planta.
 """
 
 from __future__ import annotations
@@ -88,6 +111,17 @@ from bot.services.work_catalog import (
     WORKER_NAMES,
     WORKING,
 )
+from bot.services.work_rotation import (
+    AUDIT_PACKS,
+    DEAL_PACKS,
+    DEAL_TELLS,
+    DESK_PACKS,
+    PLAN_PACKS,
+    AuditPack,
+    DealPack,
+    DeskPack,
+    PlanPack,
+)
 from bot.services.work_tools import NO_PERKS, Perks
 
 #: Puntos extra (sobre 100) por acabar antes de tiempo, proporcionales a lo que sobra.
@@ -98,6 +132,13 @@ MEMORIZE_SECONDS = 5.0
 GRACE_SECONDS = 1.5
 #: En calcular, la mejor oferta vale al menos esto más que la segunda.
 CALC_MARGIN = 1.25
+#: Extra de tiempo (en puntos) desde el que se ofrece el órdago final.
+ORDAGO_MIN = 3
+#: Estados del órdago (`MiniGame.ordago`): ofrecido, plantado, ganado y perdido.
+ORDAGO_OFFER = "oferta"
+ORDAGO_PASS = "plantado"
+ORDAGO_WON = "ganado"
+ORDAGO_LOST = "perdido"
 
 
 @dataclass(slots=True)
@@ -178,6 +219,12 @@ class MiniGame:
     frozen: float = 0.0
     #: En memoria: cuándo empezó a enseñarse la secuencia de la ronda en juego.
     shown_at: float = 0.0
+    #: Órdago final: `""` si no se ha ofrecido, o uno de los `ORDAGO_*`.
+    ordago: str = ""
+    #: Órdago final: cuándo se acabaron las rondas (de ahí sale el extra de tiempo).
+    done_at: float = 0.0
+    #: Órdago final: cómo sale la moneda, si se fuerza (pruebas); `None`, al azar.
+    coin: bool | None = None
 
     def __post_init__(self) -> None:
         self.showing = self.mechanic is Mechanic.MEMORY
@@ -196,8 +243,58 @@ class MiniGame:
 
     @property
     def current(self) -> Round | None:
-        """Ronda en juego, o `None` si ya no quedan."""
+        """Ronda en juego (al final, el órdago si se ofrece), o `None` si ya no quedan."""
+        if self.ordago == ORDAGO_OFFER:
+            return self._ordago_round()
         return self.rounds[self.index] if self.index < len(self.rounds) else None
+
+    @property
+    def stake(self) -> int:
+        """Puntos de extra de tiempo que hay en juego en el órdago."""
+        return round(TIME_BONUS * max(0.0, self.deadline - self.done_at) / self.seconds)
+
+    def _ordago_round(self) -> Round:
+        return Round(
+            f"🎲 **Órdago final.** Has acabado con tiempo de sobra: llevas **+{self.stake}** de "
+            f"extra. Puedes plantarte o jugártelo a cara o cruz: si sale bien, el doble; si "
+            f"no, lo pierdes.",
+            ["✋ Me planto", f"🎲 Órdago (+{2 * self.stake} o nada)"],
+            [0],
+        )
+
+    def _done(self, now: float) -> None:
+        """Se acabaron las rondas: cierra la partida u ofrece antes el órdago."""
+        self.done_at = min(now, self.deadline)
+        if not self.ordago and self.stake >= ORDAGO_MIN:
+            self.ordago = ORDAGO_OFFER
+        else:
+            self.finish(now)
+
+    def _press_ordago(self, option: int, now: float) -> bool:
+        """Contesta al órdago: 0 se planta y 1 se lo juega. La partida acaba aquí."""
+        if option not in (0, 1):
+            return False
+        self.index += 1
+        if option == 0:
+            self.ordago = ORDAGO_PASS
+            self.last = "✋ Te plantas con tu extra."
+        else:
+            won = self.coin if self.coin is not None else random.random() < 0.5
+            self.ordago = ORDAGO_WON if won else ORDAGO_LOST
+            self.last = (
+                "🎲 ¡Órdago ganado! Extra doble." if won else "🎲 Órdago perdido: sin extra."
+            )
+        self.finished_at = self.done_at
+        return self.ordago != ORDAGO_LOST
+
+    def _time_bonus(self) -> float:
+        """Extra por acabar antes de tiempo, con lo que haya pasado en el órdago."""
+        if self.current is not None or self.finished_at is None:
+            return 0.0
+        bonus = TIME_BONUS * max(0.0, self.deadline - self.finished_at) / self.seconds
+        if self.ordago == ORDAGO_WON:
+            return 2 * bonus
+        return 0.0 if self.ordago == ORDAGO_LOST else bonus
 
     @property
     def completed(self) -> bool:
@@ -217,6 +314,10 @@ class MiniGame:
 
     def finish(self, now: float) -> None:
         """Cierra la partida (por tiempo o por terminar)."""
+        if self.ordago == ORDAGO_OFFER:
+            # Se acabó el tiempo sin contestar al órdago: se planta con lo que tenía.
+            self.ordago = ORDAGO_PASS
+            self.finished_at = self.done_at
         if self.finished_at is None:
             self.finished_at = min(now, self.deadline)
 
@@ -238,9 +339,9 @@ class MiniGame:
     def _next_round(self, now: float) -> None:
         self.index += 1
         self.step = 0
-        self.showing = self.mechanic is Mechanic.MEMORY
-        if self.current is None:
-            self.finish(now)
+        self.showing = self.mechanic is Mechanic.MEMORY and self.index < len(self.rounds)
+        if self.index >= len(self.rounds):
+            self._done(now)
         elif self.showing:
             self._freeze(now)
 
@@ -273,6 +374,8 @@ class MiniGame:
         if now > self.deadline + GRACE_SECONDS:
             self.finish(now)
             return False
+        if self.ordago == ORDAGO_OFFER:
+            return self._press_ordago(option, now)
         if self.mechanic is Mechanic.MEMORY:
             return self._press_memory(current, option, now)
         if not 0 <= option < len(current.options):
@@ -333,11 +436,7 @@ class MiniGame:
     def score(self) -> int:
         """Puntuación final (0–100)."""
         base = 100 * max(0, self.points) / self.max_points
-        bonus = 0.0
-        if self.current is None and self.finished_at is not None:
-            left = max(0.0, self.deadline - self.finished_at)
-            bonus = TIME_BONUS * left / self.seconds
-        return max(0, min(100, round(base + bonus)))
+        return max(0, min(100, round(base + self._time_bonus())))
 
 
 # -- Generadores ------------------------------------------------------------------------
@@ -834,6 +933,895 @@ def _dialogue(
     return pack.rule, built
 
 
+# -- Rotación: Cuadrante ------------------------------------------------------------------
+
+#: Lo que cabe en cada carril de un Cuadrante.
+PLAN_CAPACITY = 6
+#: Formas de llenar un carril entero: de ellas salen las piezas, así que todo encaja.
+PLAN_SPLITS = ((4, 2), (3, 3), (4, 1, 1), (3, 2, 1), (2, 2, 2))
+#: Lo que resta, por unidad, una pieza que se queda fuera (además de no sumar).
+PLAN_SKIP_PENALTY = 1
+#: Piezas con condición (solo en un carril o vetada en uno) según el puesto.
+PLAN_RULES = {5: 1, 6: 1, 7: 2, 8: 2, 9: 3, 10: 3}
+
+
+@dataclass(slots=True)
+class Piece:
+    """Una pieza de un Cuadrante.
+
+    Attributes:
+        name: Cómo se enseña.
+        size: Lo que ocupa.
+        only: Único carril al que puede ir (`None` = cualquiera).
+        ban: Carril al que no puede ir (`None` = ninguno vetado).
+    """
+
+    name: str
+    size: int
+    only: int | None = None
+    ban: int | None = None
+
+    def allows(self, lane: int) -> bool:
+        """Si su condición le deja ir a ese carril."""
+        return lane != self.ban and self.only in (None, lane)
+
+
+@dataclass(slots=True)
+class PlanGame(MiniGame):
+    """Un Cuadrante: mandar cada pieza de la cola a un carril donde quepa.
+
+    `index` cuenta las jugadas (también deshacer): así un clic que salió con el tablero de
+    antes no cuenta, como en el resto de minijuegos. `rounds` va vacío.
+
+    Attributes:
+        pack: Contenido (nombres de carriles, unidad, botón de dejar fuera).
+        lanes: Índices de los carriles de `pack.lanes` que se usan.
+        capacity: Lo que cabe en cada carril.
+        pieces: La cola, en orden.
+        placed: Carril (posición en `lanes`) de cada pieza ya decidida; `None`, fuera.
+        undone: Veces que se ha deshecho una jugada.
+        solved: Lo que ya ha calculado `best` (la cola no cambia en toda la partida).
+    """
+
+    pack: PlanPack | None = None
+    lanes: tuple[int, ...] = ()
+    capacity: int = PLAN_CAPACITY
+    pieces: list[Piece] = field(default_factory=list)
+    placed: list[int | None] = field(default_factory=list)
+    undone: int = 0
+    solved: dict[tuple[int, tuple[int, ...]], int] = field(default_factory=dict, repr=False)
+
+    @property
+    def max_points(self) -> int:
+        """Lo que suman todas las piezas."""
+        return sum(piece.size for piece in self.pieces) or 1
+
+    def fill(self) -> list[int]:
+        """Lo ocupado en cada carril."""
+        fill = [0] * len(self.lanes)
+        for piece, lane in zip(self.pieces, self.placed, strict=False):
+            if lane is not None:
+                fill[lane] += piece.size
+        return fill
+
+    def _open(self) -> list[int]:
+        """Carriles donde cabe la pieza en juego."""
+        piece = self.pieces[len(self.placed)]
+        fill = self.fill()
+        return [
+            lane
+            for lane in range(len(self.lanes))
+            if piece.allows(lane) and fill[lane] + piece.size <= self.capacity
+        ]
+
+    def _lane(self, lane: int) -> str:
+        assert self.pack is not None
+        return self.pack.lanes[self.lanes[lane]]
+
+    def _size(self, piece: Piece) -> str:
+        """«4 h», «1 día»: el tamaño con su unidad, en singular si es una."""
+        assert self.pack is not None
+        unit = self.pack.unit
+        return f"{piece.size} {unit[:-1] if piece.size == 1 and unit.endswith('s') else unit}"
+
+    def _condition(self, piece: Piece) -> str:
+        if piece.only is not None:
+            return f" · 🔒 solo {self._lane(piece.only)}"
+        if piece.ban is not None:
+            return f" · 🚫 no en {self._lane(piece.ban)}"
+        return ""
+
+    @property
+    def can_undo(self) -> bool:
+        """Si queda un fallo gratis para deshacer la última jugada."""
+        return self.retries > 0 and bool(self.placed)
+
+    @property
+    def current(self) -> Round | None:
+        """El tablero y la pieza en juego, con un botón por carril donde cabe."""
+        if self.ordago == ORDAGO_OFFER:
+            return self._ordago_round()
+        if len(self.placed) >= len(self.pieces):
+            return None
+        assert self.pack is not None
+        unit = self.pack.unit
+        lines = [
+            f"`{self._lane(lane)}` {'▰' * used}{'▱' * (self.capacity - used)} "
+            f"{used}/{self.capacity} {unit}"
+            for lane, used in enumerate(self.fill())
+        ]
+        turn = len(self.placed)
+        piece = self.pieces[turn]
+        lines.append(
+            f"**Ahora ({turn + 1}/{len(self.pieces)}):** {piece.name} · "
+            f"**{self._size(piece)}**{self._condition(piece)}"
+        )
+        if queue := self.pieces[turn + 1 :]:
+            lines.append(
+                "**Después:** "
+                + " · ".join(f"{p.name} {self._size(p)}{self._condition(p)}" for p in queue)
+            )
+        options = [self._lane(lane) for lane in self._open()] + [self.pack.skip]
+        if self.can_undo:
+            options.append("↩️ Deshacer (🛟)")
+        return Round("\n".join(lines), options, [])
+
+    def press(self, option: int, now: float) -> bool:
+        """Manda la pieza en juego a un carril, la deja fuera o deshace la anterior."""
+        current = self.current
+        if current is None or self.finished_at is not None:
+            return False
+        if now > self.deadline + GRACE_SECONDS:
+            self.finish(now)
+            return False
+        if self.ordago == ORDAGO_OFFER:
+            return self._press_ordago(option, now)
+        if not 0 <= option < len(current.options):
+            return False
+        assert self.pack is not None
+        self.index += 1
+        open_lanes = self._open()
+        if option > len(open_lanes):
+            # Deshacer: gasta el fallo gratis y devuelve la última pieza a la cola.
+            self.retries -= 1
+            self.saved += 1
+            self.undone += 1
+            lane = self.placed.pop()
+            piece = self.pieces[len(self.placed)]
+            if lane is None:
+                self.points += piece.size * PLAN_SKIP_PENALTY
+                self.misses -= 1
+            else:
+                self.points -= piece.size
+                self.correct -= 1
+            self.presses -= 1
+            self.last = f"↩️ Deshecho: {piece.name} vuelve a la cola."
+            return False
+        piece = self.pieces[len(self.placed)]
+        hit = option < len(open_lanes)
+        if hit:
+            self.placed.append(open_lanes[option])
+            self.points += piece.size
+            self.correct += 1
+            self.last = f"✅ {piece.name} → {self._lane(open_lanes[option])}"
+        else:
+            self.placed.append(None)
+            self.points -= piece.size * PLAN_SKIP_PENALTY
+            self.last = f"🗑️ {piece.name} se queda fuera: {self._size(piece)} sin colocar."
+        self._count(hit)
+        if len(self.placed) == len(self.pieces):
+            if all(lane is not None for lane in self.placed):
+                self.perfect_rounds += 1
+                self.last = "✅ ¡Cuadrante completo!"
+            self._done(now)
+        return hit
+
+    def best(self) -> int:
+        """Botón que pulsaría quien deja fuera lo menos posible (pruebas y calibrado).
+
+        Busca a fondo: son pocas piezas. No se llama desde el bot.
+        """
+        if self.ordago == ORDAGO_OFFER:
+            return 0
+        pieces, start, capacity = self.pieces, len(self.placed), self.capacity
+
+        seen = self.solved
+
+        def lost(turn: int, fill: tuple[int, ...]) -> int:
+            if turn == len(pieces):
+                return 0
+            if (key := (turn, fill)) in seen:
+                return seen[key]
+            piece = pieces[turn]
+            worst = piece.size + lost(turn + 1, fill)
+            for lane in range(len(fill)):
+                if worst == 0:
+                    break
+                if piece.allows(lane) and fill[lane] + piece.size <= capacity:
+                    after = (*fill[:lane], fill[lane] + piece.size, *fill[lane + 1 :])
+                    worst = min(worst, lost(turn + 1, after))
+            seen[key] = worst
+            return worst
+
+        fill = self.fill()
+        open_lanes = self._open()
+        piece = pieces[start]
+        costs = [
+            lost(start + 1, tuple(f + piece.size * (i == lane) for i, f in enumerate(fill)))
+            for lane in open_lanes
+        ]
+        if costs and min(costs) < piece.size + lost(start + 1, tuple(fill)):
+            return costs.index(min(costs))
+        return len(open_lanes)
+
+
+def _plan(
+    rng: random.Random, pack_key: str, level: int, factor: int
+) -> tuple[PlanPack, tuple[int, ...], list[Piece]]:
+    """Piezas de un Cuadrante que encajan todas: salen de llenar cada carril entero."""
+    pack = PLAN_PACKS[pack_key]
+    lanes = tuple(sorted(rng.sample(range(len(pack.lanes)), 3 if level <= 6 else 4)))
+    sizes = [
+        (size, lane)
+        for lane in range(len(lanes))
+        for _ in range(factor)
+        for size in rng.choice(PLAN_SPLITS)
+    ]
+    rng.shuffle(sizes)
+    names = rng.sample(pack.pieces, min(len(sizes), len(pack.pieces)))
+    pieces = [
+        Piece(names[i % len(names)] + (" (bis)" if i >= len(names) else ""), size)
+        for i, (size, _lane) in enumerate(sizes)
+    ]
+    # Las condiciones respetan la solución: «solo» es su carril y «no en», otro.
+    for n, i in enumerate(rng.sample(range(len(pieces)), PLAN_RULES.get(level, 3))):
+        home = sizes[i][1]
+        if n % 2:
+            pieces[i].only = home
+        else:
+            pieces[i].ban = rng.choice([lane for lane in range(len(lanes)) if lane != home])
+    return pack, lanes, pieces
+
+
+# -- Rotación: Negociación ----------------------------------------------------------------
+
+#: Lo que tienes de salida en un trato y lo que sube cada apretón, en % de lo que pedías.
+DEAL_START = 40
+DEAL_STEP = 15
+#: Lo que te queda si se levanta de la mesa.
+DEAL_BREAK = 20
+#: Lo que cuesta tantear.
+DEAL_PROBE = 5
+#: Caracteres: cómo enseña cada uno lo que le queda de aguante.
+DEAL_KINDS = {
+    "libro": "📖 **De libro:** lo que ves es lo que hay.",
+    "farol": "🎭 **Farolero:** exagera. Aguanta un apretón más de lo que aparenta.",
+    "poker": "🧊 **Cara de póker:** no enseña nada. Aguanta 2 como poco.",
+}
+#: Quién se sienta enfrente según el puesto (de ahí salen también los tratos del turno).
+DEAL_TABLE = {
+    5: ("libro", "libro", "farol"),
+    6: ("libro", "libro", "farol"),
+    7: ("libro", "farol", "poker"),
+    8: ("libro", "farol", "poker"),
+}
+DEAL_TABLE_TOP = ("farol", "poker", "poker")
+#: Aguante más alto: con él se llega al 100 %.
+DEAL_STAMINA = (100 - DEAL_START) // DEAL_STEP
+
+
+@dataclass(slots=True)
+class Deal:
+    """Un trato de una Negociación.
+
+    Attributes:
+        who: Con quién.
+        what: Qué se negocia.
+        kind: Su carácter (clave de `DEAL_KINDS`).
+        stamina: Apretones que aguanta.
+        tells: Lo que hace tras 0, 1… `stamina` apretones.
+    """
+
+    who: str
+    what: str
+    kind: str
+    stamina: int
+    tells: list[str]
+
+    @property
+    def best(self) -> int:
+        """Lo más que se le puede sacar."""
+        return DEAL_START + DEAL_STEP * self.stamina
+
+
+def deal_mood(kind: str, left: int) -> str:
+    """Cómo se le ve (clave de `DEAL_TELLS`) con `left` apretones de aguante."""
+    if kind == "poker":
+        return "poker"
+    if kind == "farol":
+        left -= 1
+    return "calm" if left >= 2 else "tense" if left == 1 else "limit"
+
+
+@dataclass(slots=True)
+class DealGame(MiniGame):
+    """Una Negociación: apretar, tantear o cerrar en cada trato.
+
+    `index` cuenta las jugadas, como en `PlanGame`. `rounds` va vacío. Con la chuleta
+    (`fifty`), tantear no cuesta.
+
+    Attributes:
+        pack: Contenido (la escena).
+        deals: Los tratos, en orden.
+        turn: Trato en juego.
+        pushed: Apretones dados en el trato en juego.
+        probed: Si ya se ha tanteado en el trato en juego.
+        walked: Tratos en los que se levantó de la mesa.
+        probes: Veces que se ha tanteado.
+        got: Lo sacado en cada trato cerrado o roto.
+        peeked: Si se tanteó en cada trato cerrado o roto.
+    """
+
+    pack: DealPack | None = None
+    deals: list[Deal] = field(default_factory=list)
+    turn: int = 0
+    pushed: int = 0
+    probed: bool = False
+    walked: int = 0
+    probes: int = 0
+    got: list[int] = field(default_factory=list)
+    peeked: list[bool] = field(default_factory=list)
+
+    @property
+    def max_points(self) -> int:
+        """Lo que suma sacar lo más posible de cada trato."""
+        return sum(deal.best for deal in self.deals) or 1
+
+    @property
+    def left(self) -> int:
+        """Apretones que aguanta todavía el de enfrente."""
+        return self.deals[self.turn].stamina - self.pushed
+
+    @property
+    def offer(self) -> int:
+        """Lo que te llevas si cierras ahora."""
+        cost = DEAL_PROBE if self.probed and not self.fifty else 0
+        return DEAL_START + DEAL_STEP * self.pushed - cost
+
+    @property
+    def current(self) -> Round | None:
+        """El trato en juego: con quién, por dónde vas y cómo se le ve."""
+        if self.ordago == ORDAGO_OFFER:
+            return self._ordago_round()
+        if self.turn >= len(self.deals):
+            return None
+        deal = self.deals[self.turn]
+        lines = [
+            f"🤝 **Trato {self.turn + 1}/{len(self.deals)}:** {deal.what}, con {deal.who}.",
+            DEAL_KINDS[deal.kind],
+            f"Vas por el **{self.offer} %** de lo que pedías.",
+            f"*{deal.tells[self.pushed]}*",
+        ]
+        if self.probed:
+            lines.append(f"👀 Tanteado: aguanta **{self.left}** más.")
+        options = [f"💪 Apretar (+{DEAL_STEP})", f"🤝 Cerrar con el {self.offer} %"]
+        if not self.probed:
+            options.append("👀 Tantear (gratis)" if self.fifty else f"👀 Tantear (−{DEAL_PROBE})")
+        return Round("\n".join(lines), options, [])
+
+    def _close(self, amount: int, now: float) -> None:
+        self.got.append(amount)
+        self.peeked.append(self.probed)
+        self.points += amount
+        self.turn += 1
+        self.pushed = 0
+        self.probed = False
+        if self.turn == len(self.deals):
+            self._done(now)
+
+    def press(self, option: int, now: float) -> bool:
+        """Aprieta (0), cierra (1) o tantea (2). Devuelve si la jugada ha salido bien."""
+        current = self.current
+        if current is None or self.finished_at is not None:
+            return False
+        if now > self.deadline + GRACE_SECONDS:
+            self.finish(now)
+            return False
+        if self.ordago == ORDAGO_OFFER:
+            return self._press_ordago(option, now)
+        if not 0 <= option < len(current.options):
+            return False
+        self.index += 1
+        deal, left = self.deals[self.turn], self.left
+        if option == 2:
+            self.probed = True
+            self.probes += 1
+            self.last = f"👀 Tanteas: aguanta {left} más."
+            return True
+        if option == 0:
+            if left > 0:
+                self.pushed += 1
+                self.last = f"💪 Aprietas y sube al {self.offer} %."
+                return True
+            if self._forgive("Se levantaba de la mesa"):
+                return False
+            self.walked += 1
+            self._count(False)
+            self.last = (
+                f"🚪 Se levanta de la mesa: te quedas con el acuerdo de mínimos, el {DEAL_BREAK} %."
+            )
+            self._close(DEAL_BREAK, now)
+            return False
+        offer = self.offer
+        short = deal.best - offer
+        good = short <= DEAL_PROBE
+        if good:
+            self.correct += 2
+            self.perfect_rounds += short == 0
+            self.last = f"✅ Cerrado al {offer} %: era su límite."
+        else:
+            self.correct += left == 1
+            self.last = f"🤝 Cerrado al {offer} %. Aguantaba {left} más: llegaba al {deal.best} %."
+        self._count(good)
+        self._close(offer, now)
+        return good
+
+    def best(self) -> int:
+        """Botón de quien supiera el aguante (pruebas y calibrado)."""
+        if self.ordago == ORDAGO_OFFER:
+            return 0
+        return 0 if self.left > 0 else 1
+
+
+def _deal(
+    rng: random.Random, pack_key: str, level: int, factor: int
+) -> tuple[DealPack, list[Deal]]:
+    """Los tratos de una Negociación: carácter según el puesto y aguante al azar."""
+    pack = DEAL_PACKS[pack_key]
+    kinds = list(DEAL_TABLE.get(level, DEAL_TABLE_TOP)) * factor
+    rng.shuffle(kinds)
+    count = len(kinds)
+    who = [pack.who[i % len(pack.who)] for i in rng.sample(range(count), count)]
+    what = [pack.what[i % len(pack.what)] for i in rng.sample(range(count), count)]
+    deals = []
+    for i, kind in enumerate(kinds):
+        stamina = rng.randint(2 if kind == "poker" else 1, DEAL_STAMINA)
+        tells = [
+            rng.choice(DEAL_TELLS[deal_mood(kind, stamina - pushed)])
+            for pushed in range(stamina + 1)
+        ]
+        deals.append(Deal(who[i], what[i], kind, stamina, tells))
+    return pack, deals
+
+
+# -- Rotación: Auditoría ------------------------------------------------------------------
+
+#: Rejilla de una Auditoría: 4 filas de 5 botones.
+AUDIT_WIDTH = 5
+AUDIT_HEIGHT = 4
+AUDIT_CELLS = AUDIT_WIDTH * AUDIT_HEIGHT
+#: Casillas malas según el puesto.
+AUDIT_BAD = {5: 4, 6: 4, 7: 4, 8: 4}
+AUDIT_BAD_TOP = 5
+#: Lo que resta abrir una mala, en casillas buenas.
+AUDIT_HIT = 3
+#: Cómo se ve una casilla buena abierta según las malas que tiene al lado.
+AUDIT_NUMBERS = ("▫️", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣")
+#: Una mala que perdonó el fallo gratis: se queda marcada, sin abrir.
+AUDIT_FLAG = "🚩"
+
+
+def audit_neighbours(cell: int) -> list[int]:
+    """Casillas de al lado de `cell`, también en diagonal."""
+    row, column = divmod(cell, AUDIT_WIDTH)
+    return [
+        r * AUDIT_WIDTH + c
+        for r in range(max(0, row - 1), min(AUDIT_HEIGHT, row + 2))
+        for c in range(max(0, column - 1), min(AUDIT_WIDTH, column + 2))
+        if (r, c) != (row, column)
+    ]
+
+
+@dataclass(slots=True)
+class AuditGame(MiniGame):
+    """Una Auditoría: abrir todas las casillas buenas sin tocar las malas.
+
+    Como el buscaminas: una buena abierta dice cuántas malas tiene al lado, y las que no
+    tienen ninguna abren solas a sus vecinas. Las malas se sortean al abrir la primera
+    casilla de cada tablero, lejos de ella: la primera nunca falla. `index` cuenta las
+    jugadas, como en `PlanGame`. `rounds` va vacío.
+
+    Attributes:
+        pack: Contenido (la escena, cómo se llaman las casillas y sus emojis).
+        boards: Tableros del turno (2 en la guardia).
+        bad_count: Malas por tablero.
+        seed: Semilla de las malas (con el número de tablero).
+        board: Tablero en juego.
+        bad: Las malas del tablero en juego (vacío hasta abrir la primera casilla).
+        opened: Buenas abiertas del tablero en juego.
+        hits: Malas abiertas del tablero en juego.
+        flags: Malas que perdonó el fallo gratis, marcadas sin abrir.
+        blown: Malas abiertas en todo el turno.
+        clean_boards: Tableros acabados sin abrir ninguna mala.
+    """
+
+    pack: AuditPack | None = None
+    boards: int = 1
+    bad_count: int = 4
+    seed: int = 0
+    board: int = 0
+    bad: set[int] = field(default_factory=set)
+    opened: set[int] = field(default_factory=set)
+    hits: set[int] = field(default_factory=set)
+    flags: set[int] = field(default_factory=set)
+    blown: int = 0
+    clean_boards: int = 0
+
+    @property
+    def max_points(self) -> int:
+        """Las buenas de todos los tableros."""
+        return (AUDIT_CELLS - self.bad_count) * self.boards
+
+    @property
+    def pending(self) -> int:
+        """Buenas que quedan por abrir en el tablero en juego."""
+        return AUDIT_CELLS - self.bad_count - len(self.opened)
+
+    def _label(self, cell: int) -> str:
+        assert self.pack is not None
+        if cell in self.hits:
+            return self.pack.hit
+        if cell in self.flags:
+            return AUDIT_FLAG
+        if cell in self.opened:
+            return AUDIT_NUMBERS[sum(1 for n in audit_neighbours(cell) if n in self.bad)]
+        return self.pack.closed
+
+    @property
+    def current(self) -> Round | None:
+        """El tablero en juego: un botón por casilla, siempre en el mismo sitio."""
+        if self.ordago == ORDAGO_OFFER:
+            return self._ordago_round()
+        if self.board >= self.boards:
+            return None
+        assert self.pack is not None
+        title = f"Tablero {self.board + 1}/{self.boards} · " if self.boards > 1 else ""
+        prompt = (
+            f"🔎 {title}Hay **{self.bad_count} {self.pack.item} {self.pack.bad}** entre "
+            f"{AUDIT_CELLS}. Te quedan **{self.pending}** por abrir.\n"
+            f"-# El número de una casilla dice cuántas de las de al lado son de las "
+            f"malas ({AUDIT_NUMBERS[0]} = ninguna; las diagonales cuentan)."
+        )
+        return Round(prompt, [self._label(cell) for cell in range(AUDIT_CELLS)], [])
+
+    def moves(self) -> list[int]:
+        """Botones que hacen algo: las casillas sin abrir."""
+        return [
+            cell
+            for cell in range(AUDIT_CELLS)
+            if cell not in self.opened and cell not in self.hits and cell not in self.flags
+        ]
+
+    def _deal(self, first: int) -> None:
+        """Sortea las malas del tablero lejos de la primera casilla que se abre."""
+        safe = {first, *audit_neighbours(first)}
+        rng = random.Random(self.seed * 31 + self.board)
+        self.bad = set(rng.sample([c for c in range(AUDIT_CELLS) if c not in safe], self.bad_count))
+
+    def _open(self, cell: int) -> int:
+        """Abre una buena y, si no tiene malas al lado, a sus vecinas. Devuelve cuántas."""
+        queue, count = [cell], 0
+        while queue:
+            cell = queue.pop()
+            if cell in self.opened:
+                continue
+            self.opened.add(cell)
+            count += 1
+            near = audit_neighbours(cell)
+            if not any(n in self.bad for n in near):
+                queue.extend(n for n in near if n not in self.opened)
+        return count
+
+    def press(self, option: int, now: float) -> bool:
+        """Abre una casilla. Devuelve si era buena."""
+        current = self.current
+        if current is None or self.finished_at is not None:
+            return False
+        if now > self.deadline + GRACE_SECONDS:
+            self.finish(now)
+            return False
+        if self.ordago == ORDAGO_OFFER:
+            return self._press_ordago(option, now)
+        if option not in self.moves():
+            return False
+        assert self.pack is not None
+        self.index += 1
+        if not self.bad:
+            self._deal(option)
+        if option in self.bad:
+            if self._forgive("Ibas a abrir lo que no debías"):
+                self.flags.add(option)
+                return False
+            self.hits.add(option)
+            self.blown += 1
+            self.points -= AUDIT_HIT
+            self._count(False)
+            self.last = f"{self.pack.hit} ¡Te ha saltado a la cara! Resta {AUDIT_HIT}."
+            return False
+        count = self._open(option)
+        self.points += count
+        self._count(True)
+        self.last = f"✅ Abres {count}." if count > 1 else "✅ Limpia."
+        if self.pending == 0:
+            # Cada mala que no se ha tocado cuenta doble para las tareas del puesto.
+            self.correct += 2 * (self.bad_count - len(self.hits))
+            if not self.hits:
+                self.clean_boards += 1
+                self.perfect_rounds += 1
+                self.last = "✅ Tablero limpio: no has tocado ni una mala."
+            self.board += 1
+            self.bad, self.opened, self.hits, self.flags = set(), set(), set(), set()
+            if self.board == self.boards:
+                self._done(now)
+        return True
+
+    def best(self) -> int:
+        """Botón de quien supiera dónde están las malas (pruebas y calibrado)."""
+        if self.ordago == ORDAGO_OFFER:
+            return 0
+        closed = [cell for cell in self.moves() if cell not in self.bad]
+        return closed[0]
+
+
+# -- Rotación: Despacho -------------------------------------------------------------------
+
+#: Las barras de un Despacho van de 0 a `DESK_MAX` y empiezan en `DESK_START`.
+DESK_MAX = 6
+DESK_START = 4
+#: Decisiones de un turno.
+DESK_TURNS = 8
+#: Lo que sube y baja cada opción de una decisión; se reparten al azar entre las tres: la
+#: normal, la prudente (sube poco y no cuesta) y la apuesta fuerte, que va la última.
+DESK_PROFILES = ((2, 1), (1, 0), (3, 2))
+#: Cada cuántas decisiones se desgasta sola una barra.
+DESK_WEAR_EVERY = 2
+#: Una de cada tantas decisiones trae una opción que se paga más tarde.
+DESK_LATER_ONE_IN = 3
+#: Decisiones que tarda en llegar lo que se paga más tarde.
+DESK_LATER = 2
+#: Con todas las barras de aquí para arriba, una decisión cuenta como bien llevada.
+DESK_CALM = 2
+#: Lo que vale el despacho al final (`DeskGame.value`) para sacar un 100.
+DESK_PAR = 26
+
+
+@dataclass(slots=True)
+class DeskOption:
+    """Una opción de una decisión de un Despacho.
+
+    Attributes:
+        label: El botón.
+        up: Barra que sube y cuánto.
+        gain: Lo que sube.
+        down: Barra que baja.
+        cost: Lo que baja.
+        later: Si lo que baja llega `DESK_LATER` decisiones después.
+    """
+
+    label: str
+    up: int
+    gain: int
+    down: int
+    cost: int
+    later: bool = False
+
+
+@dataclass(slots=True)
+class DeskCard:
+    """Una decisión de un Despacho.
+
+    Attributes:
+        text: La situación.
+        options: Sus tres opciones.
+        wear: Barra que se desgasta sola tras decidir (`None` = ninguna).
+    """
+
+    text: str
+    options: list[DeskOption]
+    wear: int | None = None
+
+
+def desk_value(bars: list[int]) -> int:
+    """Lo que vale un despacho: la suma de las barras, con la más baja contando triple."""
+    return sum(bars) + 2 * min(bars)
+
+
+@dataclass(slots=True)
+class DeskGame(MiniGame):
+    """Un Despacho: mantener cuatro barras a flote decisión a decisión.
+
+    No hay respuesta buena: cada opción sube una barra y baja otra, y lo que conviene
+    depende de cómo estén. La nota sale de cómo queda el despacho al final (`desk_value`
+    sobre `DESK_PAR`); si una barra llega a 0 hay crisis, el turno se acaba y la nota se
+    queda en la parte del turno que se llevaba. `index` cuenta las jugadas. `rounds` va
+    vacío. Con la chuleta (`fifty`) se tacha la opción que peor deja el despacho.
+
+    Attributes:
+        pack: Contenido (la escena y los nombres de las barras).
+        cards: Las decisiones, en orden.
+        bars: Cómo está cada barra.
+        turn: Decisión en juego.
+        due: Lo que queda por pagar: `(decisión en la que llega, barra, cuánto)`.
+        crisis: Si una barra llegó a 0.
+        calm: Decisiones tras las que todas las barras quedaron en `DESK_CALM` o más.
+        later_used: Veces que se eligió una opción que se paga más tarde.
+        low: Lo más bajo que ha estado una barra.
+    """
+
+    pack: DeskPack | None = None
+    cards: list[DeskCard] = field(default_factory=list)
+    bars: list[int] = field(default_factory=lambda: [DESK_START] * 4)
+    turn: int = 0
+    due: list[tuple[int, int, int]] = field(default_factory=list)
+    crisis: bool = False
+    calm: int = 0
+    later_used: int = 0
+    low: int = DESK_START
+
+    @property
+    def max_points(self) -> int:
+        """Lo que hay que valer al final para el 100."""
+        return DESK_PAR
+
+    def _after(self, option: DeskOption, card: DeskCard) -> list[int]:
+        """Cómo quedan las barras tras elegir `option` en `card` (sin tocar la partida)."""
+        bars = list(self.bars)
+        bars[option.up] = min(DESK_MAX, bars[option.up] + option.gain)
+        if not option.later:
+            bars[option.down] -= option.cost
+        if card.wear is not None:
+            bars[card.wear] -= 1
+        for when, bar, cost in self.due:
+            if when == self.turn:
+                bars[bar] -= cost
+        return bars
+
+    def _rank(self) -> list[int]:
+        """Las opciones de la decisión en juego, de la que mejor deja el despacho a la peor."""
+        card = self.cards[self.turn]
+
+        def worth(i: int) -> tuple[int, int]:
+            option = card.options[i]
+            bars = self._after(option, card)
+            if min(bars) <= 0:
+                return (-100, 0)
+            # Lo que queda por pagar ya está gastado: una barra que no lo aguanta, casi
+            # tan malo como hundirla ahora.
+            owed = list(bars)
+            for when, bar, cost in self.due:
+                if when > self.turn:
+                    owed[bar] -= cost
+            if option.later:
+                owed[option.down] -= option.cost
+            return (desk_value(owed) - (50 if min(owed) <= 0 else 0), 0)
+
+        return sorted(range(len(card.options)), key=worth, reverse=True)
+
+    def _bar(self, bar: int) -> str:
+        assert self.pack is not None
+        return self.pack.bars[bar]
+
+    def _effect(self, option: DeskOption) -> str:
+        up = f"{self._bar(option.up)} {'▲' * option.gain}"
+        if not option.cost:
+            return up
+        later = f"⏳ en {DESK_LATER} decisiones " if option.later else ""
+        return f"{up} · {later}{self._bar(option.down)} {'▼' * option.cost}"
+
+    @property
+    def current(self) -> Round | None:
+        """Las barras, la situación y lo que mueve cada opción."""
+        if self.ordago == ORDAGO_OFFER:
+            return self._ordago_round()
+        if self.crisis or self.turn >= len(self.cards):
+            return None
+        card = self.cards[self.turn]
+        lines = [
+            f"{self._bar(i)} {'▰' * max(0, value)}{'▱' * (DESK_MAX - max(0, value))}"
+            for i, value in enumerate(self.bars)
+        ]
+        lines.append(f"**Decisión {self.turn + 1}/{len(self.cards)}:** {card.text}")
+        worst = self._rank()[-1] if self.fifty else None
+        for i, option in enumerate(card.options):
+            line = f"{i + 1}. {option.label}: {self._effect(option)}"
+            lines.append(f"✂️ ~~{line}~~" if i == worst else line)
+        if card.wear is not None:
+            lines.append(f"-# 📉 Después se desgasta sola: {self._bar(card.wear)} ▼")
+        owed = [
+            f"{self._bar(bar)} {'▼' * cost} en {when - self.turn + 1}"
+            for when, bar, cost in self.due
+            if when >= self.turn
+        ]
+        if owed:
+            lines.append("-# ⏳ Por pagar: " + " · ".join(owed))
+        return Round("\n".join(lines), [option.label for option in card.options], [])
+
+    def press(self, option: int, now: float) -> bool:
+        """Elige una opción. Devuelve si el despacho sigue a flote."""
+        current = self.current
+        if current is None or self.finished_at is not None:
+            return False
+        if now > self.deadline + GRACE_SECONDS:
+            self.finish(now)
+            return False
+        if self.ordago == ORDAGO_OFFER:
+            return self._press_ordago(option, now)
+        if not 0 <= option < len(current.options):
+            return False
+        self.index += 1
+        card = self.cards[self.turn]
+        chosen = card.options[option]
+        self.bars = self._after(chosen, card)
+        if chosen.later:
+            self.later_used += 1
+            self.due.append((self.turn + DESK_LATER, chosen.down, chosen.cost))
+        self.last = f"🗳️ {chosen.label}: {self._effect(chosen)}"
+        sunk = [bar for bar, value in enumerate(self.bars) if value <= 0]
+        if sunk and self._forgive(f"{self._bar(sunk[0])} se hundía"):
+            for bar in sunk:
+                self.bars[bar] = 1
+            sunk = []
+        self.low = min(self.low, *self.bars)
+        self.turn += 1
+        if sunk:
+            self.crisis = True
+            self.bars = [max(0, value) for value in self.bars]
+            self._count(False)
+            self.last = f"🚨 **Crisis:** {self._bar(sunk[0])} se queda a cero. Se acabó el turno."
+            self.finish(now)
+            return False
+        self._count(True)
+        if min(self.bars) >= DESK_CALM:
+            self.calm += 1
+            self.correct += 1
+        if self.turn == len(self.cards):
+            if min(self.bars) >= DESK_START + 1:
+                self.perfect_rounds += 1
+            self._done(now)
+        return True
+
+    def score(self) -> int:
+        """Lo que vale el despacho sobre `DESK_PAR`; con crisis, por la parte del turno hecha."""
+        base = 100 * min(DESK_PAR, desk_value(self.bars)) / DESK_PAR
+        if self.crisis:
+            # Sin extra de tiempo: hundirse pronto no es acabar antes.
+            return round(base * (self.turn - 1) / len(self.cards))
+        return max(0, min(100, round(base + self._time_bonus())))
+
+    def best(self) -> int:
+        """Botón de quien mira solo cómo queda el despacho tras esta decisión."""
+        if self.ordago == ORDAGO_OFFER:
+            return 0
+        return self._rank()[0]
+
+
+def desk_cards(rng: random.Random, pack: DeskPack, factor: int = 1) -> list[DeskCard]:
+    """Las decisiones de un Despacho: situaciones del pack con lo que mueve cada opción."""
+    cards: list[DeskCard] = []
+    for _ in range(factor):
+        for text, options in rng.sample(pack.cards, min(DESK_TURNS, len(pack.cards))):
+            profiles = rng.sample(DESK_PROFILES, len(DESK_PROFILES))
+            later = rng.randrange(DESK_LATER_ONE_IN) == 0
+            built = [
+                DeskOption(label, up, gain, down, cost, later and (gain, cost) == DESK_PROFILES[-1])
+                for (label, up, down), (gain, cost) in zip(options, profiles, strict=True)
+            ]
+            turn = len(cards)
+            wear = rng.randrange(4) if turn % DESK_WEAR_EVERY == DESK_WEAR_EVERY - 1 else None
+            cards.append(DeskCard(text, built, wear))
+    return cards
+
+
 def rounds_for(position: Position) -> int:
     """Rondas del minijuego de un puesto (más tiempo, más rondas)."""
     if position.mechanic is Mechanic.DIG:
@@ -867,8 +1855,69 @@ def new_game(
         perks: Lo que dan las herramientas de curro del miembro.
     """
     factor = GUARD_TIME_FACTOR if guard else 1
-    rounds = rounds_for(position) * factor
+    seconds = position.seconds * factor * (TIRED_TIME_FACTOR if tired else 1)
+    seconds *= 1 + perks.extra_time
+    tools = tuple(t.key for t in perks.tools)
     kind, _, arg = position.content.partition(":")
+    if position.mechanic is Mechanic.PLAN:
+        plan, lanes, pieces = _plan(rng, kind, position.level, factor)
+        return PlanGame(
+            Mechanic.PLAN,
+            plan.scene,
+            [],
+            seconds,
+            now,
+            retries=perks.retries,
+            tools=tools,
+            pack=plan,
+            lanes=lanes,
+            capacity=PLAN_CAPACITY * factor,
+            pieces=pieces,
+        )
+    if position.mechanic is Mechanic.DEAL:
+        table, deals = _deal(rng, kind, position.level, factor)
+        return DealGame(
+            Mechanic.DEAL,
+            table.scene,
+            [],
+            seconds,
+            now,
+            retries=perks.retries,
+            fifty=perks.fifty,
+            tools=tools,
+            pack=table,
+            deals=deals,
+        )
+    if position.mechanic is Mechanic.AUDIT:
+        return AuditGame(
+            Mechanic.AUDIT,
+            AUDIT_PACKS[kind].scene,
+            [],
+            seconds,
+            now,
+            retries=perks.retries,
+            tools=tools,
+            pack=AUDIT_PACKS[kind],
+            boards=factor,
+            bad_count=AUDIT_BAD.get(position.level, AUDIT_BAD_TOP),
+            seed=rng.randrange(1 << 30),
+        )
+    if position.mechanic is Mechanic.DESK:
+        desk = DESK_PACKS[kind]
+        cards = desk_cards(rng, desk, factor)
+        return DeskGame(
+            Mechanic.DESK,
+            desk.scene,
+            [],
+            seconds,
+            now,
+            retries=perks.retries,
+            fifty=perks.fifty,
+            tools=tools,
+            pack=desk,
+            cards=cards,
+        )
+    rounds = rounds_for(position) * factor
     if position.mechanic is Mechanic.DIG:
         header, built = _dig(rng, int(arg or 3), rounds)
     elif position.mechanic is Mechanic.SPOT:
@@ -884,8 +1933,6 @@ def new_game(
             header, built = _metrics(rng, rounds)
     else:
         header, built = _dialogue(rng, kind, rounds, fifty=perks.fifty)
-    seconds = position.seconds * factor * (TIRED_TIME_FACTOR if tired else 1)
-    seconds *= 1 + perks.extra_time
     return MiniGame(
         position.mechanic,
         header,
@@ -895,5 +1942,5 @@ def new_game(
         retries=perks.retries,
         insured=perks.insured,
         fifty=perks.fifty and position.mechanic is Mechanic.DIALOGUE,
-        tools=tuple(t.key for t in perks.tools),
+        tools=tools,
     )
