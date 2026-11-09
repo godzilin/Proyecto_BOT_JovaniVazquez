@@ -1907,3 +1907,213 @@ DEAL_PACKS: dict[str, DealPack] = {
         ),
     ),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class AuditPack:
+    """Contenido de una Auditoría.
+
+    Attributes:
+        scene: Lo que se enseña arriba toda la partida: quién eres y qué revisas.
+        item: Cómo se llama cada casilla, en plural («partidas», «facturas»).
+        bad: Cómo son las malas, en plural y concordando con `item` («infladas»).
+        closed: Emoji de una casilla sin abrir.
+        hit: Emoji de una mala que te ha saltado a la cara.
+    """
+
+    scene: str
+    item: str
+    bad: str
+    closed: str
+    hit: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeskPack:
+    """Contenido de un Despacho.
+
+    Attributes:
+        scene: Lo que se enseña arriba toda la partida: quién eres y qué llevas hoy.
+        bars: Las 4 barras del cargo, con emoji y cortas («🤝 Socios»).
+        cards: Al menos 10 decisiones: `(situación, opciones)`, con tres opciones
+            `(etiqueta del botón, barra que sube, barra que baja)` (índices de `bars`).
+            Cuánto sube y baja cada una lo sortea el juego en cada turno.
+    """
+
+    scene: str
+    bars: tuple[str, str, str, str]
+    cards: tuple[tuple[str, tuple[tuple[str, int, int], ...]], ...]
+
+
+AUDIT_PACKS: dict[str, AuditPack] = {
+    "sobrecostes": AuditPack(
+        "🧾 Eres constructor y te ha llegado el presupuesto de la subcontrata: hay partidas "
+        "infladas escondidas entre las buenas.",
+        "partidas",
+        "infladas",
+        "🧾",
+        "💸",
+    ),
+    "colados": AuditPack(
+        "🌴 Eres director de resorts: en el buffet hay gente comiendo sin pulsera. Revisa las "
+        "mesas sin montar un número en las que no toca.",
+        "mesas",
+        "de colados",
+        "🍽️",
+        "🙈",
+    ),
+    "inspector": AuditPack(
+        "⭐ Eres chef con estrella: esta noche hay inspectores de la guía repartidos por la "
+        "sala. Saluda a las mesas normales sin delatarte ante ellos.",
+        "mesas",
+        "de inspector",
+        "🪑",
+        "📝",
+    ),
+    "letra_pequena": AuditPack(
+        "🩺 Eres médico de mutua: en la póliza hay cláusulas que lo excluyen casi todo. "
+        "Repasa las que valen sin firmar las que no.",
+        "cláusulas",
+        "trampa",
+        "📄",
+        "🔍",
+    ),
+    "app_publica": AuditPack(
+        "📱 Eres director de transformación digital: la app pública sale mañana y hay módulos "
+        "que la tumban. Prueba los que funcionan sin tocar los otros.",
+        "módulos",
+        "rotos",
+        "🧩",
+        "💥",
+    ),
+    "runway": AuditPack(
+        "🔥 Eres CEO de un unicornio: la caja se acaba y hay gastos que la queman. Repasa "
+        "los razonables sin aprobar los otros.",
+        "gastos",
+        "disparatados",
+        "💳",
+        "🔥",
+    ),
+    "perdido": AuditPack(
+        "📮 Eres director de operaciones de Correos: en el almacén hay sacas que llevan un "
+        "año sin moverse. Da salida a las que van bien sin abrir las otras.",
+        "sacas",
+        "perdidas",
+        "📦",
+        "🕸️",
+    ),
+    "inspector_trabajo": AuditPack(
+        "🏭 Eres magnate de la logística y viene la Inspección: en los almacenes hay turnos "
+        "que no aguantan una revisión. Enseña los que están en regla.",
+        "turnos",
+        "irregulares",
+        "📋",
+        "🚨",
+    ),
+    "inspeccion": AuditPack(
+        "🧾 Eres inspector de Hacienda: en la contabilidad de la empresa hay facturas falsas. "
+        "Da por buenas las correctas sin sellar las otras.",
+        "facturas",
+        "falsas",
+        "🧾",
+        "🕵️",
+    ),
+    "colada": AuditPack(
+        "🗂️ Eres secretario general técnico: en la ley que va mañana al Consejo alguien ha "
+        "colado disposiciones. Valida las que tocan sin dar paso a las otras.",
+        "disposiciones",
+        "coladas",
+        "📜",
+        "🐍",
+    ),
+    "mariachis": AuditPack(
+        "🎺 Eres consejero de una SICAV: entre los accionistas hay unos cuantos de relleno. "
+        "Atiende a los de verdad sin preguntar de más a los otros.",
+        "accionistas",
+        "de relleno",
+        "👤",
+        "🎺",
+    ),
+    "share": AuditPack(
+        "📊 Eres director de cadena: en la parrilla hay programas que hunden la audiencia. "
+        "Renueva los que funcionan sin firmar los otros.",
+        "programas",
+        "hundidos",
+        "📺",
+        "📉",
+    ),
+    "rugpull": AuditPack(
+        "🪙 Eres gurú cripto: entre los proyectos que te ofrecen promocionar hay timos. "
+        "Mira los serios sin poner tu cara en los otros.",
+        "proyectos",
+        "timo",
+        "🪙",
+        "🧨",
+    ),
+}
+
+DESK_PACKS: dict[str, DeskPack] = {
+    "control": DeskPack(
+        "🏛️ Eres presidente del Gobierno y hoy toca despacho: cada decisión contenta a unos "
+        "y cabrea a otros.",
+        ("🤝 Socios", "📰 Prensa", "📣 Calle", "💰 Caja"),
+        (
+            (
+                "Tu socio de investidura pide el traspaso de Cercanías.",
+                (("Dárselo", 0, 2), ("Crear una comisión", 1, 0), ("Ponerle precio", 3, 0)),
+            ),
+            (
+                "Sale una encuesta mala a tres semanas de las autonómicas.",
+                (("Anunciar ayudas", 2, 3), ("Entrevista amable", 1, 2), ("Cerrar filas", 0, 1)),
+            ),
+            (
+                "Bruselas pide un ajuste antes de soltar los fondos.",
+                (
+                    ("Subir impuestos", 3, 2),
+                    ("Recortar a los socios", 3, 0),
+                    ("Ganar tiempo", 2, 3),
+                ),
+            ),
+            (
+                "Un ministro la lía en una entrevista de radio.",
+                (("Cesarlo", 1, 0), ("Respaldarlo", 0, 1), ("Sacar otro tema", 2, 1)),
+            ),
+            (
+                "Los transportistas amenazan con parar el país.",
+                (
+                    ("Bonificar el gasóleo", 2, 3),
+                    ("Aguantar el pulso", 3, 2),
+                    ("Culpar a la UE", 1, 0),
+                ),
+            ),
+            (
+                "Hay que aprobar los presupuestos y faltan cuatro votos.",
+                (
+                    ("Comprar los votos", 0, 3),
+                    ("Prorrogar los viejos", 3, 1),
+                    ("Ir a la calle", 2, 0),
+                ),
+            ),
+            (
+                "Un periódico prepara una exclusiva sobre tu partido.",
+                (
+                    ("Dar otra exclusiva", 1, 0),
+                    ("Desmentir en la calle", 2, 1),
+                    ("Pagar publicidad", 1, 3),
+                ),
+            ),
+            (
+                "Los pensionistas piden subir las pensiones con el IPC.",
+                (("Subirlas", 2, 3), ("Subirlas a medias", 3, 2), ("Pactarlo con socios", 0, 3)),
+            ),
+            (
+                "Una comunidad pide la condonación de su deuda.",
+                (("Condonarla", 0, 3), ("Café para todos", 2, 3), ("Decir que no", 3, 0)),
+            ),
+            (
+                "La oposición convoca una manifestación el domingo.",
+                (("Ignorarla", 1, 2), ("Contraprogramar", 2, 3), ("Tender la mano", 1, 0)),
+            ),
+        ),
+    ),
+}
