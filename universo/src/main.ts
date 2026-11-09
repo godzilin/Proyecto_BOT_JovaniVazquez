@@ -3,14 +3,15 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
-import { deTrozos } from "./editor/trozos";
+import { fijarBorde } from "./mundo/borde";
 import { crearMundo, type Mundo } from "./mundo";
 import { iniciarMenu } from "./menu";
 import { iniciarGestos } from "./mundo/gestos";
 import { PRUEBAS, irAMundo } from "./mundo/modo";
+import { entrada as momentos, iniciarMedidas } from "./medidas";
 import { iniciarPaseo } from "./paseo";
 import { iniciarSala } from "./sala";
-import { mundoDeSerie } from "./mundo/serie";
+import { type Fuente, fuenteServidor } from "./mundo/cercania";
 
 interface ConfigResponse {
   client_id: string;
@@ -128,27 +129,52 @@ function ayuda(): void {
   setTimeout(quitar, 9000);
 }
 
-/** El mundo publicado: sus trozos (clave → documento, ver `editor/trozos.ts`). */
-interface MundoPublicado {
-  version: number;
-  trozos: Record<string, unknown>;
+/** La versión del mundo publicado que se está viendo (0: el de serie), para no volver a pedir la misma tras un aviso de la sala. */
+let versionVista = 0;
+/** Tras el aviso de la sala, cada página espera al azar hasta esto antes de pedir: así no llegan todas al NAS a la vez. */
+const RETARDO_AVISO_MS = 3000;
+
+/**
+ * La fuente del mundo publicado (su índice), o `null` si no hay nada publicado o falla (entonces se queda el de serie). El borde del
+ * mundo sale de las celdas del índice; con `ampliar` (otra publicación mientras se juega) solo crece.
+ */
+function pedirMundo(sesion: { session: string; guildId: string | null }, version?: number, ampliar = false): Promise<Fuente | null> {
+  if (!sesion.guildId) return Promise.resolve(null);
+  return fuenteServidor({ session: sesion.session, guildId: sesion.guildId }, version).then(
+    (f) => {
+      versionVista = f?.indice.version ?? 0;
+      fijarBorde(f ? f.indice.trozos.keys() : [], ampliar);
+      return f;
+    },
+    (e: unknown) => {
+      console.warn("No se ha podido cargar el mundo publicado.", e);
+      return null;
+    },
+  );
 }
 
-/** Pide el mundo publicado de este servidor y lo dibuja en lugar del de serie; si no hay nada publicado o falla, el de serie sigue como estaba. */
-function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }): Promise<void> {
-  if (!sesion.guildId) return Promise.resolve();
-  return api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session)
-    .then((r) => {
-      if (r.version > 0) mundo.cargarMundo(deTrozos(r.trozos));
-    })
-    .catch((e: unknown) => console.warn("No se ha podido cargar el mundo publicado.", e));
+/**
+ * Alguien ha publicado otro mundo (o lo bajado ya no está en el servidor: `version` 0, el de ahora): se pide el índice nuevo y la página
+ * vuelve a bajar solo los trozos cercanos cuya versión ha cambiado.
+ */
+function cargarObras(mundo: Mundo, sesion: { session: string; guildId: string | null }, version: number, espera = RETARDO_AVISO_MS): void {
+  if (!sesion.guildId) return;
+  window.setTimeout(() => {
+    if (version && versionVista >= version) return; // ya llegó con otro aviso
+    void pedirMundo(sesion, version || undefined, true).then((f) => {
+      if (f) mundo.cargarPublicado(f);
+    });
+  }, Math.random() * espera);
 }
 
 /** Deja en el mundo lo publicado (o el de serie si nunca se publicó nada); al cerrar el editor, para que el borrador no se quede a la vista. */
 async function restaurarObras(mundo: Mundo, sesion: { session: string; guildId: string }): Promise<void> {
   try {
-    const r = await api<MundoPublicado>(`/api/mundo?guild_id=${encodeURIComponent(sesion.guildId)}`, undefined, sesion.session);
-    mundo.cargarMundo(r.version > 0 ? deTrozos(r.trozos) : mundoDeSerie());
+    const f = await fuenteServidor(sesion);
+    versionVista = f?.indice.version ?? 0;
+    fijarBorde(f ? f.indice.trozos.keys() : []);
+    if (f) mundo.cargarPublicado(f);
+    else mundo.cargarSerie();
   } catch (e) {
     console.warn("No se ha podido cargar el mundo publicado.", e);
     aviso("No se ha podido recargar el mundo publicado: recarga la página para dejar de ver el borrador.");
@@ -182,6 +208,7 @@ interface Entrada {
   session: string;
   guildId: string | null;
   channelId: string | null;
+  platform: string;
 }
 
 async function entrar(): Promise<Entrada> {
@@ -197,18 +224,43 @@ async function entrar(): Promise<Entrada> {
   });
   const { access_token, session } = await api<TokenResponse>("/api/token", { code });
   await sdk.commands.authenticate({ access_token });
+  momentos.login = performance.now();
   const profile = await api<ProfileResponse>(
     "/api/entrar",
     { guild_id: sdk.guildId, channel_id: sdk.channelId, platform: sdk.platform },
     session,
   );
-  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId };
+  momentos.api = performance.now();
+  return { profile, session, guildId: sdk.guildId, channelId: sdk.channelId, platform: sdk.platform };
 }
 
 async function start(): Promise<void> {
-  const enDiscord = new URLSearchParams(location.search).has("frame_id");
+  const params = new URLSearchParams(location.search);
+  const enDiscord = params.has("frame_id");
   try {
-    const [mundo, entrada] = await Promise.all([crearMundo($("mundo"), $("capa")), enDiscord ? entrar() : Promise.resolve(null)]);
+    const entrando = enDiscord ? entrar() : Promise.resolve(null);
+    // Solo en desarrollo: `docs/editor_local.py` da una sesión con permiso de editor sin Discord.
+    const dev =
+      !enDiscord && import.meta.env.DEV && (params.has("editor") || params.has("devtools"))
+        ? api<{ session: string; guild_id: string }>("/api/dev/sesion").catch(() => null)
+        : Promise.resolve(null);
+    // El mundo publicado se pide en cuanto el login dice su versión, mientras se monta lo demás, y el mundo se monta una
+    // sola vez con él (o con el de serie). Hasta entonces sigue la pantalla de carga. El extraplano no tiene.
+    const inicial: Promise<Fuente | null> = PRUEBAS
+      ? Promise.resolve(null)
+      : enDiscord
+        ? entrando.then(
+            (e) => (e && (e.profile.mundo ?? 0) > 0 ? pedirMundo(e, e.profile.mundo) : null),
+            () => null, // el fallo del login lo enseña el `Promise.all` de abajo
+          )
+        : params.has("editor")
+          ? dev.then((d) => (d ? pedirMundo({ session: d.session, guildId: d.guild_id }) : null))
+          : Promise.resolve(null);
+    const montado = crearMundo($("mundo"), $("capa"), inicial).then((m) => {
+      momentos.mundo = performance.now();
+      return m;
+    });
+    const [mundo, entrada] = await Promise.all([montado, entrando]);
     if (entrada) {
       if (PRUEBAS && !entrada.profile.dev) {
         irAMundo(false); // el extraplano es solo de los desarrolladores
@@ -218,11 +270,15 @@ async function start(): Promise<void> {
       const sesion = { session: entrada.session, guildId: entrada.guildId, channelId: entrada.channelId };
       menuEnPildora(iniciarMenu($("capa"), mundo, sesion));
       // En el extraplano no hay paseo para los logros ni mundo publicado: solo la pista (y el casino).
-      if (!PRUEBAS) iniciarPaseo(mundo, sesion);
-      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, () => {
-        if (!PRUEBAS) void cargarObras(mundo, sesion);
+      if (!PRUEBAS) {
+        iniciarPaseo(mundo, sesion);
+        iniciarMedidas(mundo, sesion, entrada.platform);
+      }
+      iniciarSala(mundo.yo, mundo.remotos, sesion, aviso, (version) => {
+        if (!PRUEBAS) cargarObras(mundo, sesion, version);
       });
-      if (!PRUEBAS && (entrada.profile.mundo ?? 0) > 0) void cargarObras(mundo, sesion);
+      // Si el servidor ya no tiene las celdas del índice que se tiene (se podó esa versión), se pide el de ahora.
+      if (!PRUEBAS) mundo.alCaducar(() => cargarObras(mundo, sesion, 0, 500));
       iniciarGestos($("capa"), mundo.yo, entrada.profile.gestures ?? []);
       if (!PRUEBAS && entrada.profile.editor && entrada.guildId && !window.matchMedia("(pointer: coarse)").matches) {
         botonEditor(mundo, { session: entrada.session, guildId: entrada.guildId });
@@ -238,20 +294,18 @@ async function start(): Promise<void> {
       menuEnPildora(iniciarMenu($("capa"), mundo, null));
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos
       pildora("", null, SIN_DISCORD);
-      // Solo en desarrollo: `docs/editor_local.py` da una sesión con permiso de editor sin Discord.
-      if (import.meta.env.DEV && new URLSearchParams(location.search).has("editor")) {
-        const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion");
-        botonEditor(mundo, { session: dev.session, guildId: dev.guild_id });
-        void cargarObras(mundo, { session: dev.session, guildId: dev.guild_id });
+      const local = await dev;
+      if (import.meta.env.DEV && params.has("editor")) {
+        if (!local) throw new Error("Sin sesión de docs/editor_local.py");
+        botonEditor(mundo, { session: local.session, guildId: local.guild_id });
       }
       // Solo en desarrollo: `?devtools` las abre sin Discord (y `?mundo=pruebas`, el extraplano). Con `docs/editor_local.py`
       // usan su sesión y sale la sección de permisos (el servidor decide si vale).
-      if (import.meta.env.DEV && new URLSearchParams(location.search).has("devtools")) {
-        const dev = await api<{ session: string; guild_id: string }>("/api/dev/sesion").catch(() => null);
-        cargarDevtools(mundo, dev && { session: dev.session, guildId: dev.guild_id }, dev !== null);
+      if (import.meta.env.DEV && params.has("devtools")) {
+        cargarDevtools(mundo, local && { session: local.session, guildId: local.guild_id }, local !== null);
       }
       // Pruebas: con ?debug y sin Discord, el casino juega contra el `/api/entrar` de docs/sala_local.py.
-      if (new URLSearchParams(location.search).has("debug")) {
+      if (params.has("debug")) {
         const local = await api<ProfileResponse>("/api/entrar", {}).catch(() => null);
         if (local?.tragas) activarCasino(mundo, { tragas: local.tragas, botes: local.botes ?? [], sesion: null, saldo: (t) => pildora("Prueba", t) });
       }

@@ -1,8 +1,7 @@
 // Culling: reparte lo fijo del mundo en celdas (para que three descarte cada una con su esfera, en la cámara y en la del sol)
 // y oculta por distancia lo que ya no se aprecia, con histéresis; también dice qué objetos sueltos se ven este fotograma.
-import { Box3, BufferGeometry, Frustum, InstancedMesh, Material, Matrix4, Mesh, Sphere, Vector3 } from "three";
+import { Frustum, InstancedMesh, Matrix4, Mesh, Sphere, Vector3 } from "three";
 import type { Camera, Object3D } from "three";
-import { fundir } from "./geom";
 
 const HISTERESIS = 0.05; // se oculta al pasar de d·1,05 y reaparece por debajo de d·0,95
 
@@ -15,6 +14,8 @@ export interface OpcionesRegistro {
   centro?: Vector3;
   /** Si es true, `objeto.visible` sigue a la distancia (el frustum lo descarta three con su `boundingSphere`). */
   ocultar?: boolean;
+  /** Si es true, `escala` no cambia su distancia (el suelo: acortarlo dejaría huecos). */
+  fija?: boolean;
 }
 
 interface Entrada {
@@ -22,6 +23,7 @@ interface Entrada {
   radio: number;
   distancia: number;
   ocultar: boolean;
+  fija: boolean;
   cerca: boolean;
   dentro: boolean;
 }
@@ -37,13 +39,13 @@ export class Culling {
   registrar(objeto: Object3D, o: OpcionesRegistro): void {
     objeto.updateWorldMatrix(true, false);
     const centro = o.centro?.clone() ?? new Vector3().setFromMatrixPosition(objeto.matrixWorld);
-    this.entradas.set(objeto, { centro, radio: o.radio, distancia: o.distancia, ocultar: o.ocultar ?? false, cerca: true, dentro: true });
+    this.entradas.set(objeto, { centro, radio: o.radio, distancia: o.distancia, ocultar: o.ocultar ?? false, fija: o.fija ?? false, cerca: true, dentro: true });
   }
 
   /** Registra una malla con la esfera que ya tiene (la de su geometría o, en `InstancedMesh`, la de todas sus instancias). */
-  registrarMalla(malla: Mesh | InstancedMesh, distancia: number): void {
+  registrarMalla(malla: Mesh | InstancedMesh, distancia: number, fija = false): void {
     const e = esferaDe(malla);
-    this.registrar(malla, { radio: e.radius, distancia, centro: e.center, ocultar: true });
+    this.registrar(malla, { radio: e.radius, distancia, centro: e.center, ocultar: true, fija });
   }
 
   quitar(objeto: Object3D): void {
@@ -62,7 +64,7 @@ export class Culling {
     const c = camara.position;
     for (const [objeto, e] of this.entradas) {
       const d = e.centro.distanceTo(c) - e.radio;
-      const lim = e.distancia * this.escala;
+      const lim = e.fija ? e.distancia : e.distancia * this.escala;
       e.cerca = d < (e.cerca ? lim * (1 + HISTERESIS) : lim * (1 - HISTERESIS));
       e.dentro = e.cerca && this.frustum.intersectsSphere(this.esfera.set(e.centro, e.radio));
       if (e.ocultar) objeto.visible = e.cerca;
@@ -86,29 +88,3 @@ function esferaDe(malla: Mesh | InstancedMesh): Sphere {
 
 /** Clave de la celda de lado `celda` que contiene (x, z). */
 export const celdaDe = (x: number, z: number, celda: number): string => `${Math.floor(x / celda)},${Math.floor(z / celda)}`;
-
-/** Reparte piezas (geometrías ya colocadas en el mundo) por la celda de su centro. */
-export function repartir(piezas: BufferGeometry[], celda: number): BufferGeometry[][] {
-  const grupos = new Map<string, BufferGeometry[]>();
-  const caja = new Box3();
-  for (const g of piezas) {
-    g.computeBoundingBox();
-    caja.copy(g.boundingBox as Box3);
-    const k = celdaDe((caja.min.x + caja.max.x) / 2, (caja.min.z + caja.max.z) / 2, celda);
-    const lista = grupos.get(k);
-    if (lista) lista.push(g);
-    else grupos.set(k, [g]);
-  }
-  return [...grupos.values()];
-}
-
-/** Una malla fundida por celda, con el mismo material compartido y la esfera de cada una. */
-export function mallasPorCeldas(piezas: BufferGeometry[], celda: number, material: Material): Mesh[] {
-  return repartir(piezas, celda).map((grupo) => {
-    const malla = new Mesh(fundir(grupo), material);
-    malla.castShadow = true;
-    malla.receiveShadow = true;
-    malla.geometry.computeBoundingSphere();
-    return malla;
-  });
-}

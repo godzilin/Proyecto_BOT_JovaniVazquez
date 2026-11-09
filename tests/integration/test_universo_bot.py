@@ -9,6 +9,7 @@ pruebas de aiohttp sobre `Universo.build_app`, sin abrir puertos.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import struct
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -18,12 +19,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
-from aiohttp import web
+from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 from interaction_fakes import fake_interaction
 
 from bot.app import ENTRY_POINT, INITIAL_EXTENSIONS, BotClient, BotTree
 from bot.services.economy import STARTING_BALANCE, format_amount
+from bot.services.universo_sala import (
+    FULL,
+    MIN_Y_DM,
+    OLD_PAGE,
+    POSE,
+    PROTOCOL,
+    REGION_DM,
+    pack_pose,
+    place,
+)
 
 APP_ID = 1111
 GUILD_ID = 2222
@@ -313,14 +324,13 @@ async def test_si_discord_no_acepta_el_nombre_se_deja_su_comando_de_entrada() ->
     assert kept == [{"id": "77", "type": 4, "name": "launch", "description": "", "handler": 2}]
 
 
-async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: World) -> None:
+async def test_el_informe_de_paseo_solo_cuenta_lo_que_la_sala_no_ve(world: World) -> None:
     session = await login(world)
     headers = {"Authorization": f"Bearer {session}"}
     body = {"guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
     await world.web.post("/api/entrar", json=body, headers=headers)
     await asyncio.gather(*world.cog._background)
-    # Como si hubieran pasado 10 s desde que entró: caben 120 m, 20 saltos, 10 deslizamientos
-    # y 5 ganchos.
+    # Como si hubieran pasado 10 s desde que entró: caben 20 paredes y 3 ganchos.
     key = (GUILD_ID, USER_ID)
     world.cog._last_walk[key] -= 10
     response = await world.web.post(
@@ -328,9 +338,9 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
         json={
             **body,
             "meters": 90,
-            "jumps": 500,
+            "jumps": 5,
             "slides": 3,
-            "places": ["faro", "faro", "luna", 7],
+            "places": ["faro"],
             "wallruns": 4,
             "grapples": 50,
             "speed": 99,
@@ -340,22 +350,104 @@ async def test_pasear_apunta_lo_recorrido_recortado_a_lo_que_da_tiempo(world: Wo
     )
     assert response.status == 200
     cheat = await world.web.post(
-        "/api/paseo", json={**body, "meters": 10_000, "jumps": -3}, headers=headers
+        "/api/paseo", json={**body, "wallruns": 10_000, "chain": -3}, headers=headers
     )
     assert cheat.status == 200
     await world.client.get_cog("Achievements").flush()
     profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
-    assert 90 <= profile.stats["universo_meters"] < 92
-    assert profile.stats["universo_jumps"] == 20
-    assert profile.stats["universo_slides"] == 3
-    # 10 s dan para 5 ganchos (uno cada 3 s, con margen) y la velocidad no pasa de 20 m/s.
+    # Los metros, saltos, deslizamientos y lugares los cuenta la sala: los de la página no.
+    for stat in ("universo_meters", "universo_jumps", "universo_slides", "universo_place_faro"):
+        assert stat not in profile.stats
+    # 10 s dan para 3 ganchos (uno cada 3 s) y la velocidad no pasa de 20 m/s.
     assert profile.stats["universo_wallruns"] == 4
-    assert profile.stats["universo_grapples"] == 5
+    assert profile.stats["universo_grapples"] == 3
     assert profile.stats["universo_speed_max"] == 20
     assert profile.stats["universo_chain_max"] == 3
-    assert profile.stats["universo_place_faro"] == 1
-    assert "universo_place_luna" not in profile.stats
-    assert {"universo_jumps_1", "universo_place_faro"} <= set(profile.unlocked)
+
+
+async def test_las_medidas_de_la_pagina_van_a_la_telemetria_con_tope(world: World) -> None:
+    session = await login(world)
+    headers = {"Authorization": f"Bearer {session}"}
+    body = {
+        "guild_id": str(GUILD_ID),
+        "platform": "mobile",
+        "segundos": 300,
+        "fotogramas": 9000,
+        "fps_p5": 18,
+        "llamadas": 80,
+        "llamadas_max": 140,
+        "triangulos": 150_000,
+        "triangulos_max": 260_000,
+        "ratio": 1,
+        "ratio_max": 1.5,
+        "sombras": True,
+        "entrada": {"login": 2500, "frame": 6000},
+        "gpu": "adreno",
+        "ancho": 400,
+        "alto": 800,
+    }
+    world.client.telemetry._counters.clear()
+    assert (await world.web.post("/api/medidas", json=body)).status == 401
+    assert (await world.web.post("/api/medidas", json=body, headers=headers)).status == 200
+    # Otro antes de `MEDIDAS_SECONDS`: no cuenta.
+    again = await world.web.post("/api/medidas", json={**body, "fotogramas": 1}, headers=headers)
+    assert again.status == 429
+    found = {
+        key.name: counter
+        for key, counter in world.client.telemetry._counters.items()
+        if key.kind == "universo_disp"
+    }
+    assert found["fps · mobile"].ms_total == 30
+    assert found["fps_p5 · mobile"].ms_max == 18
+    assert found["llamadas_max · mobile"].ms_max == 140
+    assert found["triangulos · mobile"].ms_total == 150_000
+    assert found["resolucion_baja · mobile"].events == 1
+    assert "sin_sombras · mobile" not in found
+    assert found["entrada_frame · mobile"].ms_max == 6000
+    assert found["gpu:adreno · mobile"].events == 1
+    assert found["pantalla:400x800 · mobile"].events == 1
+    assert found["tramo · mobile"].events == 1
+    # Pasado el tope, vuelve a contar; sin logros de nada.
+    world.cog._last_medidas[USER_ID] -= 60
+    assert (await world.web.post("/api/medidas", json=body, headers=headers)).status == 200
+    assert world.client.telemetry._counters  # sigue en memoria hasta el volcado
+
+
+async def test_la_sala_cuenta_el_paseo_con_las_poses_que_acepta(world: World) -> None:
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID), "channel_id": str(CHANNEL_ID)}
+    ana = await world.web.ws_connect("/api/sala")
+    await ana.send_json({**hello, "session": await login(world)})
+    assert (await ana.receive_json())["t"] == "bienvenida"
+    (player,) = world.cog.salas.present(GUILD_ID)
+    player.flushed -= 10  # como si llevara 10 s dentro: caben 20 saltos
+    # En la plaza (`ZONES_DM`), 12 m corriendo, un salto y un teleporte avisado a la cima,
+    # que no cuenta ni metros ni el lugar.
+    for x, anim in ((-80, 2), (40, 2), (40, 3)):
+        await ana.send_bytes(pack_pose(x, 80, 600, 0, anim))
+    await ana.send_json({"t": "salto"})
+    await ana.send_bytes(pack_pose(-50, 497, 80, 0, 0))
+    await ana.send_bytes(pack_pose(-50, 497, 81, 0, 0))
+    for _ in range(50):
+        if place_of(player) == (-50, 497, 81):
+            break
+        await asyncio.sleep(0.01)
+    assert place_of(player) == (-50, 497, 81)
+    await ana.close()
+    for _ in range(50):
+        if not world.cog.salas.rooms:
+            break
+        await asyncio.sleep(0.01)
+    await world.client.get_cog("Achievements").flush()
+    profile = await world.client.achievements.profile(GUILD_ID, USER_ID)
+    assert profile.stats["universo_meters"] == 12
+    assert profile.stats["universo_jumps"] == 1
+    assert profile.stats["universo_place_plaza"] == 1
+    assert "universo_place_nieves" not in profile.stats
+
+
+def place_of(player: object) -> tuple[int, int, int] | None:
+    pose = getattr(player, "pose", None)
+    return place(pose) if pose else None
 
 
 async def test_los_teleportes_del_paseo_cuentan_recortados(world: World) -> None:
@@ -388,7 +480,7 @@ async def test_la_lista_de_jugadores_trae_a_los_de_dentro_y_al_resto_con_saldo(
     await world.client.economy.grant(GUILD_ID, 777, amount=10_000, reason="prueba")
     session = await login(world)
     ana = await world.web.ws_connect("/api/sala")
-    await ana.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": session})
+    await ana.send_json({"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID), "session": session})
     assert (await ana.receive_json())["t"] == "bienvenida"
     response = await world.web.get(
         f"/api/jugadores?guild_id={GUILD_ID}", headers={"Authorization": f"Bearer {session}"}
@@ -436,13 +528,28 @@ async def test_pasear_sin_sesion_no_deja(world: World) -> None:
 # -- Multijugador (`/api/sala`) ------------------------------------------------------------
 
 
+async def test_una_pagina_de_antes_del_despliegue_recibe_que_recargue(world: World) -> None:
+    # La versión 1 no mandaba `v`: se le pide recargar (con `error`, no reintenta) y no entra.
+    old = await world.web.ws_connect("/api/sala")
+    await old.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": await login(world)})
+    assert await old.receive_json(timeout=2) == {"t": "error", "error": OLD_PAGE}
+    assert (await old.receive(timeout=2)).type in (WSMsgType.CLOSE, WSMsgType.CLOSED)
+    assert world.cog.salas.rooms == {}
+    # La sala sigue atendiendo a las de ahora.
+    new = await world.web.ws_connect("/api/sala")
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID)}
+    await new.send_json({**hello, "session": await login(world)})
+    assert (await new.receive_json(timeout=2))["t"] == "bienvenida"
+    await new.close()
+
+
 async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) -> None:
     other = member(777)
     other.display_name = "Bea"
     guild = world.client.get_guild(GUILD_ID)
     members = {USER_ID: guild.get_member(USER_ID), 777: other}
     guild.get_member = members.get
-    hello = {"t": "hola", "guild_id": str(GUILD_ID)}
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID)}
     ana = await world.web.ws_connect("/api/sala")
     await ana.send_json({**hello, "session": await login(world)})
     welcome = await ana.receive_json()
@@ -451,9 +558,15 @@ async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) ->
     await bea.send_json({**hello, "session": world.cog.signer.issue(777)})
     assert (await bea.receive_json())["jugadores"][0]["nombre"] == "Yeyo"
     assert (await ana.receive_json())["nombre"] == "Bea"
-    await bea.send_bytes(struct.pack("<BhhhBB", 1, 15, 3, -40, 128, 2))
+    # Ana no recibe a nadie hasta que se sabe dónde está; luego, todo lo que tiene cerca.
+    await ana.send_bytes(pack_pose(0, 3, 0, 0, 0))
+    assert (await ana.receive_bytes(timeout=2))[0] == FULL
+    await bea.send_bytes(pack_pose(15, 3, -40, 128, 2))
     tick = await ana.receive_bytes(timeout=2)
-    assert tick[:2] == bytes((1, 1)) and struct.unpack_from("<hhh", tick, 3) == (15, 3, -40)
+    # Un grupo, el de la región (0, -1), con Bea, desde su esquina.
+    assert tick[0] == POSE and struct.unpack_from("<hhB", tick, 1) == (0, -1, 1)
+    slot, dx, y, dz, yaw, anim = struct.unpack_from("<BhHhBB", tick, 6)
+    assert (dx, y + MIN_Y_DM, dz - REGION_DM, yaw, anim) == (15, 3, -40, 128, 2)
     await bea.close()
     assert (await ana.receive_json(timeout=2))["t"] == "sale"
     await ana.close()
@@ -467,7 +580,7 @@ async def test_dos_jugadores_se_ven_y_coinciden_para_los_logros(world: World) ->
 async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
     world: World,
 ) -> None:
-    from bot.cogs.universo import DEVS
+    from bot.cogs.universo.permisos import DEVS
 
     dev_id = min(DEVS)
     guild = world.client.get_guild(GUILD_ID)
@@ -482,7 +595,7 @@ async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
     assert (await entrar(await login(world)))["dev"] is False
     assert (await entrar(world.cog.signer.issue(dev_id)))["dev"] is True
 
-    hello = {"t": "hola", "guild_id": str(GUILD_ID), "mundo": "pruebas"}
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID), "mundo": "pruebas"}
     nadie = await world.web.ws_connect("/api/sala")
     await nadie.send_json({**hello, "session": await login(world)})
     assert (await nadie.receive_json())["error"].startswith("El mundo de pruebas")
@@ -492,7 +605,7 @@ async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
     dev = await world.web.ws_connect("/api/sala")
     await dev.send_json({**hello, "session": world.cog.signer.issue(dev_id)})
     assert (await dev.receive_json())["jugadores"] == []  # no ve a quien está en la isla
-    await dev.send_bytes(struct.pack("<BhhhBB", 1, 15, 1900, -40, 128, 0))
+    await dev.send_bytes(pack_pose(15, 1900, -40, 128, 0))
     assert list(world.cog.pruebas.rooms) == [GUILD_ID]
     assert [p.user_id for p in world.cog.salas.present(GUILD_ID)] == [USER_ID]
     await dev.close()
@@ -503,7 +616,7 @@ async def test_solo_los_desarrolladores_tienen_devtools_y_entran_al_extraplano(
 
 
 async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: World) -> None:
-    from bot.cogs.universo import DEVS
+    from bot.cogs.universo.permisos import DEVS
 
     dev_id = min(DEVS)
     guild = world.client.get_guild(GUILD_ID)
@@ -549,7 +662,9 @@ async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: 
     assert (profile["editor"], profile["dev"]) == (True, True)
     assert (await world.web.get("/api/editor/borrador", **borrador)).status == 200
     sala = await world.web.ws_connect("/api/sala")
-    await sala.send_json({**query, "t": "hola", "mundo": "pruebas", "session": await login(world)})
+    await sala.send_json(
+        {**query, "t": "hola", "v": PROTOCOL, "mundo": "pruebas", "session": await login(world)}
+    )
     assert (await sala.receive_json())["t"] == "bienvenida"
     await sala.close()
 
@@ -565,7 +680,7 @@ async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: 
 
 async def test_la_sala_sin_sesion_contesta_error_y_cierra(world: World) -> None:
     ws = await world.web.ws_connect("/api/sala")
-    await ws.send_json({"t": "hola", "guild_id": str(GUILD_ID), "session": "falsa"})
+    await ws.send_json({"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID), "session": "falsa"})
     assert (await ws.receive_json())["t"] == "error"
     assert (await ws.receive()).type.name in {"CLOSE", "CLOSED", "CLOSING"}
     garbage = await world.web.ws_connect("/api/sala")
@@ -583,13 +698,13 @@ async def test_solo_se_ven_los_gestos_comprados_y_cuentan_para_los_logros(world:
         headers={"Authorization": f"Bearer {session}"},
     )
     assert (await entry.json())["gestures"] == [5]
-    hello = {"t": "hola", "guild_id": str(GUILD_ID), "session": session}
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID), "session": session}
     ana = await world.web.ws_connect("/api/sala")
     await ana.send_json(hello)
     assert (await ana.receive_json())["t"] == "bienvenida"
     player = world.cog.salas.present(GUILD_ID)[0]
-    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 0, 0, 4))  # saludo sin comprar
-    await ana.send_bytes(struct.pack("<BhhhBB", 1, 0, 0, 1, 0, 5))  # baile comprado
+    await ana.send_bytes(pack_pose(0, 0, 0, 0, 4))  # saludo sin comprar
+    await ana.send_bytes(pack_pose(0, 0, 1, 0, 5))  # baile comprado
     tick = await ana.receive_bytes(timeout=2)
     assert tick[-1] == 5
     assert player.gestures == frozenset({5})
@@ -641,28 +756,57 @@ async def test_una_tirada_en_la_plaza_cobra_de_verdad_y_trae_la_animacion(
     assert "slots_turbo" not in profile.stats
 
 
-async def test_los_demas_de_la_sala_ven_tu_tirada_sin_tu_saldo(world: World) -> None:
+async def notices(ws: object) -> list[str]:
+    """Los tipos de los avisos JSON que llegan hasta que la sala se calla."""
+    found = []
+    with contextlib.suppress(asyncio.TimeoutError):
+        while True:
+            message = await ws.receive(timeout=0.2)
+            if message.type is WSMsgType.TEXT:
+                found.append(message.json()["t"])
+    return found
+
+
+async def test_los_de_cerca_ven_tu_tirada_sin_tu_saldo_y_los_de_lejos_no(world: World) -> None:
+    from bot.services.universo_sala import SPIN_SEEN_DM
+
     guild = world.client.get_guild(GUILD_ID)
-    members = {USER_ID: guild.get_member(USER_ID), 777: member(777)}
+    members = {USER_ID: guild.get_member(USER_ID), 777: member(777), 778: member(778)}
     guild.get_member = members.get
     session = await login(world)
-    hello = {"t": "hola", "guild_id": str(GUILD_ID)}
-    ana = await world.web.ws_connect("/api/sala")
+    hello = {"t": "hola", "v": PROTOCOL, "guild_id": str(GUILD_ID)}
+    # La página pide permessage-deflate, como un navegador; la sala no lo acepta.
+    ana = await world.web.ws_connect("/api/sala", compress=15)
+    assert ana.compress == 0
     await ana.send_json({**hello, "session": session})
     assert (await ana.receive_json())["t"] == "bienvenida"
     bea = await world.web.ws_connect("/api/sala")
     await bea.send_json({**hello, "session": world.cog.signer.issue(777)})
     assert (await bea.receive_json())["t"] == "bienvenida"
     assert (await ana.receive_json())["t"] == "entra"
+    eva = await world.web.ws_connect("/api/sala")
+    await eva.send_json({**hello, "session": world.cog.signer.issue(778)})
+    assert (await eva.receive_json())["t"] == "bienvenida"
+    for ws, x in ((ana, 0), (bea, SPIN_SEEN_DM - 10), (eva, SPIN_SEEN_DM + 10)):
+        await ws.send_bytes(pack_pose(x, 0, 0, 0, 0))
+    room = world.cog.salas.rooms[GUILD_ID]
+    async with asyncio.timeout(2):
+        while any(p.pose is None for p in room.players.values()):
+            await asyncio.sleep(0.01)
     status, body = await spin(world, session, machine=3)
     assert status == 200, body
-    seen = await bea.receive_json(timeout=2)
+    # Antes de la tirada le llegan los ticks y la entrada de Eva.
+    while (message := await bea.receive(timeout=2)).type is WSMsgType.BINARY or (
+        message.json()["t"] == "entra"
+    ):
+        pass
+    seen = message.json()
     assert seen["t"] == "traga" and seen["machine"] == 3
     assert seen["states"] == body["states"] and seen["pot_text"] == body["pot_text"]
     assert not {"balance", "balance_text", "text", "bet"} & seen.keys()
-    # Quien tira no recibe su propia tirada por la sala: ya la tiene en la respuesta.
-    with pytest.raises(asyncio.TimeoutError):
-        await ana.receive_json(timeout=0.2)
+    # Quien tira ya la tiene en la respuesta, y quien está lejos no ve la máquina.
+    assert "traga" not in await notices(ana) + await notices(eva)
+    await eva.close()
     await bea.close()
     await ana.close()
     await settle(world)

@@ -71,6 +71,16 @@ RARITY_ORDER = ("Común", "Raro", "Épico", "Legendario", "Mítico")
 # Lo que va por día en el informe: al juntar varios, se une día a día (y dentro de
 # cada día, campo a campo: la masa monetaria solo viene en el informe de ese día).
 DAILY_KEYS = ("por_dia", "sistema", "arranques", "economia_dia")
+# Presupuesto por fotograma del Jovaniverso (Biblia, «Jovaniverso: rendimiento imperativo»).
+UNIVERSO_CALLS = 120
+UNIVERSO_TRIANGLES = 250_000
+UNIVERSO_FPS_WARN = 30
+UNIVERSO_ENTRY = (
+    ("login", "Login"),
+    ("api", "Perfil (/api/entrar)"),
+    ("mundo", "Mundo montado"),
+    ("frame", "Primer fotograma"),
+)
 
 
 # --------------------------------------------------------------------------- utilidades
@@ -1381,6 +1391,117 @@ def section_casino(report: Report, top: int) -> list[str]:
     return _section("Casino", body)
 
 
+def section_universo_devices(report: Report, top: int) -> list[str]:
+    """Cómo va el Jovaniverso en los dispositivos (`universo_disp`, de `/api/medidas`).
+
+    Cada nombre es «medida · plataforma» y el valor va en los campos de `ms`: la media de
+    los tramos (cada 5 min de juego) y el máximo de todos.
+    """
+    by: dict[str, dict[str, dict[str, Any]]] = {}
+    for e in _entries(report, "universo_disp"):
+        name, _, platform = str(e.get("nombre")).rpartition(" · ")
+        by.setdefault(platform, {})[name] = e
+    body: list[str] = []
+    if not by:
+        return _section("Jovaniverso en los dispositivos", body)
+
+    def get(m: dict[str, dict[str, Any]], name: str, field: str = "eventos") -> float:
+        return _num(_dict(m.get(name)).get(field))
+
+    rows, budget, entry = [], [], []
+    for platform, m in sorted(by.items()):
+        tramos = get(m, "tramo")
+        fps = get(m, "fps", "ms_medio")
+        rows.append(
+            (
+                platform,
+                int(tramos),
+                int(get(m, "tramo", "usuarios")),
+                f"{fps:.0f}" + (f" {WARN}" if tramos and fps < UNIVERSO_FPS_WARN else ""),
+                f"{get(m, 'fps_p5', 'ms_medio'):.0f}",
+                f"{_pct(get(m, 'sin_sombras'), tramos)} ({int(get(m, 'sin_sombras', 'usuarios'))})",
+                f"{_pct(get(m, 'resolucion_baja'), tramos)}"
+                f" ({int(get(m, 'resolucion_baja', 'usuarios'))})",
+                f"{int(get(m, 'bajadas'))} / {int(get(m, 'subidas'))}",
+                int(get(m, "reconexiones")),
+            )
+        )
+        if tramos:
+            calls, tris = get(m, "llamadas_max", "ms_max"), get(m, "triangulos_max", "ms_max")
+            budget.append(
+                (
+                    platform,
+                    f"{get(m, 'llamadas', 'ms_medio'):.0f}",
+                    f"{calls:.0f}" + (f" {WARN}" if calls > UNIVERSO_CALLS else ""),
+                    f"{get(m, 'triangulos', 'ms_medio'):,.0f}".replace(",", "."),
+                    f"{tris:,.0f}".replace(",", ".")
+                    + (f" {WARN}" if tris > UNIVERSO_TRIANGLES else ""),
+                )
+            )
+        for step, label in UNIVERSO_ENTRY:
+            if get(m, f"entrada_{step}"):
+                entry.append(
+                    (
+                        platform,
+                        label,
+                        int(get(m, f"entrada_{step}")),
+                        f"{get(m, f'entrada_{step}', 'ms_medio') / 1000:.1f}",
+                        f"{get(m, f'entrada_{step}', 'ms_max') / 1000:.1f}",
+                    )
+                )
+    body = [
+        "Tramos de ~5 min de juego. Sin sombras y a resolución baja, al acabar cada tramo",
+        "(entre paréntesis, miembros distintos). Bajadas / subidas de la calidad adaptativa.",
+        "",
+    ]
+    body += _table(
+        [
+            "Plataforma",
+            "Tramos",
+            "Miembros",
+            "fps medio",
+            "fps p5",
+            "Sin sombras",
+            "Resolución baja",
+            "Bajadas / subidas",
+            "Reconexiones",
+        ],
+        rows,
+    )
+    if budget:
+        body += [
+            "",
+            f"Presupuesto por fotograma: {UNIVERSO_CALLS} llamadas de dibujo y"
+            f" {UNIVERSO_TRIANGLES:,} triángulos, sombras incluidas.".replace(",", "."),
+            "",
+        ]
+        body += _table(
+            [
+                "Plataforma",
+                "Llamadas medias",
+                "Llamadas máx",
+                "Triángulos medios",
+                "Triángulos máx",
+            ],
+            budget,
+        )
+    if entry:
+        body += ["", "Entrada: segundos desde que se abre la página hasta acabar cada tramo.", ""]
+        body += _table(["Plataforma", "Tramo", "Entradas", "s medio", "s máx"], entry)
+    for prefix, title in (("gpu:", "GPU"), ("pantalla:", "Pantallas")):
+        seen = sorted(
+            (
+                (-get(m, name), f"{name.removeprefix(prefix)} ({platform})")
+                for platform, m in by.items()
+                for name in m
+                if name.startswith(prefix)
+            ),
+        )[:top]
+        if seen:
+            body += ["", f"{title}: " + ", ".join(f"{label} {int(-n)}" for n, label in seen)]
+    return _section("Jovaniverso en los dispositivos", body)
+
+
 def section_economy(report: Report, top: int) -> list[str]:
     """Masa monetaria, desigualdad, cuentas del sistema y motivos con más movimiento."""
     eco = _dict(report.get("economia"))
@@ -1455,6 +1576,7 @@ def build_text(
         section_views,
         section_misuse,
         section_menus,
+        section_universo_devices,
         section_casino,
         section_economy,
         section_economy_days,

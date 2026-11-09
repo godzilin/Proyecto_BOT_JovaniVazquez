@@ -6,7 +6,8 @@ import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineLoop, ty
 import type { Mundo } from "../mundo";
 import { alturaEn, alturas, CELDAS, fijarTerreno, MAX_ALTURA, MIN_ALTURA, MITAD, N1, PALETA, PASO, pinturas, sueloEn, terrenoDoc, terrenoEn } from "../mundo/terreno";
 import { h } from "./dom";
-import type { MundoDoc, Objeto } from "./formato";
+import { MAX_OBJETOS_CELDA, type MundoDoc, type Objeto } from "./formato";
+import { numeroCelda } from "./trozos";
 import type { Anfitrion } from "./panel";
 
 export type Herramienta = "subir" | "aplanar" | "suavizar" | "pintar" | "vegetacion";
@@ -25,8 +26,6 @@ const MAX_RADIO = 40;
 const VELOCIDAD = 8;
 /** Un objeto a menos de esto de su suelo antes del trazo se considera apoyado y lo sigue. */
 const APOYADO = 4;
-// Los mismos topes que el editor de niveles y el servidor.
-const MAX_OBJETOS = 20_000;
 const MAX_POR_PASO = 6;
 /** Cada cuánto se rehacen las obras mientras se siembra (rehacerlas es lo caro). */
 const REHACER_MS = 350;
@@ -320,17 +319,26 @@ export class PincelTerreno {
     const cabida = (Math.PI * r * r) / (this.separacion * this.separacion);
     let intentos = Math.min(MAX_POR_PASO, Math.ceil(cabida * this.fuerza * dt * 2));
     const cerca = objetos.filter((o) => this.sembrar.has(o.asset) && Math.hypot(o.pos[0] - cx, o.pos[2] - cz) < r + this.separacion);
+    // El tope es por celda, como en el servidor (`MAX_CELL_OBJECTS`): se cuentan solo las del pincel.
+    const porCelda = new Map<number, number>();
+    for (const o of objetos) {
+      if (Math.abs(o.pos[0] - cx) > r + 80 || Math.abs(o.pos[2] - cz) > r + 80) continue;
+      const n = numeroCelda(o.pos[0], o.pos[2]);
+      porCelda.set(n, (porCelda.get(n) ?? 0) + 1);
+    }
     while (intentos-- > 0) {
-      if (objetos.length >= MAX_OBJETOS) {
-        this.a.aviso(`El mundo puede tener ${MAX_OBJETOS} objetos como mucho.`);
-        break;
-      }
       const ang = Math.random() * 2 * Math.PI;
       const d = Math.sqrt(Math.random()) * r;
       const x = cx + Math.cos(ang) * d;
       const z = cz + Math.sin(ang) * d;
       if (Math.abs(x) > MITAD || Math.abs(z) > MITAD || terrenoEn(x, z) < 0.3) continue; // nada en el agua
       if (cerca.some((o) => Math.hypot(o.pos[0] - x, o.pos[2] - z) < this.separacion)) continue;
+      const celda = numeroCelda(x, z);
+      if ((porCelda.get(celda) ?? 0) >= MAX_OBJETOS_CELDA) {
+        this.a.aviso(`Una celda de 80 m puede tener ${MAX_OBJETOS_CELDA} objetos como mucho.`);
+        break;
+      }
+      porCelda.set(celda, (porCelda.get(celda) ?? 0) + 1);
       const e = 0.8 + Math.random() * 0.4;
       const o: Objeto = {
         asset: ids[Math.floor(Math.random() * ids.length)],
@@ -351,25 +359,29 @@ export class PincelTerreno {
     this.trazando = false;
     cancelAnimationFrame(this.bucle);
     const [ix0, iz0, ix1, iz1] = this.caja;
+    let movidos: Objeto[] = [];
     if (this.antes && ix0 <= ix1) {
-      this.seguirSuelo(this.antes, ix0 * PASO - MITAD, iz0 * PASO - MITAD, ix1 * PASO - MITAD, iz1 * PASO - MITAD);
+      movidos = this.seguirSuelo(this.antes, ix0 * PASO - MITAD, iz0 * PASO - MITAD, ix1 * PASO - MITAD, iz1 * PASO - MITAD);
       this.doc.terreno = terrenoDoc();
       this.mundo.retocarTerreno(ix0 - 1, iz0 - 1, ix1 + 1, iz1 + 1, true);
     }
     this.antes = null;
-    if (this.a.b.commit() || this.sembrados) this.g.rehacerObras();
+    if (this.a.b.commit({ objetos: movidos }) || this.sembrados) this.g.rehacerObras();
     this.a.estado();
   }
 
-  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo desde `antes`. */
-  private seguirSuelo(antes: Float32Array, x0: number, z0: number, x1: number, z1: number): void {
+  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo desde `antes`; devuelve los apoyados. */
+  private seguirSuelo(antes: Float32Array, x0: number, z0: number, x1: number, z1: number): Objeto[] {
+    const movidos: Objeto[] = [];
     for (const o of this.doc.objetos) {
       const [x, y, z] = o.pos;
       if (x < x0 || x > x1 || z < z0 || z > z1) continue;
       const viejo = alturaEn(antes, x, z);
       if (Math.abs(y - viejo) > APOYADO) continue;
       o.pos[1] = r4(limitar(y + terrenoEn(x, z) - viejo, MIN_ALTURA, MAX_ALTURA));
+      movidos.push(o);
     }
+    return movidos;
   }
 
   /** Quita el terreno del documento: vuelve la isla de la fórmula, y los objetos apoyados con ella. */
@@ -378,9 +390,9 @@ export class PincelTerreno {
     const antes = alturas.slice();
     delete this.doc.terreno;
     fijarTerreno(undefined);
-    this.seguirSuelo(antes, -MITAD, -MITAD, MITAD, MITAD);
+    const movidos = this.seguirSuelo(antes, -MITAD, -MITAD, MITAD, MITAD);
     this.mundo.retocarTerreno(0, 0, CELDAS, CELDAS, true);
-    this.a.b.commit();
+    this.a.b.commit({ objetos: movidos });
     this.g.rehacerObras();
     this.colocarAnillo();
     this.a.estado();

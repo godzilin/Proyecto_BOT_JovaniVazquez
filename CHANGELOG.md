@@ -20,6 +20,50 @@ criterio.
 
 ## 10.x
 
+### 10.12.0 · 2026-11-08
+
+- Jovaniverso: el mundo ya no tiene tope y se carga por cercanía
+
+### 10.11.0 · 2026-11-08
+
+- Jovaniverso: el mundo puede medir hasta 80 km y 4000 m de alto, y cada uno recibe solo a los que tiene cerca
+
+### 10.10.8 · 2026-11-08
+
+- Interno: el servidor del Jovaniverso, repartido en un archivo por tema
+
+### 10.10.7 · 2026-11-08
+
+- Jovaniverso: el mundo del editor tiene un tope de 8 MB y la barra enseña cuánto ocupa
+- Interno: pruebas que vigilan que la página y la sala usan las mismas poses, animaciones y lugares
+
+### 10.10.6 · 2026-11-08
+
+- Interno: el Jovaniverso mide cómo va en cada móvil y ordenador (fps, calidad, dibujo y entrada) para el informe
+
+### 10.10.5 · 2026-11-08
+
+- Jovaniverso: el paseo lo cuenta el servidor y nadie va más rápido que la física
+
+### 10.10.4 · 2026-11-08
+
+- Jovaniverso: al publicar un cambio, cada página baja solo las celdas que cambiaron y rehace solo esas (antes, el mundo entero a la vez para todos)
+- Jovaniverso: el editor solo convierte y compara los trozos que toca cada cambio, también al deshacer, rehacer y guardar (antes, el mundo entero en cada clic)
+
+### 10.10.3 · 2026-11-08
+
+- Jovaniverso: los modelos que importa el editor se guardan como archivos y no dentro de la base de datos del dinero. Caben 200 MB entre todos y los que no usa ningún mundo se borran solos al día
+- Interno: al arrancar, los modelos que ya había en la base pasan a archivos, una sola vez
+
+### 10.10.2 · 2026-11-08
+
+- Jovaniverso: borde del mundo, calidad que vuelve y entrada más rápida
+
+### 10.10.1 · 2026-11-08
+
+- Jovaniverso: la tirada de una tragaperras solo se manda a quien está a 60 m o menos de quien juega (antes, a toda la isla), y la sala ya no comprime cada mensaje una vez por jugador
+- Interno: una prueba pasa `tsc` al TypeScript del Jovaniverso antes de desplegar, para que un error de tipos no deje al NAS sin actualizar
+
 ### 10.10.0 · 2026-11-08
 
 - Jovaniverso: movimiento de piloto. Saltando junto a una pared y yendo en paralelo se corre por ella; saltar ahí te lanza a la siguiente

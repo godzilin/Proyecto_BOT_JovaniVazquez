@@ -74,7 +74,9 @@ Lo que más se olvida:
   la duda, el escalón más alto. Sección «Versiones» de `Biblia.txt`.
 - **Comprobar antes de entregar:** `ruff check src tests`, `ruff format --check src tests`
   y las pruebas. En cada commit basta la tanda rápida, `python -m pytest -q -m "not lenta"`;
-  antes de subir a `main`, la entera, `python -m pytest -q`.
+  antes de subir a `main`, la entera, `python -m pytest -q`. Al tocar `universo/`, también
+  `python -m pytest -q tests/integration/test_universo_tipos.py` (`tsc --noEmit`, `lenta`): si
+  no, un error de tipos solo sale en `docker build` y el NAS se queda sin desplegar nada.
 - **Pruebas rápidas:** una prueba nueva no pinta, no simula y no espera al reloj si no le hace
   falta. Al final de cada tanda sale «Pruebas lentas sin @pytest.mark.lenta» con las que gastan
   más de 3 s de CPU, y si alguna pasa de 10 s de CPU (o de 30 s de reloj) la tanda falla. Lo que

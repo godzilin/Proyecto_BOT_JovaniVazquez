@@ -13,6 +13,9 @@ export interface Gesto {
   modo: "una" | "bucle" | "queda";
 }
 
+/** Id de la sala del primer gesto (`FIRST_GESTURE` del servidor); los de antes son quieto, andar, correr y saltar (`ANIMS`). */
+export const PRIMER_GESTO = 4;
+
 export const GESTOS: readonly Gesto[] = [
   { id: 4, clip: "Wave", emoji: "👋", etiqueta: "Saludar", tecla: "1", modo: "una" },
   { id: 5, clip: "Dance", emoji: "💃", etiqueta: "Bailar", tecla: "2", modo: "bucle" },
@@ -24,7 +27,7 @@ export const GESTOS: readonly Gesto[] = [
 ];
 
 /** Gesto por su id de la sala (4-10), o undefined. */
-export const gestoDe = (id: number): Gesto | undefined => GESTOS[id - 4];
+export const gestoDe = (id: number): Gesto | undefined => GESTOS[id - PRIMER_GESTO];
 
 const BLOQUEADO = "Cómpralo en la tienda del bot (tienda) y vuelve a abrir el Jovaniverso";
 

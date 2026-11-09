@@ -42,13 +42,21 @@ def volcar() -> dict[str, Any]:
     Raises:
         subprocess.CalledProcessError: Si falla la compilación o la ejecución.
     """
+    return evaluar("src/mundo/serie.ts", "m.mundoDeSerie()")
+
+
+def evaluar(modulo: str, expresion: str) -> Any:
+    """Compila un módulo de `universo/` (importado como `m`) y devuelve `expresion` en JSON.
+
+    Raises:
+        subprocess.CalledProcessError: Si falla la compilación o la ejecución.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         carpeta = Path(tmp)
         entrada = carpeta / "volcar.ts"
-        serie = (UNIVERSO / "src/mundo/serie.ts").as_posix()
+        ruta = (UNIVERSO / modulo).as_posix()
         entrada.write_text(
-            f'import {{ mundoDeSerie }} from "{serie}";\n'
-            "process.stdout.write(JSON.stringify(mundoDeSerie()));\n",
+            f'import * as m from "{ruta}";\nprocess.stdout.write(JSON.stringify({expresion}));\n',
             encoding="utf-8",
         )
         # Una configuración sin imports (vive fuera de universo/) que empaqueta también three.

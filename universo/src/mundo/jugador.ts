@@ -1,5 +1,5 @@
 // El jugador: el robot (modelo glb con animaciones) y su movimiento: velocidad, gravedad, salto, pendientes,
-// colisiones con círculos y pared invisible en el mar. Las unidades son metros y segundos.
+// colisiones con círculos, pared invisible en el mar y el borde del mundo (`borde.ts`). Las unidades son metros y segundos.
 // Movimiento con técnica: agacharse corriendo es deslizarse (con impulso cada DESLIZ_RECARGA s y que acelera cuesta
 // abajo), saltar desde el deslizamiento o nada más caer conserva la velocidad (bunny hop), en el aire se gira sin
 // frenar (air strafe), y el salto perdona un poco tarde (coyote) y un poco pronto (buffer).
@@ -25,15 +25,16 @@ import {
   Vector3,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { circulos, empujar } from "./colision";
-import { GESTOS, gestoDe } from "./gestos";
+import { encerrar } from "./borde";
+import { circulosCerca, empujar } from "./colision";
+import { gestoDe } from "./gestos";
 import { clamp } from "./ruido";
 import { NIVEL_MAR, SUELO_AGUA, PLAZA, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./terreno";
 import { MATERIAL_CUERPO, colorCuerpo, tonoDe } from "./robot";
 import robotUrl from "../modelos/robot.glb?url";
 
 export const VEL_ANDAR = 5;
-export const VEL_CORRER = 9; // el servidor recorta a 12 m/s: nunca pasar de 10
+export const VEL_CORRER = 9;
 const GRAVEDAD = 20;
 const VEL_SALTO = Math.sqrt(2 * GRAVEDAD * 1.3); // 1,3 m de altura
 const RADIO = 0.45;
@@ -43,7 +44,7 @@ const VEL_VUELO = 6; // m/s al subir o bajar volando, por la velocidad de las de
 export const PASO_ANDAR = 2.1;
 export const PASO_CORRER = 4.2;
 const VEL_AGACHADO = 2.5;
-/** Tope con impulsos encadenados (y del logro de velocidad); el paseo para los logros se recorta a 12 m/s de media. */
+/** Tope con impulsos encadenados (y del logro de velocidad); la sala no deja ir más rápido (`RUN_DM_PER_SECOND`, con margen). */
 export const VEL_MAX = 20;
 const DESLIZ_MIN = 6; // m/s para que agacharse sea deslizarse
 const DESLIZ_IMPULSO = 3.5;
@@ -72,6 +73,7 @@ const GANCHO_ALCANCE = 40;
 const GANCHO_TIRON = 34; // m/s² hacia el ancla, contra 20 de gravedad
 const GANCHO_DUR = 2;
 const GANCHO_RECARGA = 3; // s desde que se suelta
+const GANCHO_VY = 14; // m/s hacia arriba como mucho tirando del gancho (`CLIMB_DM_PER_SECOND` de la sala)
 const GANCHO_LLEGAR = 1.5; // m del ancla en los que se suelta solo, con el impulso que lleves
 /** Lados a los que se busca pared del terreno, girando hacia donde vas: (seno, coseno) de ±90° y ±50°. */
 const LADOS: [number, number][] = [90, -90, 50, -50].map((g) => [Math.sin((g * Math.PI) / 180), Math.cos((g * Math.PI) / 180)]);
@@ -100,6 +102,8 @@ export interface Tecnica {
 
 /** Animaciones de moverse que no son clips del modelo: una pose sacada de otro clip (`cargar`). Sus ids de la sala. */
 export const POSTURAS: Readonly<Record<number, string>> = { 11: "Agachado", 12: "Deslizar" };
+/** Id de la sala de cada animación que no es un gesto (`JUMP`, `SLIDE` y `MOVES` del servidor; `test_universo_protocolo_ts.py`). */
+export const ANIMS = { Idle: 0, Walking: 1, Running: 2, Jump: 3, Agachado: 11, Deslizar: 12 } as const;
 
 export interface Entrada {
   /** Dirección deseada ya en el mundo (x, z) y fuerza 0..1. */
@@ -122,16 +126,16 @@ export class Jugador {
   velH = 0;
   suelo = true;
   giro = 0;
-  /** Metros recorridos sin informar y saltos hechos. */
-  metros = 0;
+  /** Saltos desde el suelo (los cuenta `docs/simular_movimiento.mjs`; los logros, la sala). */
   saltos = 0;
-  deslizamientos = 0;
+  /** Teleportes hechos: la sala avisa al servidor antes de mandar la pose de cada uno (`sala.ts`). */
+  viajes = 0;
   agachado = false;
   deslizando = false;
   /** Cuánto bajan los ojos (m), suavizado: la cámara lo resta. */
   bajada = 0;
   // Devtools (solo desarrolladores): volar sin gravedad, atravesarlo todo y multiplicar la velocidad. Con cualquiera
-  // puesto no se cuentan metros ni saltos: no son paseo para los logros.
+  // puesto no se cuentan trucos ni paseo para los logros (la sala lo sabe por `trucos`).
   volar = false;
   noclip = false;
   velocidad = 1;
@@ -240,9 +244,11 @@ export class Jugador {
   }
 
   teletransportar(x: number, z: number): void {
+    this.viajes++;
     this.x = x;
     this.z = z;
-    this.y = sueloEn(x, z);
+    encerrar(this);
+    this.y = sueloEn(this.x, this.z);
     this.vy = 0;
     this.vx = this.vz = 0;
     this.suelo = true;
@@ -305,7 +311,6 @@ export class Jugador {
         rapidez *= k;
         this.recarga = DESLIZ_RECARGA;
       }
-      if (!this.trucos) this.deslizamientos++;
     }
 
     if (this.gancho) {
@@ -432,9 +437,9 @@ export class Jugador {
       }
     }
 
+    encerrar(this); // también volando y con noclip: la sala no acepta poses de fuera
     const movido = Math.hypot(this.x - antesX, this.z - antesZ);
     this.velH = movido / Math.max(dt, 1e-4);
-    if (!this.trucos) this.metros += movido;
     if (this.velH > 0.3) {
       const objetivo = Math.atan2(this.vx, this.vz);
       let d = objetivo - this.giro;
@@ -478,7 +483,7 @@ export class Jugador {
     const lx = dx * GANCHO_ALCANCE;
     const lz = dz * GANCHO_ALCANCE;
     const l2 = lx * lx + lz * lz;
-    const cerca = circulos.filter((c) => {
+    const cerca = circulosCerca(ox + lx / 2, oz + lz / 2, GANCHO_ALCANCE / 2).filter((c) => {
       const t = l2 > 1e-6 ? clamp(((c.x - ox) * lx + (c.z - oz) * lz) / l2, 0, 1) : 0;
       return Math.hypot(ox + lx * t - c.x, oz + lz * t - c.z) < c.r;
     });
@@ -529,7 +534,7 @@ export class Jugador {
     const k = (GANCHO_TIRON * dt) / d;
     this.vx += dx * k + e.dx * e.fuerza * AIRE_ACEL * 0.5 * dt;
     this.vz += dz * k + e.dz * e.fuerza * AIRE_ACEL * 0.5 * dt;
-    this.vy = Math.min(this.vy + dy * k, 14);
+    this.vy = Math.min(this.vy + dy * k, GANCHO_VY);
     if (this.suelo && this.vy > 0) this.suelo = false;
   }
 
@@ -566,7 +571,7 @@ export class Jugador {
   private paredCerca(): Pared | null {
     let hueco = PARED_ALCANCE;
     let mejor: Pared | null = null;
-    for (const c of circulos) {
+    for (const c of circulosCerca(this.x, this.z, PARED_ALCANCE + RADIO)) {
       if (c.r < PARED_RADIO) continue;
       const dx = this.x - c.x;
       const dz = this.z - c.z;
@@ -709,7 +714,7 @@ export class Jugador {
 
   private animar(dt: number, mueve: boolean): void {
     if (this.enGesto) {
-      const g = GESTOS[this.enGesto - 4];
+      const g = gestoDe(this.enGesto)!;
       const a = this.acciones[g.clip];
       if (mueve || !this.suelo || this.agachado) this.enGesto = 0;
       else if (g.modo === "una" && a.time >= a.getClip().duration) {
@@ -735,7 +740,7 @@ export class Jugador {
 
   /** Animación que se manda a los demás: 0 quieto, 1 andar, 2 correr, 3 saltar, 4-10 gestos, 11-12 `POSTURAS`. */
   get anim(): number {
-    return this.enGesto || ({ Idle: 0, Walking: 1, Running: 2, Jump: 3, Agachado: 11, Deslizar: 12 }[this.actual] ?? 0);
+    return this.enGesto || (ANIMS[this.actual as keyof typeof ANIMS] ?? 0);
   }
 
   get posicion(): Vector3 {

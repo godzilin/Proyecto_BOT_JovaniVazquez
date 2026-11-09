@@ -20,7 +20,7 @@ import {
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { Estela } from "./estela";
 import { gestoDe } from "./gestos";
-import { PASO_ANDAR, PASO_CORRER, POSTURAS } from "./jugador";
+import { ANIMS, PASO_ANDAR, PASO_CORRER, POSTURAS } from "./jugador";
 import { MATERIAL_CUERPO, colorCuerpo, tonoDe, type PlantillaRobot } from "./robot";
 import { clamp } from "./ruido";
 
@@ -93,6 +93,16 @@ export class Remotos {
     this.orden.length = 0;
   }
 
+  /** Ha salido de lo que te manda la sala: deja de dibujarse (sigue en la sala) hasta su próxima pose. */
+  lejos(slot: number): void {
+    this.todos.get(slot)?.estela.vaciar();
+  }
+
+  /** Tras un mensaje con todo lo que ves: los que no venían en él dejan de dibujarse. */
+  dejarSolo(vistos: Set<number>): void {
+    for (const [slot, r] of this.todos) if (!vistos.has(slot)) r.estela.vaciar();
+  }
+
   /** Pose recibida (metros y radianes). Si llega antes que su `entra`, espera a saber quién es. */
   pose(slot: number, x: number, y: number, z: number, yaw: number, anim: number, ahora: number): void {
     if (slot === this.miSlot) return;
@@ -145,12 +155,12 @@ export class Remotos {
 
   private animar(r: Remoto, dt: number): void {
     const quiero = r.estela.anim;
-    const q = quiero > 12 ? 0 : quiero;
+    const q = quiero > ANIMS.Deslizar ? ANIMS.Idle : quiero;
     if (q !== r.actual) {
       const de = r.acciones[r.actual];
       const hacia = r.acciones[q] ?? this.accionExtra(r, q);
       hacia.reset().play();
-      hacia.crossFadeFrom(de, q === 3 || q === 12 ? 0.1 : q > 3 ? 0.2 : 0.22, false);
+      hacia.crossFadeFrom(de, q === ANIMS.Jump || q === ANIMS.Deslizar ? 0.1 : q > ANIMS.Jump ? 0.2 : 0.22, false);
       r.actual = q;
     }
     const v = r.estela.v;

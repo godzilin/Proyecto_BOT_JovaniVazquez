@@ -15,9 +15,11 @@ los servicios de siempre. Este módulo tiene las dos piezas que dicen quién es 
 La clave de firma se sortea al arrancar el bot, así que un reinicio cierra todas las
 sesiones. La página vuelve a hacer login sola al abrirse, así que da igual.
 
-También filtra lo que la página cuenta del paseo por el mundo (`walk_report`), que
-solo alimenta logros, y monta las listas del menú del tabulador (`player_list` y
-`backpack_list`), que solo leen.
+También dice dónde están los lugares de los logros en el mundo publicado
+(`world_places`, que la sala mira en cada pose), filtra lo que la página cuenta del paseo
+y la sala no ve (`walk_report`, solo para logros), recorta las medidas de la página para la
+telemetría (`device_report`) y monta las listas del menú del
+tabulador (`player_list` y `backpack_list`), que solo leen.
 
 No mueve dinero ni guarda datos.
 """
@@ -27,10 +29,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
+import math
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +42,7 @@ import aiohttp
 
 from bot.services.economy import format_amount
 from bot.services.levels import calculate_level_progress
+from bot.services.universo_editor import CELL, CELL_TERRAIN_SIDE, TERRAIN_STEP, split_summary
 
 #: Base de la API de Discord para el login.
 DISCORD_API = "https://discord.com/api/v10"
@@ -252,9 +257,34 @@ GESTURES: dict[int, str] = {
     9: "gesto_sentarse",
     10: "gesto_punetazo",
 }
-#: Cima del Pico de las Nieves, en decímetros (`PICO` de `universo/src/mundo/terreno.ts`):
-#: centro x, z y radio (el de su lugar en `lugares.ts`).
+#: Lugares que son un círculo y que el editor puede mover (`zonas` del mundo publicado):
+#: centro x, z y radio, en decímetros. Son los de serie (`zonasDeSerie` de
+#: `universo/src/mundo/lugares.ts`; lo vigila `test_universo_mundo_serie.py`): un mundo
+#: publicado sin su trozo `zonas`, o sin alguna, deja la de aquí.
+ZONES_DM: dict[str, tuple[int, int, int]] = {
+    "nublo": (160, 120, 120),
+    "dunas": (0, -926, 240),
+    "faro": (386, -1061, 90),
+    "plaza": (-80, 600, 100),
+    "drago": (-150, 640, 70),
+    "canteras": (493, 927, 160),
+}
+#: Cima del Pico de las Nieves en la isla de serie (`PICO` de `universo/src/mundo/terreno.ts`):
+#: centro x, z y radio, en decímetros. Con el terreno esculpido, la cima es su punto más alto
+#: (`world_places`). Esta, `BANDAMA_DM` y `PIER_DM` las vigila `test_universo_mundo_serie.py`.
 SUMMIT_DM = (-50, 80, 100)
+#: Altura del suelo en la cima de serie (`terrenoEn(PICO)`), en dm.
+SUMMIT_TOP_DM = 497
+#: Lo que pueden estar los pies por debajo de la cima para contar como en ella, en dm.
+SUMMIT_DROP_DM = 60
+#: Caldera de Bandama (`BAND` de `terreno.ts`): centro x, z, el borde de la caldera (radio de
+#: dentro y de fuera) y la altura mínima de los pies (por encima del fondo), en dm.
+BANDAMA_DM = (481, 404, 120, 240, 90)
+#: Muelle de Mogán (`MUELLE` de `terreno.ts`): arranque x, z, dirección hacia el mar, largo,
+#: ancho y altura mínima de los pies (sobre la cubierta, no nadando debajo), en dm.
+PIER_DM = (-780.5, -780.5, -0.70711, -0.70711, 260, 32, 8)
+#: Por debajo de esta altura de los pies se está en el agua (0,25 m bajo el mar), en dm.
+WATER_DM = -2.5
 
 
 def gestures_owned(owned: frozenset[str]) -> frozenset[int]:
@@ -262,30 +292,90 @@ def gestures_owned(owned: frozenset[str]) -> frozenset[int]:
     return frozenset(anim for anim, key in GESTURES.items() if key in owned)
 
 
-def on_summit(x_dm: int, z_dm: int) -> bool:
-    """Si una posición (en decímetros) está en la cima del Pico de las Nieves."""
-    cx, cz, radius = SUMMIT_DM
-    return (x_dm - cx) ** 2 + (z_dm - cz) ** 2 < radius**2
+@dataclass(frozen=True)
+class Places:
+    """Dónde están los lugares de `PLACES` en un mundo publicado (`world_places`), en dm.
+
+    Attributes:
+        circles: Los que son un círculo: clave, centro x, z y radio al cuadrado.
+        summit: La cima: centro x, z, radio al cuadrado y altura mínima de los pies.
+    """
+
+    circles: tuple[tuple[str, int, int, int], ...]
+    summit: tuple[int, int, int, int]
+
+    def at(self, x: int, y: int, z: int) -> list[str]:
+        """Los lugares donde están unos pies en (x, y, z) decímetros.
+
+        Es lo que mira la sala en cada pose: unas restas y multiplicaciones por lugar.
+        """
+        found = [key for key, cx, cz, r2 in self.circles if (x - cx) ** 2 + (z - cz) ** 2 < r2]
+        sx, sz, sr2, sy = self.summit
+        if (x - sx) ** 2 + (z - sz) ** 2 < sr2 and y > sy:
+            found.append("nieves")
+        bx, bz, inner, outer, by = BANDAMA_DM
+        if inner**2 < (x - bx) ** 2 + (z - bz) ** 2 < outer**2 and y > by:
+            found.append("bandama")
+        px, pz, dx, dz, length, width, py = PIER_DM
+        along = (x - px) * dx + (z - pz) * dz
+        if 0 <= along <= length and abs((z - pz) * dx - (x - px) * dz) <= width / 2 and y > py:
+            found.append("muelle")
+        if y < WATER_DM:
+            found.append("agua")
+        return found
 
 
-#: Lo más rápido que se puede ir, en m/s. Correr va a 9; el margen cubre los saltos
-#: y el redondeo. La distancia la dice la página: más de esto por segundo no cuenta.
-MAX_SPEED = 12
-#: Saltos por segundo que se aceptan: un salto dura casi un segundo en el aire.
-MAX_JUMPS_PER_SECOND = 2
-#: Deslizamientos por segundo que se aceptan: el impulso se recarga en un segundo.
-MAX_SLIDES_PER_SECOND = 1
+def world_places(zonas: str, summaries: Mapping[str, str] | None = None) -> Places:
+    """Los lugares de un mundo publicado (`""` y sin resúmenes, la isla de serie).
+
+    Las zonas salen del texto del trozo `zonas` y la cima, del punto más alto de los terrenos
+    esculpidos, que dan los resúmenes de las celdas (`cell_summary`: clave → resumen). Lo que el
+    mundo no trae, de serie. No lee ningún trozo del mundo.
+    """
+    zones = dict(ZONES_DM)
+    if zonas:
+        for key, zone in json.loads(zonas).get("zonas", {}).items():
+            if key in zones:
+                zones[key] = (round(zone["x"] * 10), round(zone["z"] * 10), round(zone["r"] * 10))
+    sx, sz, radius = SUMMIT_DM
+    top_cm = SUMMIT_TOP_DM * 10
+    sculpted: tuple[int, int, int] | None = None
+    for key, summary in (summaries or {}).items():
+        if not key.startswith("c/") or not summary:
+            continue
+        high, i, _samples = split_summary(summary)
+        if sculpted is None or high > sculpted[0]:
+            _, cx, cz = key.split("/")
+            sculpted = (
+                high,
+                (int(cx) * CELL + i % CELL_TERRAIN_SIDE * TERRAIN_STEP) * 10,
+                (int(cz) * CELL + i // CELL_TERRAIN_SIDE * TERRAIN_STEP) * 10,
+            )
+    if sculpted is not None:
+        top_cm, sx, sz = sculpted
+    return Places(
+        circles=tuple((key, x, z, r * r) for key, (x, z, r) in sorted(zones.items())),
+        summit=(sx, sz, radius * radius, top_cm // 10 - SUMMIT_DROP_DM),
+    )
+
+
+#: Los lugares de la isla de serie, para la sala de un servidor sin mundo publicado.
+SERIE_PLACES = world_places("")
+
+
 #: Trucos de piloto (`universo/src/mundo/jugador.ts`) que se aceptan por segundo: correr
 #: por una pared o saltar de ella no baja de medio segundo, el doble salto se recarga en
-#: el suelo o en una pared y el gancho tarda 3 s en volver.
-TRICKS_PER_SECOND = {"wallruns": 2, "walljumps": 2, "doublejumps": 2, "grapples": 0.5}
+#: el suelo o en una pared y el gancho tarda 3 s en volver desde que se suelta
+#: (`GANCHO_RECARGA`).
+TRICKS_PER_SECOND = {"wallruns": 2, "walljumps": 2, "doublejumps": 2, "grapples": 1 / 3}
 #: Lo más rápido que se va encadenando impulsos, en m/s (`VEL_MAX` de la página).
 TOP_SPEED = 20
 #: Paredes seguidas sin tocar el suelo que da tiempo a encadenar por segundo.
 MAX_CHAIN_PER_SECOND = 2
 
 
-#: Teleportes por segundo que se aceptan en un informe: el menú tarda más en abrirse.
+#: Teleportes por segundo que se aceptan en un informe: el menú tarda más en abrirse. La
+#: sala deja saltar sin mirar la velocidad igual de a menudo (`universo_sala.LEAP_SECONDS`).
 MAX_TELEPORTS_PER_SECOND = 0.5
 
 
@@ -302,30 +392,23 @@ class Walk:
     """Un informe de paseo ya recortado (`walk_report`).
 
     Attributes:
-        meters: Metros recorridos.
-        jumps: Saltos desde el suelo.
-        slides: Deslizamientos.
-        places: Lugares pisados (claves de `PLACES`), sin repetir.
         tricks: Trucos de piloto por nombre de `TRICKS_PER_SECOND`, solo los que hay.
         speed: La mayor velocidad en horizontal, en m/s.
         chain: Lo más largo encadenando paredes sin tocar el suelo.
     """
 
-    meters: int
-    jumps: int
-    slides: int
-    places: list[str]
     tricks: dict[str, int]
     speed: int
     chain: int
 
 
 def walk_report(body: dict[str, object], elapsed: float) -> Walk:
-    """Lo que cuenta de un informe de paseo: metros, saltos, deslizamientos, lugares y trucos.
+    """Lo que cuenta de un informe de paseo: los trucos de piloto, la velocidad y la cadena.
 
+    Es lo que la sala no ve en las poses: los metros, saltos, deslizamientos y lugares los
+    cuenta ella (`bot.services.universo_sala`), y lo que la página mande de eso se ignora.
     La página no es de fiar: los contadores se recortan a lo que da tiempo a hacer en
-    `elapsed` segundos (desde el informe anterior), la velocidad a la más alta posible y
-    los lugares se filtran.
+    `elapsed` segundos (desde el informe anterior) y la velocidad, a la más alta posible.
     """
 
     def count(value: object, limit: float) -> int:
@@ -334,24 +417,101 @@ def walk_report(body: dict[str, object], elapsed: float) -> Walk:
         return min(value, int(limit))
 
     seconds = max(elapsed, 0.0)
-    places = body.get("places")
-    seen = []
-    if isinstance(places, list):
-        seen = sorted({place for place in places if isinstance(place, str) and place in PLACES})
     tricks = {
         name: n
         for name, per_second in TRICKS_PER_SECOND.items()
         if (n := count(body.get(name), seconds * per_second)) > 0
     }
     return Walk(
-        meters=count(body.get("meters"), seconds * MAX_SPEED),
-        jumps=count(body.get("jumps"), seconds * MAX_JUMPS_PER_SECOND),
-        slides=count(body.get("slides"), seconds * MAX_SLIDES_PER_SECOND),
-        places=seen,
         tricks=tricks,
         speed=count(body.get("speed"), TOP_SPEED),
         chain=count(body.get("chain"), seconds * MAX_CHAIN_PER_SECOND),
     )
+
+
+#: Medidas de la página (`/api/medidas`, `universo/src/medidas.ts`): topes de cada campo.
+#: Un tramo son los fotogramas desde el informe anterior (cada 5 min o al ocultarse).
+MAX_TRAMO_SECONDS = 900
+MAX_FPS = 240
+MAX_CALLS = 5000
+MAX_TRIANGLES = 20_000_000
+MAX_ENTRY_MS = 300_000
+MAX_CHANGES = 50
+#: Lo que se acepta de `devicePixelRatio` por la calidad adaptativa (`mundo/calidad.ts`).
+RATIO_RANGE = (0.25, 4.0)
+#: Tramos de la entrada: momento (ms desde que se abrió la página) en que acabó cada uno.
+ENTRY_STEPS = ("login", "api", "mundo", "frame")
+#: Familias de GPU que la página puede decir (`familiaGpu` en `medidas.ts`); lo demás, «otra».
+GPU_FAMILIES = frozenset(
+    {"adreno", "mali", "powervr", "apple", "intel", "nvidia", "amd", "xclipse", "software"}
+)
+#: Pantallas, redondeadas a 100 px y con tope: así no identifican a nadie.
+SCREEN_STEP = 100
+MAX_SCREEN = 4000
+
+
+def _measure(value: object, high: float, low: float = 0.0) -> float | None:
+    """Un número de la página recortado a `[low, high]`, o `None` si no es un número."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return min(max(float(value), low), high)
+
+
+def device_report(body: dict[str, object]) -> list[tuple[str, float | None, int]]:
+    """Lo que cuenta la telemetría de un tramo de medidas de la página.
+
+    Devuelve `(medida, valor, eventos)` para `TelemetryService.count` (el valor va en los
+    campos de `ms`). Solo cifras: la GPU, de una lista cerrada, y la pantalla, redondeada.
+    La página no es de fiar: cada campo se recorta a su tope y lo que no es un número se
+    ignora. Sin fotogramas, no hay nada del dibujo (la pestaña estuvo oculta).
+    """
+    rows: list[tuple[str, float | None, int]] = []
+
+    def add(name: str, value: float | None) -> None:
+        if value is not None:
+            rows.append((name, value, 1))
+
+    seconds = _measure(body.get("segundos"), MAX_TRAMO_SECONDS)
+    frames = _measure(body.get("fotogramas"), MAX_FPS * MAX_TRAMO_SECONDS)
+    if seconds and frames and seconds >= 1:
+        fps = min(frames / seconds, MAX_FPS)
+        rows.append(("tramo", None, 1))
+        add("fps", fps)
+        low = _measure(body.get("fps_p5"), fps)
+        add("fps_p5", low)
+        calls_max = _measure(body.get("llamadas_max"), MAX_CALLS)
+        tris_max = _measure(body.get("triangulos_max"), MAX_TRIANGLES)
+        add("llamadas_max", calls_max)
+        add("triangulos_max", tris_max)
+        if calls_max is not None:
+            add("llamadas", _measure(body.get("llamadas"), calls_max))
+        if tris_max is not None:
+            add("triangulos", _measure(body.get("triangulos"), tris_max))
+        ratio = _measure(body.get("ratio"), RATIO_RANGE[1], RATIO_RANGE[0])
+        top = _measure(body.get("ratio_max"), RATIO_RANGE[1], RATIO_RANGE[0])
+        if ratio is not None:
+            add("ratio", ratio * 100)
+            if top is not None and ratio < top - 0.01:
+                rows.append(("resolucion_baja", None, 1))
+        if body.get("sombras") is False:
+            rows.append(("sin_sombras", None, 1))
+    for name in ("bajadas", "subidas", "reconexiones"):
+        n = int(_measure(body.get(name), MAX_CHANGES) or 0)
+        if n:
+            rows.append((name, None, n))
+    entry = body.get("entrada")
+    if isinstance(entry, dict):
+        for step in ENTRY_STEPS:
+            add(f"entrada_{step}", _measure(entry.get(step), MAX_ENTRY_MS))
+    gpu = body.get("gpu")
+    if isinstance(gpu, str):
+        rows.append((f"gpu:{gpu if gpu in GPU_FAMILIES else 'otra'}", None, 1))
+    width = _measure(body.get("ancho"), MAX_SCREEN, SCREEN_STEP)
+    height = _measure(body.get("alto"), MAX_SCREEN, SCREEN_STEP)
+    if width is not None and height is not None:
+        size = [int(round(v / SCREEN_STEP) * SCREEN_STEP) for v in (width, height)]
+        rows.append((f"pantalla:{size[0]}x{size[1]}", None, 1))
+    return rows
 
 
 #: Filas de la pestaña «Jugadores» del menú: los que están dentro van siempre; del resto,

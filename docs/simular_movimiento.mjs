@@ -1,6 +1,8 @@
 // Simula el movimiento del Jovaniverso (`universo/src/mundo/jugador.ts`) en el extraplano de pruebas, sin navegador:
 // carga el código de verdad con Vite (SSR) y comprueba el wallrun, el salto de pared, la cadena por el pasillo, el doble
-// salto, el bunny hop, el gancho a la torre, rodear una columna y el tope de velocidad. Para retocar los números del
+// salto, el bunny hop, el gancho a la torre, rodear una columna y el tope de velocidad. Además mide lo más que se mueve el
+// robot entre dos poses (0,1 s) en todas las pruebas y comprueba que cabe en lo que acepta la sala del servidor
+// (`RUN_DM_PER_SECOND` y `CLIMB_DM_PER_SECOND` de `src/bot/services/universo_sala.py`). Para retocar los números del
 // movimiento sin abrir Discord: `node docs/simular_movimiento.mjs` (con `npm install` hecho en `universo/`). Sale con
 // error si algo falla.
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,11 +21,20 @@ const clips = ["Idle", "Walking", "Running", "Jump", "Agachado", "Deslizar"].map
 const nuevo = () => new Jugador(modelo.clone(), clips);
 
 const DT = 1 / 60;
+const POSE = 6; // fotogramas entre dos poses de la sala (10 por segundo)
+const maximo = { h: 0, sube: 0 };
 function correr(j, segundos, entrada, cada) {
+  const antes = [];
   for (let i = 0; i < Math.round(segundos / DT); i++) {
     const e = typeof entrada === "function" ? entrada(i * DT, j) : entrada;
     j.actualizar(DT, e);
     cada?.(i * DT, j);
+    antes.push([j.x, j.y, j.z]);
+    if (antes.length > POSE) {
+      const [x, y, z] = antes.shift();
+      maximo.h = Math.max(maximo.h, Math.hypot(j.x - x, j.z - z));
+      maximo.sube = Math.max(maximo.sube, j.y - y);
+    }
   }
 }
 const vel = (j) => Math.hypot(j.vx, j.vz).toFixed(1);
@@ -142,5 +153,18 @@ const ok = (cond, msg) => {
   correr(j, 0.05, { dx: 1, dz: 0, fuerza: 1, correr: true, saltar: false, agachar: false });
   ok(Math.hypot(j.vx, j.vz) <= 20.001, `tope: ${vel(j)} m/s`);
 }
+// 8. Bunny hop deslizándose a tope por la pista y un gancho largo: lo más rápido que se va.
+{
+  const j = nuevo();
+  j.teletransportar(-4, 66);
+  correr(j, 6, (t) => ({ dx: 1, dz: 0, fuerza: 1, correr: true, saltar: t % 0.8 < DT, agachar: t % 0.8 > 0.6 }));
+  j.teletransportar(40, 62);
+  const d = new three.Vector3(1, 0.4, 0).normalize();
+  j.lanzarGancho(d.x, d.y, d.z);
+  correr(j, 2, { dx: 1, dz: 0, fuerza: 1, correr: true, saltar: false, agachar: false });
+}
+// Lo que acepta la sala por pose (dm/s de universo_sala.py, entre 10 poses por segundo, en metros).
+const SALA = { h: 240 / 100, sube: 330 / 100 };
+ok(maximo.h <= SALA.h && maximo.sube <= SALA.sube, `la sala acepta cada pose: lo más en 0,1 s, ${maximo.h.toFixed(2)} m en horizontal (acepta ${SALA.h}) y ${maximo.sube.toFixed(2)} m subiendo (acepta ${SALA.sube})`);
 await vite.close();
 process.exitCode = fallos ? 1 : 0;

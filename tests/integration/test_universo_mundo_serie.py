@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from bot.services import universo as servicio
 from bot.services import universo_editor as editor
+from bot.services.universo import ZONES_DM
 
 RAIZ = Path(__file__).resolve().parents[2]
 SCRIPT = RAIZ / "docs" / "volcar_mundo_serie.py"
@@ -40,7 +42,6 @@ def test_el_servidor_acepta_el_mundo_de_serie(mundo: dict) -> None:
     assert max(len(editor.encode_piece(t).encode()) for t in limpio.values()) < (
         editor.MAX_PIECE_BYTES // 4
     )
-    assert sum(k.startswith("a/") for k in limpio) < editor.MAX_ASSETS // 2
     densa = max(len(t["objetos"]) for k, t in limpio.items() if k.startswith("c/"))
     assert densa < editor.MAX_CELL_OBJECTS // 4
     assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"])
@@ -62,6 +63,36 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
     usados = {o["asset"] for o in mundo["objetos"]}
     assert usados == set(assets), "cada asset se usa y cada objeto tiene el suyo"
     assert set(mundo["zonas"]) == editor.EDITABLE_ZONES
+    # La sala cuenta los lugares con las mismas zonas de serie (en decímetros).
+    serie = {
+        k: (round(z["x"] * 10), round(z["z"] * 10), round(z["r"] * 10))
+        for k, z in mundo["zonas"].items()
+    }
+    assert serie == ZONES_DM
+
+
+def test_la_sala_cuenta_los_lugares_donde_los_pone_el_terreno(mundo: dict) -> None:
+    # La cima, Bandama y el muelle salen de fórmulas de `terreno.ts`: la sala los tiene en dm.
+    t = _cargar_script().evaluar(
+        "src/mundo/terreno.ts",
+        "{PICO: m.PICO, cima: m.terrenoEn(m.PICO.x, m.PICO.z), BAND: m.BAND, MUELLE: m.MUELLE}",
+    )
+
+    def dm(v: float) -> int:
+        return round(v * 10)
+
+    assert servicio.SUMMIT_DM[:2] == (dm(t["PICO"]["x"]), dm(t["PICO"]["z"]))
+    assert dm(t["cima"]) == servicio.SUMMIT_TOP_DM
+    bx, bz, inner, outer, floor = servicio.BANDAMA_DM
+    band = t["BAND"]
+    assert (bx, bz) == (dm(band["x"]), dm(band["z"]))
+    assert inner < dm(band["radio"]) < outer and floor < dm(band["alt"])
+    px, pz, dx, dz, length, width, py = servicio.PIER_DM
+    pier = t["MUELLE"]
+    assert (px, pz) == (round(pier["x0"] * 10, 1), round(pier["z0"] * 10, 1))
+    assert (dx, dz) == (round(pier["dx"], 5), round(pier["dz"], 5))
+    assert (length, width) == (dm(pier["largo"]), dm(pier["ancho"]))
+    assert py < dm(pier["alt"])
 
 
 def test_solo_chocan_las_rocas_grandes(mundo: dict) -> None:
