@@ -36,6 +36,15 @@ from bot.services.house_books import (
     casino_book,
     house_charge,
 )
+from bot.services.universo_editor import (
+    CASINO_MODEL_VALUE,
+    CASINO_PIECE_VALUE,
+    CASINO_SIGN_VALUE,
+    CASINO_SLOT_VALUE,
+    add_casino,
+    casino_value,
+)
+from bot.services.work_catalog import JOB_BY_KEY
 from tests.unit.test_loans import ANA, BAJO, GUILD, Clock, make, salary, sign
 from tests.unit.test_patrimonio_hacienda import ANA as P_ANA
 from tests.unit.test_patrimonio_hacienda import GUILD as P_GUILD
@@ -89,6 +98,12 @@ def test_ganar_al_casino_y_al_banco() -> None:
     assert close.add == {"casino_close": 1}
     red = house_rivals_stats(mine=0, casino=-10, bank=100, debts=200)
     assert red.add == {"casino_in_red": 1, "bank_hostage": 1}
+    # Con los depósitos el banco vale mucho más, pero deberle se mide con su beneficio.
+    hostage = house_rivals_stats(mine=0, casino=0, bank=10_000, bank_profit=100, debts=200)
+    assert hostage.add == {"bank_hostage": 1}
+    assert house_rivals_stats(mine=500, casino=0, bank=900, state=400, debts=0).add == {
+        "richer_than_state": 1
+    }
     # Un casino en rojos no se «gana»: no tiene mérito.
     assert "richer_than_casino" not in red.add
     assert hacienda_house_stats(paid=10, casino=5, bank=50).add == {"hacienda_over_casino": 1}
@@ -220,12 +235,76 @@ async def test_fortunas_pone_al_casino_en_su_puesto(tmp_path: Path) -> None:
         panel = await cog.fortunas_panel(guild_of(), ana)
         await cog._fortunas_logros(ana, None, panel.fortunes)
     shown = "\n".join(texts(panel))
-    assert "🥇 **🎰 El Casino**" in shown
-    assert f"🥈 📍 m{P_ANA}" in shown
-    assert "📍 Tú: puesto 2 de 2" in shown
+    # El banco no ha ganado nada, pero custodia los depósitos: los 100 de Ana y la caja del
+    # casino.
+    assert "🥇 **🏦 El Banco**" in shown
+    assert f"🏧 depósitos de todos {balance:,} Y$".replace(",", ".") in shown
+    assert "🥈 **🎰 El Casino**" in shown
+    assert f"🥉 📍 m{P_ANA}" in shown
+    assert "📍 Tú: puesto 3 de 3" in shown
     assert f"🎰 El Casino: te faltan {balance - 200:,} Y$".replace(",", ".") in shown
-    # El banco no ha ganado nada: no sale en la lista, pero sí en la línea de rivales.
-    assert "🏦 El Banco: en números rojos" in shown
+    # El Estado no ha recaudado nada: no sale en la lista, pero sí en la línea de rivales.
+    assert "🏛️ El Estado: en números rojos" in shown
     # La cabecera solo suma a los miembros.
-    assert "1 con patrimonio y la banca" in shown
+    assert "1 con patrimonio, la banca y el Estado" in shown
     assert not any("richer_than_casino" in c.args[4].add for c in track.await_args_list)
+
+
+# -- El Estado paga las nóminas públicas -------------------------------------------------
+
+
+async def test_la_nomina_del_funcionario_sale_de_la_caja_del_estado(tmp_path: Path) -> None:
+    economy, _shop, _lottery = await stores(tmp_path)
+    await economy.repository.apply(P_GUILD, STATE_ACCOUNT_ID, [LedgerEntry(100_000, "prueba")])
+    before = await economy.state_balance(P_GUILD)
+    result = await economy.pay_salary(
+        P_GUILD, P_ANA, gross=10_000, concept="pala:funcionariado", public=True
+    )
+    slip = result.payslip
+    book = await economy.state_book(P_GUILD)
+    # Paga el bruto y la cotización de la empresa, y se cobra a sí mismo los impuestos.
+    assert book.payroll == book.payroll_week == slip.gross + slip.ss_employer
+    assert book.self_taxes == slip.total_taxes > 0
+    assert book.cash == before - slip.net
+    # Una nómina privada no sale del Estado.
+    await economy.pay_salary(P_GUILD, P_ANA, gross=10_000, concept="pala:obra")
+    assert (await economy.state_book(P_GUILD)).payroll == book.payroll
+
+
+async def test_un_estado_sin_caja_paga_lo_que_tiene(tmp_path: Path) -> None:
+    economy, _shop, _lottery = await stores(tmp_path)
+    await economy.repository.apply(P_GUILD, STATE_ACCOUNT_ID, [LedgerEntry(1_000, "prueba")])
+    before = await economy.state_balance(P_GUILD)
+    assert 0 < before < 10_000
+    result = await economy.pay_salary(
+        P_GUILD, P_ANA, gross=10_000, concept="pala:funcionariado", public=True
+    )
+    book = await economy.state_book(P_GUILD)
+    # Lo que falta para el bruto sale de la nada, como antes.
+    assert book.payroll == before
+    assert book.cash == result.payslip.total_taxes
+
+
+def test_solo_el_funcionariado_con_plaza_lo_paga_el_estado() -> None:
+    job = JOB_BY_KEY["funcionariado"]
+    assert job.paid_by_state(job.positions[0])
+    giratoria = job.branch("giratoria")
+    assert giratoria is not None and not job.paid_by_state(giratoria.positions[0])
+    assert not JOB_BY_KEY["obra"].paid_by_state(JOB_BY_KEY["obra"].positions[0])
+
+
+# -- El casino del Jovaniverso -----------------------------------------------------------
+
+
+def test_el_casino_vale_mas_cuanto_mas_se_construye() -> None:
+    world = add_casino({})
+    base = casino_value(world)
+    # Seis tragaperras, el letrero del bote y el toldo (una malla).
+    assert base == 6 * CASINO_SLOT_VALUE + CASINO_SIGN_VALUE + CASINO_MODEL_VALUE
+    wall = {"nombre": "pared", "tipo": "piezas", "piezas": [{}, {}, {}], "colision": None}
+    near = {"asset": "pared", "pos": [-8.0, 8, 75.0], "rot": [0, 0, 0], "esc": [1, 1, 1]}
+    far = {**near, "pos": [200.0, 8, 200.0]}
+    world = {**world, "a/pared": wall, "c/9/9": {"objetos": [near, far]}}
+    assert casino_value(world) == base + 3 * CASINO_PIECE_VALUE
+    # Sin tragaperras no hay casino.
+    assert casino_value({"a/pared": wall, "c/9/9": {"objetos": [near]}}) == 0

@@ -79,6 +79,7 @@ from bot.services.house_books import (
     BankBook,
     CasinoBook,
     HouseCharge,
+    StateBook,
     casino_book,
     house_charge,
 )
@@ -2111,6 +2112,14 @@ class EconomyService:
         """Saldo de la cuenta del Estado."""
         return await self.repository.state_balance(guild_id)
 
+    async def state_book(self, guild_id: int) -> StateBook:
+        """La cuenta del Estado para `fortunas`: su caja y sus nóminas públicas."""
+        paid, week, taxes = await self.repository.state_payroll(
+            guild_id, monday_epoch(local_day(self._clock()))
+        )
+        cash = await self.repository.state_balance(guild_id)
+        return StateBook(cash=cash, payroll=paid, payroll_week=week, self_taxes=taxes)
+
     async def lottery(
         self,
         guild_id: int,
@@ -2425,6 +2434,7 @@ class EconomyService:
         self_employed: bool = False,
         beckham: bool = False,
         pension: bool = False,
+        public: bool = False,
     ) -> SalaryResult:
         """Paga la nómina de un turno de `pala` (o la pensión de un jubilado).
 
@@ -2451,12 +2461,18 @@ class EconomyService:
         rendimiento del trabajo (art. 17.2.a.1ª LIRPF): con los gastos y la
         reducción del trabajo, pero sin cotizaciones (`taxes.compute_pension_payslip`).
 
+        En el empleo público (`public=True`, `Job.paid_by_state`) la empresa es el Estado:
+        el bruto y su cotización salen de su cuenta (lo que haya; el resto, como siempre, de
+        la nada) y la retención y las cotizaciones vuelven a ella. El Estado se paga
+        impuestos a sí mismo y lo que de verdad pierde es el neto del funcionario.
+
         Args:
             gross: Bruto del turno; positivo.
             concept: Motivo corto y estable para el libro (`"pala:obra"`).
             self_employed: Si quien cobra es autónomo.
             beckham: Si tributa por la Ley Beckham.
             pension: Si es una pensión de jubilación.
+            public: Si la paga el Estado.
         """
         if gross <= 0:
             raise ValueError("El sueldo debe ser positivo.")
@@ -2479,6 +2495,7 @@ class EconomyService:
             payslip_for=rule,
             week=self._week(now),
             kind=kind,
+            public=public,
         )
         return SalaryResult(payslip=slip, balance=balance)
 

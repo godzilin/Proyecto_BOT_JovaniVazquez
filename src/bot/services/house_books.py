@@ -25,6 +25,17 @@ ellas sale de `housing_mortgages` (`purchase_lent`). Una prueba
 (`tests/unit/test_house_books.py`) falla si aparece un motivo nuevo del banco sin
 clasificar.
 
+En `fortunas` (solo para enseñar: no cambia lo que pagan):
+
+- **🏦 Banco:** además de su beneficio, custodia los depósitos de todos: el efectivo de los
+  miembros, la caja del Estado y la del Casino. Cuentan como suyos, con lo que le deben, y
+  por eso superarlo es casi imposible.
+- **🎰 Casino:** lo que gana la casa más lo que vale lo construido en el Jovaniverso
+  (`universo_editor.casino_value`): cuanto más grande el casino, más rico.
+- **🏛️ Estado:** su caja (`StateBook`), lo que paga en nóminas públicas (`pala`,
+  funcionariado) y lo que se cobra a sí mismo en impuestos de esas nóminas. No paga ningún
+  impuesto aparte: ya se los paga a sí mismo.
+
 Impuestos (los cobra `bot.cogs.patrimonio` cada lunes, con `EconomyService.charge_house_taxes`):
 
 - El casino paga la **tasa fiscal sobre el juego** sobre lo que gana la casa: la de los
@@ -153,6 +164,25 @@ class BankBook:
         return self.profit - self.taxes
 
 
+@dataclass(frozen=True, slots=True)
+class StateBook:
+    """Las cuentas del Estado para `fortunas`.
+
+    Attributes:
+        cash: Saldo de su cuenta (lo recaudado menos lo gastado).
+        payroll: Lo pagado en nóminas públicas desde el primer día (bruto y cotización de
+            la empresa).
+        payroll_week: Lo mismo, desde el lunes.
+        self_taxes: Lo que ha vuelto a su cuenta de esas nóminas (retención y cotizaciones):
+            los impuestos que se paga a sí mismo.
+    """
+
+    cash: int = 0
+    payroll: int = 0
+    payroll_week: int = 0
+    self_taxes: int = 0
+
+
 def casino_book(rows: list[tuple[str, int, int]], taxes: int = 0) -> CasinoBook:
     """Las cuentas del casino con las filas de `EconomyService.casino_ledger`.
 
@@ -207,7 +237,9 @@ def house_charge(entity: str, profit: int, peak: int) -> HouseCharge:
     )
 
 
+#: Clave del Estado en `NAMES` (no paga impuesto de la casa: no está en `TAX_NAMES`).
+STATE = "estado"
 #: Nombre de cada cuenta en `fortunas` y `hacienda`.
-NAMES = {CASINO: "🎰 El Casino", BANK: "🏦 El Banco"}
+NAMES = {CASINO: "🎰 El Casino", BANK: "🏦 El Banco", STATE: "🏛️ El Estado"}
 #: Impuesto de cada cuenta, en el anuncio del lunes.
 TAX_NAMES = {CASINO: "tasa del juego", BANK: "Impuesto sobre Sociedades"}

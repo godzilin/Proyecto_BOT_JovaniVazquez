@@ -461,8 +461,10 @@ async def test_patrimonio_responde_con_un_embed_y_fortunas_con_un_panel(tmp_path
         panel = await cog.fortunas_panel(guild, ana)
         await cog._fortunas_logros(ana, None, panel.fortunes)
     shown = "\n".join(texts(panel))
-    assert f"🥇 📍 m{ANA}" in shown and f"🥈 m{BEA}" in shown
-    assert "📍 Tú: puesto 1 de 2" in shown
+    # El banco custodia el dinero de las dos: siempre va por delante.
+    assert "🥇 **🏦 El Banco**" in shown
+    assert f"🥈 📍 m{ANA}" in shown and f"🥉 m{BEA}" in shown
+    assert "📍 Tú: puesto 2 de 3" in shown
     # Los dos del podio llevan su avatar al lado.
     thumbs = [c for c in panel.walk_children() if isinstance(c, discord.ui.Thumbnail)]
     assert [t.media.url for t in thumbs] == [
