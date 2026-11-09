@@ -195,6 +195,9 @@ MAX_BALANCE = 10**15
 #: Discord tiene id 0, así que no choca con nadie. Recibe todo lo que se
 #: recauda; qué se hace con ese dinero está por decidir.
 STATE_ACCOUNT_ID = 0
+#: Motivo con el que sale de la cuenta del Estado la nómina de un empleo público
+#: (`credit_salary(public=True)`), seguido del concepto (`nomina_publica:pala:funcionariado`).
+STATE_PAYROLL_PREFIX = "nomina_publica:"
 
 #: `user_id` del bote de la tragaperras. Negativo, como las ONGs (que usan
 #: -1, -2…), para que no pague Patrimonio ni salga en las cuentas de miembros.
@@ -5015,6 +5018,48 @@ class EconomyRepository:
             connection.close()
         return -int(total)
 
+    async def state_payroll(self, guild_id: int, since: float) -> tuple[int, int, int]:
+        """Lo que ha pagado el Estado en nóminas públicas y lo que se ha cobrado de ellas.
+
+        Solo lee. Returns:
+            `(pagado desde el primer día, pagado desde since, impuestos que se ha cobrado a sí
+            mismo)`: la retención y las dos cotizaciones de esas nóminas, que vuelven a su
+            cuenta con el mismo concepto (`irpf:`, `ss:` y `ss_empresa:`).
+        """
+        return await self._run(self._state_payroll_sync, guild_id, since)
+
+    def _state_payroll_sync(self, guild_id: int, since: float) -> tuple[int, int, int]:
+        connection = self._connect()
+        try:
+            paid, week = connection.execute(
+                "SELECT COALESCE(-SUM(delta), 0), "
+                "COALESCE(-SUM(CASE WHEN created_at >= ? THEN delta END), 0) "
+                "FROM economy_ledger WHERE guild_id = ? AND user_id = ? AND reason LIKE ?",
+                (since, guild_id, STATE_ACCOUNT_ID, f"{STATE_PAYROLL_PREFIX}%"),
+            ).fetchone()
+            concepts = [
+                str(reason).removeprefix(STATE_PAYROLL_PREFIX)
+                for (reason,) in connection.execute(
+                    "SELECT DISTINCT reason FROM economy_ledger WHERE guild_id = ? "
+                    "AND user_id = ? AND reason LIKE ?",
+                    (guild_id, STATE_ACCOUNT_ID, f"{STATE_PAYROLL_PREFIX}%"),
+                )
+            ]
+            # shortcut: la rama de autónomo del mismo oficio comparte concepto y su IRPF
+            # también cuenta; para separarlo haría falta otro concepto en el libro.
+            reasons = [f"{tax}:{c}" for c in concepts for tax in ("irpf", "ss", "ss_empresa")]
+            taxes = 0
+            if reasons:
+                marks = ", ".join("?" for _ in reasons)
+                (taxes,) = connection.execute(
+                    "SELECT COALESCE(SUM(delta), 0) FROM economy_ledger WHERE guild_id = ? "
+                    f"AND user_id = ? AND reason IN ({marks})",  # solo marcadores `?`
+                    (guild_id, STATE_ACCOUNT_ID, *reasons),
+                ).fetchone()
+        finally:
+            connection.close()
+        return int(paid), int(week), int(taxes)
+
     async def house_taxes(self, guild_id: int) -> dict[str, tuple[int, int, bool]]:
         """`{cuenta: (pagado, máximo tributado, ¿ya empezó?)}` del Casino y del Banco. Solo lee."""
         return await self._run(self._house_taxes_sync, guild_id)
@@ -8188,6 +8233,7 @@ class EconomyRepository:
         payslip_for: Callable[[int, Pace], Payslip],
         week: FiscalWeek,
         kind: str = INCOME_WORK,
+        public: bool = False,
     ) -> tuple[Payslip, int]:
         """Paga una nómina: bruto, cotización, IRPF y lo de la empresa, todo junto.
 
@@ -8204,6 +8250,8 @@ class EconomyRepository:
                 La regla vive en `bot.services.taxes`.
             week: Semana fiscal en curso.
             kind: Clase de renta: trabajo, pensión, actividad (autónomos) o Beckham.
+            public: Si la paga el Estado: el bruto y la cotización de la empresa salen de
+                su cuenta (`STATE_PAYROLL_PREFIX` y el concepto), lo que haya en ella.
 
         Returns:
             `(nómina, saldo_final)`.
@@ -8218,6 +8266,7 @@ class EconomyRepository:
             payslip_for,
             week,
             kind,
+            public,
         )
 
     def _credit_salary_sync(
@@ -8230,9 +8279,18 @@ class EconomyRepository:
         payslip_for: Callable[[int, Pace], Payslip],
         week: FiscalWeek,
         kind: str,
+        public: bool = False,
     ) -> tuple[Payslip, int]:
         with self._transaction() as connection:
             slip = payslip_for(gross, self._pace_in(connection, guild_id, user_id, week))
+            if public:
+                cost = slip.gross + slip.ss_employer
+                paid = min(cost, max(0, self._state_balance_in(connection, guild_id)))
+                if paid:
+                    self._apply_in_transaction(
+                        connection, guild_id, STATE_ACCOUNT_ID,
+                        (LedgerEntry(-paid, f"{STATE_PAYROLL_PREFIX}{concept}"),),
+                    )  # fmt: skip
             entries = [LedgerEntry(slip.gross, concept)]
             if slip.ss_worker:
                 entries.append(LedgerEntry(-slip.ss_worker, f"ss:{concept}"))

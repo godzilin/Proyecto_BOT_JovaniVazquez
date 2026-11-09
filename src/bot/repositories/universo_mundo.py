@@ -598,6 +598,53 @@ class UniversoMundoRepository:
             connection.close()
         return out
 
+    async def casino_pieces(self, guild_id: int) -> tuple[int, dict[str, dict[str, Any]]]:
+        """Lo publicado que hace falta para valorar el casino (`universo_editor.casino_value`).
+
+        `(versión, trozos)`: todos los assets y solo las celdas con alguna tragaperras y sus
+        ocho vecinas (lo que está a menos de `CASINO_RADIUS` de una cae ahí), no el mundo
+        entero. Versión 0 y `{}` si no hay nada publicado.
+        """
+        return await self._run(self._casino_pieces_sync, guild_id)
+
+    def _casino_pieces_sync(self, guild_id: int) -> tuple[int, dict[str, dict[str, Any]]]:
+        connection = self._connect()
+        try:
+            version = _last_version(connection, guild_id)
+            if version is None:
+                return 0, {}
+            latest = _latest_sql("p.clave, p.doc, p.refs")
+            assets = {
+                r["clave"]: json.loads(r["doc"])
+                for r in connection.execute(
+                    f"{latest} AND p.clave LIKE 'a/%'", (guild_id, guild_id)
+                )
+                if r["doc"]
+            }
+            slots = {
+                key[2:]
+                for key, doc in assets.items()
+                if (doc.get("funcion") or {}).get("tipo") == "traga"
+            }
+            near: set[str] = set()
+            for r in connection.execute(f"{latest} AND p.clave LIKE 'c/%'", (guild_id, guild_id)):
+                if r["doc"] and slots & set(r["refs"].split(",")):
+                    _c, cx, cz = r["clave"].split("/")
+                    near |= {
+                        f"c/{int(cx) + dx}/{int(cz) + dz}" for dx in (-1, 0, 1) for dz in (-1, 0, 1)
+                    }
+            cells = {
+                r["clave"]: json.loads(r["doc"])
+                for r in connection.execute(
+                    f"{latest} AND p.clave IN ({','.join('?' for _ in near)})",
+                    (guild_id, guild_id, *sorted(near)),
+                )
+                if r["doc"]
+            } if near else {}  # fmt: skip
+        finally:
+            connection.close()
+        return int(version), {**assets, **cells}
+
     async def versions(self, guild_id: int) -> list[tuple[int, int, str, int]]:
         """Versiones publicadas, de la más nueva a la más vieja.
 

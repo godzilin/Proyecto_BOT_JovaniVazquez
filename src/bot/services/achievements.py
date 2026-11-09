@@ -17586,8 +17586,13 @@ def _build_catalog() -> tuple[Achievement, ...]:
     ])  # fmt: skip
     a += _tiers("economy", "bank_hostage", [
         (1, "bank_hostage", "El problema es del banco",
-         "Mira `fortunas` o tu patrimonio debiendo al banco más de lo que vale 🏦 El Banco.",
-         R, True),
+         "Mira `fortunas` o tu patrimonio debiendo al banco más que su beneficio (sin contar "
+         "los depósitos).", R, True),
+    ])  # fmt: skip
+    # 🏛️ El Estado en `fortunas`: su caja es casi todo lo recaudado desde el primer día.
+    a += _tiers("economy", "richer_than_state", [
+        (1, "richer_than_state", "El Estado soy yo",
+         "Mira `fortunas` o tu patrimonio teniendo más que 🏛️ El Estado.", M),
     ])  # fmt: skip
     a += _tiers("economy", "hacienda_over_casino", [
         (1, "hacienda_over_casino", "Tributas más que Montecarlo",
@@ -20149,6 +20154,21 @@ def _build_catalog() -> tuple[Achievement, ...]:
         (75, "work_frauds_75", "Lupa de inspector", "Destapa 75 declaraciones fraudulentas.", E),
         (200, "perro_te_quiere", "Perro Sanxe te quiere",
          "Destapa 200 declaraciones fraudulentas.", L),
+    ])  # fmt: skip
+    # La nómina del funcionariado sale de la cuenta del Estado y sus impuestos vuelven a ella.
+    a += _tiers("funcionariado", "work_public_payroll", [
+        (1, "work_public_payroll_1", "Pagado con tus impuestos",
+         "Cobra una nómina del funcionariado, que paga el Estado.", C),
+        (100, "work_public_payroll_100", "Funcionario de carrera (de fondo)",
+         "Cobra 100 nóminas del funcionariado.", E),
+    ])  # fmt: skip
+    a += _tiers("funcionariado", "work_public_self_taxes", [
+        (100_000, "work_public_self_taxes_100000", "Hacienda somos todos (dos veces)",
+         "Con tus nóminas del funcionariado, haz que el Estado se cobre 100.000 Y$ de "
+         "impuestos a sí mismo.", R),
+        (1_000_000, "work_public_self_taxes_1000000", "Circuito cerrado del erario",
+         "Con tus nóminas del funcionariado, haz que el Estado se cobre 1.000.000 Y$ de "
+         "impuestos a sí mismo.", L),
     ])  # fmt: skip
     a += _tiers("funcionariado", "work_triennia_max", [
         (1, "primer_trienio", "Tres años y un sello", "Cumple un trienio en el funcionariado.", R),
@@ -26855,16 +26875,24 @@ def patrimonio_stats(
     return StatDelta(add=add, peak=peak)
 
 
-def house_rivals_stats(*, mine: int, casino: int, bank: int, debts: int) -> StatDelta:
-    """Contadores de compararse con 🎰 El Casino y 🏦 El Banco en `fortunas` y `perfil`.
+def house_rivals_stats(
+    *, mine: int, casino: int, bank: int, debts: int, state: int = 0, bank_profit: int | None = None
+) -> StatDelta:
+    """Contadores de compararse con la banca y 🏛️ El Estado en `fortunas` y `perfil`.
 
     Args:
         mine: El patrimonio neto de quien mira.
-        casino: El del Casino (lo que gana la casa menos sus impuestos).
-        bank: El del Banco.
+        casino: El del Casino (lo que gana la casa y su edificio, menos sus impuestos).
+        bank: El del Banco, con los depósitos de todos.
         debts: Lo que debe quien mira (hipotecas, préstamos y deudas; negativo si le deben).
+        state: El del Estado (su caja).
+        bank_profit: El beneficio del banco sin los depósitos (para `bank_hostage`); sin él,
+            `bank`.
     """
     add: dict[str, int] = {}
+    if state > 0 and mine > state:
+        add["richer_than_state"] = 1
+    bank_profit = bank if bank_profit is None else bank_profit
     beat_casino = casino > 0 and mine > casino
     beat_bank = bank > 0 and mine > bank
     if beat_casino:
@@ -26877,7 +26905,7 @@ def house_rivals_stats(*, mine: int, casino: int, bank: int, debts: int) -> Stat
         add["casino_close"] = 1
     if casino < 0:
         add["casino_in_red"] = 1
-    if bank > 0 and debts > bank:
+    if bank_profit > 0 and debts > bank_profit:
         add["bank_hostage"] = 1
     return StatDelta(add=add)
 
@@ -30845,6 +30873,9 @@ def work_stats(outcome: ShiftOutcome, *, birthday: bool = False) -> StatDelta:
             add["tax_paid"] = slip.irpf
         if slip.total_taxes:
             add["work_taxes"] = slip.ss_worker + slip.irpf
+        if outcome.job.paid_by_state(outcome.position):
+            add["work_public_payroll"] = 1
+            add["work_public_self_taxes"] = slip.total_taxes
         delta.peak["work_irpf_pct_max"] = round(slip.rates.irpf * 100)
         if slip.net > 0 and slip.total_taxes >= 0.8 * slip.net:
             add["work_half_salary"] = 1

@@ -746,6 +746,60 @@ def has_slots(pieces: dict[str, dict[str, Any]]) -> bool:
     )
 
 
+#: Lo que vale el casino del Jovaniverso en `fortunas` (`casino_value`), en Y$: cada
+#: tragaperras, cada letrero, cada forma básica de un asset de piezas y cada modelo (un GLB o
+#: una malla, que no se cuentan por piezas).
+CASINO_SLOT_VALUE = 100_000
+CASINO_SIGN_VALUE = 25_000
+CASINO_PIECE_VALUE = 1_500
+CASINO_MODEL_VALUE = 15_000
+#: Qué es del casino: lo que está a menos de estos metros (en planta) de una tragaperras.
+CASINO_RADIUS = 15.0
+
+
+def _build_worth(asset: dict[str, Any] | None) -> int:
+    """Lo que vale un objeto del casino según su asset (0 si el asset no existe)."""
+    if asset is None:
+        return 0
+    kind = (asset.get("funcion") or {}).get("tipo")
+    if kind == "traga":
+        return CASINO_SLOT_VALUE
+    if kind == "letrero":
+        return CASINO_SIGN_VALUE
+    if asset.get("tipo") == "glb":
+        return CASINO_MODEL_VALUE
+    return CASINO_PIECE_VALUE * len(asset.get("piezas") or ()) + (
+        CASINO_MODEL_VALUE if asset.get("malla") else 0
+    )
+
+
+def casino_value(pieces: dict[str, dict[str, Any]]) -> int:
+    """Lo que vale lo construido del casino en un mundo, para su fortuna en `fortunas`.
+
+    Es del casino todo objeto a menos de `CASINO_RADIUS` de una tragaperras (ellas
+    incluidas): las paredes, el toldo y la decoración que se le ponga alrededor con el
+    editor. Cuanto más se construya, más vale. Sin tragaperras, 0.
+
+    Args:
+        pieces: Los trozos del mundo (clave → documento ya leído), como en `add_casino`.
+    """
+    assets = {key[2:]: doc for key, doc in pieces.items() if key.startswith("a/")}
+    objects = [
+        obj for key, doc in pieces.items() if key.startswith("c/") for obj in doc.get("objetos", [])
+    ]
+    slots = [
+        (obj["pos"][0], obj["pos"][2])
+        for obj in objects
+        if ((assets.get(obj["asset"]) or {}).get("funcion") or {}).get("tipo") == "traga"
+    ]
+    reach = CASINO_RADIUS**2
+    return sum(
+        _build_worth(assets.get(obj["asset"]))
+        for obj in objects
+        if any((obj["pos"][0] - x) ** 2 + (obj["pos"][2] - z) ** 2 <= reach for x, z in slots)
+    )
+
+
 def add_casino(pieces: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Los trozos que cambian al poner el casino de la plaza (`CASINO_FILE`) en un mundo.
 

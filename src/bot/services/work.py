@@ -546,12 +546,19 @@ class Job:
     seniority: bool = False
     #: Si el sueldo depende de hacerse viral.
     viral: bool = False
+    #: Si es empleo público: el bruto y la cotización de la empresa salen de la cuenta del
+    #: Estado (`paid_by_state`), que luego se cobra a sí mismo la retención y la cotización.
+    public: bool = False
     #: Ramas que siguen al tronco (vacío = el oficio acaba en el tronco).
     branches: tuple[Branch, ...] = ()
 
     def branch(self, key: str) -> Branch | None:
         """La rama con esa clave, o `None` (también con `""`, el tronco)."""
         return next((b for b in self.branches if b.key == key), None)
+
+    def paid_by_state(self, position: Position) -> bool:
+        """Si la nómina de ese puesto la paga el Estado (no la de un autónomo que se fue)."""
+        return self.public and not position.self_employed
 
     def has_options(self, level: int, branch: str = "") -> bool:
         """Si en ese puesto de esa rama se cobra parte del sueldo en stock options."""
