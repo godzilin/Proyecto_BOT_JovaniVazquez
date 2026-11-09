@@ -27,7 +27,7 @@ sola. Una especie sin un hueco (un pez no tiene cuello) no lo enseña en el arma
 
 **Añadir una prenda**: una fila en `OUTFITS` con una forma que ya exista o una forma
 nueva en la escena (y en `SHAPES`), mirarla en la hoja de muestras
-(`docs/muestras_mascotas.py`) sobre las 29 especies, y decidir su pasillo, precio e
+(`docs/muestras_mascotas.py`) sobre todas las especies, y decidir su pasillo, precio e
 IGIC como cualquier artículo (Biblia, «Tienda»). La clave no se cambia nunca.
 """
 
@@ -151,6 +151,7 @@ SHAPES: dict[Slot, frozenset[str]] = {
     }),
     Slot.BODY: frozenset({
         "capa", "jersey", "chaleco", "alas", "manta", "chubasquero", "volantes", "camiseta",
+        "disfraz_tiburon", "disfraz_papa", "disfraz_papa_arrugada",
     }),
     Slot.BACKDROP: frozenset({
         "casa", "canteras", "teide", "moncloa", "hongkong", "yate", "plaza_mayor", "patio",
@@ -346,6 +347,16 @@ OUTFITS: tuple[Outfit, ...] = (
     _o("volantes", B, "💃", "Volantes de flamenca", 3_000, "espana",
        "Rojos con lunares blancos, para la feria. Se mueven solos.",
        "volantes", ("#d63031", "#ffffff"), pattern="lunares"),
+    # Disfraces: van en el cuerpo y traen su capucha o su mitra (la escena les da la cabeza).
+    _o("disfraz_tiburon", B, "🦈", "Disfraz de tiburón", 2_500, "cotillon",
+       "Pijama de cuerpo entero con capucha de dientes y aleta. Tapa también la cabeza.",
+       "disfraz_tiburon", ("#7f97ad", "#f2f4f6", "#ffffff", "#c0392b")),
+    _o("disfraz_papa", B, "⛪", "Disfraz de Papa", 3_500, "cotillon",
+       "Sotana blanca, esclavina, cruz dorada y mitra. Tapa también la cabeza.",
+       "disfraz_papa", ("#fbfaf5", "#d4a72c")),
+    _o("disfraz_papa_arrugada", B, "🥔", "Disfraz de papa arrugada", 2_000, "canarias",
+       "De papa con su sal y su capucha, con mojo picón por encima. Tapa también la cabeza.",
+       "disfraz_papa_arrugada", ("#b98a4e", "#7a5530", "#ffffff", "#c0392b")),
     # 🖼️ Fondo ------------------------------------------------------------------------------
     _o("fondo_canteras", F, "🏖️", "Fondo: playa de Las Canteras", 3_000, "canarias",
        "La arena dorada, la barra y el mar en calma de Las Palmas de Gran Canaria.",

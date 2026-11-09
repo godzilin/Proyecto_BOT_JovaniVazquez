@@ -241,7 +241,7 @@ def test_cada_especie_tiene_personalidad_completa() -> None:
 
 def test_perros_gatos_y_hurones_se_adoptan_no_se_venden() -> None:
     """Ley 7/2023, art. 56: las tiendas no pueden venderlos."""
-    for key in ("perro", "gato", "huron", "bardino", "presa", "caniche"):
+    for key in ("perro", "gato", "huron", "bardino", "presa", "caniche", "schnauzer"):
         species = SPECIES_BY_KEY[key]
         assert species.adoption and "adopción" in species.description.lower(), key
 

@@ -20,6 +20,20 @@ criterio.
 
 ## 10.x
 
+### 10.13.2 · 2026-11-08
+
+- Mascotas: las razas se vuelven a poder comprar desde el panel (salía «Ese artículo ya no está a la venta»)
+
+### 10.13.1 · 2026-11-08
+
+- Despliegue: la imagen vuelve a construirse; el Dockerfile no copiaba `casino_plaza.json`, que la plaza del Jovaniverso importa desde la 10.12
+
+### 10.13.0 · 2026-11-08
+
+- Mascotas: nuevo schnauzer en adopción, en tres tallas (mini, mediano y gigante) y con los colores del estándar (sal y pimienta, negro, negro y plata, blanco), con barba y cejas en el retrato
+- Armario: disfraces de tiburón, de Papa y de papa arrugada, que visten el cuerpo y tapan la cabeza
+- Logros: seis nuevos del schnauzer y de los disfraces
+
 ### 10.12.0 · 2026-11-08
 
 - Jovaniverso: el mundo ya no tiene tope y se carga por cercanía

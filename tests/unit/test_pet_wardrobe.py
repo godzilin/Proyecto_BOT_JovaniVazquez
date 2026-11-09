@@ -211,6 +211,21 @@ def test_estadisticas_de_vestir_marcan_las_combinaciones() -> None:
         species="gato", outfit=None, owned=1, complete=False, look={}, aisles={}
     )
     assert "pet_dressed" not in undress.add
+    pope = pet_dress_stats(
+        species="schnauzer",
+        outfit="disfraz_papa",
+        owned=1,
+        complete=False,
+        look={"cuerpo": "disfraz_papa"},
+        aisles={"cuerpo": "cotillon"},
+    )
+    assert pope.add["pet_dress_papa"] == 1 and pope.add["pet_dress_schnauzer_papa"] == 1
+    for key in ("disfraz_tiburon", "disfraz_papa_arrugada"):
+        stat = f"pet_dress_{key.removeprefix('disfraz_')}"
+        delta = pet_dress_stats(
+            species="gato", outfit=key, owned=1, complete=False, look={"cuerpo": key}, aisles={}
+        )
+        assert delta.add[stat] == 1 and stat in BY_ID
 
 
 def test_la_ficha_no_cambia_con_cada_caricia() -> None:
