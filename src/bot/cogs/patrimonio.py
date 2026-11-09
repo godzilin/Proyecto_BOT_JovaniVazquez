@@ -48,7 +48,6 @@ Permisos: enviar mensajes e insertar enlaces en el canal del anuncio.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sqlite3
 import time
@@ -812,20 +811,17 @@ class Patrimonio(commands.Cog):
         if self.mundo is None:
             return 0
         try:
-            found = await self.mundo.published(guild_id)
-        except (OSError, sqlite3.Error):
+            key = (guild_id, await self.mundo.version(guild_id))
+            if key not in self._build:
+                _version, pieces = await self.mundo.casino_pieces(guild_id)
+                # Una versión por servidor: la anterior ya no vale.
+                self._build = {k: v for k, v in self._build.items() if k[0] != guild_id}
+                self._build[key] = await asyncio.to_thread(
+                    lambda: casino_value({**pieces, **add_casino(pieces)})
+                )
+        except (OSError, sqlite3.Error, ValueError):
             logger.exception("No se pudo leer el mundo para valorar el casino")
             return 0
-        key = (guild_id, found[0] if found else 0)
-        if key not in self._build:
-
-            def value() -> int:
-                pieces = {k: json.loads(d) for k, d in found[1].items()} if found else {}
-                return casino_value({**pieces, **add_casino(pieces)})
-
-            # Una versión por servidor: la anterior ya no vale.
-            self._build = {k: v for k, v in self._build.items() if k[0] != guild_id}
-            self._build[key] = await asyncio.to_thread(value)
         return self._build[key]
 
     async def houses(self, guild_id: int) -> HouseBooks | None:
