@@ -19,7 +19,7 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 | `zonas` | `{"zonas": {...}}`: los lugares de logros que se mueven desde el editor. |
 | `teleportes` | `{"teleportes": [{nombre, x, z}, ...]}`: los sitios del menú Viajar (hasta 24). Sin el trozo, los de serie; con la lista vacía, ninguno. |
 | `a/<id>` | Un asset (el mismo objeto que antes en `assets[<id>]`). |
-| `c/<cx>/<cz>` | Una celda de `CELDA` = 80 m de lado: `{"objetos": [...], "terreno"?: {...}}`. |
+| `c/<cx>/<cz>` | Una celda de `CELDA` = 80 m de lado: `{"objetos": [...], "terreno"?: {...}, "gen"?: "..."}`. `gen` es la firma del generador de islas (`docs/generador-mundo.md`): solo reescribe las celdas que la llevan. |
 
 - La celda `(cx, cz)` cubre `[cx·80, (cx+1)·80)` en x y lo mismo en z. Un objeto va en la celda
   de su `pos` (x, z), en coordenadas del mundo, no relativas a la celda.

@@ -419,6 +419,26 @@ class UniversoMundoRepository:
             connection.close()
         return {r["clave"]: (r["doc"], int(r["rev"])) for r in rows}
 
+    async def draft_pieces(self, guild_id: int, keys: Iterable[str]) -> dict[str, tuple[str, int]]:
+        """Como `draft`, pero solo esas claves (las que no están no salen): para ir por tandas."""
+        return await self._run(self._draft_pieces_sync, guild_id, list(keys))
+
+    def _draft_pieces_sync(self, guild_id: int, keys: list[str]) -> dict[str, tuple[str, int]]:
+        connection = self._connect()
+        out: dict[str, tuple[str, int]] = {}
+        try:
+            for start in range(0, len(keys), 500):  # el tope de parámetros de SQLite
+                chunk = keys[start : start + 500]
+                rows = connection.execute(
+                    "SELECT clave, doc, rev FROM universo_trozos_borrador "
+                    f"WHERE guild_id = ? AND clave IN ({','.join('?' * len(chunk))})",
+                    (guild_id, *chunk),
+                ).fetchall()
+                out.update((r["clave"], (r["doc"], int(r["rev"]))) for r in rows)
+        finally:
+            connection.close()
+        return out
+
     async def save(
         self, guild_id: int, changes: dict[str, Change], author_id: int
     ) -> dict[str, int]:

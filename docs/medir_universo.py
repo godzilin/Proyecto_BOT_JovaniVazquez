@@ -20,7 +20,9 @@ lugar de `docs/sala_local.py`, con un mundo publicado en su base de datos.
 `--recorrido` recorre `RECORRIDO` (el centro, los bordes del mundo mirando hacia fuera y el cénit) en los dos perfiles y saca,
 además de llamadas y triángulos, lo que tiene cargado la página (celdas, assets, mallas), las geometrías de three y la memoria
 de JavaScript de la pestaña (`performance.memory`, en Chromium). Con un mundo grande y denso (`docs/editor_local.py --sintetico`
-y `?editor`) dice si la carga por cercanía aguanta el presupuesto y si suelta lo que deja atrás.
+y `?editor`) dice si la carga por cercanía aguanta el presupuesto y si suelta lo que deja atrás. `--puntos ARCHIVO`
+cambia `RECORRIDO` por los de un JSON (`{"nombre": [x, z, giro, inclinación, distancia]}`, como
+`docs/islas/recorrido_la_graciosa.json`), y con `--capturas` guarda un PNG de cada punto en cada perfil.
 Presupuesto (Biblia, «Jovaniverso: rendimiento imperativo»): < 120 llamadas y < 250.000 triángulos en la peor vista.
 """
 
@@ -227,8 +229,10 @@ JS_RECORRIDO = """async ([x, z, giro, inclinacion, dist]) => {
 }"""
 
 
-def recorrido(url: str, extra: str, solo: str) -> dict:
-    """Lo cargado, lo dibujado y la memoria en cada punto de `RECORRIDO`, por perfil."""
+def recorrido(
+    url: str, extra: str, solo: str, puntos: dict = RECORRIDO, capturas: Path | None = None
+) -> dict:
+    """Lo cargado, lo dibujado y la memoria en cada punto de `puntos`, por perfil."""
     res: dict = {}
     with sync_playwright() as p:
         nav = p.chromium.launch(headless=True, args=[*ARGS, "--enable-precise-memory-info"])
@@ -240,7 +244,11 @@ def recorrido(url: str, extra: str, solo: str) -> dict:
             pag.on("pageerror", lambda e: print("ERROR de página:", e, file=sys.stderr))
             pag.goto(f"{url}/?debug=fijo{extra}", wait_until="load")
             pag.wait_for_function("window.__jv !== undefined", timeout=120000)
-            res[perfil] = {n: pag.evaluate(JS_RECORRIDO, list(v)) for n, v in RECORRIDO.items()}
+            res[perfil] = {}
+            for n, v in puntos.items():
+                res[perfil][n] = pag.evaluate(JS_RECORRIDO, list(v))
+                if capturas:
+                    pag.screenshot(path=str(capturas / f"{n}_{perfil}.png"))
             ctx.close()
         nav.close()
     return res
@@ -291,6 +299,7 @@ def main() -> None:
     ap.add_argument(
         "--recorrido", action="store_true", help="recorre el mundo midiendo lo cargado y la memoria"
     )
+    ap.add_argument("--puntos", type=Path, help="JSON con los puntos del recorrido")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     proc = sala = None
@@ -313,7 +322,8 @@ def main() -> None:
             )
             return
         if a.recorrido:
-            res = recorrido(a.url, a.extra, a.solo)
+            puntos = json.loads(a.puntos.read_text(encoding="utf-8")) if a.puntos else RECORRIDO
+            res = recorrido(a.url, a.extra, a.solo, puntos, a.capturas)
             print(tabla_recorrido(res))
             if a.json:
                 a.json.write_text(json.dumps(res, indent=1), encoding="utf-8")

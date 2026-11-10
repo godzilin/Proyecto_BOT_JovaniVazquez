@@ -1,0 +1,123 @@
+{
+  "_nota": "Kit modular canario del generador (docs/generador-mundo.md). Cada asset es el de universo_editor.py con dos licencias: «rot» se puede omitir y los colores van en #RRGGBB. El origen de cada casa es el suelo en su centro y la fachada mira a +z; los muros bajan 1,5 m bajo el suelo para no quedar en el aire en cuesta. «huellas» es el ancho (x) y el fondo (z) que ocupa cada casa o muro en el trazado del pueblo.",
+  "huellas": {
+    "kit-casa-1": [6, 5],
+    "kit-casa-2": [8, 5.5],
+    "kit-casa-3": [5.5, 5],
+    "kit-casa-4": [6, 6],
+    "kit-muro": [4, 0.6]
+  },
+  "assets": {
+    "kit-casa-1": {
+      "nombre": "Casa terrera",
+      "tipo": "piezas",
+      "colision": [[-1.5, 0, 2.6], [1.5, 0, 2.6]],
+      "piezas": [
+        {"forma": "caja", "pos": [0, 0.85, 0], "esc": [6, 4.7, 5], "color": "#F4F1EA"},
+        {"forma": "caja", "pos": [0, -0.5, 0], "esc": [6.08, 2, 5.08], "color": "#6F8FA6"},
+        {"forma": "caja", "pos": [0, 3.33, 0], "esc": [6.12, 0.26, 5.12], "color": "#E6E0D2"},
+        {"forma": "caja", "pos": [-1.3, 1.15, 2.52], "esc": [1.3, 2.3, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [-1.3, 1.05, 2.56], "esc": [1, 2.1, 0.06], "color": "#2F6B4E"},
+        {"forma": "caja", "pos": [1.4, 1.75, 2.52], "esc": [1.3, 1.3, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [1.4, 1.75, 2.56], "esc": [1, 1, 0.06], "color": "#2F6B4E"},
+        {"forma": "caja", "pos": [3.02, 1.75, 0], "esc": [0.06, 1, 1], "color": "#2F6B4E"}
+      ]
+    },
+    "kit-casa-2": {
+      "nombre": "Casa terrera ancha",
+      "tipo": "piezas",
+      "colision": [[-2.4, 0, 2.8], [0, 0, 2.8], [2.4, 0, 2.8]],
+      "piezas": [
+        {"forma": "caja", "pos": [0, 0.95, 0], "esc": [8, 4.9, 5.5], "color": "#F6F3EC"},
+        {"forma": "caja", "pos": [0, -0.45, 0], "esc": [8.08, 2.1, 5.58], "color": "#C49A5A"},
+        {"forma": "caja", "pos": [0, 3.53, 0], "esc": [8.12, 0.26, 5.62], "color": "#E9E3D5"},
+        {"forma": "caja", "pos": [0, 1.15, 2.77], "esc": [1.4, 2.3, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [0, 1.05, 2.81], "esc": [1.1, 2.1, 0.06], "color": "#6B3F27"},
+        {"forma": "caja", "pos": [-2.5, 1.8, 2.77], "esc": [1.3, 1.4, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [-2.5, 1.8, 2.81], "esc": [1, 1.1, 0.06], "color": "#6B3F27"},
+        {"forma": "caja", "pos": [2.5, 1.8, 2.77], "esc": [1.3, 1.4, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [2.5, 1.8, 2.81], "esc": [1, 1.1, 0.06], "color": "#6B3F27"},
+        {"forma": "caja", "pos": [3, 3.95, -1.6], "esc": [0.7, 0.7, 0.7], "color": "#E9E3D5"}
+      ]
+    },
+    "kit-casa-3": {
+      "nombre": "Casa de tejado",
+      "tipo": "piezas",
+      "colision": [[-1.3, 0, 2.6], [1.3, 0, 2.6]],
+      "piezas": [
+        {"forma": "caja", "pos": [0, 0.8, 0], "esc": [5.5, 4.6, 5], "color": "#F2EEE5"},
+        {"forma": "caja", "pos": [0, -0.5, 0], "esc": [5.58, 2, 5.08], "color": "#8A8F96"},
+        {"forma": "prisma", "pos": [0, 3.75, 0], "esc": [8.4, 1.5, 7.7], "color": "#A5482F", "lados": 4, "arriba": 0, "abajo": 1, "fase": 0.785398},
+        {"forma": "caja", "pos": [0.9, 1.15, 2.52], "esc": [1.3, 2.3, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [0.9, 1.05, 2.56], "esc": [1, 2.1, 0.06], "color": "#2F5D8A"},
+        {"forma": "caja", "pos": [-1.4, 1.75, 2.52], "esc": [1.2, 1.2, 0.06], "color": "#B9A27E"},
+        {"forma": "caja", "pos": [-1.4, 1.75, 2.56], "esc": [0.9, 0.9, 0.06], "color": "#2F5D8A"}
+      ]
+    },
+    "kit-casa-4": {
+      "nombre": "Casa de dos plantas",
+      "tipo": "piezas",
+      "colision": [[-1.5, 0, 3], [1.5, 0, 3]],
+      "piezas": [
+        {"forma": "caja", "pos": [0, 2.35, 0], "esc": [6, 7.7, 6], "color": "#F4F1EA"},
+        {"forma": "caja", "pos": [0, -0.5, 0], "esc": [6.08, 2, 6.08], "color": "#5E7F94"},
+        {"forma": "caja", "pos": [0, 6.33, 0], "esc": [6.12, 0.26, 6.12], "color": "#E6E0D2"},
+        {"forma": "caja", "pos": [-1.6, 1.05, 3.06], "esc": [1, 2.1, 0.06], "color": "#2F6B4E"},
+        {"forma": "caja", "pos": [1.5, 1.75, 3.06], "esc": [1, 1, 0.06], "color": "#2F6B4E"},
+        {"forma": "caja", "pos": [0.8, 4.9, 3.06], "esc": [1, 1.9, 0.06], "color": "#2F6B4E"},
+        {"forma": "caja", "pos": [0.8, 4.4, 3.35], "esc": [2.6, 1.1, 0.7], "color": "#6B3F27"},
+        {"forma": "caja", "pos": [0.8, 5.95, 3.4], "esc": [2.8, 0.12, 0.8], "color": "#6B3F27"},
+        {"forma": "caja", "pos": [-1.6, 4.9, 3.06], "esc": [0.9, 1.1, 0.06], "color": "#2F6B4E"}
+      ]
+    },
+    "kit-muro": {
+      "nombre": "Muro de piedra",
+      "tipo": "piezas",
+      "distancia": 160,
+      "colision": [[-1.4, 0, 0.5], [0, 0, 0.5], [1.4, 0, 0.5]],
+      "piezas": [
+        {"forma": "caja", "pos": [0, 0.05, 0], "esc": [4, 2.1, 0.55], "color": "#6A5F55"},
+        {"forma": "caja", "pos": [0, 1.15, 0], "esc": [4.08, 0.12, 0.62], "color": "#8C8276"}
+      ]
+    },
+    "kit-tabaiba": {
+      "nombre": "Tabaiba",
+      "tipo": "piezas",
+      "distancia": 120,
+      "colision": null,
+      "piezas": [
+        {"forma": "icosaedro", "pos": [0, 0.3, 0], "esc": [1.1, 0.7, 1.1], "color": "#8EA437"},
+        {"forma": "icosaedro", "pos": [0.35, 0.4, 0.2], "esc": [0.7, 0.6, 0.7], "color": "#9DB23F"},
+        {"forma": "icosaedro", "pos": [-0.3, 0.35, -0.25], "esc": [0.7, 0.55, 0.7], "color": "#7F9631"}
+      ]
+    },
+    "kit-aulaga": {
+      "nombre": "Aulaga",
+      "tipo": "piezas",
+      "distancia": 100,
+      "colision": null,
+      "piezas": [
+        {"forma": "dodecaedro", "pos": [0, 0.35, 0], "esc": [0.9, 0.8, 0.9], "color": "#B7B98F"},
+        {"forma": "icosaedro", "pos": [0.3, 0.2, 0.1], "esc": [0.5, 0.45, 0.5], "color": "#A9AD80"}
+      ]
+    },
+    "kit-palmera": {
+      "nombre": "Palmera canaria",
+      "tipo": "piezas",
+      "distancia": 260,
+      "colision": [[0, 0, 0.35]],
+      "piezas": [
+        {"forma": "cilindro", "pos": [0, 3.5, 0], "esc": [0.45, 7, 0.45], "color": "#7B5E3B"},
+        {"forma": "icosaedro", "pos": [0, 7.1, 0], "esc": [1, 0.8, 1], "color": "#5D7A2C"},
+        {"forma": "caja", "pos": [0, 7, 1.5], "rot": [0.35, 0, 0], "esc": [0.5, 0.06, 3.4], "color": "#4E7A2A"},
+        {"forma": "caja", "pos": [1.06, 7, 1.06], "rot": [0.35, 0.785, 0], "esc": [0.5, 0.06, 3.4], "color": "#5F8C33"},
+        {"forma": "caja", "pos": [1.5, 7, 0], "rot": [0.35, 1.571, 0], "esc": [0.5, 0.06, 3.4], "color": "#4E7A2A"},
+        {"forma": "caja", "pos": [1.06, 7, -1.06], "rot": [0.35, 2.356, 0], "esc": [0.5, 0.06, 3.4], "color": "#5F8C33"},
+        {"forma": "caja", "pos": [0, 7, -1.5], "rot": [0.35, 3.142, 0], "esc": [0.5, 0.06, 3.4], "color": "#4E7A2A"},
+        {"forma": "caja", "pos": [-1.06, 7, -1.06], "rot": [0.35, 3.927, 0], "esc": [0.5, 0.06, 3.4], "color": "#5F8C33"},
+        {"forma": "caja", "pos": [-1.5, 7, 0], "rot": [0.35, 4.712, 0], "esc": [0.5, 0.06, 3.4], "color": "#4E7A2A"},
+        {"forma": "caja", "pos": [-1.06, 7, 1.06], "rot": [0.35, 5.498, 0], "esc": [0.5, 0.06, 3.4], "color": "#5F8C33"}
+      ]
+    }
+  }
+}

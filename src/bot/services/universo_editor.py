@@ -19,7 +19,7 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
                 "funcion"?: ...}
 "c/<cx>/<cz>"  {"objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z],
                              "esc": [x, y, z], "tinte"?: float, "datos"?: Datos}],
-                "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}}
+                "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}, "gen"?: str}
 ```
 
 - La celda `(cx, cz)` cubre `[cx·CELL, (cx+1)·CELL)` en x y en z. Cada objeto va en la
@@ -65,6 +65,9 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
   (`MundoDoc`: `assets`, `objetos`, `zonas` y el `terreno` de toda la isla, de
   `TERRAIN_SIDE`² vértices) y lo parten o lo juntan al hablar con el servidor
   (`aTrozos` y `deTrozos` de `formato.ts`; `split_world` aquí).
+- `gen` marca una celda que ha escrito el generador (`docs/generador-mundo.md`): la firma de lo
+  que la produjo. El generador solo reescribe celdas que lo llevan; el editor no lo escribe en una
+  celda que se toca a mano, y así el generador ya no la pisa.
 - Un GLB va aparte, por su resumen (`glb_summary`), y el mundo solo lo nombra.
 
 No guarda nada ni habla con Discord: solo dice si un trozo, un mundo o un GLB valen.
@@ -151,6 +154,8 @@ MAX_SIGN_SIDE = 40.0
 CASINO_FILE = Path(__file__).resolve().parent.parent / "assets" / "casino_plaza.json"
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
+#: La firma del generador en una celda (`gen`).
+_GEN = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
 _KEY = re.compile(r"zonas|teleportes|a/([a-z0-9_-]{1,40})|c/(-?\d{1,3})/(-?\d{1,3})")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GLB_MAGIC = b"glTF"
@@ -495,7 +500,7 @@ def _teleports(value: object) -> list[dict[str, Any]]:
 
 
 def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
-    d = _object(value, {"objetos", "terreno"}, f"La celda {cx}, {cz}")
+    d = _object(value, {"objetos", "terreno", "gen"}, f"La celda {cx}, {cz}")
     objects = d.get("objetos", [])
     if not isinstance(objects, list) or len(objects) > MAX_CELL_OBJECTS:
         raise MundoError(f"Una celda puede tener {MAX_CELL_OBJECTS} objetos como mucho.")
@@ -526,6 +531,10 @@ def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
     clean: dict[str, Any] = {"objetos": clean_objects}
     if "terreno" in d:
         clean["terreno"] = _terrain(d["terreno"], CELL_TERRAIN_SIDE)
+    if "gen" in d:
+        if not isinstance(d["gen"], str) or not _GEN.fullmatch(d["gen"]):
+            raise MundoError(f"La celda {cx}, {cz}: la firma del generador no vale.")
+        clean["gen"] = d["gen"]
     return clean
 
 
