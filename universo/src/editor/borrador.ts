@@ -5,7 +5,7 @@
 import * as api from "./api";
 import { Conflicto, type Sesion, type TrozoBorrador, type Version } from "./api";
 import type { MundoDoc, Objeto, Terreno } from "./formato";
-import { aTrozos, claveDeNumero, deTrozos, numeroCelda, numeroDeClave, parchear, partirTerreno, trozoCelda, trozosSueltos } from "./trozos";
+import { aTrozos, claveDeNumero, deTrozos, mismoTerreno, numeroCelda, numeroDeClave, parchear, partirTerreno, trozoCelda, trozosSueltos } from "./trozos";
 
 const AUTOGUARDADO_MS = 20_000;
 export const MAX_HISTORIAL = 50;
@@ -204,7 +204,7 @@ export class Borrador {
       for (const k of new Set([...(terreno?.keys() ?? []), ...(this.terreno?.keys() ?? [])])) {
         const a = this.terreno?.get(k);
         const b = terreno?.get(k);
-        if (a?.alturas !== b?.alturas || a?.colores !== b?.colores) celdas.add(numeroDeClave(k) as number);
+        if (!mismoTerreno(a, b)) celdas.add(numeroDeClave(k) as number);
       }
       this.terreno = terreno;
     }

@@ -50,7 +50,7 @@ const TOPE_SEL = 300;
 /** Hasta dónde se puede colocar: donde acaban las celdas del editor (`CELL_LIMIT`); el borde del jugador crece al publicar. */
 const MITAD = LIMITE;
 const MIN_Y = -20;
-const MAX_Y = 120;
+const MAX_Y = 4000; // `MAX_Y` de `universo_editor.py`: lo que acepta la sala
 const MIN_ESC = 0.02;
 const MAX_ESC = 60;
 const MIN_TINTE = 0.3;

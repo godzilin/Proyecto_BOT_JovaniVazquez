@@ -105,11 +105,12 @@ la medida se sacan con `--capturas docs/capturas_universo --json …` (la carpet
 
 ## Alturas y `base`
 
-El terreno guarda centímetros en `int16` (±327 m) y la validación de hoy lo limita de −20 a 120 m.
-La Graciosa a 1:5 en vertical llega a 52 m y cabe sin más. Para lo que no quepa, el generador ya
-escribe `base` (cm) en el terreno de la celda cuando sus alturas no caben en `int16`, con las
-alturas relativas a ella (`terreno()`); la validación y la página lo aceptan cuando entre el
-trabajo de «terreno alto». El piloto no lo usa.
+El terreno guarda centímetros en `int16` sobre una `base` opcional (cm) por celda, de −20 a 4000 m
+y con 655 m de desnivel como mucho por celda («terreno alto», `docs/mundo-celdas.md`). El
+generador escribe `base` solo cuando las alturas de una celda no caben en `int16`, en el punto
+medio de su desnivel (`terreno()`), y se niega con una celda de más de 655 m de desnivel (habría
+que recortarla o partir la isla en celdas más bajas). La Graciosa a 1:5 en vertical llega a 52 m:
+no lo necesita.
 
 ## Fuentes y licencias
 
@@ -163,8 +164,8 @@ viejas: haría falta un modo que borre las celdas con su `gen` que ya no salen.
 
 Lo que haría falta:
 
-- **Alturas:** el Teide (3715 m) a 1:5 son 743 m: necesita `base` y que la validación pase de los
-  120 m de hoy (terreno y objetos), y más niebla o un horizonte más largo para que se vea.
+- **Alturas:** el Teide (3715 m) a 1:5 son 743 m: cabe con `base` (ninguna celda de 80 m tiene
+  655 m de desnivel ni en las Cañadas); falta más niebla o un horizonte más largo para que se vea.
 - **Memoria y tiempo del generador:** en Python puro, el relieve se guarda en listas; con 1,1 M de
   muestras ya son ~100 MB y la distancia a la costa tarda decenas de segundos. Bastaría con
   `numpy` en el script (no en el bot) o con generar por regiones.

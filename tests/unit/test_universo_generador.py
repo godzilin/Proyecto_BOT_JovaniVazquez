@@ -133,6 +133,11 @@ def test_terreno_alto_lleva_base() -> None:
     assert list(array("h", base64.b64decode(alto["alturas"]))) == [-500, 500]
     with pytest.raises(ValueError):
         terreno([0, 70_000], bytes(2))
+    # Una celda entera en lo alto (a 600 m) la acepta el servidor.
+    n = CELL_TERRAIN_SIDE * CELL_TERRAIN_SIDE
+    cumbre = terreno([60_000 + k % 900 for k in range(n)], bytes(n))
+    assert "base" in cumbre
+    validate_piece("c/0/0", {"objetos": [], "terreno": cumbre}, {})
 
 
 async def test_no_pisa_lo_hecho_a_mano(tmp_path: Path) -> None:
@@ -191,7 +196,7 @@ def test_la_graciosa_entera_vale_y_es_repetible() -> None:
     assert huellas[0] == huellas[1]
     limpio = validate_world(trozos, {})
     alturas = [v for k, d in limpio.items() if k[0] == "c" for v in _alturas(d)]
-    assert max(alturas) < 12_000  # cabe sin `base` y en el tope de hoy del editor (120 m)
+    assert max(alturas) < 12_000  # sin `base`: el piloto no la necesita
     casas = sum(
         o["asset"].startswith("kit-casa") for d in limpio.values() for o in d.get("objetos", ())
     )

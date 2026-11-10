@@ -19,7 +19,8 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
                 "funcion"?: ...}
 "c/<cx>/<cz>"  {"objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z],
                              "esc": [x, y, z], "tinte"?: float, "datos"?: Datos}],
-                "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}, "gen"?: str}
+                "terreno"?: {"alturas": "<base64>", "colores": "<base64>", "base"?: int},
+                "gen"?: str}
 ```
 
 - La celda `(cx, cz)` cubre `[cx·CELL, (cx+1)·CELL)` en x y en z. Cada objeto va en la
@@ -58,13 +59,17 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 - `terreno` es el suelo esculpido de la celda: una rejilla de `CELL_TERRAIN_SIDE` ×
   `CELL_TERRAIN_SIDE` vértices cada `TERRAIN_STEP` m desde su esquina (-x -z), fila a fila,
   con los bordes repetidos en la celda de al lado. `alturas` son enteros de 16 bits con
-  signo en centímetros (little-endian) y `colores` un byte por vértice: 0 es el color
-  natural (sale de la altura y la pendiente) y de 1 a `TERRAIN_PAINTS` uno de la paleta de
-  `mundo/terreno.ts`. Sin él, la isla de serie (la fórmula de `heightAt`).
-- En la página, el editor y el mundo trabajan con el documento de un solo bloque de antes
-  (`MundoDoc`: `assets`, `objetos`, `zonas` y el `terreno` de toda la isla, de
-  `TERRAIN_SIDE`² vértices) y lo parten o lo juntan al hablar con el servidor
-  (`aTrozos` y `deTrozos` de `formato.ts`; `split_world` aquí).
+  signo en centímetros (little-endian) sobre `base` (cm, 0 si no viene): la altura de cada
+  vértice es `base + alturas[i]`, de `MIN_Y` a `MAX_Y`. Así una celda cabe en 16 bits
+  (655 m de desnivel) aunque esté en lo alto del Teide. `colores` es un byte por vértice: 0
+  es el color natural (sale de la altura y la pendiente) y de 1 a `TERRAIN_PAINTS` uno de
+  la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie (la fórmula de `heightAt`)
+  o, fuera de ella, el mar.
+- En la página, el editor y el mundo trabajan con un documento de un solo bloque
+  (`MundoDoc`: `assets`, `objetos`, `zonas` y el `terreno` de cada celda por su clave) y lo
+  parten o lo juntan al hablar con el servidor (`aTrozos` y `deTrozos` de `trozos.ts`).
+  `split_world` parte el formato 1 de antes (el `terreno` de toda la isla, de
+  `TERRAIN_SIDE`² vértices), para migrar las tablas viejas.
 - `gen` marca una celda que ha escrito el generador (`docs/generador-mundo.md`): la firma de lo
   que la produjo. El generador solo reescribe celdas que lo llevan; el editor no lo escribe en una
   celda que se toca a mano, y así el generador ya no la pisa.
@@ -122,7 +127,9 @@ CELL = 80
 #: Celdas a cada lado del 0 (±40 km, 80 km de lado). La sala acepta poses hasta ahí
 #: (`universo_sala.WORLD_DM`) y la página no pasa de ahí (`LIMITE_CELDAS` de `mundo/borde.ts`).
 CELL_LIMIT = 500
-MIN_Y, MAX_Y = -20.0, 120.0
+#: Alturas de los objetos y del terreno (m): hasta donde acepta poses la sala
+#: (`universo_sala.MAX_Y_DM`), para que quepa el Teide.
+MIN_Y, MAX_Y = -20.0, 4000.0
 MIN_SCALE, MAX_SCALE = 0.02, 60.0
 MAX_ROTATION = 4 * math.pi
 MAX_PIECE_OFFSET = 60.0
@@ -387,7 +394,8 @@ def cell_summary(doc: dict[str, Any]) -> str:
 
     Sin terreno, `""`. Con él, `"<top_cm>,<top_index>,<b64>"`: la altura máxima de su rejilla en
     cm, el índice (fila a fila) de su primer vértice con esa altura y el base64 de las alturas
-    (int16 little-endian, cm) muestreadas cada `SUMMARY_STEP` vértices, fila a fila desde -x -z.
+    (int16 little-endian, cm, sin la `base`) muestreadas cada `SUMMARY_STEP` vértices, fila a
+    fila desde -x -z, seguidas de la `base` en int32 si no es 0 (`ponerResumen` de la página).
     """
     terrain = doc.get("terreno")
     if not terrain:
@@ -396,6 +404,7 @@ def cell_summary(doc: dict[str, Any]) -> str:
     if sys.byteorder == "big":
         heights.byteswap()
     top = max(heights)
+    base = terrain.get("base", 0)
     side = CELL_TERRAIN_SIDE
     samples = array(
         "h",
@@ -407,7 +416,8 @@ def cell_summary(doc: dict[str, Any]) -> str:
     )
     if sys.byteorder == "big":
         samples.byteswap()
-    return f"{top},{heights.index(top)},{base64.b64encode(samples.tobytes()).decode()}"
+    raw = samples.tobytes() + (struct.pack("<i", base) if base else b"")
+    return f"{base + top},{heights.index(top)},{base64.b64encode(raw).decode()}"
 
 
 def split_summary(summary: str) -> tuple[int, int, str]:
@@ -416,8 +426,11 @@ def split_summary(summary: str) -> tuple[int, int, str]:
     return int(top), int(index), samples
 
 
-def _terrain(value: object, side: int) -> dict[str, str]:
-    t = _object(value, {"alturas", "colores"}, "El terreno")
+def _terrain(value: object, side: int) -> dict[str, Any]:
+    t = _object(value, {"alturas", "colores", "base"}, "El terreno")
+    base = t.get("base", 0)
+    if isinstance(base, bool) or not isinstance(base, int) or abs(base) > MAX_Y * 100:
+        raise MundoError("El terreno: la «base» tiene que ser un número entero de centímetros.")
     n = side * side
     raw = {}
     for key in ("alturas", "colores"):
@@ -433,11 +446,14 @@ def _terrain(value: object, side: int) -> dict[str, str]:
     heights = array("h", raw["alturas"])
     if sys.byteorder == "big":
         heights.byteswap()
-    if min(heights) < MIN_Y * 100 or max(heights) > MAX_Y * 100:
+    if base + min(heights) < MIN_Y * 100 or base + max(heights) > MAX_Y * 100:
         raise MundoError(f"El terreno va de {MIN_Y:g} a {MAX_Y:g} m de altura.")
     if max(raw["colores"]) > TERRAIN_PAINTS:
         raise MundoError("El terreno usa un color que no está en la paleta.")
-    return {"alturas": t["alturas"], "colores": t["colores"]}
+    clean: dict[str, Any] = {"alturas": t["alturas"], "colores": t["colores"]}
+    if base:
+        clean["base"] = base
+    return clean
 
 
 def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
