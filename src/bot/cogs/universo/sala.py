@@ -9,7 +9,8 @@
   la sala del extraplano, que es otra (`pruebas`), sin logros de coincidir, de gestos ni de
   paseo, sin mirar la velocidad (allí se vuela) y solo para los desarrolladores. En la isla
   se mira a todos, también con devtools: quien vuela o corre con ellas se ve recortado a la
-  velocidad de los demás.
+  velocidad de los demás. Con `dentro: true` en el saludo (la página sigue dentro de un
+  interior tras cortarse la sala), vuelve a la capa de su interior (`InteriorsMixin.layer_for`).
   Los gestos del robot se compran en la tienda (`gesto_*`, `bot.services.universo.GESTURES`)
   y se leen al entrar en la sala: uno comprado con el universo abierto se ve al volver
   a abrirlo.
@@ -125,6 +126,7 @@ class SalaMixin:
                 gestures,
                 places=None if pruebas else await self.places(guild.id),
                 channel_id=snowflake(hello.get("channel_id")),
+                layer=self.layer_for(guild.id, member.id, pruebas, hello.get("dentro") is True),
             )
         except (UniversoError, SalaError) as error:
             text = error.message if isinstance(error, UniversoError) else str(error)

@@ -373,6 +373,11 @@ PRODUCED_STATS = {
     "universo_teleports", "universo_teleport_night", "universo_tab_opens", "universo_tab_top",
     "universo_tab_broke", "universo_tab_inside_max", "universo_bag_opens", "universo_bag_max",
     "universo_bag_empty",
+    # 🎤 Jovani: los interiores (`universo_interior_stats` y `universo_use_stats`)
+    "universo_interiors", "universo_home", "universo_pilot", "universo_interior_night",
+    "universo_interior_crowd_max", "universo_furniture", "universo_furniture_removed",
+    "universo_repairs", "universo_repair_shared",
+    "universo_interiors_distinct", "universo_home_days",  # derivadas (`with_derived`)
     # 🎤 Jovani: el botón 🌌 Jovaniverso de los paneles (`universo_teaser_stats`)
     "universo_teasers", "universo_teaser_slots",
     *(f"{UNIVERSO_PLACE_PREFIX}{place}" for place, *_ in UNIVERSO_PLACES),

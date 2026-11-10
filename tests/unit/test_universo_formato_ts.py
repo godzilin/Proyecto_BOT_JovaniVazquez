@@ -47,6 +47,16 @@ def test_topes_y_version_coinciden() -> None:
     assert number("MAX_BOTES_LETRERO") == py.MAX_SIGN_POTS
     assert number("MAX_TITULO") == py.MAX_SIGN_TITLE
     assert number("MAX_LADO_LETRERO") == py.MAX_SIGN_SIDE
+    assert number("MAX_USABLES") == py.MAX_USABLES
+    assert number("MAX_OBJETOS_INTERIOR") == py.MAX_ROOM_OBJECTS
+    assert (number("MIN_LADO_INTERIOR"), number("MAX_LADO_INTERIOR")) == (
+        py.MIN_ROOM_SIDE,
+        py.MAX_ROOM_SIDE,
+    )
+    assert (number("MIN_ALTO_INTERIOR"), number("MAX_ALTO_INTERIOR")) == (
+        py.MIN_ROOM_HEIGHT,
+        py.MAX_ROOM_HEIGHT,
+    )
 
 
 def test_tinte_y_distancia_coinciden() -> None:

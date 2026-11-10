@@ -2,7 +2,7 @@
 // `aTrozos` es el par de `split_world` de `bot/services/universo_editor.py` (mismas claves, mismos objetos, mismo base64 de terreno);
 // se comprueba con `docs/comparar_trozos.py`. Vive aparte de `formato.ts` porque rellenar el terreno que falta necesita `heightAt`
 // (`mundo/terreno.ts`), que a su vez importa las constantes de `formato.ts`: un ciclo.
-import { CELDA, TERRENO_CELDAS, TERRENO_LADO, type Asset, type MundoDoc, type Objeto, type Teleporte, type Terreno, type Zona } from "./formato";
+import { CELDA, TERRENO_CELDAS, TERRENO_LADO, type Asset, type Interior, type MundoDoc, type Objeto, type Teleporte, type Terreno, type Zona } from "./formato";
 import { heightAt, MAX_ALTURA, MIN_ALTURA } from "../mundo/terreno";
 
 const PASO = TERRENO_LADO / TERRENO_CELDAS;
@@ -73,11 +73,15 @@ export function partirTerreno(t: Terreno): Map<string, Terreno> {
   return celdas;
 }
 
-/** Los trozos `zonas` y `teleportes` (`null` el que no sale). Una lista de teleportes vacía sí sale: «ninguno», no «los de serie». */
+/**
+ * Los trozos `zonas`, `teleportes` y los interiores (`i/<id>`) (`null` el que no sale). Una lista de teleportes vacía sí sale:
+ * «ninguno», no «los de serie». Los interiores van aquí porque se editan en su sitio (el borrador los compara en cada paso).
+ */
 export function trozosSueltos(doc: MundoDoc): [string, string | null][] {
   return [
     ["zonas", Object.keys(doc.zonas).length > 0 ? JSON.stringify({ zonas: doc.zonas }) : null],
     ["teleportes", doc.teleportes ? JSON.stringify({ teleportes: doc.teleportes }) : null],
+    ...Object.entries(doc.interiores ?? {}).map(([id, i]): [string, string] => [`i/${id}`, JSON.stringify(i)]),
   ];
 }
 
@@ -123,6 +127,10 @@ export function parchear(doc: MundoDoc, cambios: Record<string, unknown>): Mundo
       if (nuevo.assets === doc.assets) nuevo.assets = { ...doc.assets };
       if (t) nuevo.assets[clave.slice(2)] = t as Asset;
       else delete nuevo.assets[clave.slice(2)];
+    } else if (clave.startsWith("i/")) {
+      if (nuevo.interiores === doc.interiores) nuevo.interiores = { ...doc.interiores };
+      if (t) nuevo.interiores![clave.slice(2)] = t as Interior;
+      else delete nuevo.interiores![clave.slice(2)];
     } else {
       const n = numeroDeClave(clave);
       if (n !== null) celdas.set(n, (t as Celda | null) ?? null);
@@ -168,6 +176,7 @@ export function deTrozos(trozos: Record<string, unknown>): MundoDoc {
     if (clave === "zonas") doc.zonas = (t as { zonas: Record<string, Zona> }).zonas;
     else if (clave === "teleportes") doc.teleportes = (t as { teleportes: Teleporte[] }).teleportes;
     else if (clave.startsWith("a/")) doc.assets[clave.slice(2)] = t as Asset;
+    else if (clave.startsWith("i/")) (doc.interiores ??= {})[clave.slice(2)] = t as Interior;
     else {
       const m = CLAVE_CELDA.exec(clave);
       if (!m) continue;

@@ -9,7 +9,12 @@ const DISTANCIA_CARGA = 80; // m a la máquina o el letrero más cercano
 
 /** Dónde hay algo del casino en `doc` (x, z). */
 function sitios(doc: MundoDoc): [number, number][] {
-  return doc.objetos.filter((o) => doc.assets[o.asset]?.funcion).map((o) => [o.pos[0], o.pos[2]]);
+  return doc.objetos
+    .filter((o) => {
+      const t = doc.assets[o.asset]?.funcion?.tipo;
+      return t === "traga" || t === "letrero"; // las puertas y los usables son de `interiores/`
+    })
+    .map((o) => [o.pos[0], o.pos[2]]);
 }
 
 export function activarCasino(mundo: Mundo, cfg: ConfigCasino): void {

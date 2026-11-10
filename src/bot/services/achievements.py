@@ -616,6 +616,14 @@ UNIVERSO_SLOT_PREFIX = "universo_slots_machine_"
 UNIVERSO_SLOT_MACHINES = 6
 #: Tragaperras distintas del Jovaniverso en las que se ha jugado; se calcula en `with_derived`.
 UNIVERSO_SLOTS_DISTINCT_STAT = "universo_slots_distinct"
+#: Prefijo de cada interior del Jovaniverso en el que se ha entrado (`universo_interior_in_<id>`).
+UNIVERSO_INTERIOR_PREFIX = "universo_interior_in_"
+#: Interiores distintos en los que se ha entrado; se calcula en `with_derived`.
+UNIVERSO_INTERIORS_DISTINCT_STAT = "universo_interiors_distinct"
+#: Prefijo de cada día en que se ha entrado en el piso propio (`universo_home_day_20261110`).
+UNIVERSO_HOME_DAY_PREFIX = "universo_home_day_"
+#: Días distintos entrando en el piso propio; se calcula en `with_derived`.
+UNIVERSO_HOME_DAYS_STAT = "universo_home_days"
 #: Gestos del robot con su logro: clave (la de `bot.services.universo.GESTURES` sin
 #: `gesto_`), nombre y descripción.
 UNIVERSO_GESTURES: tuple[tuple[str, str, str], ...] = (
@@ -3017,6 +3025,70 @@ def _build_catalog() -> tuple[Achievement, ...]:
     a += _tiers("jovani", "universo_bag_empty", [
         (1, "universo_bag_empty", "Ligero de equipaje",
          "Abre la mochila del Jovaniverso vacía.", C, True),
+    ])  # fmt: skip
+    # Interiores (cogs/universo/interiores.py: universo_interior_stats al entrar y
+    # universo_use_stats al usar algo de dentro). Entrar y mover muebles son decisiones:
+    # Comunes o Raros. Lo de reparar vuelve a romperse a las 24 h (dos cosas en el piso de
+    # serie), así que sus escalones piden días; los días en tu piso, también.
+    a += _tiers("jovani", "universo_interiors", [
+        (1, "universo_interior_1", "Puertas adentro", "Entra en un interior del Jovaniverso.", C),
+        (10, "universo_interior_10", "Entrando y saliendo como el Guadiana",
+         "Entra 10 veces en interiores del Jovaniverso.", C),
+        (100, "universo_interior_100", "Gastando bisagras",
+         "Entra 100 veces en interiores del Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", UNIVERSO_INTERIORS_DISTINCT_STAT, [
+        (3, "universo_interiors_3", "Turismo de interior",
+         "Entra en 3 interiores distintos del Jovaniverso.", C),
+        (10, "universo_interiors_10", "Inspector de escaleras",
+         "Entra en 10 interiores distintos del Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_home", [
+        (1, "universo_home_1", "Hogar, dulce polígono",
+         "Entra en tu propio piso del Jovaniverso (hace falta vivienda habitual en pisos).", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", UNIVERSO_HOME_DAYS_STAT, [
+        (7, "universo_home_days_7", "Teletrabajo desde el sofá",
+         "Entra en tu piso del Jovaniverso 7 días distintos.", R),
+        (30, "universo_home_days_30", "Ermitaño con wifi",
+         "Entra en tu piso del Jovaniverso 30 días distintos.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_pilot", [
+        (1, "universo_pilot", "Vivir en el catálogo",
+         "Entra en el piso piloto del Jovaniverso.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_furniture", [
+        (1, "universo_furniture_1", "Feng shui de saldo", "Coloca un mueble en el Jovaniverso.", C),
+        (100, "universo_furniture_100", "Tetris de salón",
+         "Coloca 100 muebles en el Jovaniverso.", C),
+        (1_000, "universo_furniture_1k", "Mudanza perpetua",
+         "Coloca 1.000 muebles en el Jovaniverso.", R),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_furniture_removed", [
+        (1, "universo_furniture_removed", "Esto no me da alegría",
+         "Quita un mueble en el Jovaniverso.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_repairs", [
+        (1, "universo_repairs_1", "Manitas de píxel",
+         "Arregla algo en un interior del Jovaniverso.", C),
+        (10, "universo_repairs_10", "Chapuzas con certificado",
+         "Arregla 10 cosas en interiores del Jovaniverso.", R),
+        (100, "universo_repairs_100", "MacGyver de interiores",
+         "Arregla 100 cosas en interiores del Jovaniverso.", E),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_repair_shared", [
+        (1, "universo_repair_shared", "Arreglando lo ajeno",
+         "Arregla algo en un interior del Jovaniverso que no es tu piso.", C),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_interior_night", [
+        (1, "universo_interior_night", "Allanamiento de madrugada",
+         "Entra en un interior del Jovaniverso entre las 3:00 y las 6:00.", C, True),
+    ])  # fmt: skip
+    a += _tiers("jovani", "universo_interior_crowd_max", [
+        (2, "universo_interior_crowd_2", "Compañero de piso",
+         "Coincide con otra persona dentro de un interior del Jovaniverso.", C),
+        (5, "universo_interior_crowd_5", "Fiesta de pijamas",
+         "Estad 5 personas a la vez dentro de un interior del Jovaniverso.", R),
     ])  # fmt: skip
     a.append(Achievement(
         id="universo_menu_all", name="Tab, tab, ¿quién es?",
@@ -24532,6 +24604,12 @@ def with_derived(stats: Mapping[str, int]) -> dict[str, int]:
     full[UNIVERSO_SLOTS_DISTINCT_STAT] = sum(
         1 for stat, value in stats.items() if stat.startswith(UNIVERSO_SLOT_PREFIX) and value > 0
     )
+    full[UNIVERSO_INTERIORS_DISTINCT_STAT] = sum(
+        1 for stat in stats if stat.startswith(UNIVERSO_INTERIOR_PREFIX)
+    )
+    full[UNIVERSO_HOME_DAYS_STAT] = sum(
+        1 for stat in stats if stat.startswith(UNIVERSO_HOME_DAY_PREFIX)
+    )
     full["biz_sectors_tried"] = sum(
         1 for sector in BIZ_SECTORS if stats.get(f"biz_opened_{sector}", 0) > 0
     )
@@ -25620,6 +25698,45 @@ def universo_stats(platform: str | None, *, when: datetime) -> StatDelta:
         add["universo_night"] = 1
     if when.month == 5 and when.day == 30:
         add["universo_canarias"] = 1
+    return StatDelta(add=add)
+
+
+def universo_interior_stats(
+    interior: str, *, own: bool, pilot: bool, crowd: int, when: datetime
+) -> StatDelta:
+    """Lo que suma entrar en un interior del Jovaniverso. Lo ve el servidor.
+
+    Args:
+        interior: El id del interior (cuenta para los interiores distintos).
+        own: Si entra en su propio piso.
+        pilot: Si entra en el piso piloto (un interior con `piso` sin vivienda propia).
+        crowd: Cuántos hay en ese lugar contándole.
+        when: Hora local.
+    """
+    add = {"universo_interiors": 1, f"{UNIVERSO_INTERIOR_PREFIX}{interior}": 1}
+    if own:
+        add["universo_home"] = 1
+        add[f"{UNIVERSO_HOME_DAY_PREFIX}{when:%Y%m%d}"] = 1
+    if pilot:
+        add["universo_pilot"] = 1
+    if 3 <= when.hour < 6:
+        add["universo_interior_night"] = 1
+    return StatDelta(add=add, peak={"universo_interior_crowd_max": crowd} if crowd > 1 else {})
+
+
+def universo_use_stats(uso: str, state: int, *, shared: bool) -> StatDelta:
+    """Lo que suma usar algo de un interior del Jovaniverso. Lo ve el servidor.
+
+    Args:
+        uso: `"mueble"` o `"reparar"` (`bot.services.universo_editor.USES`).
+        state: El estado en que queda (un mueble: 1 puesto, 0 quitado).
+        shared: Si el lugar no es el piso de quien lo usa.
+    """
+    if uso == "mueble":
+        return StatDelta(add={"universo_furniture" if state else "universo_furniture_removed": 1})
+    add = {"universo_repairs": 1}
+    if shared:
+        add["universo_repair_shared"] = 1
     return StatDelta(add=add)
 
 

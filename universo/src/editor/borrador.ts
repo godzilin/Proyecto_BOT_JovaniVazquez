@@ -209,6 +209,7 @@ export class Borrador {
       this.terreno = terreno;
     }
     const nuevos: Cambios = new Map(trozosSueltos(doc));
+    for (const k of this.actual.keys()) if (k.startsWith("i/") && !nuevos.has(k)) nuevos.set(k, null); // un interior que ya no está
     if (celdas.size) {
       const objetos = new Map<number, Objeto[]>();
       for (const c of celdas) objetos.set(c, []);

@@ -3,7 +3,7 @@
 import { PerspectiveCamera, Quaternion, Vector3 } from "three";
 import type { LightShadow, Object3D } from "three";
 import { clamp } from "./ruido";
-import { terrenoEn } from "./terreno";
+import { terrenoEn } from "./dentro"; // dentro de un interior, su suelo
 
 const DIST_MIN = 3;
 const OJOS = 1.65; // metros sobre los pies; el robot mide 1,9

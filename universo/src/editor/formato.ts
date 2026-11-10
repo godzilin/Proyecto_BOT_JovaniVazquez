@@ -42,8 +42,15 @@ export type Circulo = [number, number, number];
 /**
  * Lo que hace un asset además de verse. `traga`: una tragaperras jugable, con la pantalla y la botonera en su sitio del marco de
  * la máquina (`casino/sitio.ts`). `letrero`: un letrero con su panel (centro en `pos`, `ancho` × `alto` m, mirando a +z).
+ * `puerta`: lleva al interior de `datos.interior`. `usable`: algo de dentro de un interior con estado (`mueble`, se pone y se
+ * quita; `reparar`, se arregla y vuelve a romperse), con su número en `datos.n` (`interiores/`).
  */
-export type Funcion = { tipo: "traga" } | { tipo: "letrero"; pos: Vec3; ancho: number; alto: number };
+export type Uso = "mueble" | "reparar";
+export type Funcion =
+  | { tipo: "traga" }
+  | { tipo: "letrero"; pos: Vec3; ancho: number; alto: number }
+  | { tipo: "puerta" }
+  | { tipo: "usable"; uso: Uso };
 interface AssetComun {
   nombre: string;
   colision: Circulo[] | null;
@@ -63,8 +70,13 @@ export interface Objeto {
   datos?: Datos;
 }
 export interface Datos {
-  /** Número de la tragaperras, de 1 a `MAX_TRAGAS`: el servidor guarda con él su calor, su barra y sus logros. */
+  /**
+   * Número de la tragaperras, de 1 a `MAX_TRAGAS`: el servidor guarda con él su calor, su barra y sus logros. En un usable, su
+   * número dentro del interior (de 1 a `MAX_USABLES`), con el que se guarda su estado.
+   */
   n?: number;
+  /** La puerta: el id del interior al que lleva. */
+  interior?: string;
   titulo?: string;
   /** Claves de los botes que enseña el letrero (`bot/services/universo_botes.py`), que rotan si hay varios. */
   botes?: string[];
@@ -89,10 +101,27 @@ export interface Terreno {
   alturas: string;
   colores: string;
 }
+/**
+ * Un interior (trozo `i/<id>`): una habitación de `ancho` × `fondo` m y `alto` m con la salida en el centro de la pared +z. Sus
+ * objetos van en coordenadas de la habitación (el centro del suelo es el 0); se monta en el sitio de la puerta por la que se entra.
+ * Con `piso`, cada miembro con vivienda habitual en `pisos` entra en el suyo y el resto en el piso piloto.
+ */
+export interface Interior {
+  nombre: string;
+  ancho: number;
+  fondo: number;
+  alto: number;
+  suelo: number;
+  pared: number;
+  piso?: true;
+  objetos: Objeto[];
+}
 export interface MundoDoc {
   v: 2;
   assets: Record<string, Asset>;
   objetos: Objeto[];
+  /** Los interiores, por id. */
+  interiores?: Record<string, Interior>;
   zonas: Record<string, Zona>;
   /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
   teleportes?: Teleporte[];
@@ -116,6 +145,12 @@ export const MAX_TRAGAS = 24;
 export const MAX_BOTES_LETRERO = 8;
 export const MAX_TITULO = 40;
 export const MAX_LADO_LETRERO = 40;
+export const MAX_USABLES = 24;
+export const MAX_OBJETOS_INTERIOR = 400;
+export const MIN_LADO_INTERIOR = 2;
+export const MAX_LADO_INTERIOR = 40;
+export const MIN_ALTO_INTERIOR = 2;
+export const MAX_ALTO_INTERIOR = 12;
 export const MIN_TINTE = 0.3;
 export const MAX_TINTE = 2.0;
 export const MIN_DISTANCIA = 20.0;

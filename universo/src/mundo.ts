@@ -62,6 +62,8 @@ export interface Contexto {
   doc(): MundoDoc;
   /** `f` se llama cada vez que cambia lo cargado (otro mundo, o celdas que llegan y se van al moverse), con el documento nuevo. */
   alCargar(f: (doc: MundoDoc) => void): void;
+  /** De dónde sale el mundo que se dibuja: su índice y sus trozos (los interiores se piden a ella al acercarse a la puerta). */
+  fuente(): Fuente | null;
 }
 
 export interface Mundo {
@@ -254,6 +256,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     enganchar: (f) => ganchos.push(f),
     doc: () => cercania.doc(),
     alCargar: (f) => alCargar.push(f),
+    fuente: () => cercania.fuenteActual,
   };
 
   let ultimo = performance.now();

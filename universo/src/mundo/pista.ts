@@ -4,6 +4,7 @@
 // datos que pinta `Obras` como cualquier mundo). Coordenadas absolutas: el casino y la salida siguen en la plaza (-8, 60).
 import type { MundoDoc, Pieza } from "../editor/formato";
 import { casinoDeSerie } from "../casino/serie";
+import { pisoDeSerie } from "../interiores/serie";
 
 interface Bloque {
   x0: number;
@@ -58,6 +59,7 @@ export const SITIOS_PISTA: Record<string, [number, number]> = {
   columnas: [6, 30],
   muro: [34, 40],
   paredes: [33, 88],
+  pisos: [9, 66],
 };
 
 /** El dibujo de la pista como documento del mundo (sin zonas: el extraplano no da logros). */
@@ -72,10 +74,14 @@ export function pistaDoc(): MundoDoc {
   // El casino de la plaza, igual que en la isla pero a ras del suelo del extraplano.
   const casino = casinoDeSerie();
   for (const o of casino.objetos) o.pos[1] = alturaPista(o.pos[0], o.pos[2]);
+  // El edificio de pisos de la isla, a la derecha de la plaza mirando hacia ella (-x), con su interior.
+  const piso = pisoDeSerie([14, 0, 66], -Math.PI / 2);
   return {
     v: 2,
+    interiores: piso.interiores,
     assets: {
       ...casino.assets,
+      ...piso.assets,
       pista: { tipo: "piezas", nombre: "Pista de pruebas", colision: null, piezas, distancia: 600 },
       columna: {
         tipo: "piezas",
@@ -87,6 +93,7 @@ export function pistaDoc(): MundoDoc {
     objetos: [
       { asset: "pista", pos: [0, 0, 0], rot: [0, 0, 0], esc: [1, 1, 1] },
       ...casino.objetos,
+      ...piso.objetos,
       ...COLUMNAS.map((r, i) => ({ asset: "columna", pos: [i * 6, 0, 30] as [number, number, number], rot: [0, 0, 0] as [number, number, number], esc: [2 * r, 1, 2 * r] as [number, number, number] })),
     ],
     zonas: {},

@@ -41,6 +41,15 @@ por ir atrasado, uno recibe un tipo 3 con todos los de sus 9 regiones (`resync`)
 quien ve a alguien salirse de su vista se le manda `lejos`: cuestan una vez por cada 160 m
 que se recorren, no en cada tick. El menú de jugadores no depende de esto (`/api/jugadores`).
 
+Capas (los interiores, fase 4 de `docs/mundo-celdas.md`): cada jugador está en una capa
+(`Player.layer`, `""` fuera) y las regiones son de cada capa, así que solo se ve a quien está
+en la misma. Quien entra en un interior pasa a la capa de su lugar (`set_layer`, que decide el
+cog con `bot.services.universo_interiores`): la página monta la habitación en el sitio de la
+puerta y los de fuera no le ven atravesar la pared, ni él a ellos. Cambiar de capa es como
+cambiar de región: los de antes reciben `lejos` y él, un tipo 3 con los de la nueva. Lo que
+mira la cercanía (`near`: gestos, tiradas de las tragaperras) tampoco cruza de capa, y
+`announce(..., layer=)` avisa solo a una (lo que se usa dentro de un interior).
+
 Lo que llega de la página no es de fiar: se descarta lo que no mide 13 bytes, lo que
 llega a más de `MAX_POSES_PER_SECOND` y lo que se sale del mundo (`WORLD_DM`, hasta donde
 llegan las celdas del editor). Un gesto que no se ha comprado (o que no existe) se
@@ -161,6 +170,8 @@ _GROUP = struct.Struct("<hhB")
 _ENTRY = struct.Struct("<BhHhBB")
 #: Una región del interés por cercanía: `(rx, rz)`.
 Region = tuple[int, int]
+#: Una región de una capa: `(capa, región)`. Es por lo que se agrupa en cada tick.
+Zone = tuple[str, Region]
 
 
 class Client(Protocol):
@@ -212,6 +223,10 @@ class Player:
     #: que ve (al entrar, al cambiar de región y tras saltarse ticks).
     region: Region | None = None
     resync: bool = True
+    #: Su capa (`""` fuera; el lugar del interior en el que está) y la capa con la que se
+    #: colocó en su región (cambia en el tick siguiente a `set_layer`).
+    layer: str = ""
+    placed: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,9 +286,14 @@ def around(region: Region) -> list[Region]:
     return [(rx + i, rz + j) for i in (-1, 0, 1) for j in (-1, 0, 1)]
 
 
-def _sees(a: Region, b: Region) -> bool:
-    """Si quien está en la región `a` ve la `b`."""
-    return abs(a[0] - b[0]) <= 1 and abs(a[1] - b[1]) <= 1
+def _sees(a: Zone, b: Zone) -> bool:
+    """Si quien está en la región de una capa `a` ve la `b`: misma capa y región al lado."""
+    return a[0] == b[0] and abs(a[1][0] - b[1][0]) <= 1 and abs(a[1][1] - b[1][1]) <= 1
+
+
+def _around(zone: Zone) -> list[Zone]:
+    """Las 3 × 3 regiones de su capa que ve quien está en `zone`."""
+    return [(zone[0], r) for r in around(zone[1])]
 
 
 def group(region: Region, poses: list[tuple[int, bytes]]) -> bytes:
@@ -292,8 +312,8 @@ class Room:
 
     players: dict[int, Player] = field(default_factory=dict)
     dirty: set[int] = field(default_factory=set)
-    #: Quién hay en cada región (huecos), para el tipo 3.
-    cells: dict[Region, set[int]] = field(default_factory=dict)
+    #: Quién hay en cada región de cada capa (huecos), para el tipo 3.
+    cells: dict[Zone, set[int]] = field(default_factory=dict)
     #: Si alguien se ha saltado un tick (le toca su tipo 3 aunque nadie se mueva).
     behind: bool = False
     task: asyncio.Task[None] | None = None
@@ -340,12 +360,14 @@ class Salas:
         *,
         places: Places | None = None,
         channel_id: int | None = None,
+        layer: str = "",
     ) -> Player:
         """Mete a alguien en la sala de su servidor y avisa a los demás.
 
         Si ya estaba (otra pestaña), la conexión vieja sale primero. `gestures` son
         las animaciones de gesto que ha comprado; `places`, los lugares del mundo
-        publicado (como `set_places`), y `channel_id`, desde dónde abrió. Las poses de
+        publicado (como `set_places`); `channel_id`, desde dónde abrió, y `layer`, su capa
+        (la del interior en el que sigue al volver a conectarse). Las poses de
         los demás le llegan en el primer tick tras su primera pose (antes no se sabe qué
         tiene cerca).
 
@@ -380,6 +402,7 @@ class Salas:
             gestures=gestures,
             channel_id=channel_id,
             flushed=self.clock(),
+            layer=layer,
         )
         others = list(room.players.values())
         room.players[free] = player
@@ -536,6 +559,31 @@ class Salas:
         room = self.rooms.get(guild_id)
         return list(room.players.values()) if room else []
 
+    def find(self, guild_id: int, user_id: int) -> Player | None:
+        """El jugador de un miembro en la sala de su servidor, si está."""
+        room = self.rooms.get(guild_id)
+        if room is None:
+            return None
+        return next((p for p in room.players.values() if p.user_id == user_id), None)
+
+    def set_layer(self, guild_id: int, user_id: int, layer: str) -> bool:
+        """Pasa a alguien a otra capa (un interior, o `""` para salir); dice si está en la sala.
+
+        En el tick siguiente cambia de región: los de su capa de antes reciben `lejos` y él,
+        todo lo que ve en la nueva.
+        """
+        player = self.find(guild_id, user_id)
+        if player is None:
+            return False
+        if player.layer != layer:
+            player.layer = layer
+            self.rooms[guild_id].dirty.add(player.slot)
+        return True
+
+    def in_layer(self, guild_id: int, layer: str) -> list[Player]:
+        """Quién está en una capa de la sala de un servidor."""
+        return [p for p in self.present(guild_id) if p.layer == layer]
+
     async def announce(
         self,
         guild_id: int,
@@ -543,12 +591,14 @@ class Salas:
         *,
         skip_user: int | None = None,
         around_dm: int | None = None,
+        layer: str | None = None,
     ) -> None:
         """Manda un aviso JSON a todos los de la sala de un servidor (sin sala, nada).
 
         Con `skip_user`, a todos menos a esa persona. Con `around_dm`, solo a quienes
-        están a esa distancia (en horizontal) de `skip_user`; si no está en la sala o aún
-        no ha mandado su pose, a nadie: no se sabe dónde ocurre.
+        están a esa distancia (en horizontal) de `skip_user` y en su capa; si no está en la
+        sala o aún no ha mandado su pose, a nadie: no se sabe dónde ocurre. Con `layer`, solo
+        a los de esa capa.
         """
         room = self.rooms.get(guild_id)
         if room is None:
@@ -559,6 +609,10 @@ class Salas:
         to = None
         if around_dm is not None:
             to = near(room, skip, around_dm) if skip is not None else []
+            if not to:
+                return
+        if layer is not None:
+            to = [p for p in (room.players.values() if to is None else to) if p.layer == layer]
             if not to:
                 return
         await self._broadcast_str(room, json.dumps(payload), skip=skip, to=to)
@@ -593,47 +647,49 @@ class Salas:
             if (p := room.players.get(slot)) is not None and p.pose is not None
         ]
         room.dirty.clear()
-        # Quién ha cambiado de región: desde cuál (`None` en su primera pose) y a cuál.
-        crossed: dict[int, tuple[Region | None, Region]] = {}
-        changed: dict[Region, list[tuple[int, bytes]]] = {}
+        # Quién ha cambiado de región o de capa: desde cuál (`None` en su primera pose) y a cuál.
+        crossed: dict[int, tuple[Zone | None, Zone]] = {}
+        changed: dict[Zone, list[tuple[int, bytes]]] = {}
         for p in moved:
             x, _y, z = place(p.pose)  # type: ignore[arg-type]
-            region = region_of(x, z, p.region)
-            if region != p.region:
-                crossed[p.slot] = (p.region, region)
+            region = region_of(x, z, p.region if p.placed == p.layer else None)
+            if region != p.region or p.placed != p.layer:
+                before = (p.placed, p.region) if p.region is not None else None
+                crossed[p.slot] = (before, (p.layer, region))
                 _unplace(room, p)
-                room.cells.setdefault(region, set()).add(p.slot)
-                p.region = region
+                room.cells.setdefault((p.layer, region), set()).add(p.slot)
+                p.region, p.placed = region, p.layer
                 p.resync = True
-            changed.setdefault(region, []).append((p.slot, p.pose))  # type: ignore[arg-type]
+            changed.setdefault((p.layer, region), []).append((p.slot, p.pose))  # type: ignore[arg-type]
         # Grupos codificados (cuando alguien los recibe) y, por región, lo que ve quien está en
         # ella: vacío si lo único cambiado es su propia pose, que la página ignora.
-        groups: dict[Region, bytes] = {}
-        shared: dict[Region, tuple[bytes, int]] = {}
-        full: dict[Region, bytes] = {}
+        groups: dict[Zone, bytes] = {}
+        shared: dict[Zone, tuple[bytes, int]] = {}
+        full: dict[Zone, bytes] = {}
         for q in list(room.players.values()):
             if q.region is None:
                 continue
+            zone = (q.placed, q.region)
             if q.backlog() > MAX_BACKLOG_BYTES:
                 q.resync = room.behind = True  # se pierde ticks: luego, todo lo que ve
                 continue
             gone: list[int] = []
             if q.resync:
                 data = bytes((FULL,)) + b"".join(
-                    _full(room, r, full) for r in around(q.region) if r in room.cells
+                    _full(room, r, full) for r in _around(zone) if r in room.cells
                 )
             else:
-                if q.region not in shared:
-                    seen = [r for r in around(q.region) if r in changed]
+                if zone not in shared:
+                    seen = [r for r in _around(zone) if r in changed]
                     only = changed[seen[0]][0][0] if len(seen) == 1 == len(changed[seen[0]]) else -1
-                    shared[q.region] = (_seen(seen, changed, groups), only)
-                data, only = shared[q.region]
+                    shared[zone] = (_seen(seen, changed, groups), only)
+                data, only = shared[zone]
                 if only == q.slot:
                     data = b""
                 gone = [
                     slot
                     for slot, (before, after) in crossed.items()
-                    if before is not None and _sees(q.region, before) and not _sees(q.region, after)
+                    if before is not None and _sees(zone, before) and not _sees(zone, after)
                 ]
             try:
                 if gone:
@@ -690,31 +746,32 @@ def _unplace(room: Room, player: Player) -> None:
     """Quita a alguien del índice de regiones de la sala."""
     if player.region is None:
         return
-    slots = room.cells.get(player.region)
+    zone = (player.placed, player.region)
+    slots = room.cells.get(zone)
     if slots is not None:
         slots.discard(player.slot)
         if not slots:
-            del room.cells[player.region]
+            del room.cells[zone]
 
 
 def _seen(
-    seen: list[Region], changed: dict[Region, list[tuple[int, bytes]]], cache: dict[Region, bytes]
+    seen: list[Zone], changed: dict[Zone, list[tuple[int, bytes]]], cache: dict[Zone, bytes]
 ) -> bytes:
     """El mensaje con lo cambiado en las regiones `seen` (cada grupo, una vez por tick)."""
     parts = [bytes((POSE,))]
-    for region in seen:
-        if region not in cache:
-            cache[region] = group(region, changed[region])
-        parts.append(cache[region])
+    for zone in seen:
+        if zone not in cache:
+            cache[zone] = group(zone[1], changed[zone])
+        parts.append(cache[zone])
     return b"".join(parts)
 
 
-def _full(room: Room, region: Region, cache: dict[Region, bytes]) -> bytes:
+def _full(room: Room, zone: Zone, cache: dict[Zone, bytes]) -> bytes:
     """El grupo de una región con todos los que están en ella (una vez por tick)."""
-    data = cache.get(region)
+    data = cache.get(zone)
     if data is None:
-        poses = [(s, room.players[s].pose) for s in sorted(room.cells[region])]
-        data = cache[region] = group(region, poses)  # type: ignore[arg-type]
+        poses = [(s, room.players[s].pose) for s in sorted(room.cells[zone])]
+        data = cache[zone] = group(zone[1], poses)  # type: ignore[arg-type]
     return data
 
 
@@ -764,13 +821,13 @@ def _move(player: Player, last: bytes, pose: bytes, now: float) -> tuple[bytes, 
 
 
 def near(room: Room, player: Player, radius_dm: int = NEAR_DM) -> list[Player]:
-    """Los demás de la sala a menos de `radius_dm` (en horizontal) de `player`."""
+    """Los demás de la sala de su capa a menos de `radius_dm` (en horizontal) de `player`."""
     if player.pose is None:
         return []
     x, _y, z = place(player.pose)
     found = []
     for other in room.players.values():
-        if other is player or other.pose is None:
+        if other is player or other.pose is None or other.layer != player.layer:
             continue
         ox, _oy, oz = place(other.pose)
         if (ox - x) ** 2 + (oz - z) ** 2 <= radius_dm**2:

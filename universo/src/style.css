@@ -820,6 +820,15 @@ body {
   border-radius: 12px;
 }
 
+/* Interiores: el aviso de la puerta, de la salida y de lo que se usa dentro. Es un botón: en el móvil se toca. */
+.interior-aviso {
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 200px);
+  min-height: 44px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 .casino-aviso[hidden],
 .casino-resultado[hidden],
 .casino-boton[hidden] {

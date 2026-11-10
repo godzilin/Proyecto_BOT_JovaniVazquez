@@ -56,6 +56,7 @@ from bot.repositories.slots import SlotsRepository
 from bot.repositories.sports import SportsRepository
 from bot.repositories.telemetry import TelemetryRepository
 from bot.repositories.todo import TodoRepository
+from bot.repositories.universo_interiores import UniversoInterioresRepository
 from bot.repositories.universo_mundo import UniversoMundoRepository
 from bot.repositories.welcome import WelcomeRepository
 from bot.repositories.work import WorkRepository
@@ -359,6 +360,8 @@ class BotClient(commands.Bot):
         self.universo_port = universo_port
         # Mundo editable del Jovaniverso: borrador, versiones publicadas y modelos GLB.
         self.universo_mundo = UniversoMundoRepository(database_path)
+        # Lo que los miembros cambian dentro de los interiores (muebles, reparaciones), por lugar.
+        self.universo_interiores = UniversoInterioresRepository(database_path)
         self._keep_warm_task: asyncio.Task[None] | None = None
         self._checkpoint_task: asyncio.Task[None] | None = None
         super().__init__(
@@ -451,6 +454,7 @@ class BotClient(commands.Bot):
         await self.moderation.initialize()
         await self.aspecto.initialize()
         await self.universo_mundo.initialize()
+        await self.universo_interiores.initialize()
 
         for extension in INITIAL_EXTENSIONS:
             await self.load_extension(extension)

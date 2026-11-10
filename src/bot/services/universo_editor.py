@@ -20,6 +20,8 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 "c/<cx>/<cz>"  {"objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z],
                              "esc": [x, y, z], "tinte"?: float, "datos"?: Datos}],
                 "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}}
+"i/<id>"       {"nombre": str, "ancho": m, "fondo": m, "alto": m, "suelo": 0xRRGGBB,
+                "pared": 0xRRGGBB, "piso"?: true, "objetos": [Objeto, ...]}
 ```
 
 - La celda `(cx, cz)` cubre `[cx·CELL, (cx+1)·CELL)` en x y en z. Cada objeto va en la
@@ -45,11 +47,23 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
   tragaperras jugable (la pantalla y la botonera van en su sitio del marco de la máquina,
   `casino/sitio.ts`) y `{"tipo": "letrero", "pos": [x, y, z], "ancho": m, "alto": m}` es un
   letrero con su panel en ese rectángulo (centro en `pos`, mirando a +z). Así cualquier asset,
-  también un GLB, puede ser una máquina o un letrero.
+  también un GLB, puede ser una máquina o un letrero. `{"tipo": "puerta"}` lleva a un interior
+  (el de `datos.interior` del objeto) y `{"tipo": "usable", "uso": "mueble" | "reparar"}` es
+  algo de dentro de un interior con un estado que cambia jugando (`USES`; las reglas, en
+  `bot.services.universo_interiores`).
 - `datos` es lo propio de cada objeto con función: `n`, el número de la tragaperras (de 1 a
   `MAX_SLOTS`; con él guarda el servidor el calor, la barra y los logros de cada máquina, así
-  que no se repite en el mundo), y `titulo` y `botes` del letrero: el texto y las claves de los
-  botes que enseña (`bot.services.universo_botes`; uno que ya no exista no se pinta).
+  que no se repite en el mundo) o del usable dentro de su interior (de 1 a `MAX_USABLES`, sin
+  repetirse en él: su estado se guarda por número), `titulo` y `botes` del letrero (el texto
+  y las claves de los botes que enseña, `bot.services.universo_botes`; uno que ya no exista
+  no se pinta) e `interior`, el id del interior al que lleva una puerta.
+- Un interior (`i/<id>`, fase 4 de `docs/mundo-celdas.md`) es una habitación que no está en
+  ninguna celda: `ancho` × `fondo` m de planta y `alto` m, con el suelo y las paredes de esos
+  colores y la salida en el centro de la pared +z. Sus objetos van en coordenadas de la
+  habitación (el centro del suelo es el 0) y la página la monta en el sitio de la puerta por
+  la que se entra, sin el mundo de fuera. Con `piso`, cada miembro con vivienda habitual en
+  `pisos` entra en el suyo (con su propio estado) y el resto, en el piso piloto, que es de
+  todos.
 - `zonas` mueve los lugares de los logros que son un círculo (`EDITABLE_ZONES`). No se
   crean ni se borran: cada clave es un logro (`PLACES` de `bot.services.universo`).
 - `teleportes` son los sitios del panel «Viajar» del menú (Tab): un nombre y un punto (x, z)
@@ -137,7 +151,14 @@ TERRAIN_PAINTS = 13
 CELL_TERRAIN_SIDE = CELL // TERRAIN_STEP + 1
 
 #: Lo que puede hacer un asset además de verse (`funcion`).
-FUNCTIONS = ("traga", "letrero")
+FUNCTIONS = ("traga", "letrero", "puerta", "usable")
+#: Para qué sirve un usable: un mueble se pone y se quita; lo que se arregla vuelve a romperse.
+USES = ("mueble", "reparar")
+#: Un interior: lado de su planta y altura (m), objetos y usables (con número) que lleva.
+MIN_ROOM_SIDE, MAX_ROOM_SIDE = 2.0, 40.0
+MIN_ROOM_HEIGHT, MAX_ROOM_HEIGHT = 2.0, 12.0
+MAX_ROOM_OBJECTS = 400
+MAX_USABLES = 24
 #: Tragaperras con número del mundo: el servidor solo deja jugar de la 1 a esta.
 MAX_SLOTS = 24
 #: Botes que enseña un letrero como mucho, largo de su título y lado de su panel.
@@ -151,7 +172,10 @@ MAX_SIGN_SIDE = 40.0
 CASINO_FILE = Path(__file__).resolve().parent.parent / "assets" / "casino_plaza.json"
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
-_KEY = re.compile(r"zonas|teleportes|a/([a-z0-9_-]{1,40})|c/(-?\d{1,3})/(-?\d{1,3})")
+_KEY = re.compile(
+    r"zonas|teleportes|a/(?P<a>[a-z0-9_-]{1,40})|i/(?P<i>[a-z0-9_-]{1,40})"
+    r"|c/(?P<cx>-?\d{1,3})/(?P<cz>-?\d{1,3})"
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GLB_MAGIC = b"glTF"
 _CHUNK_JSON = 0x4E4F534A
@@ -321,12 +345,16 @@ def _asset(value: object, what: str, glbs: dict[str, int]) -> dict[str, Any]:
 
 
 def _function(value: object, what: str) -> dict[str, Any]:
-    f = _object(value, {"tipo", "pos", "ancho", "alto"}, f"{what}: la función")
+    f = _object(value, {"tipo", "pos", "ancho", "alto", "uso"}, f"{what}: la función")
     kind = f.get("tipo")
-    if kind == "traga":
+    if kind in ("traga", "puerta"):
         if set(f) != {"tipo"}:
-            raise MundoError(f"{what}: una tragaperras no lleva panel.")
-        return {"tipo": "traga"}
+            raise MundoError(f"{what}: una {kind} no lleva más datos en la función.")
+        return {"tipo": kind}
+    if kind == "usable":
+        if set(f) != {"tipo", "uso"} or f["uso"] not in USES:
+            raise MundoError(f"{what}: un usable sirve para {' o '.join(USES)}.")
+        return {"tipo": "usable", "uso": f["uso"]}
     if kind == "letrero":
         return {
             "tipo": "letrero",
@@ -340,7 +368,7 @@ def _function(value: object, what: str) -> dict[str, Any]:
 
 
 def _data(value: object, what: str) -> dict[str, Any]:
-    d = _object(value, {"n", "titulo", "botes"}, f"{what}: los datos")
+    d = _object(value, {"n", "titulo", "botes", "interior"}, f"{what}: los datos")
     clean: dict[str, Any] = {}
     if "n" in d:
         n = d["n"]
@@ -362,6 +390,11 @@ def _data(value: object, what: str) -> dict[str, Any]:
         ):
             raise MundoError(f"{what}: un letrero enseña hasta {MAX_SIGN_POTS} botes distintos.")
         clean["botes"] = list(pots)
+    if "interior" in d:
+        room = d["interior"]
+        if not isinstance(room, str) or not _ID.fullmatch(room):
+            raise MundoError(f"{what}: la puerta lleva a un interior que no existe.")
+        clean["interior"] = room
     return clean
 
 
@@ -436,7 +469,8 @@ def _terrain(value: object, side: int) -> dict[str, str]:
 
 
 def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
-    """La clase de un trozo: `("zonas", "")`, `("teleportes", "")`, `("a", id)` o `("c", cx, cz)`.
+    """La clase de un trozo: `("zonas", "")`, `("teleportes", "")`, `("a", id)`, `("i", id)` o
+    `("c", cx, cz)`.
 
     Raises:
         MundoError: Si la clave no es de ningún trozo o la celda cae fuera del mundo.
@@ -446,9 +480,11 @@ def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
         raise MundoError(f"«{str(key)[:40]}» no es la clave de ningún trozo del mundo.")
     if key in ("zonas", "teleportes"):
         return (key, "")
-    if found.group(1):
-        return ("a", found.group(1))
-    cx, cz = int(found.group(2)), int(found.group(3))
+    if found["a"]:
+        return ("a", found["a"])
+    if found["i"]:
+        return ("i", found["i"])
+    cx, cz = int(found["cx"]), int(found["cz"])
     if not (-CELL_LIMIT <= cx < CELL_LIMIT and -CELL_LIMIT <= cz < CELL_LIMIT):
         raise MundoError(f"La celda {cx}, {cz} cae fuera del mundo.")
     return ("c", cx, cz)
@@ -503,29 +539,75 @@ def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
     clean_objects = []
     for i, item in enumerate(objects):
         what = f"El objeto {i + 1} de la celda {cx}, {cz}"
-        o = _object(item, {"asset", "pos", "rot", "esc", "tinte", "datos"}, what)
-        asset = o.get("asset")
-        if not isinstance(asset, str) or not _ID.fullmatch(asset):
-            raise MundoError(f"{what} usa un asset que no existe.")
-        pos = _vector(o.get("pos"), -math.inf, math.inf, f"{what}: la posición")
+        obj = _placed(item, what)
+        pos = obj["pos"]
         _number(pos[1], MIN_Y, MAX_Y, f"{what}: la altura")
         if not (x0 <= pos[0] < x0 + CELL and z0 <= pos[2] < z0 + CELL):
             raise MundoError(f"{what} no cae dentro de su celda.")
-        obj = {
-            "asset": asset,
-            "pos": pos,
-            "rot": _vector(o.get("rot"), -MAX_ROTATION, MAX_ROTATION, f"{what}: el giro"),
-            "esc": _vector(o.get("esc"), MIN_SCALE, MAX_SCALE, f"{what}: la escala"),
-        }
-        if "tinte" in o:
-            obj["tinte"] = _number(o["tinte"], MIN_TINT, MAX_TINT, f"{what}: el tinte")
-        if "datos" in o and (data := _data(o["datos"], what)):
-            obj["datos"] = data
         clean_objects.append(obj)
     _unique_slots(clean_objects)
     clean: dict[str, Any] = {"objetos": clean_objects}
     if "terreno" in d:
         clean["terreno"] = _terrain(d["terreno"], CELL_TERRAIN_SIDE)
+    return clean
+
+
+def _placed(item: object, what: str) -> dict[str, Any]:
+    """Un objeto colocado, limpio, sin mirar dónde cae (eso lo mira su trozo)."""
+    o = _object(item, {"asset", "pos", "rot", "esc", "tinte", "datos"}, what)
+    asset = o.get("asset")
+    if not isinstance(asset, str) or not _ID.fullmatch(asset):
+        raise MundoError(f"{what} usa un asset que no existe.")
+    obj = {
+        "asset": asset,
+        "pos": _vector(o.get("pos"), -math.inf, math.inf, f"{what}: la posición"),
+        "rot": _vector(o.get("rot"), -MAX_ROTATION, MAX_ROTATION, f"{what}: el giro"),
+        "esc": _vector(o.get("esc"), MIN_SCALE, MAX_SCALE, f"{what}: la escala"),
+    }
+    if "tinte" in o:
+        obj["tinte"] = _number(o["tinte"], MIN_TINT, MAX_TINT, f"{what}: el tinte")
+    if "datos" in o and (data := _data(o["datos"], what)):
+        obj["datos"] = data
+    return obj
+
+
+def _room(value: object, room_id: str) -> dict[str, Any]:
+    """Un interior limpio: su planta, sus colores y sus objetos dentro de ella."""
+    what = f"El interior «{room_id}»"
+    keys = {"nombre", "ancho", "fondo", "alto", "suelo", "pared", "piso", "objetos"}
+    d = _object(value, keys, what)
+    width = _number(d.get("ancho"), MIN_ROOM_SIDE, MAX_ROOM_SIDE, f"{what}: el ancho")
+    depth = _number(d.get("fondo"), MIN_ROOM_SIDE, MAX_ROOM_SIDE, f"{what}: el fondo")
+    height = _number(d.get("alto"), MIN_ROOM_HEIGHT, MAX_ROOM_HEIGHT, f"{what}: el alto")
+    objects = d.get("objetos", [])
+    if not isinstance(objects, list) or len(objects) > MAX_ROOM_OBJECTS:
+        raise MundoError(f"{what} puede tener {MAX_ROOM_OBJECTS} objetos como mucho.")
+    clean_objects = []
+    for i, item in enumerate(objects):
+        where = f"El objeto {i + 1} del interior «{room_id}»"
+        obj = _placed(item, where)
+        x, y, z = obj["pos"]
+        if abs(x) > width / 2 or abs(z) > depth / 2 or not 0 <= y <= height:
+            raise MundoError(f"{where} no cae dentro de la habitación.")
+        clean_objects.append(obj)
+    numbers = slot_numbers(clean_objects)
+    if any(n > MAX_USABLES for n in numbers):
+        raise MundoError(f"{what}: los usables van numerados de 1 a {MAX_USABLES}.")
+    if len(set(numbers)) != len(numbers):
+        raise MundoError(f"{what}: hay dos usables con el mismo número.")
+    clean: dict[str, Any] = {
+        "nombre": _name(d.get("nombre"), what),
+        "ancho": width,
+        "fondo": depth,
+        "alto": height,
+        "suelo": _color(d.get("suelo"), f"{what}: el suelo"),
+        "pared": _color(d.get("pared"), f"{what}: las paredes"),
+    }
+    if "piso" in d:
+        if d["piso"] is not True:
+            raise MundoError(f"{what}: «piso» solo puede ser true.")
+        clean["piso"] = True
+    clean["objetos"] = clean_objects
     return clean
 
 
@@ -567,6 +649,9 @@ def validate_piece(
         return {"teleportes": _teleports(d.get("teleportes"))}, frozenset()
     if kind[0] == "a":
         return _asset(doc, f"El asset «{kind[1]}»", glbs), frozenset()
+    if kind[0] == "i":
+        room = _room(doc, str(kind[1]))
+        return room, frozenset(o["asset"] for o in room["objetos"])
     clean = _cell(doc, int(kind[1]), int(kind[2]))
     return clean, frozenset(o["asset"] for o in clean["objetos"])
 
@@ -633,6 +718,8 @@ def split_world(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
         pieces["teleportes"] = {"teleportes": doc["teleportes"]}
     for key, asset in doc.get("assets", {}).items():
         pieces[f"a/{key}"] = asset
+    for key, room in doc.get("interiores", {}).items():
+        pieces[f"i/{key}"] = room
     for obj in doc.get("objetos", []):
         cell = pieces.setdefault(cell_key(obj["pos"][0], obj["pos"][2]), {"objetos": []})
         cell["objetos"].append(obj)
