@@ -27,7 +27,7 @@ import { fundirRobot } from "./mundo/robot";
 import { Remotos } from "./mundo/remotos";
 import { COLOR_HORIZONTE, COLOR_SOL, DIR_SOL } from "./mundo/luz";
 import { crearMar } from "./mundo/mar";
-import { crearMapaProfundidad, fijarTerreno, heightAt, rellenarMapaProfundidad, sueloEn } from "./mundo/terreno";
+import { crearMapaProfundidad, heightAt, rellenarMapaProfundidad, sueloEn } from "./mundo/terreno";
 import { Suelo } from "./mundo/suelo";
 import { Cercania, type Fuente, fuenteLocal } from "./mundo/cercania";
 import { Obras } from "./mundo/obras";
@@ -90,10 +90,11 @@ export interface Mundo {
    */
   enfocar(x: number, z: number): boolean;
   /**
-   * El editor ha esculpido o pintado la rejilla del terreno (`terreno.ts`) entre esos vértices: se rehace esa parte de la
-   * malla. Con `mar`, también el mapa de profundidad del mar (al acabar el trazo; es más caro).
+   * El editor ha esculpido o pintado las rejillas de las celdas (`rejillas` de `terreno.ts`) entre esos vértices de la rejilla del
+   * mundo (cada 2 m desde 0): se rehace esa parte de la malla. Con `mar`, también el mapa de profundidad del mar (al acabar el
+   * trazo; es más caro).
    */
-  retocarTerreno(ix0: number, iz0: number, ix1: number, iz1: number, mar: boolean): void;
+  retocarTerreno(gx0: number, gz0: number, gx1: number, gz1: number, mar: boolean): void;
   /** Sitios a los que se puede ir con `irA`: los de la isla o, en el extraplano, los de la pista. */
   readonly sitios: string[];
   /** Te lleva a uno de `sitios`, mirándolo. */
@@ -427,9 +428,8 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     const doc = cercania.doc();
     for (const f of alCargar) f(doc);
   });
-  /** Pasa a otra fuente: lo de antes se queda hasta que llega lo nuevo. `isla` es la rejilla de la isla esculpible (la del editor). */
-  const cambiar = (f: Fuente, isla?: MundoDoc["terreno"]): void => {
-    fijarTerreno(isla);
+  /** Pasa a otra fuente: lo de antes se queda hasta que llega lo nuevo. */
+  const cambiar = (f: Fuente): void => {
     cercania.cambiarFuente(f);
     calidad.callar(4); // montar el mundo da un tirón que no dice nada de los fps
   };
@@ -473,7 +473,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
     },
     cargarMundo(doc) {
       local = fuenteLocal(doc, local);
-      cambiar(local, doc.terreno);
+      cambiar(local);
     },
     cargarPublicado(f) {
       local = null;
@@ -498,7 +498,7 @@ export async function crearMundo(contenedor: HTMLElement, capa: HTMLElement, ini
       return queda;
     },
     retocarTerreno(ix0, iz0, ix1, iz1, conMar) {
-      suelo?.retocarIsla(ix0, iz0, ix1, iz1);
+      suelo?.retocar(ix0, iz0, ix1, iz1);
       if (conMar && profundidad) rellenarMapaProfundidad(profundidad);
     },
     pausar(si) {

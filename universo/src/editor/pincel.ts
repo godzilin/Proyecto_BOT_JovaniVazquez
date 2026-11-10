@@ -1,13 +1,38 @@
 // Pinceles de terreno del editor de niveles (pestaña «Mundo», herramienta «Terreno»): esculpir (subir, bajar, aplanar,
-// suavizar), pintar el color del suelo y sembrar o quitar vegetación. Trabaja sobre la rejilla viva de `mundo/terreno.ts`
-// mientras dura el trazo (solo se rehace la parte tocada de la malla) y, al soltar, la pasa al borrador en un solo paso
-// del historial. Los objetos que estaban en el suelo suben o bajan con él.
+// suavizar), pintar el color del suelo y sembrar o quitar vegetación, en cualquier celda del mundo. Trabaja sobre las rejillas vivas
+// de las celdas (`rejillas` de `mundo/terreno.ts`; la de una celda sin terreno se crea al primer trazo con el suelo que se ve ahí)
+// mientras dura el trazo (solo se rehace la parte tocada de la malla) y, al soltar, pasa al borrador las celdas tocadas en un solo
+// paso del historial, cada una con su `base` (`terrenoDe`). Un vértice del borde entre celdas se escribe igual en todas las que lo
+// repiten. Los objetos que estaban en el suelo suben o bajan con él.
 import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineLoop, type Scene, type Vector3 } from "three";
 import type { Mundo } from "../mundo";
-import { alturaEn, alturas, CELDAS, fijarTerreno, MAX_ALTURA, MIN_ALTURA, MITAD, N1, PALETA, PASO, pinturas, sueloEn, terrenoDoc, terrenoEn } from "../mundo/terreno";
+import { LIMITE, LIMITE_CELDAS } from "../mundo/borde";
+import {
+  alturaEn,
+  alturaEnCelda,
+  alturas,
+  celdasDelVertice,
+  enIsla,
+  MAX_ALTURA,
+  MAX_DESNIVEL_CM,
+  MIN_ALTURA,
+  MITAD,
+  PALETA,
+  PASO,
+  POR_CELDA,
+  PRIMERA,
+  ponerRejilla,
+  rejillaEditable,
+  rejillas,
+  numeroDe,
+  sueloEn,
+  terrenoDe,
+  terrenoEn,
+  verticeEn,
+} from "../mundo/terreno";
 import { h } from "./dom";
-import { MAX_OBJETOS_CELDA, type MundoDoc, type Objeto } from "./formato";
-import { numeroCelda } from "./trozos";
+import { CELDA, MAX_OBJETOS_CELDA, type MundoDoc, type Objeto } from "./formato";
+import { claveCelda, coordsDeClave, numeroCelda } from "./trozos";
 import type { Anfitrion } from "./panel";
 
 export type Herramienta = "subir" | "aplanar" | "suavizar" | "pintar" | "vegetacion";
@@ -32,7 +57,7 @@ const REHACER_MS = 350;
 
 const r4 = (v: number): number => Math.round(v * 1e4) / 1e4;
 const limitar = (v: number, min: number, max: number): number => Math.min(Math.max(v, min), max);
-const celda = (v: number): number => (v + MITAD) / PASO;
+const dentro = (c: number): boolean => c >= -LIMITE_CELDAS && c < LIMITE_CELDAS;
 
 /** Lo que el pincel necesita del editor de niveles. */
 export interface Ganchos {
@@ -68,9 +93,13 @@ export class PincelTerreno {
   private trazando = false;
   private invertir = false;
   private objetivo = 0;
-  private antes: Float32Array | null = null;
+  /** Las alturas de cada celda tocada antes del trazo (por `numeroDe`). */
+  private antes = new Map<number, { cx: number; cz: number; alt: Float32Array }>();
+  /** Lo tocado, en vértices de la rejilla del mundo (cada `PASO` m desde 0). */
   private caja = [Infinity, Infinity, -Infinity, -Infinity];
   private sembrados = false;
+  /** Celdas del trazo que aún no se han bajado del servidor: el pincel no las toca y se piden (una vez por trazo). */
+  private sinBajar = new Set<string>();
   private bucle = 0;
   private ultimo = 0;
   private ultimaObra = 0;
@@ -136,7 +165,7 @@ export class PincelTerreno {
       h(
         "div",
         { className: "ed-fila" },
-        h("button", { className: "ed-b", textContent: "Volver a la isla de serie", title: "Quita todo lo esculpido y pintado (se puede deshacer)", onclick: () => this.deSerie() }),
+        h("button", { className: "ed-b", textContent: "Volver a la isla de serie", title: "Quita lo esculpido y pintado en la isla de serie; el resto del mundo no cambia (se puede deshacer)", onclick: () => this.deSerie() }),
       ),
     );
   }
@@ -238,9 +267,10 @@ export class PincelTerreno {
     this.trazando = true;
     this.invertir = invertir;
     this.objetivo = terrenoEn(this.punto.x, this.punto.z);
-    this.antes = alturas.slice();
+    this.antes = new Map();
     this.caja = [Infinity, Infinity, -Infinity, -Infinity];
     this.sembrados = false;
+    this.sinBajar = new Set();
     this.ultimo = performance.now();
     this.ultimaObra = this.ultimo;
     this.paso(1 / 30);
@@ -260,51 +290,59 @@ export class PincelTerreno {
     this.bucle = requestAnimationFrame(this.alFotograma);
   };
 
+  /** La rejilla de la celda para esculpirla (`null` fuera del mundo), apuntando cómo estaba antes del trazo. */
+  private rejilla(cx: number, cz: number): { alt: Float32Array; pin: Uint8Array } | null {
+    if (!dentro(cx) || !dentro(cz)) return null;
+    const r = rejillaEditable(cx, cz, this.doc.terreno?.[`c/${cx}/${cz}`]);
+    const n = numeroDe(cx, cz);
+    if (!this.antes.has(n)) this.antes.set(n, { cx, cz, alt: r.alt.slice() });
+    return r;
+  }
+
   private paso(dt: number): void {
     const p = this.punto;
     if (!p) return;
     if (this.herramienta === "vegetacion") return this.vegetacion(p.x, p.z, dt);
     const r = this.radio;
-    const ix0 = Math.max(Math.floor(celda(p.x - r)), 0);
-    const iz0 = Math.max(Math.floor(celda(p.z - r)), 0);
-    const ix1 = Math.min(Math.ceil(celda(p.x + r)), CELDAS);
-    const iz1 = Math.min(Math.ceil(celda(p.z + r)), CELDAS);
-    if (ix0 > ix1 || iz0 > iz1) return;
-    const copia = this.herramienta === "suavizar" ? alturas.slice() : null;
+    const g = LIMITE / PASO;
+    const gx0 = Math.max(Math.floor((p.x - r) / PASO), -g);
+    const gz0 = Math.max(Math.floor((p.z - r) / PASO), -g);
+    const gx1 = Math.min(Math.ceil((p.x + r) / PASO), g);
+    const gz1 = Math.min(Math.ceil((p.z + r) / PASO), g);
+    if (gx0 > gx1 || gz0 > gz1) return;
+    const pintar = this.herramienta === "pintar";
     const k = this.fuerza * dt;
-    for (let iz = iz0; iz <= iz1; iz++) {
-      for (let ix = ix0; ix <= ix1; ix++) {
-        const d = Math.hypot(ix * PASO - MITAD - p.x, iz * PASO - MITAD - p.z) / r;
+    // Primero se calcula todo con el suelo de antes del paso (suavizar mira a los vecinos) y luego se escribe en cada celda que
+    // repite el vértice, para que los bordes sigan iguales.
+    const nuevos: number[] = [];
+    for (let gz = gz0; gz <= gz1; gz++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const d = Math.hypot(gx * PASO - p.x, gz * PASO - p.z) / r;
         if (d >= 1) continue;
         const w = (1 - d * d) ** 2; // suave en el borde
-        const i = iz * N1 + ix;
-        const hh = alturas[i];
-        if (this.herramienta === "subir") alturas[i] = hh + (this.invertir ? -1 : 1) * VELOCIDAD * k * w;
-        else if (this.herramienta === "aplanar") alturas[i] = hh + (this.objetivo - hh) * Math.min(1, 8 * k * w);
-        else if (copia) {
+        if (pintar) {
+          nuevos.push(gx, gz, 0);
+          continue;
+        }
+        const hh = verticeEn(gx, gz);
+        let v = hh;
+        if (this.herramienta === "subir") v = hh + (this.invertir ? -1 : 1) * VELOCIDAD * k * w;
+        else if (this.herramienta === "aplanar") v = hh + (this.objetivo - hh) * Math.min(1, 8 * k * w);
+        else {
           let s = 0;
-          let n = 0;
-          for (let dz = -1; dz <= 1; dz++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const x = ix + dx;
-              const z = iz + dz;
-              if (x < 0 || z < 0 || x > CELDAS || z > CELDAS) continue;
-              s += copia[z * N1 + x];
-              n++;
-            }
-          }
-          alturas[i] = hh + (s / n - hh) * Math.min(1, 8 * k * w);
-        } else pinturas[i] = this.invertir ? 0 : this.pintura;
-        alturas[i] = limitar(alturas[i], MIN_ALTURA, MAX_ALTURA);
+          for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) s += verticeEn(gx + dx, gz + dz);
+          v = hh + (s / 9 - hh) * Math.min(1, 8 * k * w);
+        }
+        nuevos.push(gx, gz, limitar(v, MIN_ALTURA, MAX_ALTURA));
       }
     }
+    escribirPaso(nuevos, pintar ? (this.invertir ? 0 : this.pintura) : null, (k) => this.bajada(k), (cx, cz) => this.rejilla(cx, cz));
     const c = this.caja;
-    [c[0], c[1], c[2], c[3]] = [Math.min(c[0], ix0), Math.min(c[1], iz0), Math.max(c[2], ix1), Math.max(c[3], iz1)];
+    [c[0], c[1], c[2], c[3]] = [Math.min(c[0], gx0), Math.min(c[1], gz0), Math.max(c[2], gx1), Math.max(c[3], gz1)];
     // Un vértice más por cada lado: su color depende de la pendiente, que mira a los vecinos.
-    this.mundo.retocarTerreno(ix0 - 1, iz0 - 1, ix1 + 1, iz1 + 1, false);
+    this.mundo.retocarTerreno(gx0 - 1, gz0 - 1, gx1 + 1, gz1 + 1, false);
     this.colocarAnillo();
   }
-
   private vegetacion(cx: number, cz: number, dt: number): void {
     const objetos = this.doc.objetos;
     const r = this.radio;
@@ -331,8 +369,9 @@ export class PincelTerreno {
       const d = Math.sqrt(Math.random()) * r;
       const x = cx + Math.cos(ang) * d;
       const z = cz + Math.sin(ang) * d;
-      if (Math.abs(x) > MITAD || Math.abs(z) > MITAD || terrenoEn(x, z) < 0.3) continue; // nada en el agua
+      if (Math.abs(x) >= LIMITE || Math.abs(z) >= LIMITE || terrenoEn(x, z) < 0.3) continue; // nada en el agua ni fuera del mundo
       if (cerca.some((o) => Math.hypot(o.pos[0] - x, o.pos[2] - z) < this.separacion)) continue;
+      if (!this.bajada(claveCelda(x, z))) continue;
       const celda = numeroCelda(x, z);
       if ((porCelda.get(celda) ?? 0) >= MAX_OBJETOS_CELDA) {
         this.a.aviso(`Una celda de 80 m puede tener ${MAX_OBJETOS_CELDA} objetos como mucho.`);
@@ -353,30 +392,63 @@ export class PincelTerreno {
     }
   }
 
-  /** Suelta el trazo: los objetos apoyados siguen al suelo, el mar se pone al día y todo entra en el historial. */
+  /** ¿Se puede tocar la celda? Si existe y no se ha bajado, no: se pide y se avisa una vez por celda y trazo. */
+  private bajada(clave: string): boolean {
+    if (this.a.b.bajada(clave)) return true;
+    if (!this.sinBajar.has(clave)) {
+      this.sinBajar.add(clave);
+      this.a.b.asegurar([clave]).catch((e: unknown) => this.a.fallo(e));
+      this.a.aviso(`La celda ${clave} aún no se ha bajado del servidor: el pincel no la toca hasta que llegue.`, undefined, false);
+    }
+    return false;
+  }
+
+  /** Mientras dura un trazo, la vista no se mueve de sitio (`niveles.ts`): ninguna celda tocada se suelta a medias. */
+  get trazandoYa(): boolean {
+    return this.trazando;
+  }
+
+  /** Suelta el trazo: las celdas tocadas pasan al documento, los objetos apoyados siguen al suelo y todo entra en el historial. */
   terminar(): void {
     if (!this.trazando) return;
     this.trazando = false;
     cancelAnimationFrame(this.bucle);
-    const [ix0, iz0, ix1, iz1] = this.caja;
+    const [gx0, gz0, gx1, gz1] = this.caja;
     let movidos: Objeto[] = [];
-    if (this.antes && ix0 <= ix1) {
-      movidos = this.seguirSuelo(this.antes, ix0 * PASO - MITAD, iz0 * PASO - MITAD, ix1 * PASO - MITAD, iz1 * PASO - MITAD);
-      this.doc.terreno = terrenoDoc();
-      this.mundo.retocarTerreno(ix0 - 1, iz0 - 1, ix1 + 1, iz1 + 1, true);
+    if (this.antes.size) {
+      const terreno = { ...this.doc.terreno };
+      let recortadas = 0;
+      for (const [n, { cx, cz }] of this.antes) {
+        const r = rejillas.get(n);
+        if (!r) continue; // no pasa: durante el trazo la vista no suelta nada (`trazandoYa`)
+        const t = terrenoDe(r);
+        terreno[`c/${cx}/${cz}`] = t.terreno;
+        if (t.recortado) recortadas++;
+      }
+      movidos = this.seguirSuelo(gx0 * PASO, gz0 * PASO, gx1 * PASO, gz1 * PASO);
+      this.doc.terreno = terreno;
+      this.mundo.retocarTerreno(gx0 - 1, gz0 - 1, gx1 + 1, gz1 + 1, true);
+      if (recortadas) {
+        const m = Math.floor(MAX_DESNIVEL_CM / 100);
+        this.a.aviso(`Una celda de ${CELDA} m no puede tener más de ${m} m de desnivel: en ${recortadas === 1 ? "una celda" : `${recortadas} celdas`} lo más bajo se ha subido hasta ${m} m por debajo de su punto más alto.`);
+      }
     }
-    this.antes = null;
+    this.antes = new Map();
     if (this.a.b.commit({ objetos: movidos }) || this.sembrados) this.g.rehacerObras();
     this.a.estado();
   }
 
-  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo desde `antes`; devuelve los apoyados. */
-  private seguirSuelo(antes: Float32Array, x0: number, z0: number, x1: number, z1: number): Objeto[] {
+  /** Mueve en altura los objetos apoyados dentro de ese recuadro lo que haya cambiado su suelo en el trazo; devuelve los apoyados. */
+  private seguirSuelo(x0: number, z0: number, x1: number, z1: number): Objeto[] {
     const movidos: Objeto[] = [];
     for (const o of this.doc.objetos) {
       const [x, y, z] = o.pos;
       if (x < x0 || x > x1 || z < z0 || z > z1) continue;
-      const viejo = alturaEn(antes, x, z);
+      const cx = Math.floor(x / CELDA);
+      const cz = Math.floor(z / CELDA);
+      const antes = this.antes.get(numeroDe(cx, cz));
+      if (!antes) continue;
+      const viejo = alturaEnCelda(antes.alt, cx, cz, x, z);
       if (Math.abs(y - viejo) > APOYADO) continue;
       o.pos[1] = r4(limitar(y + terrenoEn(x, z) - viejo, MIN_ALTURA, MAX_ALTURA));
       movidos.push(o);
@@ -384,14 +456,32 @@ export class PincelTerreno {
     return movidos;
   }
 
-  /** Quita el terreno del documento: vuelve la isla de la fórmula, y los objetos apoyados con ella. */
+  /** Quita el terreno de las 16 celdas de la isla de serie: vuelve su fórmula, y los objetos apoyados con ella. El resto no cambia. */
   private deSerie(): void {
-    if (!this.doc.terreno) return this.a.aviso("La isla ya es la de serie.", undefined, false);
-    const antes = alturas.slice();
-    delete this.doc.terreno;
-    fijarTerreno(undefined);
-    const movidos = this.seguirSuelo(antes, -MITAD, -MITAD, MITAD, MITAD);
-    this.mundo.retocarTerreno(0, 0, CELDAS, CELDAS, true);
+    const isla = Object.keys(this.doc.terreno ?? {}).filter((k) => {
+      const c = coordsDeClave(k);
+      return c !== null && enIsla(c[0], c[1]);
+    });
+    if (!isla.length) return this.a.aviso("La isla ya es la de serie.", undefined, false);
+    const movidos: Objeto[] = [];
+    for (const o of this.doc.objetos) {
+      const [x, y, z] = o.pos;
+      if (Math.abs(x) >= MITAD || Math.abs(z) >= MITAD) continue;
+      const viejo = terrenoEn(x, z);
+      if (Math.abs(y - viejo) > APOYADO) continue;
+      o.pos[1] = r4(limitar(y + alturaEn(alturas, x, z) - viejo, MIN_ALTURA, MAX_ALTURA));
+      movidos.push(o);
+    }
+    const terreno = { ...this.doc.terreno };
+    for (const k of isla) {
+      delete terreno[k];
+      const [cx, cz] = coordsDeClave(k) as [number, number];
+      if (rejillas.has(numeroDe(cx, cz))) ponerRejilla(cx, cz); // la de la fórmula, ya
+    }
+    if (Object.keys(terreno).length) this.doc.terreno = terreno;
+    else delete this.doc.terreno;
+    const g = PRIMERA * POR_CELDA;
+    this.mundo.retocarTerreno(g, g, -g, -g, true);
     this.a.b.commit({ objetos: movidos });
     this.g.rehacerObras();
     this.colocarAnillo();
@@ -424,6 +514,30 @@ export class PincelTerreno {
     this.escena.remove(this.anillo);
     this.anillo.geometry.dispose();
     this.material.dispose();
+  }
+}
+
+/**
+ * Escribe un paso del pincel: cada vértice (`gx, gz, altura` de tres en tres) en todas las celdas que lo repiten, o el color
+ * `pintura` si no es `null`. Un vértice de una celda que no se puede tocar (`tocar`, la que existe y aún no se ha bajado) no se
+ * escribe en ninguna, tampoco en la vecina que lo repite: el borde sigue igual en las dos.
+ */
+export function escribirPaso(
+  nuevos: number[],
+  pintura: number | null,
+  tocar: (clave: string) => boolean,
+  rejilla: (cx: number, cz: number) => { alt: Float32Array; pin: Uint8Array } | null,
+): void {
+  for (let j = 0; j < nuevos.length; j += 3) {
+    const [gx, gz, v] = [nuevos[j], nuevos[j + 1], nuevos[j + 2]];
+    const celdas = celdasDelVertice(gx, gz);
+    if (!celdas.every(([cx, cz]) => tocar(`c/${cx}/${cz}`))) continue;
+    for (const [cx, cz, i] of celdas) {
+      const rj = rejilla(cx, cz);
+      if (!rj) continue;
+      if (pintura !== null) rj.pin[i] = pintura;
+      else rj.alt[i] = v;
+    }
   }
 }
 

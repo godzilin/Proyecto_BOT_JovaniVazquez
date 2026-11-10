@@ -3,6 +3,9 @@
 // rutas `/api/editor/indice`, `trozos`, `usos` y el `PUT` de `borrador`), sin navegador.
 import { Borrador, inicio } from "../../universo/src/editor/borrador";
 import type { Asset, Objeto } from "../../universo/src/editor/formato";
+import { escribirPaso } from "../../universo/src/editor/pincel";
+import { claveCelda } from "../../universo/src/editor/trozos";
+import { NV, rejillaEditable, rejillas, terrenoDe, numeroDe } from "../../universo/src/mundo/terreno";
 
 const CELDA = 80;
 const caja: Asset = { nombre: "Caja", tipo: "piezas", piezas: [{ forma: "caja", pos: [0, 0.5, 0], rot: [0, 0, 0], esc: [1, 1, 1], color: 0x888888 }], colision: null };
@@ -72,8 +75,7 @@ const nada = (): undefined => undefined;
 
 async function abrir(s: ReturnType<typeof servidor>) {
   const fallos: string[] = [];
-  const [indice, celdas] = await inicio(sesion);
-  const b = new Borrador(sesion, indice, { fallo: (e) => fallos.push((e as Error).message), estado: nada, reemplazado: nada }, undefined, celdas);
+  const b = new Borrador(sesion, await inicio(sesion), { fallo: (e) => fallos.push((e as Error).message), estado: nada, reemplazado: nada });
   return { b, fallos };
 }
 
@@ -93,7 +95,7 @@ export async function paseo() {
   Borrador.comprobar = true;
   const s = servidor(60);
   const { b, fallos } = await abrir(s);
-  const isla = b.doc.objetos.length;
+  const alAbrir = b.doc.objetos.length;
   // Alrededor de la cámara en el centro.
   b.cerca(0, 0, true);
   await b.asegurar([]); // nada nuevo: solo espera lo que ya se pide
@@ -113,6 +115,7 @@ export async function paseo() {
   await b.asegurar([lejos]);
   // Ya bajada, el mismo cambio vale y se guarda junto a lo que tenía.
   const otro = b.doc.objetos[0];
+  const origen = claveCelda(otro.pos[0], otro.pos[2]);
   otro.pos = [20 * CELDA + 5, 1, 5];
   const aceptado = b.commit({ objetos: [otro] });
   await b.guardar();
@@ -135,7 +138,7 @@ export async function paseo() {
 
   // Borrar un asset: el servidor dice qué celdas sin bajar lo usan.
   const usos = await b.usosSinBajar("a1");
-  return { isla, centro, rechazado, vuelto, avisado, aceptado, guardado, enLejos, tras, vuelta, deshecho, usos: usos.length, descuadres: Borrador.descuadres };
+  return { alAbrir, origen, centro, rechazado, vuelto, avisado, aceptado, guardado, enLejos, tras, vuelta, deshecho, usos: usos.length, descuadres: Borrador.descuadres };
 }
 
 /** Lo que trae una celda y el editor no conoce (`gen`, un campo nuevo, terreno fuera de la isla). */
@@ -152,4 +155,45 @@ export async function camposAjenos() {
   await b.guardar();
   const [enviado] = s.guardados;
   return { claves: Object.keys(enviado), celda: enviado["c/3/0"] };
+}
+
+/**
+ * El pincel en el borde x = 80 entre la celda 0/0 (bajada) y la 1/0 (existe y no se ha bajado), y en el borde x = 0 con la -1/0 (no
+ * existe): la 1/0 no se toca ni se manda, la -1/0 se crea.
+ */
+export async function pincelEnElBorde() {
+  const s = servidor(0);
+  s.trozos.set("c/0/0", { doc: { objetos: [objeto("a0", 40, 40)] }, rev: 3 });
+  s.trozos.set("c/1/0", { doc: { objetos: [objeto("a0", 120, 40)] }, rev: 5 });
+  const { b } = await abrir(s);
+  await b.asegurar(["c/0/0"]);
+  rejillas.clear();
+  const tocadas = new Set<string>();
+  const rejilla = (cx: number, cz: number) => {
+    tocadas.add(`c/${cx}/${cz}`);
+    return rejillaEditable(cx, cz, b.doc.terreno?.[`c/${cx}/${cz}`]);
+  };
+  // Una franja de vértices de x = -4 a x = 84 m (gx de -2 a 42), z de 10 a 20 m, subida a 50 m.
+  const nuevos: number[] = [];
+  for (let gz = 5; gz <= 10; gz++) for (let gx = -2; gx <= 42; gx++) nuevos.push(gx, gz, 50);
+  escribirPaso(nuevos, null, (k) => b.bajada(k), rejilla);
+  // Lo que hace `terminar`: cada celda tocada pasa al documento.
+  const terreno = { ...b.doc.terreno };
+  for (const k of tocadas) {
+    const [cx, cz] = k.split("/").slice(1).map(Number);
+    terreno[k] = terrenoDe(rejillas.get(numeroDe(cx, cz))!).terreno;
+  }
+  b.doc.terreno = terreno;
+  b.commit({});
+  await b.guardar();
+  const alt = rejillas.get(numeroDe(0, 0))!.alt;
+  return {
+    tocadas: [...tocadas].sort(),
+    guardadas: Object.keys(s.guardados[0] ?? {}).sort(),
+    revs: Object.fromEntries(Object.entries(s.guardados[0] ?? {}).map(([k, t]) => [k, t.rev])),
+    dentro: alt[5 * NV + 20],
+    bordeLejos: alt[5 * NV + NV - 1],
+    bordeNueva: alt[5 * NV],
+    sigue: s.trozos.get("c/1/0")?.rev,
+  };
 }

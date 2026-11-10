@@ -24,15 +24,17 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 - La celda `(cx, cz)` cubre `[cx·80, (cx+1)·80)` en x y lo mismo en z. Un objeto va en la celda
   de su `pos` (x, z), en coordenadas del mundo, no relativas a la celda.
 - Su terreno, si lo tiene, es la rejilla de 41 × 41 vértices cada 2 m desde la esquina
-  `(cx·80, cz·80)`, con los bordes repetidos en la celda de al lado. Las alturas van en enteros de
-  16 bits en cm (±327 m) y los colores en un byte por vértice, igual que antes. Sin terreno en una
-  celda, la fórmula de la isla de serie.
+  `(cx·80, cz·80)`, con los bordes repetidos en la celda de al lado: `{"alturas", "colores",
+  "base"?}`. Las alturas van en enteros de 16 bits en cm **sobre la `base`** de la celda (un entero
+  en cm; sin ella, 0): la altura de un vértice es `base + alturas[i]`, de −20 a 4000 m (lo que
+  acepta la sala). Los colores, en un byte por vértice. Sin terreno en una celda, la fórmula de la
+  isla de serie (y fuera de ella, mar). Ver «Terreno alto» abajo.
 - 80 m porque la isla esculpible (320 m centrados en 0) son justo 4 × 4 celdas, de la −2 a la 1.
   Las celdas de dibujo de `obras.ts` siguen con sus medidas (128 m las construcciones, 96 m lo
   instanciado); el suelo sí va por celdas de 80 m.
 - Las celdas llegan como mucho a ±`CELL_LIMIT` = 500 (±40 km, un cuadrado de 80 km: `universo_editor.py`
   y `LIMITE_CELDAS` de `mundo/borde.ts`, que vigila `test_universo_borde_ts.py`), lo que acepta la
-  sala (fase 3). Los objetos del editor siguen de −20 a 120 m de altura y el terreno, en cm con `int16`.
+  sala (fase 3). Los objetos del editor y el terreno van de −20 a 4000 m de altura (`MIN_Y`, `MAX_Y`).
 
 **Sin tope del mundo entero (10.12.0).** La 10.10.7 puso uno de 8 MB porque la página lo bajaba y
 lo montaba todo y el bot lo guardaba entero en memoria; con la carga por cercanía (fase 2) ya no
@@ -147,41 +149,78 @@ compara el mundo entero, y en desarrollo cada `commit` rápido se compara con el
 (`Borrador.comprobar`): si no cuadra, lo dice en la consola y usa el entero. Lo prueba
 `docs/comparar_trozos.py` con un mundo de 120 000 objetos: el `commit` baja de ~110 ms a ~13 y
 deshacer de ~150 a ~13. El documento del editor es el `MundoDoc` plano, que se parte en trozos al
-guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`.
+guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`. Su `terreno` ya va por
+celdas (clave `c/<cx>/<cz>` → terreno de la celda), igual que en los trozos: antes era la rejilla de
+la isla entera y `deTrozos` tiraba el de las celdas de fuera.
 
 **El editor por celdas** (`editor/borrador.ts`): al abrir solo baja el índice del borrador
-(`/api/editor/indice`: el `rev` de cada trozo, los assets, las zonas y los teleportes) y las 16 celdas de
-la isla, que esculpe el pincel. Las demás celdas llegan como en el juego: las que hay a menos de 480 m de
-la cámara, las más cercanas antes, por lotes de 64 (`Borrador.cerca`, desde el `pintar` de la vista) y
-sus objetos van al final de `doc.objetos`, así que lo elegido sigue valiendo. Las que pasan de 540 m se
+(`/api/editor/indice`: el `rev` de cada trozo, los assets, las zonas y los teleportes), ninguna celda.
+Las celdas llegan como en el juego: las que hay a menos de 480 m de la cámara, las más cercanas antes,
+por lotes de 64 (`Borrador.cerca`, desde el `pintar` de la vista); sus objetos van al final de
+`doc.objetos` (lo elegido sigue valiendo) y su terreno a `doc.terreno`. Las que pasan de 540 m se
 sueltan si no tienen nada sin guardar, no están en el historial de deshacer y no hay nada elegido ni a
-medias (soltar cambia los índices de `doc.objetos`). El `MundoDoc` solo lleva lo bajado.
+medias, ni la herramienta de terreno puesta (soltar cambia los índices de `doc.objetos`). El `MundoDoc`
+solo lleva lo bajado.
 
 - **Nunca se pisa una celda sin bajar.** El borrador sabe qué celdas existen sin tenerlas (`porBajar`,
   del índice). Si un cambio lleva algo a una de ellas (mover un objeto a 2 km escribiendo su x), `commit`
   lo deshace, pide la celda y lo avisa: con la celda ya bajada, el mismo cambio vale. Una celda que el
   servidor no tiene cuenta como bajada y vacía; si otro editor la crea mientras, el guardado da 409.
   Guardar sigue mandando solo los trozos cambiados con su `rev`.
-- **Para quien cambie celdas lejos de la cámara** (el pincel en cualquier celda, un generador desde el
-  editor): `await borrador.asegurar(claves)` las baja y `borrador.bajada(clave)` dice si ya se puede
-  tocar. Una celda que no existe no hace falta pedirla: se crea con el primer cambio.
+- **Para quien cambie celdas lejos de la cámara:** `await borrador.asegurar(claves)` las baja y
+  `borrador.bajada(clave)` dice si ya se puede tocar. Una celda que no existe no hace falta pedirla: se
+  crea con el primer cambio. El pincel lo usa (ver «Terreno alto»).
 - **Lo que no es de la cámara:** Ctrl+A elige solo entre lo bajado (lo dice la ayuda). La barra dice
   «Bajado: X MB, N celdas (M más sin bajar)»: el peso es solo de lo bajado. Borrar un asset pregunta al
   servidor (`/usos`) qué celdas lo usan, y si alguna no está bajada no deja (y el servidor tampoco lo
   guardaría: `MissingAssets`). Publicar y volver a una versión son del servidor y valen para el borrador
   entero; volver recarga el índice. Deshacer y rehacer solo tocan celdas del historial, que nunca se
   sueltan.
-- **Lo que trae una celda y el editor no conoce** (el terreno de una celda de fuera de la isla, campos
-  nuevos) va en `MundoDoc.celdas` y se guarda tal cual al tocarla; una celda sin tocar no se manda nunca.
-  `gen`, la marca del generador, se quita al guardarla desde el editor: ya está hecha a mano.
+- **Lo que trae una celda y el editor no conoce** (campos nuevos) va en `MundoDoc.celdas` y se guarda tal
+  cual al tocarla; una celda sin tocar no se manda nunca. `gen`, la marca del generador, se quita al
+  guardarla desde el editor: ya está hecha a mano. El terreno no va ahí: va en `MundoDoc.terreno`.
 - **Medido** con el mundo de `docs/editor_local.py --sintetico` (unos 32 KB por celda con terreno):
   abrir el editor con 3000 celdas bajaba 94 MB (279 ms de SQLite y unos 2 s solo en leer el JSON); ahora,
-  un índice de 38 KB y 503 KB de la isla (8 ms y 10 ms). Con 400 celdas, 12,4 MB antes y 6 + 503 KB
-  ahora: lo único que crece con el mundo es el índice, ~13 bytes por celda. Lo de alrededor de la cámara
-  se baja después, como en el juego (~130 celdas). Lo prueban `test_universo_editor_celdas.py` (Node, un
-  mundo de 3600 celdas contra un servidor falso) y `test_universo_editor_bot.py` (las rutas).
+  un índice de 38 KB (8 ms). Con 400 celdas, 12,4 MB antes y 6 KB ahora: lo único que crece con el mundo
+  es el índice, ~13 bytes por celda. Lo de alrededor de la cámara se baja después, como en el juego
+  (~130 celdas). Lo prueban `test_universo_editor_celdas.py` (Node, un mundo de 3600 celdas contra un
+  servidor falso, y el pincel en el borde con una celda sin bajar) y `test_universo_editor_bot.py` (las
+  rutas).
 
-El pincel de terreno sigue esculpiendo solo la isla de 320 m (`alturas` de `terreno.ts`).
+## Terreno alto (la `base` de cada celda)
+
+El Teide a escala 1:10 mide 371 m y los `int16` en cm solo llegan a ±327 m. En vez de cambiar el
+formato, cada celda lleva un campo opcional `base` (entero, cm) y sus alturas van sobre ella: cabe
+cualquier altura hasta los 4000 m de la sala, con 655,35 m de desnivel como mucho dentro de una
+celda de 80 m (un 800 % de pendiente media: de sobra para cualquier isla). Sin `base`, 0: todo lo
+guardado antes se lee igual sin migrar nada, y el editor solo la pone cuando la celda no cabe sin
+ella (`terrenoDe` de `mundo/terreno.ts`: si no cabe, la más baja). El servidor la valida
+(`_terrain`: entero, y `base + alturas` dentro de `MIN_Y`..`MAX_Y`) y la quita si es 0.
+
+- **Bordes:** como `base` y alturas son enteros en cm, la altura absoluta de un vértice repetido es
+  la misma en las dos celdas aunque sus bases sean distintas: no hay escalón.
+- **Resumen** (`cell_summary`): la cima es `base + max` y las 25 muestras siguen siendo `int16`
+  relativas, seguidas de la `base` en `int32` si no es 0 (54 bytes en vez de 50). La página
+  (`ponerResumen`) acepta las dos longitudes; los resúmenes ya guardados (sin base) valen.
+- **Generador del mundo:** escribe cada celda con su `base` según este contrato. Una celda con más
+  de 655 m de desnivel no cabe: que la parta (o la recorte) él.
+
+**El pincel esculpe cualquier celda** (`editor/pincel.ts`): trabaja sobre las rejillas por celda que
+dibuja `suelo.ts` (`rejillas`), no sobre una rejilla de la isla. Al primer trazo en una celda sin
+rejilla, la crea (`rejillaEditable`): con su terreno del documento si lo tiene, con la fórmula si es de
+la isla y, si no, con el suelo que se ve ahí (el resumen o el fondo del mar), tomando el borde de la
+vecina si ya existe. Cada paso calcula los vértices nuevos con el suelo de antes del paso y escribe
+cada uno en todas las celdas que lo repiten (`escribirPaso`, con `celdasDelVertice`), así que un trazo
+que cruza el borde lo deja igual en las dos. **Nunca toca una celda que existe y no se ha bajado**: un
+vértice de una de ellas no se escribe en ninguna de las celdas que lo repiten (el borde se queda como
+estaba en las dos), la celda se pide (`asegurar`) y se avisa; en cuanto llega, el mismo trazo ya la
+esculpe. Lo mismo al sembrar vegetación. Mientras dura un trazo la vista no cambia de foco, así que no
+se suelta ninguna celda a medio esculpir. Al soltar, cada celda tocada pasa al documento con su `base`;
+si una se pasa de 655 m de desnivel, se sube lo más bajo y se avisa. «Volver a la isla de serie» quita
+solo el terreno de las 16 celdas de la isla. `alturas` de `terreno.ts` es ya solo la fórmula de la isla
+de serie (de ahí salen sus celdas sin terreno y el suelo de lo que aún no ha llegado). Lo prueba
+`tests/integration/test_universo_terreno.py` (el Teide en el borde de dos celdas con bases distintas,
+el resumen igual en la página y el servidor, el recorte del desnivel).
 
 ## La red (fase 3)
 
@@ -263,7 +302,7 @@ temblor lejos del centro, cada celda se dibuja desde su esquina.
    forma final; lo que se publique desde ahora no hay que migrarlo otra vez.
 2. **La página carga por cercanía** (hecha, 10.12.0): índice, celdas alrededor de la cámara,
    assets bajo demanda, suelo por celdas con horizonte, sin tope del mundo, y el editor por celdas
-   (ver «Rutas»). Falta que el pincel esculpa fuera de la isla.
+   (ver «Rutas»). El pincel esculpe cualquier celda y sin tope de altura («Terreno alto»).
 3. **Red** (10.11.0, «La red (fase 3)» arriba): posiciones relativas a la región, interés por
    cercanía, el borde del mundo publicado y altura hasta 4000 m.
 4. **Interiores y estado de cada jugador:** los interiores como trozos propios que se cargan al

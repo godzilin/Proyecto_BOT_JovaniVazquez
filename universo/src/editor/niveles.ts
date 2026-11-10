@@ -50,7 +50,7 @@ const TOPE_SEL = 300;
 /** Hasta dónde se puede colocar: donde acaban las celdas del editor (`CELL_LIMIT`); el borde del jugador crece al publicar. */
 const MITAD = LIMITE;
 const MIN_Y = -20;
-const MAX_Y = 120;
+const MAX_Y = 4000; // `MAX_Y` de `universo_editor.py`: lo que acepta la sala
 const MIN_ESC = 0.02;
 const MAX_ESC = 60;
 const MIN_TINTE = 0.3;
@@ -540,7 +540,8 @@ export class PanelMundo implements Panel {
   private pintar(): void {
     // El mundo se carga por cercanía alrededor de la cámara del editor; mientras quede algo por montar se sigue pintando.
     const { x, z } = this.camara.position;
-    if (this.mundo.enfocar(x, z)) this.pedir();
+    // A medio trazo del pincel no se cambia de foco: así no se suelta ninguna celda que se está esculpiendo.
+    if (!this.pincel.trazandoYa && this.mundo.enfocar(x, z)) this.pedir();
     // Y el borrador baja las celdas de alrededor; soltar las lejanas cambia `doc.objetos`, así que solo sin nada elegido ni a medias.
     const quieto = !this.sel.lista.length && !this.zona && !this.colocando && this.herramienta === "objetos";
     if (this.a.b.cerca(x, z, quieto)) this.cargarObras();

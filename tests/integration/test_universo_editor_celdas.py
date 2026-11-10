@@ -36,9 +36,9 @@ def _guion(nombre: str) -> Any:
 def test_abrir_no_crece_con_el_mundo() -> None:
     r = _guion("abrirSegunTamano")
     chico, grande = r["10"], r["60"]
-    # Solo las 16 celdas de la isla, en un mundo de 100 celdas y en uno de 3600.
-    assert chico["celdasPedidas"] == grande["celdasPedidas"] == 16
-    assert chico["objetos"] == grande["objetos"] == 32
+    # Ninguna celda, en un mundo de 100 celdas y en uno de 3600: llegan luego, por cercanía.
+    assert chico["celdasPedidas"] == grande["celdasPedidas"] == 0
+    assert chico["objetos"] == grande["objetos"] == 0
     # Lo que crece es el índice: unos 20 bytes por celda.
     assert grande["bytes"] - chico["bytes"] < 25 * (3600 - 100)
 
@@ -54,8 +54,8 @@ def test_la_camara_baja_las_de_alrededor_y_suelta_las_lejanas(paseo: dict) -> No
     assert centro["celdas"]["bajadas"] + centro["celdas"]["sinBajar"] == 3600
     assert centro["objetos"] == 2 * centro["celdas"]["bajadas"]
     tras = paseo["tras"]
-    # Quedan la isla y las celdas del historial (la del objeto movido y la lejana).
-    assert tras["celdas"]["bajadas"] <= 18
+    # Solo quedan las celdas del historial: la del objeto movido y la lejana.
+    assert tras["celdas"]["bajadas"] == 2
     assert tras["sigueLejos"]
     # El objeto movido sale de una celda y entra en la lejana: la cuenta sigue cuadrando.
     assert paseo["vuelta"]["objetos"] == 2 * paseo["vuelta"]["celdas"]["bajadas"]
@@ -67,7 +67,7 @@ def test_un_cambio_no_pisa_una_celda_sin_bajar(paseo: dict) -> None:
     assert paseo["avisado"]
     # Ya bajada, el mismo cambio vale y guarda solo las dos celdas, con lo que tenía la lejana.
     assert paseo["aceptado"]
-    assert paseo["guardado"] == ["c/-1/-2", "c/20/0"]  # la celda de origen y la lejana
+    assert paseo["guardado"] == sorted([paseo["origen"], "c/20/0"])
     assert paseo["enLejos"] == 3
     assert paseo["deshecho"]
     assert paseo["descuadres"] == 0
@@ -86,3 +86,15 @@ def test_conserva_lo_que_no_conoce_y_quita_gen_al_tocarla() -> None:
     assert celda["otro"] == {"x": 1}
     assert celda["terreno"] == {"alturas": "AAAA", "colores": "AA"}
     assert r["celda"]["rev"] == 4
+
+
+def test_el_pincel_no_pisa_una_celda_sin_bajar() -> None:
+    r = _guion("pincelEnElBorde")
+    # La 1/0 existe sin bajar: ni se crea su rejilla ni se manda; la -1/0 no existe y se crea.
+    assert r["tocadas"] == ["c/-1/0", "c/0/0"]
+    assert r["guardadas"] == ["c/-1/0", "c/0/0"]
+    assert r["revs"] == {"c/-1/0": 0, "c/0/0": 3}
+    assert r["sigue"] == 5
+    assert r["dentro"] == 50
+    assert r["bordeNueva"] == 50  # el borde con la que no existía sí se esculpe
+    assert r["bordeLejos"] != 50  # el borde con la 1/0 se queda como estaba

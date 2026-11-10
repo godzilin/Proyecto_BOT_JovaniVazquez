@@ -2,21 +2,19 @@
 // cambian en cada paso, con tope), el guardado automático por trozos y las llamadas al servidor. No toca la pantalla: avisa por ganchos.
 // El documento sigue siendo el `MundoDoc` plano. Cada cambio solo convierte a JSON los trozos que toca (`Toca` y lo que se ve solo,
 // ver `commit`); deshacer y rehacer solo leen los del paso (`parchear`), y guardar solo compara los que cambiaron desde el último.
-// Por celdas: al abrir solo se baja el índice (qué trozos hay y su `rev`), los assets, zonas y teleportes y las 16 celdas de la
-// isla; las demás celdas se bajan al acercarse la cámara (`cerca`) o cuando alguien las pide (`asegurar`) y las lejanas sin cambios
-// se sueltan. El `MundoDoc` solo lleva las celdas bajadas; una celda que el servidor tiene y no se ha bajado (`porBajar`) no la
+// Por celdas: al abrir solo se baja el índice (qué trozos hay y su `rev`) con los assets, zonas y teleportes; las celdas se bajan al
+// acercarse la cámara (`cerca`) o cuando alguien las pide (`asegurar`, el pincel) y las lejanas sin cambios se sueltan. El `MundoDoc` solo lleva las celdas bajadas; una celda que el servidor tiene y no se ha bajado (`porBajar`) no la
 // toca ningún cambio: `commit` deshace el que lo intente.
 import * as api from "./api";
 import { Conflicto, type Indice, type Sesion, type TrozoBorrador, type Version } from "./api";
 import { CELDA, type MundoDoc, type Objeto, type Terreno } from "./formato";
 import {
   aTrozos,
-  CELDAS_ISLA,
   claveDeNumero,
   coordsDeClave,
   deTrozos,
-  enIsla,
   extraCelda,
+  mismoTerreno,
   numeroCelda,
   numeroDeClave,
   parchear,
@@ -35,12 +33,11 @@ const MAX_TROZOS = 5000;
 const RADIO = 480;
 const SOLTAR = 540;
 
-/** Lo que baja el editor al abrir o recargar: el índice y las celdas de la isla que existen (las que esculpe el pincel). */
-export async function inicio(s: Sesion): Promise<[Indice, Record<string, TrozoBorrador>]> {
+/** Lo que baja el editor al abrir o recargar: el índice, sin ninguna celda. */
+export async function inicio(s: Sesion): Promise<Indice> {
   const i = await api.indice(s);
   if (!i.borrados) throw new Error("El editor está desfasado: recarga la página.");
-  const isla = CELDAS_ISLA.filter((k) => k in i.trozos);
-  return [i, isla.length ? (await api.trozos(s, isla)).trozos : {}];
+  return i;
 }
 
 /** Distancia del punto (x, z) a la celda (cx, cz), 0 si está dentro. */
@@ -114,18 +111,14 @@ export class Borrador {
   /** La celda de la cámara en la última llamada a `cerca` (y si se podía soltar): sin cambios, no hay nada que mirar. */
   private foco = "";
 
-  /**
-   * `indice` y `celdas`, lo de `inicio`. `semilla`: el mundo con el que empezar si el servidor no tiene nada; queda sucio para que
-   * se guarde.
-   */
+  /** `indice`, lo de `inicio`. `semilla`: el mundo con el que empezar si el servidor no tiene nada; queda sucio para que se guarde. */
   constructor(
     private readonly sesion: Sesion,
     indice: Indice,
     private readonly g: Ganchos,
     semilla?: MundoDoc,
-    celdas: Record<string, TrozoBorrador> = {},
   ) {
-    this.doc = this.cargar(indice, celdas, semilla);
+    this.doc = this.cargar(indice, semilla);
     this.version = indice.version;
     this.sucio = semilla !== undefined;
   }
@@ -138,18 +131,13 @@ export class Borrador {
   }
 
   /** Deja el borrador como lo tiene el servidor (o como la semilla) y devuelve el documento. */
-  private cargar(indice: Indice, celdas: Record<string, TrozoBorrador>, semilla?: MundoDoc): MundoDoc {
+  private cargar(indice: Indice, semilla?: MundoDoc): MundoDoc {
     this.epoca++;
     this.pidiendo = new Map();
     this.foco = "";
     const docs: Record<string, unknown> = { ...indice.docs };
     this.revs = new Map([...Object.entries(indice.trozos), ...Object.entries(indice.borrados)]);
     this.porBajar = new Set(semilla ? [] : Object.keys(indice.trozos).filter((k) => coordsDeClave(k)));
-    for (const [k, t] of Object.entries(celdas)) {
-      this.revs.set(k, t.rev);
-      this.porBajar.delete(k);
-      if (t.doc) docs[k] = t.doc;
-    }
     const doc = semilla ?? deTrozos(docs);
     this.actual = aTrozos(doc);
     this.bytes = 0;
@@ -287,7 +275,7 @@ export class Borrador {
       for (const k of new Set([...(terreno?.keys() ?? []), ...(this.terreno?.keys() ?? [])])) {
         const a = this.terreno?.get(k);
         const b = terreno?.get(k);
-        if (a?.alturas !== b?.alturas || a?.colores !== b?.colores) celdas.add(numeroDeClave(k) as number);
+        if (!mismoTerreno(a, b)) celdas.add(numeroDeClave(k) as number);
       }
       this.terreno = terreno;
     }
@@ -466,33 +454,41 @@ export class Borrador {
 
   /**
    * Mete en el documento unas celdas recién bajadas: sus objetos van al final de `doc.objetos` (sin tocar los demás, ni uno que
-   * se esté arrastrando hacia ellas) y lo que traen pasa a ser lo guardado.
+   * se esté arrastrando hacia ellas), su terreno a `doc.terreno` y lo que traen pasa a ser lo guardado.
    */
   private incorporar(claves: string[], trozos: Record<string, TrozoBorrador>): void {
     if (!claves.length) return;
     const objetos = [...this.doc.objetos];
     const extras = { ...this.doc.celdas };
+    const terreno = { ...this.doc.terreno };
+    // Lo que `tocados` tiene por terreno de `actual`: con las celdas nuevas, que llegan sin cambios.
+    const visto = new Map(this.terreno ?? []);
     for (const k of claves) {
       const t = trozos[k];
       this.porBajar.delete(k);
       this.revs.set(k, t?.rev ?? 0);
-      const c = t?.doc as { objetos: Objeto[] } | null | undefined;
+      const c = t?.doc as { objetos: Objeto[]; terreno?: Terreno } | null | undefined;
       if (!c) continue;
-      const [cx, cz] = coordsDeClave(k) as [number, number];
       const n = numeroDeClave(k) as number;
       for (const o of c.objetos) {
         objetos.push(o);
         this.celdas.set(o, n);
       }
-      const extra = extraCelda(cx, cz, c);
+      const extra = extraCelda(c);
       if (extra) extras[k] = extra;
-      const v = trozoCelda(c.objetos, undefined, extra);
+      if (c.terreno) {
+        terreno[k] = c.terreno;
+        visto.set(k, c.terreno);
+      }
+      const v = trozoCelda(c.objetos, c.terreno, extra);
       if (v === null) continue;
       this.poner(k, v);
       this.guardado.set(k, v);
     }
     this.doc = { ...this.doc, objetos };
     if (Object.keys(extras).length) this.doc.celdas = extras;
+    if (Object.keys(terreno).length) this.doc.terreno = terreno;
+    this.terreno = visto.size ? visto : undefined;
     this.g.bajadas?.();
     this.g.estado();
   }
@@ -504,7 +500,7 @@ export class Borrador {
     const fuera = new Set<number>();
     for (const [k, v] of this.actual) {
       const c = coordsDeClave(k);
-      if (!c || enIsla(...c) || !lejos(...c)) continue;
+      if (!c || !lejos(...c)) continue;
       if (this.pendientes.has(k) || enHistorial.has(k) || this.guardado.get(k) !== v) continue;
       fuera.add(numeroDeClave(k) as number);
     }
@@ -515,15 +511,21 @@ export class Borrador {
       return false;
     });
     const extras = { ...this.doc.celdas };
+    const terreno = { ...this.doc.terreno };
+    const visto = new Map(this.terreno ?? []);
     for (const n of fuera) {
       const k = claveDeNumero(n);
       this.poner(k, null);
       this.guardado.delete(k);
       this.porBajar.add(k);
       delete extras[k];
+      delete terreno[k];
+      visto.delete(k);
     }
-    this.doc = { ...this.doc, objetos, celdas: extras };
+    this.doc = { ...this.doc, objetos, celdas: extras, terreno };
     if (!Object.keys(extras).length) delete this.doc.celdas;
+    if (!Object.keys(terreno).length) delete this.doc.terreno;
+    this.terreno = visto.size ? visto : undefined;
     this.g.estado();
     return true;
   }
@@ -535,8 +537,8 @@ export class Borrador {
 
   async recargar(): Promise<void> {
     try {
-      const [indice, celdas] = await inicio(this.sesion);
-      this.doc = this.cargar(indice, celdas);
+      const indice = await inicio(this.sesion);
+      this.doc = this.cargar(indice);
       this.version = indice.version;
       this.sucio = false;
       this.conflicto = false;

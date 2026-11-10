@@ -1,7 +1,7 @@
 // Editor del Jovaniverso (solo con permiso de editor, solo ordenador): una pantalla con dos modos, «Mundo» (colocar y mover objetos y zonas
 // dentro de la isla) y «Assets» (montar los modelos), que comparten un solo borrador, un solo historial y la misma barra de
 // guardar, publicar y versiones.
-import { Conflicto, type Indice, type Sesion, type TrozoBorrador } from "./api";
+import { Conflicto, type Indice, type Sesion } from "./api";
 import { Borrador, inicio } from "./borrador";
 import { dialogo, h, modal } from "./dom";
 import { comprobarFormas, type MundoDoc } from "./formato";
@@ -44,11 +44,11 @@ export async function abrirEditor(sesion: Sesion, entorno: Entorno): Promise<voi
   abierto = true;
   try {
     if (import.meta.env.DEV) comprobarFormas();
-    // Solo el índice, lo que no es celda y la isla: las demás celdas llegan al acercarse la cámara (`Borrador.cerca`).
-    const [indice, celdas] = await inicio(sesion);
+    // Solo el índice y lo que no es celda: las celdas llegan al acercarse la cámara (`Borrador.cerca`).
+    const indice = await inicio(sesion);
     // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío (y queda sucio para que se guarde).
     const vacio = indice.version === 0 && Object.keys(indice.trozos).length === 0;
-    new Editor(sesion, entorno, indice, celdas, vacio ? mundoDeSerie() : undefined).iniciar();
+    new Editor(sesion, entorno, indice, vacio ? mundoDeSerie() : undefined).iniciar();
   } catch (e) {
     abierto = false;
     throw e;
@@ -69,7 +69,6 @@ class Editor implements Anfitrion {
     readonly sesion: Sesion,
     private readonly entorno: Entorno,
     indice: Indice,
-    celdas: Record<string, TrozoBorrador>,
     semilla?: MundoDoc,
   ) {
     this.b = new Borrador(sesion, indice, {
@@ -80,7 +79,7 @@ class Editor implements Anfitrion {
         this.estado();
       },
       bajadas: () => this.paneles[this.activa]?.alLlegarCeldas?.(),
-    }, semilla, celdas);
+    }, semilla);
     this.raiz.append(this.arriba(), this.barra, this.cartel);
     // Las teclas escritas en un campo no llegan al mundo, que escucha en window.
     this.raiz.addEventListener("keydown", (e) => e.stopPropagation());
