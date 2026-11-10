@@ -24,15 +24,17 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 - La celda `(cx, cz)` cubre `[cx·80, (cx+1)·80)` en x y lo mismo en z. Un objeto va en la celda
   de su `pos` (x, z), en coordenadas del mundo, no relativas a la celda.
 - Su terreno, si lo tiene, es la rejilla de 41 × 41 vértices cada 2 m desde la esquina
-  `(cx·80, cz·80)`, con los bordes repetidos en la celda de al lado. Las alturas van en enteros de
-  16 bits en cm (±327 m) y los colores en un byte por vértice, igual que antes. Sin terreno en una
-  celda, la fórmula de la isla de serie.
+  `(cx·80, cz·80)`, con los bordes repetidos en la celda de al lado: `{"alturas", "colores",
+  "base"?}`. Las alturas van en enteros de 16 bits en cm **sobre la `base`** de la celda (un entero
+  en cm; sin ella, 0): la altura de un vértice es `base + alturas[i]`, de −20 a 4000 m (lo que
+  acepta la sala). Los colores, en un byte por vértice. Sin terreno en una celda, la fórmula de la
+  isla de serie (y fuera de ella, mar). Ver «Terreno alto» abajo.
 - 80 m porque la isla esculpible (320 m centrados en 0) son justo 4 × 4 celdas, de la −2 a la 1.
   Las celdas de dibujo de `obras.ts` siguen con sus medidas (128 m las construcciones, 96 m lo
   instanciado); el suelo sí va por celdas de 80 m.
 - Las celdas llegan como mucho a ±`CELL_LIMIT` = 500 (±40 km, un cuadrado de 80 km: `universo_editor.py`
   y `LIMITE_CELDAS` de `mundo/borde.ts`, que vigila `test_universo_borde_ts.py`), lo que acepta la
-  sala (fase 3). Los objetos del editor siguen de −20 a 120 m de altura y el terreno, en cm con `int16`.
+  sala (fase 3). Los objetos del editor y el terreno van de −20 a 4000 m de altura (`MIN_Y`, `MAX_Y`).
 
 **Sin tope del mundo entero (10.12.0).** La 10.10.7 puso uno de 8 MB porque la página lo bajaba y
 lo montaba todo y el bot lo guardaba entero en memoria; con la carga por cercanía (fase 2) ya no
@@ -142,13 +144,47 @@ compara el mundo entero, y en desarrollo cada `commit` rápido se compara con el
 (`Borrador.comprobar`): si no cuadra, lo dice en la consola y usa el entero. Lo prueba
 `docs/comparar_trozos.py` con un mundo de 120 000 objetos: el `commit` baja de ~110 ms a ~13 y
 deshacer de ~150 a ~13. El documento del editor es el `MundoDoc` plano, que se parte en trozos al
-guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`.
+guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`. Su `terreno` ya va por
+celdas (clave `c/<cx>/<cz>` → terreno de la celda), igual que en los trozos: antes era la rejilla de
+la isla entera y `deTrozos` tiraba el de las celdas de fuera.
 
 **El editor** sigue cargando el borrador entero como `MundoDoc` (como en la fase 1) y lo dibuja por
 cercanía alrededor de su cámara. Falta que cargue y guarde solo las celdas que se ven o se tocan: el
 borrador tendría que saber qué celdas existen sin tenerlas (para no pisar una que no ha bajado) y
 bajar las que entren en vista. Hasta entonces, un mundo muy grande pesa al abrir el editor (no al
-jugar). El pincel de terreno sigue esculpiendo solo la isla de 320 m (`alturas` de `terreno.ts`).
+jugar).
+
+## Terreno alto (la `base` de cada celda)
+
+El Teide a escala 1:10 mide 371 m y los `int16` en cm solo llegan a ±327 m. En vez de cambiar el
+formato, cada celda lleva un campo opcional `base` (entero, cm) y sus alturas van sobre ella: cabe
+cualquier altura hasta los 4000 m de la sala, con 655,35 m de desnivel como mucho dentro de una
+celda de 80 m (un 800 % de pendiente media: de sobra para cualquier isla). Sin `base`, 0: todo lo
+guardado antes se lee igual sin migrar nada, y el editor solo la pone cuando la celda no cabe sin
+ella (`terrenoDe` de `mundo/terreno.ts`: si no cabe, la más baja). El servidor la valida
+(`_terrain`: entero, y `base + alturas` dentro de `MIN_Y`..`MAX_Y`) y la quita si es 0.
+
+- **Bordes:** como `base` y alturas son enteros en cm, la altura absoluta de un vértice repetido es
+  la misma en las dos celdas aunque sus bases sean distintas: no hay escalón.
+- **Resumen** (`cell_summary`): la cima es `base + max` y las 25 muestras siguen siendo `int16`
+  relativas, seguidas de la `base` en `int32` si no es 0 (54 bytes en vez de 50). La página
+  (`ponerResumen`) acepta las dos longitudes; los resúmenes ya guardados (sin base) valen.
+- **Generador del mundo:** escribe cada celda con su `base` según este contrato. Una celda con más
+  de 655 m de desnivel no cabe: que la parta (o la recorte) él.
+
+**El pincel esculpe cualquier celda** (`editor/pincel.ts`): trabaja sobre las rejillas por celda que
+dibuja `suelo.ts` (`rejillas`), no sobre una rejilla de la isla. Al primer trazo en una celda sin
+rejilla, la crea (`rejillaEditable`): con su terreno del documento si lo tiene aunque no esté
+cargada, con la fórmula si es de la isla y, si no, con el suelo que se ve ahí (el resumen o el fondo
+del mar), tomando el borde de la vecina si ya existe. Cada paso calcula los vértices nuevos con el
+suelo de antes del paso y escribe cada uno en todas las celdas que lo repiten (`celdasDelVertice`),
+así que un trazo que cruza el borde lo deja igual en las dos. Al soltar, cada celda tocada pasa al
+documento con su `base`; si una se pasa de 655 m de desnivel, se sube lo más bajo y se avisa.
+«Volver a la isla de serie» quita solo el terreno de las 16 celdas de la isla. Una celda que se
+suelta a medio trazo (a más de 540 m de la cámara) se queda como estaba. `alturas` de `terreno.ts` es
+ya solo la fórmula de la isla de serie (de ahí salen sus celdas sin terreno y el suelo de lo que aún
+no ha llegado). Lo prueba `tests/integration/test_universo_terreno.py` (el Teide en el borde de dos
+celdas con bases distintas, el resumen igual en la página y el servidor, el recorte del desnivel).
 
 ## La red (fase 3)
 
@@ -230,7 +266,7 @@ temblor lejos del centro, cada celda se dibuja desde su esquina.
    forma final; lo que se publique desde ahora no hay que migrarlo otra vez.
 2. **La página carga por cercanía** (hecha, 10.12.0): índice, celdas alrededor de la cámara,
    assets bajo demanda, suelo por celdas con horizonte, sin tope del mundo. Falta el editor por
-   celdas (ver «Rutas») y que el pincel esculpa fuera de la isla.
+   celdas (ver «Rutas»). El pincel esculpe cualquier celda y sin tope de altura («Terreno alto»).
 3. **Red** (10.11.0, «La red (fase 3)» arriba): posiciones relativas a la región, interés por
    cercanía, el borde del mundo publicado y altura hasta 4000 m.
 4. **Interiores y estado de cada jugador:** los interiores como trozos propios que se cargan al

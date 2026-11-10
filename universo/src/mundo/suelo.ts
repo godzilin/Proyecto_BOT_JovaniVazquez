@@ -8,7 +8,6 @@ import { CELDA, type Terreno } from "../editor/formato";
 import type { Culling } from "./culling";
 import {
   colorEn,
-  copiarDeIsla,
   enIsla,
   LADO_RESUMEN,
   NV,
@@ -16,7 +15,6 @@ import {
   PASO,
   PASO_RESUMEN,
   POR_CELDA,
-  PRIMERA,
   ponerRejilla,
   ponerResumen,
   quitarRejilla,
@@ -92,19 +90,21 @@ export class Suelo {
     if (quitarResumen(cx, cz)) this.teselasSucias.add(this.tesela(cx, cz));
   }
 
-  /** El pincel del editor ha cambiado la rejilla de la isla entre esos vértices (de `alturas`): se rehacen ya esas celdas. */
-  retocarIsla(ix0: number, iz0: number, ix1: number, iz1: number): void {
-    for (let cz = PRIMERA; cz < -PRIMERA; cz++) {
-      for (let cx = PRIMERA; cx < -PRIMERA; cx++) {
-        const x0 = (cx - PRIMERA) * POR_CELDA;
-        const z0 = (cz - PRIMERA) * POR_CELDA;
-        if (x0 > ix1 || z0 > iz1 || x0 + POR_CELDA < ix0 || z0 + POR_CELDA < iz0) continue;
+  /**
+   * El pincel del editor ha cambiado las rejillas de las celdas (`rejillas`) entre esos vértices de la rejilla del mundo (cada `PASO`
+   * m desde 0): se rehacen ya sus mallas. Una celda que acaba de tener rejilla se monta con todo el detalle.
+   */
+  retocar(gx0: number, gz0: number, gx1: number, gz1: number): void {
+    for (let cz = Math.ceil(gz0 / POR_CELDA) - 1; cz <= Math.floor(gz1 / POR_CELDA); cz++) {
+      for (let cx = Math.ceil(gx0 / POR_CELDA) - 1; cx <= Math.floor(gx1 / POR_CELDA); cx++) {
         const n = numeroDe(cx, cz);
-        const r = rejillas.get(n);
-        if (!r) continue;
-        copiarDeIsla(cx, cz, r);
-        const f = this.finas.get(n);
-        if (f) this.montarFina(n, f.paso);
+        if (!rejillas.has(n)) continue;
+        const paso = this.finas.get(n)?.paso ?? 1;
+        if (!this.quiere.has(n)) {
+          this.quiere.set(n, paso);
+          this.mirar = true; // que `actualizar` le dé el detalle que le toca por distancia
+        }
+        this.montarFina(n, paso);
         this.teselasSucias.add(this.tesela(cx, cz));
       }
     }

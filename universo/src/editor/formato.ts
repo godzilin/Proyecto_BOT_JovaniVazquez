@@ -81,13 +81,15 @@ export interface Teleporte {
   z: number;
 }
 /**
- * La isla esculpida: rejilla de (`TERRENO_CELDAS` + 1)² vértices sobre `TERRENO_LADO` m centrados en 0, fila a fila desde -x -z,
- * en base64. `alturas`: enteros de 16 bits (little-endian) en centímetros. `colores`: un byte por vértice, 0 el color natural
- * y de 1 a `TERRENO_PINTURAS` la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie.
+ * El terreno de una celda: rejilla de `CELDA` / 2 + 1 vértices por lado cada 2 m desde su esquina (-x -z), fila a fila, en base64,
+ * con los bordes repetidos en la celda de al lado. `alturas`: enteros de 16 bits (little-endian) en centímetros sobre `base` (cm; sin
+ * ella, 0): la altura de un vértice es `base + alturas[i]`. `colores`: un byte por vértice, 0 el color natural y de 1 a
+ * `TERRENO_PINTURAS` la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie (o el mar fuera de ella).
  */
 export interface Terreno {
   alturas: string;
   colores: string;
+  base?: number;
 }
 export interface MundoDoc {
   v: 2;
@@ -96,7 +98,8 @@ export interface MundoDoc {
   zonas: Record<string, Zona>;
   /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
   teleportes?: Teleporte[];
-  terreno?: Terreno;
+  /** El terreno de cada celda que lo tiene, por su clave `c/<cx>/<cz>`. */
+  terreno?: Record<string, Terreno>;
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.
