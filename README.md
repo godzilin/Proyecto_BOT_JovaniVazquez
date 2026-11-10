@@ -1412,8 +1412,9 @@ del bot: un borrador por servidor y las 50 últimas versiones publicadas
 (`bot.repositories.universo_mundo`), más los modelos GLB por su SHA-256. Mientras no se
 publica nada, la página dibuja el mundo de serie (`universo/src/mundo/serie.ts`). No hay
 nada que hacer en el NAS: las tablas se crean solas al arrancar. El terreno esculpido viaja
-en el mismo documento (`terreno`: alturas en centímetros y un color por vértice en base64,
-~100 KB); sin él, la isla sale de la fórmula de `mundo/terreno.ts`. Los pinceles están en
+en cada celda (`terreno`: alturas en centímetros sobre una `base` y un color por vértice en
+base64, ~6 KB por celda de 80 m); sin él, la isla sale de la fórmula de `mundo/terreno.ts` y
+fuera de ella hay mar. Los pinceles están en
 `universo/src/editor/pincel.ts` y la multiselección común de las dos pestañas, en
 `universo/src/editor/grupo.ts`.
 

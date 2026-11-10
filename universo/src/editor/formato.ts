@@ -93,13 +93,15 @@ export interface Teleporte {
   z: number;
 }
 /**
- * La isla esculpida: rejilla de (`TERRENO_CELDAS` + 1)² vértices sobre `TERRENO_LADO` m centrados en 0, fila a fila desde -x -z,
- * en base64. `alturas`: enteros de 16 bits (little-endian) en centímetros. `colores`: un byte por vértice, 0 el color natural
- * y de 1 a `TERRENO_PINTURAS` la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie.
+ * El terreno de una celda: rejilla de `CELDA` / 2 + 1 vértices por lado cada 2 m desde su esquina (-x -z), fila a fila, en base64,
+ * con los bordes repetidos en la celda de al lado. `alturas`: enteros de 16 bits (little-endian) en centímetros sobre `base` (cm; sin
+ * ella, 0): la altura de un vértice es `base + alturas[i]`. `colores`: un byte por vértice, 0 el color natural y de 1 a
+ * `TERRENO_PINTURAS` la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie (o el mar fuera de ella).
  */
 export interface Terreno {
   alturas: string;
   colores: string;
+  base?: number;
 }
 /**
  * Un interior (trozo `i/<id>`): una habitación de `ancho` × `fondo` m y `alto` m con la salida en el centro de la pared +z. Sus
@@ -125,7 +127,13 @@ export interface MundoDoc {
   zonas: Record<string, Zona>;
   /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
   teleportes?: Teleporte[];
-  terreno?: Terreno;
+  /** El terreno de cada celda que lo tiene, por su clave `c/<cx>/<cz>`. */
+  terreno?: Record<string, Terreno>;
+  /**
+   * Lo demás que trae cada celda (`c/<cx>/<cz>`) aparte de sus objetos y su terreno: los campos que el editor no conoce, que se
+   * conservan tal cual. `gen` (la marca del generador) no entra: una celda que se guarda desde el editor ya está hecha a mano.
+   */
+  celdas?: Record<string, Record<string, unknown>>;
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.

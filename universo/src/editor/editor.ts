@@ -1,9 +1,8 @@
 // Editor del Jovaniverso (solo con permiso de editor, solo ordenador): una pantalla con dos modos, «Mundo» (colocar y mover objetos y zonas
 // dentro de la isla) y «Assets» (montar los modelos), que comparten un solo borrador, un solo historial y la misma barra de
 // guardar, publicar y versiones.
-import * as api from "./api";
-import { Conflicto, type Sesion, type TrozoBorrador } from "./api";
-import { Borrador } from "./borrador";
+import { Conflicto, type Indice, type Sesion } from "./api";
+import { Borrador, inicio } from "./borrador";
 import { dialogo, h, modal } from "./dom";
 import { comprobarFormas, type MundoDoc } from "./formato";
 import type { Anfitrion, Panel } from "./panel";
@@ -28,8 +27,9 @@ const AYUDA_GENERAL: [string, string][] = [
   ["Ctrl+S", "Guarda el borrador (también se guarda solo cada 20 segundos)"],
   ["Ctrl+Z", "Deshace el último cambio"],
   ["Ctrl+Y o Ctrl+Mayús+Z", "Rehace lo deshecho"],
-  ["Publicar", "Todos los jugadores pasan a ver el borrador; hasta entonces, nadie más lo ve"],
-  ["Versiones", "Lista lo publicado y deja volver el borrador a una versión anterior"],
+  ["Publicar", "Todos los jugadores pasan a ver el borrador entero, también las celdas que no has bajado; hasta entonces, nadie más lo ve"],
+  ["Versiones", "Lista lo publicado y deja volver el borrador entero a una versión anterior"],
+  ["Celdas", "Solo se baja lo que hay a unos 480 m de la cámara; lo lejano sin cambios se suelta. Lo que no está bajado no se puede tocar"],
   ["Cerrar", "Sale del editor; el mundo vuelve a lo publicado"],
 ];
 
@@ -44,11 +44,11 @@ export async function abrirEditor(sesion: Sesion, entorno: Entorno): Promise<voi
   abierto = true;
   try {
     if (import.meta.env.DEV) comprobarFormas();
-    const b = await api.borrador(sesion);
-    if (!b.trozos) throw new Error("El editor está desfasado: recarga la página.");
+    // Solo el índice y lo que no es celda: las celdas llegan al acercarse la cámara (`Borrador.cerca`).
+    const indice = await inicio(sesion);
     // Sin borrador ni nada publicado, se empieza desde el mundo de serie y no desde un lienzo vacío (y queda sucio para que se guarde).
-    const vacio = b.version === 0 && Object.values(b.trozos).every((t) => !t.doc);
-    new Editor(sesion, entorno, b, vacio ? mundoDeSerie() : undefined).iniciar();
+    const vacio = indice.version === 0 && Object.keys(indice.trozos).length === 0;
+    new Editor(sesion, entorno, indice, vacio ? mundoDeSerie() : undefined).iniciar();
   } catch (e) {
     abierto = false;
     throw e;
@@ -68,16 +68,17 @@ class Editor implements Anfitrion {
   constructor(
     readonly sesion: Sesion,
     private readonly entorno: Entorno,
-    b: { version: number; trozos: Record<string, TrozoBorrador> },
+    indice: Indice,
     semilla?: MundoDoc,
   ) {
-    this.b = new Borrador(sesion, b, {
+    this.b = new Borrador(sesion, indice, {
       fallo: (e) => this.fallo(e),
       estado: () => this.estado(),
       reemplazado: () => {
         this.panel(this.activa).alCambiarDoc();
         this.estado();
       },
+      bajadas: () => this.paneles[this.activa]?.alLlegarCeldas?.(),
     }, semilla);
     this.raiz.append(this.arriba(), this.barra, this.cartel);
     // Las teclas escritas en un campo no llegan al mundo, que escucha en window.
@@ -174,7 +175,9 @@ class Editor implements Anfitrion {
     const partes = [...(this.paneles[this.activa]?.estado() ?? [])];
     partes.push(b.guardando ? "Guardando…" : b.sucio ? "Sin guardar" : "Guardado");
     partes.push(b.version ? `Publicada: versión ${b.version}` : "Sin publicar");
-    partes.push(`Mundo: ${mb(b.bytes)} MB`);
+    // Solo lo bajado: el resto del mundo está en el servidor (`docs/mundo-celdas.md`, «El editor por celdas»).
+    const { bajadas, sinBajar } = b.cuentaCeldas();
+    partes.push(`Bajado: ${mb(b.bytes)} MB, ${bajadas} celdas${sinBajar ? ` (${sinBajar} más sin bajar)` : ""}`);
     this.barra.replaceChildren(...partes.map((t) => h("span", { textContent: t, className: t.startsWith("⚠") ? "ed-alerta" : "" })));
     this.botones.get("guardar")!.disabled = b.guardando;
   }

@@ -1,8 +1,9 @@
 // El terreno: altura analítica de la isla de serie (heightAt), disposición de los lugares, color por vértice y un suelo
 // interpolado idéntico a la malla para que los pies no floten ni se hundan. El suelo va por celdas de `CELDA` m (`docs/mundo-celdas.md`):
 // cada celda cargada tiene su rejilla (la de su trozo o, en la isla sin terreno, la de la fórmula) y las lejanas, solo su resumen
-// (5 × 5 alturas, el horizonte). La malla la monta `suelo.ts`. Aparte queda la rejilla de la isla esculpible entera (`alturas`), que es
-// con la que trabaja el pincel del editor (`fijarTerreno`, `terrenoDoc`) y que pasa a sus 16 celdas.
+// (5 × 5 alturas, el horizonte). La malla la monta `suelo.ts`. Aparte queda la rejilla de la fórmula de la isla de serie entera
+// (`alturas`), de la que salen sus 16 celdas sin terreno. El pincel del editor esculpe las rejillas de las celdas (`rejillaEditable`) y
+// las pasa al documento con `terrenoDe`, que elige la `base` de cada una.
 import { Color, DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
 import { CELDA, TERRENO_CELDAS, TERRENO_LADO, TERRENO_PINTURAS, type Terreno } from "../editor/formato";
 import { PRUEBAS } from "./modo";
@@ -142,54 +143,22 @@ export function enMuelle(x: number, z: number): boolean {
 
 // --- La rejilla: alturas y pintura de cada vértice ---
 export const N1 = CELDAS + 1;
-/** Altura de cada vértice (metros), fila a fila desde -x -z. El editor la esculpe en sitio y avisa con `Suelo.actualizar`. */
+/** Altura de cada vértice de la isla de serie (metros, de la fórmula), fila a fila desde -x -z. */
 export const alturas = new Float32Array(N1 * N1);
 /** Pintura de cada vértice: 0 es el color natural; de 1 en adelante, `PALETA[n - 1]`. */
 export const pinturas = new Uint8Array(N1 * N1);
+/** Lo que admite el terreno (m): lo mismo que la sala y el servidor (`MIN_Y` y `MAX_Y` de `universo_editor.py`). */
 export const MIN_ALTURA = -20;
-export const MAX_ALTURA = 120;
-let fijado: Terreno | undefined;
-
-function deSerie(): void {
-  for (let iz = 0; iz < N1; iz++) for (let ix = 0; ix < N1; ix++) alturas[iz * N1 + ix] = heightAt(ix * PASO - MITAD, iz * PASO - MITAD);
-  pinturas.fill(0);
-}
-deSerie();
+export const MAX_ALTURA = 4000;
+/** Lo que cabe en 16 bits (cm): el desnivel más grande dentro de una celda, 655,35 m. */
+export const MAX_DESNIVEL_CM = 0xffff;
+for (let iz = 0; iz < N1; iz++) for (let ix = 0; ix < N1; ix++) alturas[iz * N1 + ix] = heightAt(ix * PASO - MITAD, iz * PASO - MITAD);
 
 const aBytes = (b64: string): Uint8Array => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 function aBase64(b: Uint8Array): string {
   let s = "";
   for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
   return btoa(s);
-}
-
-/**
- * Pone la rejilla del mundo publicado (o la de serie sin terreno). Devuelve si ha cambiado algo, para rehacer la malla
- * y el mapa del mar solo entonces. Un terreno que no cuadra con la rejilla se descarta (el servidor ya lo valida).
- */
-export function fijarTerreno(t: Terreno | undefined): boolean {
-  if (PRUEBAS || (t?.alturas === fijado?.alturas && t?.colores === fijado?.colores)) return false;
-  fijado = t;
-  const h = t && aBytes(t.alturas);
-  const c = t && aBytes(t.colores);
-  if (!h || !c || h.length !== 2 * N1 * N1 || c.length !== N1 * N1) {
-    deSerie();
-    return true;
-  }
-  const v = new DataView(h.buffer);
-  for (let i = 0; i < N1 * N1; i++) alturas[i] = v.getInt16(i * 2, true) / 100;
-  pinturas.set(c.map((x) => (x > TERRENO_PINTURAS ? 0 : x)));
-  return true;
-}
-
-/** La rejilla tal como está, en el formato del documento (alturas en centímetros). */
-export function terrenoDoc(): Terreno {
-  const h = new Uint8Array(N1 * N1 * 2);
-  const v = new DataView(h.buffer);
-  for (let i = 0; i < N1 * N1; i++) v.setInt16(i * 2, Math.round(clamp(alturas[i], MIN_ALTURA, MAX_ALTURA) * 100), true);
-  const t = { alturas: aBase64(h), colores: aBase64(pinturas) };
-  fijado = t; // es la que hay: al volver con el documento no se rehace nada
-  return t;
 }
 
 /** Altura interpolada en una rejilla de alturas (la de ahora u otra copia, como la de antes de un trazo). */
@@ -240,8 +209,9 @@ export function ponerRejilla(cx: number, cz: number, t?: Terreno): boolean {
   const c = t && aBytes(t.colores);
   if (h && c && h.length === 2 * NV * NV && c.length === NV * NV) {
     const v = new DataView(h.buffer);
+    const base = Number.isInteger(t.base) ? (t.base as number) : 0;
     for (let i = 0; i < NV * NV; i++) {
-      r.alt[i] = v.getInt16(i * 2, true) / 100;
+      r.alt[i] = (base + v.getInt16(i * 2, true)) / 100;
       r.pin[i] = c[i] > TERRENO_PINTURAS ? 0 : c[i];
     }
   } else if (enIsla(cx, cz)) copiarDeIsla(cx, cz, r);
@@ -264,16 +234,73 @@ export function copiarDeIsla(cx: number, cz: number, r: Rejilla): void {
 
 export const quitarRejilla = (cx: number, cz: number): boolean => rejillas.delete(numeroDe(cx, cz));
 
-/** El resumen de una celda (25 alturas en cm en base64, como el `cell_summary` del servidor); vacío, sin terreno. */
+/**
+ * La rejilla de una celda para esculpirla: la que ya tiene o, si no está cargada, la de su terreno `t` (el del documento), la de la
+ * isla de serie o, fuera de ella, la del suelo que se ve ahí (el resumen o el fondo del mar). Queda puesta en `rejillas`.
+ */
+export function rejillaEditable(cx: number, cz: number, t?: Terreno): Rejilla {
+  const n = numeroDe(cx, cz);
+  const ya = rejillas.get(n);
+  if (ya || ponerRejilla(cx, cz, t)) return ya ?? (rejillas.get(n) as Rejilla);
+  const r: Rejilla = { alt: new Float32Array(NV * NV), pin: new Uint8Array(NV * NV) };
+  for (let iz = 0; iz < NV; iz++) for (let ix = 0; ix < NV; ix++) r.alt[iz * NV + ix] = verticeEn(cx * POR_CELDA + ix, cz * POR_CELDA + iz);
+  rejillas.set(n, r);
+  return r;
+}
+
+/**
+ * El terreno del documento de una rejilla, con la `base` que hace que quepa en 16 bits: 0 si ya cabe (como todo lo de antes) y,
+ * si no, la más baja. `recortado` si la celda tiene más desnivel del que cabe (`MAX_DESNIVEL_CM`): lo que pasa por debajo sube.
+ */
+export function terrenoDe(r: Rejilla): { terreno: Terreno; recortado: boolean } {
+  const cm = Int32Array.from(r.alt, (a) => Math.round(clamp(a, MIN_ALTURA, MAX_ALTURA) * 100));
+  let bajo = Infinity;
+  let alto = -Infinity;
+  for (const v of cm) [bajo, alto] = [Math.min(bajo, v), Math.max(alto, v)];
+  const recortado = alto - bajo > MAX_DESNIVEL_CM;
+  if (recortado) bajo = alto - MAX_DESNIVEL_CM;
+  const base = bajo >= -0x8000 && alto <= 0x7fff ? 0 : bajo + 0x8000;
+  const h = new Uint8Array(2 * NV * NV);
+  const v = new DataView(h.buffer);
+  for (let i = 0; i < cm.length; i++) v.setInt16(i * 2, Math.max(cm[i], bajo) - base, true);
+  const terreno: Terreno = { alturas: aBase64(h), colores: aBase64(r.pin) };
+  if (base) terreno.base = base;
+  return { terreno, recortado };
+}
+
+/** Las celdas que repiten el vértice (gx, gz) de la rejilla del mundo (1, 2 o 4), con su índice en la rejilla de cada una. */
+export function celdasDelVertice(gx: number, gz: number): [number, number, number][] {
+  const cx = Math.floor(gx / POR_CELDA);
+  const cz = Math.floor(gz / POR_CELDA);
+  const out: [number, number, number][] = [];
+  for (let dz = 0; dz < 2; dz++) {
+    for (let dx = 0; dx < 2; dx++) {
+      const lx = gx - (cx - dx) * POR_CELDA;
+      const lz = gz - (cz - dz) * POR_CELDA;
+      if (lx < NV && lz < NV) out.push([cx - dx, cz - dz, lz * NV + lx]);
+    }
+  }
+  return out;
+}
+
+/** Altura interpolada en la rejilla `alt` de la celda (cx, cz) (la de ahora u otra copia, como la de antes de un trazo). */
+export const alturaEnCelda = (alt: Float32Array, cx: number, cz: number, x: number, z: number): number => interpolar(alt, NV, PASO, x - cx * CELDA, z - cz * CELDA);
+
+/**
+ * El resumen de una celda (base64 de 25 alturas en cm, como el `cell_summary` del servidor, seguidas de la `base` en int32 si la
+ * celda la tiene); vacío, sin terreno.
+ */
 export function ponerResumen(cx: number, cz: number, b64: string): void {
   const n = numeroDe(cx, cz);
   const h = b64 ? aBytes(b64) : null;
-  if (!h || h.length !== 2 * LADO_RESUMEN * LADO_RESUMEN) {
+  const muestras = 2 * LADO_RESUMEN * LADO_RESUMEN;
+  if (!h || (h.length !== muestras && h.length !== muestras + 4)) {
     resumenes.delete(n);
     return;
   }
   const v = new DataView(h.buffer);
-  resumenes.set(n, Float32Array.from({ length: LADO_RESUMEN * LADO_RESUMEN }, (_, i) => v.getInt16(i * 2, true) / 100));
+  const base = h.length > muestras ? v.getInt32(muestras, true) : 0;
+  resumenes.set(n, Float32Array.from({ length: LADO_RESUMEN * LADO_RESUMEN }, (_, i) => (base + v.getInt16(i * 2, true)) / 100));
 }
 
 export const quitarResumen = (cx: number, cz: number): boolean => resumenes.delete(numeroDe(cx, cz));
@@ -282,7 +309,9 @@ export const quitarResumen = (cx: number, cz: number): boolean => resumenes.dele
 export function resumenDe(t: Terreno): string {
   const h = aBytes(t.alturas);
   if (h.length !== 2 * NV * NV) return "";
-  const out = new Uint8Array(2 * LADO_RESUMEN * LADO_RESUMEN);
+  const base = Number.isInteger(t.base) ? (t.base as number) : 0;
+  const out = new Uint8Array(2 * LADO_RESUMEN * LADO_RESUMEN + (base ? 4 : 0));
+  if (base) new DataView(out.buffer).setInt32(out.length - 4, base, true);
   for (let iz = 0; iz < LADO_RESUMEN; iz++) {
     for (let ix = 0; ix < LADO_RESUMEN; ix++) {
       const i = iz * PASO_RESUMEN * NV + ix * PASO_RESUMEN;
@@ -320,12 +349,22 @@ export function terrenoEn(x: number, z: number): number {
   return alturaEn(alturas, x, z); // la isla aún sin cargar, o el fondo del mar
 }
 
-/** Altura de un vértice de la rejilla de todo el mundo (cada `PASO` m desde 0): de su celda si está cargada; si no, `terrenoEn`. */
+/**
+ * Altura de un vértice de la rejilla de todo el mundo (cada `PASO` m desde 0): de su celda si está cargada (o, en un borde, de la
+ * de al lado que lo repite); si no, `terrenoEn`.
+ */
 export function verticeEn(gx: number, gz: number): number {
   const cx = Math.floor(gx / POR_CELDA);
   const cz = Math.floor(gz / POR_CELDA);
-  const r = rejillas.get(numeroDe(cx, cz));
-  return r ? r.alt[(gz - cz * POR_CELDA) * NV + gx - cx * POR_CELDA] : terrenoEn(gx * PASO, gz * PASO);
+  for (let dz = 0; dz < 2; dz++) {
+    for (let dx = 0; dx < 2; dx++) {
+      const lx = gx - (cx - dx) * POR_CELDA;
+      const lz = gz - (cz - dz) * POR_CELDA;
+      const r = lx < NV && lz < NV ? rejillas.get(numeroDe(cx - dx, cz - dz)) : undefined;
+      if (r) return r.alt[lz * NV + lx];
+    }
+  }
+  return terrenoEn(gx * PASO, gz * PASO);
 }
 
 /** Suelo sobre el que se camina: terreno o cubierta del muelle, con el fondo del vadeo como mínimo. */

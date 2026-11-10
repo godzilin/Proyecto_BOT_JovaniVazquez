@@ -652,7 +652,7 @@ async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: 
     profile = await entrar(yeyo)
     assert (profile["editor"], profile["dev"], profile["permisos"]) == (False, False, False)
     borrador = {"params": query, "headers": yeyo}
-    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 403
+    assert (await world.web.get("/api/editor/indice", **borrador)).status == 403
 
     status, listing = await dar(USER_ID, "editor")
     assert status == 200
@@ -660,7 +660,7 @@ async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: 
     assert (await dar(USER_ID, "devtools"))[0] == 200
     profile = await entrar(yeyo)
     assert (profile["editor"], profile["dev"]) == (True, True)
-    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 200
+    assert (await world.web.get("/api/editor/indice", **borrador)).status == 200
     sala = await world.web.ws_connect("/api/sala")
     await sala.send_json(
         {**query, "t": "hola", "v": PROTOCOL, "mundo": "pruebas", "session": await login(world)}
@@ -669,7 +669,7 @@ async def test_los_desarrolladores_dan_y_quitan_el_editor_y_las_devtools(world: 
     await sala.close()
 
     assert (await dar(USER_ID, "editor", False))[0] == 200
-    assert (await world.web.get("/api/editor/borrador", **borrador)).status == 403
+    assert (await world.web.get("/api/editor/indice", **borrador)).status == 403
     assert (await entrar(yeyo))["dev"] is True
     # Lo que no se puede: un permiso que no existe, quitárselo a un dev o dárselo a un bot.
     assert (await dar(USER_ID, "dios"))[0] == 400

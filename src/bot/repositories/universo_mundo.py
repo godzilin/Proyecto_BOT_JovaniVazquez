@@ -134,6 +134,21 @@ class WorldIndex:
     teleportes: str
 
 
+@dataclass(frozen=True, slots=True)
+class DraftIndex:
+    """El borrador sin las celdas: lo que el editor baja al abrir.
+
+    Attributes:
+        alive: Clave → `rev` de cada trozo con algo.
+        gone: Clave → `rev` de cada lápida (un editor desfasado no la resucita).
+        small: Clave → texto de los trozos que no son celdas (assets, zonas, teleportes).
+    """
+
+    alive: dict[str, int]
+    gone: dict[str, int]
+    small: dict[str, str]
+
+
 def _refs(refs: Iterable[str]) -> str:
     return ",".join(sorted(refs))
 
@@ -258,6 +273,11 @@ class UniversoMundoRepository:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS universo_trozos_publicados_indice "
                 "ON universo_trozos_publicados (guild_id, clave, version, (doc = ''), resumen)"
+            )
+            # Lo mismo para el índice del borrador que pide el editor (`draft_index`).
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS universo_trozos_borrador_indice "
+                "ON universo_trozos_borrador (guild_id, clave, rev, (doc = ''))"
             )
             connection.execute(
                 """
@@ -421,6 +441,73 @@ class UniversoMundoRepository:
         finally:
             connection.close()
         return {r["clave"]: (r["doc"], int(r["rev"])) for r in rows}
+
+    async def draft_index(self, guild_id: int) -> DraftIndex:
+        """Qué trozos tiene el borrador y su `rev`, sin leer las celdas (se piden luego)."""
+        return await self._run(self._draft_index_sync, guild_id)
+
+    def _draft_index_sync(self, guild_id: int) -> DraftIndex:
+        connection = self._connect()
+        try:
+            alive: dict[str, int] = {}
+            gone: dict[str, int] = {}
+            for r in connection.execute(
+                "SELECT clave, rev, doc = '' AS gone FROM universo_trozos_borrador "
+                "INDEXED BY universo_trozos_borrador_indice WHERE guild_id = ?",
+                (guild_id,),
+            ):
+                (gone if r["gone"] else alive)[r["clave"]] = int(r["rev"])
+            # Lo que no es celda (assets, zonas, teleportes) va entero: no crece con el mapa.
+            small = {
+                r["clave"]: r["doc"]
+                for r in connection.execute(
+                    "SELECT clave, doc FROM universo_trozos_borrador WHERE guild_id = ? "
+                    "AND (clave < 'c/' OR clave >= 'c0') AND doc != ''",
+                    (guild_id,),
+                )
+            }
+        finally:
+            connection.close()
+        return DraftIndex(alive, gone, small)
+
+    async def draft_pieces(self, guild_id: int, keys: Sequence[str]) -> dict[str, tuple[str, int]]:
+        """Unos trozos del borrador: clave → `(doc, rev)`; los que no existen no salen."""
+        return await self._run(self._draft_pieces_sync, guild_id, tuple(keys))
+
+    def _draft_pieces_sync(
+        self, guild_id: int, keys: tuple[str, ...]
+    ) -> dict[str, tuple[str, int]]:
+        out: dict[str, tuple[str, int]] = {}
+        connection = self._connect()
+        try:
+            for start in range(0, len(keys), 200):
+                chunk = keys[start : start + 200]
+                marks = ",".join("?" * len(chunk))
+                for r in connection.execute(
+                    "SELECT clave, doc, rev FROM universo_trozos_borrador "  # noqa: S608
+                    f"WHERE guild_id = ? AND clave IN ({marks})",
+                    (guild_id, *chunk),
+                ):
+                    out[r["clave"]] = (r["doc"], int(r["rev"]))
+        finally:
+            connection.close()
+        return out
+
+    async def draft_users(self, guild_id: int, asset: str) -> list[str]:
+        """Las celdas del borrador que usan un asset (lee solo sus `refs`)."""
+        return await self._run(self._draft_users_sync, guild_id, asset)
+
+    def _draft_users_sync(self, guild_id: int, asset: str) -> list[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT clave, refs FROM universo_trozos_borrador "
+                "WHERE guild_id = ? AND doc != '' AND refs != ''",
+                (guild_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return sorted(r["clave"] for r in rows if asset in r["refs"].split(","))
 
     async def save(
         self, guild_id: int, changes: dict[str, Change], author_id: int

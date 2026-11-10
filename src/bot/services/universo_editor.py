@@ -19,7 +19,8 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
                 "funcion"?: ...}
 "c/<cx>/<cz>"  {"objetos": [{"asset": "<id>", "pos": [x, y, z], "rot": [x, y, z],
                              "esc": [x, y, z], "tinte"?: float, "datos"?: Datos}],
-                "terreno"?: {"alturas": "<base64>", "colores": "<base64>"}}
+                "terreno"?: {"alturas": "<base64>", "colores": "<base64>", "base"?: int},
+                "gen"?: str}
 "i/<id>"       {"nombre": str, "ancho": m, "fondo": m, "alto": m, "suelo": 0xRRGGBB,
                 "pared": 0xRRGGBB, "piso"?: true, "objetos": [Objeto, ...]}
 ```
@@ -72,13 +73,20 @@ se guardan, se publican y se descargan por separado (`docs/mundo-celdas.md`):
 - `terreno` es el suelo esculpido de la celda: una rejilla de `CELL_TERRAIN_SIDE` ×
   `CELL_TERRAIN_SIDE` vértices cada `TERRAIN_STEP` m desde su esquina (-x -z), fila a fila,
   con los bordes repetidos en la celda de al lado. `alturas` son enteros de 16 bits con
-  signo en centímetros (little-endian) y `colores` un byte por vértice: 0 es el color
-  natural (sale de la altura y la pendiente) y de 1 a `TERRAIN_PAINTS` uno de la paleta de
-  `mundo/terreno.ts`. Sin él, la isla de serie (la fórmula de `heightAt`).
-- En la página, el editor y el mundo trabajan con el documento de un solo bloque de antes
-  (`MundoDoc`: `assets`, `objetos`, `zonas` y el `terreno` de toda la isla, de
-  `TERRAIN_SIDE`² vértices) y lo parten o lo juntan al hablar con el servidor
-  (`aTrozos` y `deTrozos` de `formato.ts`; `split_world` aquí).
+  signo en centímetros (little-endian) sobre `base` (cm, 0 si no viene): la altura de cada
+  vértice es `base + alturas[i]`, de `MIN_Y` a `MAX_Y`. Así una celda cabe en 16 bits
+  (655 m de desnivel) aunque esté en lo alto del Teide. `colores` es un byte por vértice: 0
+  es el color natural (sale de la altura y la pendiente) y de 1 a `TERRAIN_PAINTS` uno de
+  la paleta de `mundo/terreno.ts`. Sin terreno, la isla de serie (la fórmula de `heightAt`)
+  o, fuera de ella, el mar.
+- En la página, el editor y el mundo trabajan con un documento de un solo bloque
+  (`MundoDoc`: `assets`, `objetos`, `zonas` y el `terreno` de cada celda por su clave) y lo
+  parten o lo juntan al hablar con el servidor (`aTrozos` y `deTrozos` de `trozos.ts`).
+  `split_world` parte el formato 1 de antes (el `terreno` de toda la isla, de
+  `TERRAIN_SIDE`² vértices), para migrar las tablas viejas.
+- `gen` marca una celda que ha escrito el generador (`docs/generador-mundo.md`): la firma de lo
+  que la produjo. El generador solo reescribe celdas que lo llevan; el editor no lo escribe en una
+  celda que se toca a mano, y así el generador ya no la pisa.
 - Un GLB va aparte, por su resumen (`glb_summary`), y el mundo solo lo nombra.
 
 No guarda nada ni habla con Discord: solo dice si un trozo, un mundo o un GLB valen.
@@ -133,7 +141,9 @@ CELL = 80
 #: Celdas a cada lado del 0 (±40 km, 80 km de lado). La sala acepta poses hasta ahí
 #: (`universo_sala.WORLD_DM`) y la página no pasa de ahí (`LIMITE_CELDAS` de `mundo/borde.ts`).
 CELL_LIMIT = 500
-MIN_Y, MAX_Y = -20.0, 120.0
+#: Alturas de los objetos y del terreno (m): hasta donde acepta poses la sala
+#: (`universo_sala.MAX_Y_DM`), para que quepa el Teide.
+MIN_Y, MAX_Y = -20.0, 4000.0
 MIN_SCALE, MAX_SCALE = 0.02, 60.0
 MAX_ROTATION = 4 * math.pi
 MAX_PIECE_OFFSET = 60.0
@@ -176,6 +186,8 @@ CASINO_FILE = Path(__file__).resolve().parent.parent / "assets" / "casino_plaza.
 PISO_FILE = Path(__file__).resolve().parent.parent / "assets" / "universo_piso.json"
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
+#: La firma del generador en una celda (`gen`).
+_GEN = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
 _KEY = re.compile(
     r"zonas|teleportes|a/(?P<a>[a-z0-9_-]{1,40})|i/(?P<i>[a-z0-9_-]{1,40})"
     r"|c/(?P<cx>-?\d{1,3})/(?P<cz>-?\d{1,3})"
@@ -419,7 +431,8 @@ def cell_summary(doc: dict[str, Any]) -> str:
 
     Sin terreno, `""`. Con él, `"<top_cm>,<top_index>,<b64>"`: la altura máxima de su rejilla en
     cm, el índice (fila a fila) de su primer vértice con esa altura y el base64 de las alturas
-    (int16 little-endian, cm) muestreadas cada `SUMMARY_STEP` vértices, fila a fila desde -x -z.
+    (int16 little-endian, cm, sin la `base`) muestreadas cada `SUMMARY_STEP` vértices, fila a
+    fila desde -x -z, seguidas de la `base` en int32 si no es 0 (`ponerResumen` de la página).
     """
     terrain = doc.get("terreno")
     if not terrain:
@@ -428,6 +441,7 @@ def cell_summary(doc: dict[str, Any]) -> str:
     if sys.byteorder == "big":
         heights.byteswap()
     top = max(heights)
+    base = terrain.get("base", 0)
     side = CELL_TERRAIN_SIDE
     samples = array(
         "h",
@@ -439,7 +453,8 @@ def cell_summary(doc: dict[str, Any]) -> str:
     )
     if sys.byteorder == "big":
         samples.byteswap()
-    return f"{top},{heights.index(top)},{base64.b64encode(samples.tobytes()).decode()}"
+    raw = samples.tobytes() + (struct.pack("<i", base) if base else b"")
+    return f"{base + top},{heights.index(top)},{base64.b64encode(raw).decode()}"
 
 
 def split_summary(summary: str) -> tuple[int, int, str]:
@@ -448,8 +463,11 @@ def split_summary(summary: str) -> tuple[int, int, str]:
     return int(top), int(index), samples
 
 
-def _terrain(value: object, side: int) -> dict[str, str]:
-    t = _object(value, {"alturas", "colores"}, "El terreno")
+def _terrain(value: object, side: int) -> dict[str, Any]:
+    t = _object(value, {"alturas", "colores", "base"}, "El terreno")
+    base = t.get("base", 0)
+    if isinstance(base, bool) or not isinstance(base, int) or abs(base) > MAX_Y * 100:
+        raise MundoError("El terreno: la «base» tiene que ser un número entero de centímetros.")
     n = side * side
     raw = {}
     for key in ("alturas", "colores"):
@@ -465,11 +483,14 @@ def _terrain(value: object, side: int) -> dict[str, str]:
     heights = array("h", raw["alturas"])
     if sys.byteorder == "big":
         heights.byteswap()
-    if min(heights) < MIN_Y * 100 or max(heights) > MAX_Y * 100:
+    if base + min(heights) < MIN_Y * 100 or base + max(heights) > MAX_Y * 100:
         raise MundoError(f"El terreno va de {MIN_Y:g} a {MAX_Y:g} m de altura.")
     if max(raw["colores"]) > TERRAIN_PAINTS:
         raise MundoError("El terreno usa un color que no está en la paleta.")
-    return {"alturas": t["alturas"], "colores": t["colores"]}
+    clean: dict[str, Any] = {"alturas": t["alturas"], "colores": t["colores"]}
+    if base:
+        clean["base"] = base
+    return clean
 
 
 def parse_key(key: object) -> tuple[str, str] | tuple[str, int, int]:
@@ -535,7 +556,7 @@ def _teleports(value: object) -> list[dict[str, Any]]:
 
 
 def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
-    d = _object(value, {"objetos", "terreno"}, f"La celda {cx}, {cz}")
+    d = _object(value, {"objetos", "terreno", "gen"}, f"La celda {cx}, {cz}")
     objects = d.get("objetos", [])
     if not isinstance(objects, list) or len(objects) > MAX_CELL_OBJECTS:
         raise MundoError(f"Una celda puede tener {MAX_CELL_OBJECTS} objetos como mucho.")
@@ -553,6 +574,10 @@ def _cell(value: object, cx: int, cz: int) -> dict[str, Any]:
     clean: dict[str, Any] = {"objetos": clean_objects}
     if "terreno" in d:
         clean["terreno"] = _terrain(d["terreno"], CELL_TERRAIN_SIDE)
+    if "gen" in d:
+        if not isinstance(d["gen"], str) or not _GEN.fullmatch(d["gen"]):
+            raise MundoError(f"La celda {cx}, {cz}: la firma del generador no vale.")
+        clean["gen"] = d["gen"]
     return clean
 
 

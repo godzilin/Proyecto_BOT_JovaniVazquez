@@ -7,9 +7,14 @@ en `GET` y en la subida de GLB, en la query) y el servidor comprueba siempre que
 llama tiene el permiso `editor`. Es una herramienta de administración: sin bromas ni logros.
 Los permisos están en `bot.cogs.universo.permisos`.
 
-- `GET /api/editor/borrador` -> `{version, trozos: {clave: {doc, rev}}}`: el borrador por
-  trozos entero (`doc` es `null` en los borrados, que conservan su `rev`) y la última versión
-  publicada. El mundo entero no tiene tope: solo cada trozo (`encode_piece`) y cada guardado.
+- `GET /api/editor/indice` -> `{version, trozos: {clave: rev}, borrados: {clave: rev},
+  docs: {clave: doc}}`: qué trozos tiene el borrador y su `rev` (las lápidas aparte, que
+  conservan el suyo), los documentos de lo que no es celda (assets, zonas, teleportes) y la
+  última versión publicada. Las celdas no van: el editor las pide alrededor de su cámara.
+- `GET /api/editor/trozos?t=c/0/0,c/1/0` -> `{trozos: {clave: {doc, rev}}}`: hasta `MAX_LOTE`
+  trozos del borrador (`doc` es `null` en una lápida; una clave que no existe sale con `rev` 0).
+- `GET /api/editor/usos?asset=id` -> `{celdas: [clave]}`: las celdas del borrador que usan un
+  asset (para no borrar uno que usa una celda que el editor no ha bajado).
 - `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {rev, doc}}}` -> `{revs}`:
   valida cada trozo (`bot.services.universo_editor`) y los guarda todos o ninguno: 409 si
   alguno ya no tiene ese `rev`. `doc: null` (o vacío) lo borra.
@@ -33,10 +38,12 @@ import discord
 from aiohttp import web
 
 from bot.cogs.universo.comun import _COG_KEY, _errors
+from bot.cogs.universo.mundo import MAX_LOTE
 from bot.repositories.universo_mundo import (
     MAX_GLB_TOTAL,
     Change,
     Conflict,
+    DraftIndex,
     GlbFull,
     MissingAssets,
 )
@@ -80,7 +87,9 @@ class EditorMixin:
         """La subaplicación del editor, con un tope de cuerpo mayor que el del resto."""
         app = web.Application(client_max_size=MAX_EDITOR_BYTES, middlewares=[_errors])
         app[_COG_KEY] = self
-        app.router.add_get("/borrador", _editor_borrador)
+        app.router.add_get("/indice", _editor_indice)
+        app.router.add_get("/trozos", _editor_trozos)
+        app.router.add_get("/usos", _editor_usos)
         app.router.add_put("/borrador", _editor_guardar)
         app.router.add_post("/publicar", _editor_publicar)
         app.router.add_get("/versiones", _editor_versiones)
@@ -88,11 +97,16 @@ class EditorMixin:
         app.router.add_post("/glb", _editor_glb)
         return app
 
-    async def draft_world(self, guild_id: int) -> tuple[str, int]:
-        """Lo que carga el editor: los trozos del borrador ya codificados y la versión publicada."""
-        pieces = await self.bot.universo_mundo.draft(guild_id)
+    async def draft_index(self, guild_id: int) -> str:
+        """Lo que baja el editor al abrir (`/indice`), ya codificado."""
+        index = await self.bot.universo_mundo.draft_index(guild_id)
         version = await self.world_version(guild_id)
-        return _draft_text(pieces), version
+        return await asyncio.to_thread(_index_text, index, version)
+
+    async def draft_pieces(self, guild_id: int, keys: list[str]) -> str:
+        """Unos trozos del borrador (`/trozos`), ya codificados; los que no hay, con `rev` 0."""
+        found = await self.bot.universo_mundo.draft_pieces(guild_id, keys)
+        return _draft_text({k: found.get(k, ("", 0)) for k in keys})
 
     async def save_world(
         self, guild: discord.Guild, member: discord.Member, body: dict[str, Any]
@@ -147,7 +161,8 @@ class EditorMixin:
             UniversoError: 400 si no hay borrador.
         """
         repo = self.bot.universo_mundo
-        if not await repo.draft(guild.id):
+        index = await repo.draft_index(guild.id)
+        if not index.alive and not index.gone:
             raise UniversoError("No hay borrador que publicar.")
         version = await repo.publish(guild.id, member.id)
         # La caché de trozos va por versión de fila: no hace falta vaciarla.
@@ -289,14 +304,60 @@ def _draft_text(pieces: dict[str, tuple[str, int]]) -> str:
     )
 
 
-async def _editor_borrador(request: web.Request) -> web.Response:
-    cog, guild, _member, _body = await _editor_call(request)
-    pieces, version = await cog.draft_world(guild.id)
-    # Los trozos ya están codificados: se pegan tal cual, sin pasar por `json`.
-    return web.Response(
-        text=f'{{"version":{version},"trozos":{pieces}}}',
-        content_type="application/json",
+def _index_text(index: DraftIndex, version: int) -> str:
+    """El índice del borrador como JSON, con los documentos pegados tal cual."""
+    dumps = json.dumps
+    docs = ",".join(f"{dumps(k)}:{doc}" for k, doc in sorted(index.small.items()))
+    return (
+        f'{{"version":{version},"trozos":{dumps(index.alive, separators=(",", ":"))},'
+        f'"borrados":{dumps(index.gone, separators=(",", ":"))},"docs":{{{docs}}}}}'
     )
+
+
+def _keys(text: str) -> list[str]:
+    """El parámetro `t` (`clave,clave,...`) de `/trozos`.
+
+    Raises:
+        UniversoError: 400 si no lleva de 1 a `MAX_LOTE` claves, repite una o alguna no vale.
+    """
+    keys = text.split(",") if text else []
+    if not 1 <= len(keys) <= MAX_LOTE or len(set(keys)) < len(keys):
+        raise UniversoError(f"Un lote lleva de 1 a {MAX_LOTE} trozos distintos.")
+    try:
+        for key in keys:
+            parse_key(key)
+    except MundoError as error:
+        raise UniversoError(str(error)) from error
+    return keys
+
+
+def _json(text: str) -> web.Response:
+    # Lo del borrador cambia con cada guardado: nunca a la caché.
+    return web.Response(
+        text=text, content_type="application/json", headers={"Cache-Control": "no-store"}
+    )
+
+
+async def _editor_indice(request: web.Request) -> web.Response:
+    cog, guild, _member, _body = await _editor_call(request)
+    return _json(await cog.draft_index(guild.id))
+
+
+async def _editor_trozos(request: web.Request) -> web.Response:
+    cog, guild, _member, body = await _editor_call(request)
+    keys = _keys(str(body.get("t", "")))
+    return _json(f'{{"trozos":{await cog.draft_pieces(guild.id, keys)}}}')
+
+
+async def _editor_usos(request: web.Request) -> web.Response:
+    cog, guild, _member, body = await _editor_call(request)
+    asset = str(body.get("asset", ""))
+    try:
+        parse_key(f"a/{asset}")
+    except MundoError as error:
+        raise UniversoError(str(error)) from error
+    cells = await cog.bot.universo_mundo.draft_users(guild.id, asset)
+    return web.json_response({"celdas": cells})
 
 
 async def _editor_guardar(request: web.Request) -> web.Response:

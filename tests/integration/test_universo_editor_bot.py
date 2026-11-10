@@ -125,6 +125,19 @@ async def get(world: World, path: str, user_id: int = ADMIN, **params: str) -> d
     return await response.json()
 
 
+async def whole_draft(world: World) -> dict[str, object]:
+    """El borrador entero, como lo junta el editor: el índice y, por lotes, todas sus celdas."""
+    index = await get(world, "/api/editor/indice")
+    cells = [k for k in index["trozos"] if k.startswith("c/")]  # type: ignore[union-attr]
+    docs = dict(index["docs"])  # type: ignore[call-overload]
+    for start in range(0, len(cells), MAX_LOTE):
+        body = await get(world, "/api/editor/trozos", t=",".join(cells[start : start + MAX_LOTE]))
+        docs.update({k: v["doc"] for k, v in body["trozos"].items()})  # type: ignore[union-attr]
+    trozos = {k: {"doc": docs[k], "rev": r} for k, r in index["trozos"].items()}  # type: ignore[union-attr]
+    trozos.update({k: {"doc": None, "rev": r} for k, r in index["borrados"].items()})  # type: ignore[union-attr]
+    return {"version": index["version"], "trozos": trozos}
+
+
 async def ask(
     world: World, path: str, *, gzip: bool = False, **params: str
 ) -> aiohttp.ClientResponse:
@@ -151,7 +164,9 @@ async def test_quien_no_es_admin_recibe_403_en_cada_ruta(world: World) -> None:
     body = {"guild_id": str(GUILD_ID), "v": FORMAT, "version": 1, "trozos": {}}
     query = {"guild_id": str(GUILD_ID)}
     calls = [
-        world.web.get("/api/editor/borrador", params=query, headers=headers),
+        world.web.get("/api/editor/indice", params=query, headers=headers),
+        world.web.get("/api/editor/trozos", params={**query, "t": "c/0/0"}, headers=headers),
+        world.web.get("/api/editor/usos", params={**query, "asset": "a"}, headers=headers),
         world.web.put("/api/editor/borrador", json=body, headers=headers),
         world.web.post("/api/editor/publicar", json=body, headers=headers),
         world.web.get("/api/editor/versiones", params=query, headers=headers),
@@ -163,11 +178,11 @@ async def test_quien_no_es_admin_recibe_403_en_cada_ruta(world: World) -> None:
         assert response.status == 403
         assert "permiso de editor" in (await response.json())["error"]
     # Y sin sesión, 401.
-    assert (await world.web.get("/api/editor/borrador", params=query)).status == 401
+    assert (await world.web.get("/api/editor/indice", params=query)).status == 401
 
 
 async def test_guardar_publicar_y_leer_lo_publicado(world: World) -> None:
-    assert await get(world, "/api/editor/borrador") == {"version": 0, "trozos": {}}
+    assert await whole_draft(world) == {"version": 0, "trozos": {}}
     # Antes de publicar, el mundo público está vacío.
     assert await get(world, "/api/mundo/indice", PLAIN) == {
         "version": 0,
@@ -189,7 +204,7 @@ async def test_guardar_publicar_y_leer_lo_publicado(world: World) -> None:
     body = await get(world, "/api/mundo/trozos", PLAIN, t="c/0/0@1,a/arbol@1")
     assert list(body["trozos"]) == ["c/0/0", "a/arbol"]  # type: ignore[call-overload]
     assert body["trozos"]["c/0/0"]["objetos"][0]["pos"] == [1.0, 0.0, 2.0]  # type: ignore[index]
-    draft = await get(world, "/api/editor/borrador")
+    draft = await whole_draft(world)
     assert draft["version"] == 1
     assert draft["trozos"]["a/arbol"] == {"doc": piezas("arbol"), "rev": 1}  # type: ignore[index]
     [row] = (await get(world, "/api/editor/versiones"))["versiones"]  # type: ignore[misc]
@@ -211,7 +226,7 @@ async def test_dos_editores_en_celdas_distintas_no_chocan(world: World) -> None:
     status, error = await save(world, {**mundo("b"), "c/5/0": {"objetos": []}})
     assert status == 409
     assert "Otra persona" in error["error"]
-    draft = await get(world, "/api/editor/borrador")
+    draft = await whole_draft(world)
     assert sorted(draft["trozos"]) == ["a/a", "c/0/0", "c/3/0"]  # type: ignore[arg-type]
 
 
@@ -225,7 +240,7 @@ async def test_borrar_un_trozo_y_los_assets_que_faltan(world: World) -> None:
     assert (await save(world, {"a/a": None, "c/0/0": {"objetos": []}}, {"a/a": 1, "c/0/0": 1}))[
         0
     ] == 200
-    draft = await get(world, "/api/editor/borrador")
+    draft = await whole_draft(world)
     assert draft["trozos"] == {"a/a": {"doc": None, "rev": 2}, "c/0/0": {"doc": None, "rev": 2}}
     # Y un objeto suelto que nombra un asset que no hay, tampoco.
     status, error = await save(world, {"c/1/0": mundo("z", x=90)["c/1/0"]})
@@ -253,7 +268,7 @@ async def test_volver_pone_una_version_como_borrador(world: World) -> None:
         "/api/editor/volver", json={"guild_id": str(GUILD_ID), "version": 1}, headers=auth(world)
     )
     assert await back.json() == {}
-    draft = await get(world, "/api/editor/borrador")
+    draft = await whole_draft(world)
     trozos = draft["trozos"]
     assert trozos["c/0/0"]["rev"] == 3  # type: ignore[index]
     assert trozos["c/0/0"]["doc"]["objetos"][0]["asset"] == "a"  # type: ignore[index]
@@ -600,3 +615,40 @@ async def test_los_lugares_salen_del_indice_sin_leer_los_trozos(
     assert places.at(-50, 497, 80) == []  # la cima de serie ya no lo es
     # Sin nada publicado (otro servidor), los de serie.
     assert (await world.cog.places(GUILD_ID + 1)).at(-80, 80, 600) == ["plaza"]
+
+
+async def test_el_editor_baja_el_indice_y_las_celdas_por_lotes(world: World) -> None:
+    """El índice no trae las celdas; se piden por lotes y lo que no existe sale con `rev` 0."""
+    lejos = mundo("b", x=250)
+    await save(world, {**mundo("a"), **lejos, "zonas": {"zonas": {}}})
+    await save(world, {"c/0/0": None}, {"c/0/0": 1})
+    response = await world.web.get(
+        "/api/editor/indice", params={"guild_id": str(GUILD_ID)}, headers=auth(world)
+    )
+    assert response.headers["Cache-Control"] == "no-store"
+    index = await response.json()
+    assert index["trozos"] == {"a/a": 1, "a/b": 1, "c/3/0": 1}
+    assert index["borrados"] == {"c/0/0": 2, "zonas": 1}  # unas zonas vacías no guardan nada
+    assert index["docs"] == {"a/a": piezas("a"), "a/b": piezas("b")}  # sin celdas
+    body = await get(world, "/api/editor/trozos", t="c/3/0,c/0/0,c/9/9")
+    cells = body["trozos"]
+    assert cells["c/3/0"]["rev"] == 1  # type: ignore[index]
+    assert cells["c/3/0"]["doc"]["objetos"][0]["asset"] == "b"  # type: ignore[index]
+    assert cells["c/0/0"] == {"doc": None, "rev": 2}  # type: ignore[index]
+    assert cells["c/9/9"] == {"doc": None, "rev": 0}  # type: ignore[index]
+    # Quién usa un asset, bajado o no.
+    assert await get(world, "/api/editor/usos", asset="b") == {"celdas": ["c/3/0"]}
+    assert await get(world, "/api/editor/usos", asset="a") == {"celdas": []}
+
+
+async def test_los_lotes_del_editor_tienen_tope(world: World) -> None:
+    query = {"guild_id": str(GUILD_ID)}
+    for t in ("", ",".join(f"c/{i}/0" for i in range(MAX_LOTE + 1)), "c/0/0,c/0/0", "x/1"):
+        response = await world.web.get(
+            "/api/editor/trozos", params={**query, "t": t}, headers=auth(world)
+        )
+        assert response.status == 400, t
+    bad = await world.web.get(
+        "/api/editor/usos", params={**query, "asset": "../x"}, headers=auth(world)
+    )
+    assert bad.status == 400
