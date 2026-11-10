@@ -8,6 +8,19 @@ criterio.
 
 ## 11.x
 
+### 11.2.0 · 2026-11-10
+
+- Jovaniverso: se entra en los pisos. El edificio al oeste de la plaza tiene puerta y un salón por dentro; quien tiene vivienda habitual en `pisos` entra en el suyo y el resto, en el piso piloto
+- Jovaniverso: dentro se quitan y se ponen los muebles y se arregla lo que está roto (vuelve a romperse a las 24 h); lo ve quien entre después
+- Jovaniverso: los de fuera no ven a los de dentro, ni al revés
+- Logros: 20 nuevos del Jovaniverso por entrar en pisos, colocar muebles, arreglar cosas y coincidir dentro con más gente (3 secretos)
+- Jovaniverso: el editor esculpe, pinta y siembra en cualquier sitio del mundo, no solo en la isla, y el terreno llega hasta 4000 m (cabe el Teide)
+- Jovaniverso: el editor ya no baja el mundo entero al abrir, solo lo que hay cerca de la cámara (con 3000 celdas, de 94 MB a un índice de 38 KB), y ningún cambio pisa una celda sin bajar
+- Jovaniverso: en el editor, cualquier asset puede ser una puerta a un interior, un mueble o algo que se arregla; «Volver a la isla de serie» deshace solo lo hecho en la isla
+- Interno: generador de islas a partir de relieve real y reglas (`docs/generar_mundo.py`, `docs/generador-mundo.md`), con La Graciosa de piloto y un kit de casas canarias; no se aplica a ningún servidor y nunca pisa una celda tocada a mano
+- Interno: diseño de los clientes del Ultramarino (`docs/ultramarino.md`)
+- Interno: una prueba vigila que la imagen copie los datos que importa la página del Jovaniverso
+
 ### 11.1.0 · 2026-11-09
 
 - Pala: de P5 en adelante el minijuego cambia cada día (Cuadrante, Negociación, Auditoría y Despacho)
