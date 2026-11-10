@@ -361,7 +361,19 @@ llamadas de dibujo y ~1.100 triángulos con sombras, y quita todo lo de fuera (m
 **Medido** (`docs/medir_universo.py`, vistas `pisos`, delante de la puerta, y `pisodentro`, dentro, en el
 mismo sitio que antes de los interiores; 10/11/2026):
 
-MEDIDAS
+| Vista (1280 × 720 / 390 × 844) | Antes: llamadas, triángulos | Ahora: llamadas, triángulos |
+|---|---|---|
+| Delante de la puerta (`pisos`; antes, el mismo sitio mirando a otro lado) | 97 / 91, 157 454 / 149 406 | 74 / 71, 95 678 / 91 030 |
+| Dentro (`pisodentro`) | (no existía) | 49 / 49, 7 614 / 7 614 |
+| Plaza | 95 / 89, 152 714 / 146 874 | 98 / 92, 158 858 / 153 018 |
+| Peor vista de la isla | 97 (`drago`) / 164 910 (`nieves`) | 103 (`drago`) / 165 558 (`nieves`) |
+| Extraplano: dentro / peor vista | — | 49, 7 614 / 57, 19 250 |
+
+Dentro, de las 49 llamadas (24 de sombra) 11 son la habitación con sus muebles y el resto, tu robot: el
+mundo de fuera no gasta nada. El edificio con su puerta suma 324 triángulos (648 con su sombra) a las vistas
+que lo ven de lejos. Las vistas de cerca de la plaza (`drago`, `plaza`) suben de 3 a 9 llamadas: las
+mallas fundidas de la zona se rehacen con el edificio dentro. Las cifras son las mismas en dos tandas
+seguidas; las medidas son sin `docs/sala_local.py` (sin casino), igual antes y ahora.
 
 **El piso de serie** está al oeste de la plaza (el hueco del primer anillo de casas): un edificio con su
 puerta y el interior `piso-plaza` (un salón con sofá y mesa, que se ponen y se quitan, y una lámpara y un
