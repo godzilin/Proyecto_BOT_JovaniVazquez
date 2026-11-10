@@ -2,6 +2,7 @@
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import "./style.css";
 import { activarCasino } from "./casino/entrada";
+import { activarInteriores } from "./interiores/entrada";
 import type { Bote, Tragas } from "./casino/dibujo";
 import { fijarBorde } from "./mundo/borde";
 import { crearMundo, type Mundo } from "./mundo";
@@ -289,7 +290,9 @@ async function start(): Promise<void> {
       }
       const nombre = entrada.profile.name;
       activarCasino(mundo, { tragas: entrada.profile.tragas ?? null, botes: entrada.profile.botes ?? [], sesion, saldo: (t) => pildora(nombre, t) });
+      activarInteriores(mundo, sesion);
     } else {
+      activarInteriores(mundo, null);
       iniciarSala(mundo.yo, mundo.remotos, null);
       menuEnPildora(iniciarMenu($("capa"), mundo, null));
       iniciarGestos($("capa"), mundo.yo, [4, 5, 6, 7, 8, 9, 10]); // sin Discord (desarrollo) están todos

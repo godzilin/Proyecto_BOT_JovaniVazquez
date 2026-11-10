@@ -41,7 +41,22 @@ async function llamar<T>(s: Sesion, metodo: string, ruta: string, cuerpo?: unkno
 
 const q = (s: Sesion): string => `?guild_id=${encodeURIComponent(s.guildId)}`;
 
-export const borrador = (s: Sesion) => llamar<{ version: number; trozos: Record<string, TrozoBorrador> }>(s, "GET", `borrador${q(s)}`);
+/** El borrador sin las celdas: el `rev` de cada trozo (las lápidas aparte) y los documentos de lo que no es celda. */
+export interface Indice {
+  version: number;
+  trozos: Record<string, number>;
+  borrados: Record<string, number>;
+  docs: Record<string, unknown>;
+}
+/** Hasta `MAX_LOTE` trozos por petición, como los lotes del juego (`cercania.ts`). */
+export const MAX_LOTE = 64;
+
+export const indice = (s: Sesion) => llamar<Indice>(s, "GET", `indice${q(s)}`);
+/** Unos trozos del borrador (hasta `MAX_LOTE`); una clave que no existe sale con `doc` nulo y `rev` 0. */
+export const trozos = (s: Sesion, claves: string[]) =>
+  llamar<{ trozos: Record<string, TrozoBorrador> }>(s, "GET", `trozos${q(s)}&t=${encodeURIComponent(claves.join(","))}`);
+/** Las celdas del borrador que usan un asset, bajadas o no. */
+export const usos = (s: Sesion, asset: string) => llamar<{ celdas: string[] }>(s, "GET", `usos${q(s)}&asset=${encodeURIComponent(asset)}`);
 /** Guarda unos trozos (clave, `rev` que se cree, texto JSON o `null` para borrarlo), todos o ninguno. Devuelve el `rev` nuevo de cada uno. */
 export const guardar = (s: Sesion, trozos: [string, number, string | null][]) =>
   llamar<{ revs: Record<string, number> }>(

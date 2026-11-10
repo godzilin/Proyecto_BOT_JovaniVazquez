@@ -51,7 +51,7 @@ export function especiales(doc: MundoDoc): { tragas: Puesto[]; letreros: Letrero
       if (n === undefined || !Number.isInteger(n) || n < 1 || n > MAX_TRAGAS || vistos.has(n)) continue;
       vistos.add(n);
       tragas.push({ n, matriz: matriz(o), x: o.pos[0], y: o.pos[1], z: o.pos[2], yaw: o.rot[1] });
-    } else {
+    } else if (f.tipo === "letrero") {
       const m = matriz(o).multiply(new Matrix4().makeTranslation(...f.pos));
       letreros.push({ matriz: m, ancho: f.ancho, alto: f.alto, titulo: d.titulo ?? "", botes: d.botes ?? [] });
     }

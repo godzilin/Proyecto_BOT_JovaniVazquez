@@ -44,7 +44,9 @@ def test_el_servidor_acepta_el_mundo_de_serie(mundo: dict) -> None:
     )
     densa = max(len(t["objetos"]) for k, t in limpio.items() if k.startswith("c/"))
     assert densa < editor.MAX_CELL_OBJECTS // 4
-    assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"])
+    # Los objetos de las celdas y los de los interiores (el piso de la plaza), cada uno en su trozo.
+    dentro = sum(len(i["objetos"]) for i in mundo["interiores"].values())
+    assert sum(len(t.get("objetos", [])) for t in limpio.values()) == len(mundo["objetos"]) + dentro
 
 
 def test_lleva_lo_de_siempre(mundo: dict) -> None:
@@ -61,6 +63,7 @@ def test_lleva_lo_de_siempre(mundo: dict) -> None:
     ):
         assert clave in assets
     usados = {o["asset"] for o in mundo["objetos"]}
+    usados |= {o["asset"] for i in mundo["interiores"].values() for o in i["objetos"]}
     assert usados == set(assets), "cada asset se usa y cada objeto tiene el suyo"
     assert set(mundo["zonas"]) == editor.EDITABLE_ZONES
     # La sala cuenta los lugares con las mismas zonas de serie (en decímetros).

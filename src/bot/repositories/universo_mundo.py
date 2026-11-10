@@ -30,7 +30,9 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
 - `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. Uno
   es `casino`: los mundos guardados o publicados antes de que las tragaperras fueran objetos
   del editor reciben el casino de la plaza (`bot.services.universo_editor.add_casino`), en el
-  borrador y en una publicación nueva del bot (`author_id` 0). La otra, `glb_disco` (con
+  borrador y en una publicación nueva del bot (`author_id` 0). Otra es `piso`: el borrador de
+  los mundos de antes de los interiores recibe el piso de serie de la plaza
+  (`bot.services.universo_editor.add_piso`), sin publicarlo. La otra, `glb_disco` (con
   `guild_id` 0, porque los GLB son de todos), saca a archivos los GLB que se guardaban en la
   base.
 
@@ -56,7 +58,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from bot.repositories import sqlite
-from bot.services.universo_editor import add_casino, cell_summary, glb_refs
+from bot.services.universo_editor import add_casino, add_piso, cell_summary, glb_refs
 
 T = TypeVar("T")
 
@@ -130,6 +132,21 @@ class WorldIndex:
     pieces: dict[str, tuple[int, str]]
     zonas: str
     teleportes: str
+
+
+@dataclass(frozen=True, slots=True)
+class DraftIndex:
+    """El borrador sin las celdas: lo que el editor baja al abrir.
+
+    Attributes:
+        alive: Clave → `rev` de cada trozo con algo.
+        gone: Clave → `rev` de cada lápida (un editor desfasado no la resucita).
+        small: Clave → texto de los trozos que no son celdas (assets, zonas, teleportes).
+    """
+
+    alive: dict[str, int]
+    gone: dict[str, int]
+    small: dict[str, str]
 
 
 def _refs(refs: Iterable[str]) -> str:
@@ -257,6 +274,11 @@ class UniversoMundoRepository:
                 "CREATE INDEX IF NOT EXISTS universo_trozos_publicados_indice "
                 "ON universo_trozos_publicados (guild_id, clave, version, (doc = ''), resumen)"
             )
+            # Lo mismo para el índice del borrador que pide el editor (`draft_index`).
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS universo_trozos_borrador_indice "
+                "ON universo_trozos_borrador (guild_id, clave, rev, (doc = ''))"
+            )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS universo_migraciones (
@@ -292,6 +314,7 @@ class UniversoMundoRepository:
         if old:
             self._transaction(lambda c: _migrate_v1(c, old))
         self._transaction(_migrate_casino)
+        self._transaction(_migrate_piso)
         self._transaction(_migrate_resumen)
         self._migrate_glb_sync()
         self._prune_glb_sync()
@@ -418,6 +441,73 @@ class UniversoMundoRepository:
         finally:
             connection.close()
         return {r["clave"]: (r["doc"], int(r["rev"])) for r in rows}
+
+    async def draft_index(self, guild_id: int) -> DraftIndex:
+        """Qué trozos tiene el borrador y su `rev`, sin leer las celdas (se piden luego)."""
+        return await self._run(self._draft_index_sync, guild_id)
+
+    def _draft_index_sync(self, guild_id: int) -> DraftIndex:
+        connection = self._connect()
+        try:
+            alive: dict[str, int] = {}
+            gone: dict[str, int] = {}
+            for r in connection.execute(
+                "SELECT clave, rev, doc = '' AS gone FROM universo_trozos_borrador "
+                "INDEXED BY universo_trozos_borrador_indice WHERE guild_id = ?",
+                (guild_id,),
+            ):
+                (gone if r["gone"] else alive)[r["clave"]] = int(r["rev"])
+            # Lo que no es celda (assets, zonas, teleportes) va entero: no crece con el mapa.
+            small = {
+                r["clave"]: r["doc"]
+                for r in connection.execute(
+                    "SELECT clave, doc FROM universo_trozos_borrador WHERE guild_id = ? "
+                    "AND (clave < 'c/' OR clave >= 'c0') AND doc != ''",
+                    (guild_id,),
+                )
+            }
+        finally:
+            connection.close()
+        return DraftIndex(alive, gone, small)
+
+    async def draft_pieces(self, guild_id: int, keys: Sequence[str]) -> dict[str, tuple[str, int]]:
+        """Unos trozos del borrador: clave → `(doc, rev)`; los que no existen no salen."""
+        return await self._run(self._draft_pieces_sync, guild_id, tuple(keys))
+
+    def _draft_pieces_sync(
+        self, guild_id: int, keys: tuple[str, ...]
+    ) -> dict[str, tuple[str, int]]:
+        out: dict[str, tuple[str, int]] = {}
+        connection = self._connect()
+        try:
+            for start in range(0, len(keys), 200):
+                chunk = keys[start : start + 200]
+                marks = ",".join("?" * len(chunk))
+                for r in connection.execute(
+                    "SELECT clave, doc, rev FROM universo_trozos_borrador "  # noqa: S608
+                    f"WHERE guild_id = ? AND clave IN ({marks})",
+                    (guild_id, *chunk),
+                ):
+                    out[r["clave"]] = (r["doc"], int(r["rev"]))
+        finally:
+            connection.close()
+        return out
+
+    async def draft_users(self, guild_id: int, asset: str) -> list[str]:
+        """Las celdas del borrador que usan un asset (lee solo sus `refs`)."""
+        return await self._run(self._draft_users_sync, guild_id, asset)
+
+    def _draft_users_sync(self, guild_id: int, asset: str) -> list[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT clave, refs FROM universo_trozos_borrador "
+                "WHERE guild_id = ? AND doc != '' AND refs != ''",
+                (guild_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return sorted(r["clave"] for r in rows if asset in r["refs"].split(","))
 
     async def save(
         self, guild_id: int, changes: dict[str, Change], author_id: int
@@ -969,7 +1059,8 @@ def _dump(doc: object) -> str:
 
 
 def _cell_refs(key: str, doc: dict[str, Any]) -> str:
-    return _refs({o["asset"] for o in doc.get("objetos", [])} if key.startswith("c/") else ())
+    used = key.startswith(("c/", "i/"))  # las celdas y los interiores usan assets
+    return _refs({o["asset"] for o in doc.get("objetos", [])} if used else ())
 
 
 def _cell_summary(key: str, doc: dict[str, Any]) -> str:
@@ -1047,6 +1138,50 @@ def _migrate_casino(connection: sqlite3.Connection) -> None:
                 )
         connection.execute(
             "INSERT INTO universo_migraciones (guild_id, nombre) VALUES (?, 'casino')", (guild_id,)
+        )
+
+
+def _migrate_piso(connection: sqlite3.Connection) -> None:
+    """Pone el piso de serie en el borrador de cada servidor que ya tenía uno, una vez.
+
+    Solo en el borrador: aparece en el mundo cuando un editor publica (y antes lo puede mover o
+    quitar). Los servidores sin borrador ya lo tienen en el mundo de serie.
+    """
+    guilds = [
+        int(r[0])
+        for r in connection.execute(
+            "SELECT DISTINCT guild_id FROM universo_trozos_borrador EXCEPT "
+            "SELECT guild_id FROM universo_migraciones WHERE nombre = 'piso'"
+        )
+    ]
+    for guild_id in guilds:
+        revs: dict[str, int] = {}
+        draft: dict[str, dict[str, Any]] = {}
+        for r in connection.execute(
+            "SELECT clave, doc, rev FROM universo_trozos_borrador WHERE guild_id = ?", (guild_id,)
+        ):
+            revs[r["clave"]] = int(r["rev"])
+            if r["doc"]:
+                draft[r["clave"]] = json.loads(r["doc"])
+        for key, doc in (add_piso(draft) if draft else {}).items():
+            connection.execute(
+                "INSERT INTO universo_trozos_borrador "
+                "(guild_id, clave, doc, refs, resumen, rev, author_id, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT (guild_id, clave) DO UPDATE SET "
+                "doc = excluded.doc, refs = excluded.refs, resumen = excluded.resumen, "
+                "rev = excluded.rev, author_id = 0, updated_at = excluded.updated_at",
+                (
+                    guild_id,
+                    key,
+                    _dump(doc),
+                    _cell_refs(key, doc),
+                    _cell_summary(key, doc),
+                    revs.get(key, 0) + 1,
+                    _now(),
+                ),
+            )
+        connection.execute(
+            "INSERT INTO universo_migraciones (guild_id, nombre) VALUES (?, 'piso')", (guild_id,)
         )
 
 

@@ -3,6 +3,7 @@
 // llevan nombre, y solo los de más cerca proyectan sombra. Se dibuja RETRASO ms en el pasado sobre las últimas poses
 // (`Estela`), así que 10 poses por segundo se ven fluidas aunque la red se salte una. Nada de esto reserva memoria en
 // cada fotograma.
+import { CAPA_INTERIOR } from "./capas";
 import {
   AnimationAction,
   AnimationMixer,
@@ -210,6 +211,7 @@ export class Remotos {
     r.objeto = o;
     r.sprite = crearNombre(r.nombre, tonoDe(r.id));
     o.add(r.sprite);
+    o.traverse((n) => n.layers.enable(CAPA_INTERIOR)); // también se ven dentro de un interior (la sala solo manda los de dentro)
     this.escena.add(o);
   }
 

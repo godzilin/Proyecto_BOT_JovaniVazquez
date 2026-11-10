@@ -93,6 +93,11 @@ export class Cercania {
     return this.fuente?.indice ?? null;
   }
 
+  /** De dónde sale lo que se dibuja (los interiores piden sus trozos a la misma). */
+  get fuenteActual(): Fuente | null {
+    return this.fuente;
+  }
+
   /** Celdas montadas y las que faltan por montar o bajar (las devtools y las pruebas). */
   get estado(): { montadas: number; pendientes: number; lejanas: number; assets: number } {
     return { montadas: this.montadas.size, pendientes: this.pedidas.size + this.listas.size, lejanas: this.lejanas.size, assets: this.assets.size };

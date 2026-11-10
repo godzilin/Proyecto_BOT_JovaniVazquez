@@ -25,11 +25,12 @@ import {
   Vector3,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { encerrar } from "./borde";
 import { circulosCerca, empujar } from "./colision";
+// El suelo y el borde, a través de `dentro.ts`: dentro de un interior son los de la habitación.
+import { encerrar, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./dentro";
 import { gestoDe } from "./gestos";
 import { clamp } from "./ruido";
-import { NIVEL_MAR, SUELO_AGUA, PLAZA, enMuelle, pendienteEn, sueloEn, terrenoEn } from "./terreno";
+import { NIVEL_MAR, SUELO_AGUA, PLAZA } from "./terreno";
 import { MATERIAL_CUERPO, colorCuerpo, tonoDe } from "./robot";
 import robotUrl from "../modelos/robot.glb?url";
 

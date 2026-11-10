@@ -1,0 +1,54 @@
+{
+  "_nota": "La Graciosa para el generador (docs/generador-mundo.md). Alturas y pendientes en metros del mundo (ya a escala); distancias del pueblo y de la vegetación, también. Pinturas: 1 Arena, 2 Duna, 3 Fondo del mar, 4 Hierba seca, 5 Hierba, 6 Pinar, 7 Tierra, 8 Cumbre, 9 Ceniza, 10 Roca, 11 Acantilado, 12 Piedra, 13 Camino (PALETA de universo/src/mundo/terreno.ts).",
+  "id": "la-graciosa",
+  "nombre": "La Graciosa",
+  "relieve": {
+    "archivo": "la_graciosa.png",
+    "paso_m": 30,
+    "sur": 29.204,
+    "oeste": -13.571,
+    "fuente": "Copernicus DEM GLO-30 (tesela N29 W014), reducido con docs/reducir_dem.py",
+    "aviso": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+  },
+  "escala": 10,
+  "escala_vertical": 5,
+  "origen": [3600, 3600],
+  "costa": {"fondo": -10, "caida": 120, "orilla": -0.5, "tierra_min": 0.3},
+  "ruido": 22,
+  "suelo": [
+    {"alt_max": -0.4, "pintura": 3},
+    {"alt_max": 1.1, "pintura": 1},
+    {"pend_min": 1.0, "pintura": 11},
+    {"pend_min": 0.55, "pintura": 10},
+    {"alt_min": 22, "ruido_min": 0.6, "pintura": 9},
+    {"alt_min": 22, "pintura": 7},
+    {"alt_min": 10, "ruido_min": 0.55, "pintura": 7},
+    {"ruido_min": 0.64, "pintura": 4},
+    {"pintura": 2}
+  ],
+  "pueblos": [
+    {
+      "nombre": "Caleta de Sebo",
+      "lat": 29.2334,
+      "lon": -13.5036,
+      "radio": 55,
+      "giro": 0.12,
+      "manzana": [26, 14],
+      "calle": 6,
+      "alt": [0.8, 10],
+      "desnivel_max": 1.6,
+      "hueco": 0.12,
+      "casas": {"kit-casa-1": 4, "kit-casa-2": 2, "kit-casa-3": 2, "kit-casa-4": 1},
+      "muro": "kit-muro",
+      "pintura_calle": 13
+    }
+  ],
+  "vegetacion": {
+    "paso": 7,
+    "especies": [
+      {"asset": "kit-palmera", "zona": "pueblo", "prob": 0.07, "escala": [0.8, 1.15]},
+      {"asset": "kit-tabaiba", "alt": [1.4, 16], "pend_max": 0.45, "prob": 0.22, "escala": [0.7, 1.4]},
+      {"asset": "kit-aulaga", "alt": [2, 45], "pend_max": 0.75, "prob": 0.2, "escala": [0.6, 1.2]}
+    ]
+  }
+}

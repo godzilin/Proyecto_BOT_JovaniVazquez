@@ -865,6 +865,17 @@ export class PanelAssets implements Panel {
     if (!id || !a) return;
     const usos = this.doc.objetos.filter((o) => o.asset === id).length;
     if (usos) return this.avisar(`No se puede borrar «${a.nombre}»: ${usos === 1 ? "lo usa 1 objeto" : `lo usan ${usos} objetos`} del mundo.`);
+    // Las celdas sin bajar no están en `doc`: el servidor dice cuáles lo usan.
+    let lejos: string[];
+    try {
+      lejos = await this.a.b.usosSinBajar(id);
+    } catch (e) {
+      return this.a.fallo(e);
+    }
+    if (lejos.length) {
+      const donde = lejos.slice(0, 3).join(", ") + (lejos.length > 3 ? "…" : "");
+      return this.avisar(`No se puede borrar «${a.nombre}»: lo usan ${lejos.length === 1 ? "1 celda" : `${lejos.length} celdas`} que no están bajadas (${donde}).`);
+    }
     if ((await dialogo(this.a.raiz, "Borrar asset", `¿Borrar «${a.nombre}»? Se puede deshacer hasta que cierres el editor.`, "Borrar")) === null) return;
     delete this.doc.assets[id];
     this.selId = Object.keys(this.doc.assets)[0] ?? null;

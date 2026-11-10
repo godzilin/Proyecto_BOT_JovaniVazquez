@@ -29,6 +29,7 @@ cada una documentada en su módulo:
   `/api/mundo/trozos`, `/api/glb/{sha}`).
 - `sala`: el multijugador y el paseo (`/api/sala`, `/api/paseo`).
 - `casino`: las tragaperras de la plaza y los botes (`/api/traga`, `/api/botes`).
+- `interiores`: entrar en un interior, salir y usar lo de dentro (`/api/interior`).
 - `menu`: el menú del tabulador (`/api/jugadores`, `/api/mochila`).
 - `telemetria`: cómo va la página en cada dispositivo (`/api/medidas`).
 - `promo`: el botón 🌌 Jovaniverso de los paneles.
@@ -44,7 +45,8 @@ Día de Canarias), pasear (`universo_walk_stats`: metros, saltos, deslizamientos
 lugares de la sala; trucos, velocidad y teleportes del informe),
 coincidir con otros (`universo_meet_stats`, al entrar en la sala), y gestos
 (`universo_gesture_stats`, al empezar cada uno) y las tragaperras de la plaza
-(`universo_slots_stats`), categoría 🎤 Jovani. La mascota solo habla en el resultado de
+(`universo_slots_stats`) y los interiores (`universo_interior_stats` y `universo_use_stats`),
+categoría 🎤 Jovani. La mascota solo habla en el resultado de
 las tragaperras (`renta.hint`, que pide el cog de la tragaperras).
 """
 
@@ -66,6 +68,7 @@ from bot.cogs import achievements as logros
 from bot.cogs.universo.casino import CasinoMixin, _botes, _traga
 from bot.cogs.universo.comun import _COG_KEY, _errors
 from bot.cogs.universo.editor import EditorMixin
+from bot.cogs.universo.interiores import InteriorsMixin, _interior
 from bot.cogs.universo.menu import MenuMixin, _jugadores, _mochila
 from bot.cogs.universo.mundo import CACHE_BYTES, ByteCache, WorldMixin, _glb, _indice, _trozos
 from bot.cogs.universo.permisos import PermissionsMixin, _permisos
@@ -75,6 +78,7 @@ from bot.cogs.universo.sesion import SessionMixin, _config, _entrar, _index, _to
 from bot.cogs.universo.telemetria import TelemetryMixin, _medidas
 from bot.services.achievements import universo_teaser_stats
 from bot.services.universo import DISCORD_API, Places, SessionSigner
+from bot.services.universo_interiores import Inside
 from bot.services.universo_sala import Salas
 
 if TYPE_CHECKING:
@@ -140,6 +144,7 @@ class Universo(
     EditorMixin,
     SalaMixin,
     CasinoMixin,
+    InteriorsMixin,
     MenuMixin,
     TelemetryMixin,
     commands.Cog,
@@ -199,6 +204,10 @@ class Universo(
         self._pending: dict[Hashable, asyncio.Future[Any]] = {}
         # Botes de cada servidor para los letreros (`pots`), con su hora.
         self._botes: dict[int, tuple[float, list[dict[str, str]]]] = {}
+        # Quién está dentro de un interior (servidor, miembro) y cuándo usó algo por última
+        # vez (`InteriorsMixin`): uno por miembro como mucho, se borra al salir.
+        self._dentro: dict[tuple[int, int], Inside] = {}
+        self._usado: dict[int, float] = {}
         # Saldos y experiencia de cada servidor para el menú (`players`), con su hora.
         self._lista: dict[int, tuple[float, dict[int, int], dict[int, int] | None]] = {}
 
@@ -257,6 +266,7 @@ class Universo(
         app.router.add_get("/api/mundo/trozos", _trozos)
         app.router.add_get("/api/glb/{sha}", _glb)
         app.router.add_post("/api/traga", _traga)
+        app.router.add_post("/api/interior", _interior)
         app.router.add_get("/api/sala", _sala)
         app.router.add_get("/api/permisos", _permisos)
         app.router.add_get("/api/jugadores", _jugadores)

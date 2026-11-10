@@ -15,6 +15,13 @@ const B = 1 << 20;
 const cubos = new Map<number, Circulo[]>();
 const grandes: Circulo[] = [];
 let cuenta = 0;
+/** Dentro de un interior, solo cuentan sus círculos (los muebles): los del mundo de fuera no están. */
+let aparte: Circulo[] | null = null;
+
+/** Con una lista, solo chocan esos círculos (al entrar en un interior); con `null`, los del mundo (al salir). */
+export function soloEstos(lista: Circulo[] | null): void {
+  aparte = lista;
+}
 
 const cubo = (ix: number, iz: number): number => (ix + B) * 2 * B + iz + B;
 const de = (c: Circulo): Circulo[] | undefined => (c.r > GRANDE ? grandes : cubos.get(cubo(Math.floor(c.x / CUBO), Math.floor(c.z / CUBO))));
@@ -57,6 +64,7 @@ export function todosLosCirculos(): Circulo[] {
 
 /** Los círculos que pueden tocar el disco de radio `r` en (x, z): los de los cubos de alrededor y los grandes (sin filtrar). */
 export function circulosCerca(x: number, z: number, r: number): Circulo[] {
+  if (aparte) return aparte.slice();
   const out = grandes.slice();
   const ix0 = Math.floor((x - r - GRANDE) / CUBO);
   const ix1 = Math.floor((x + r + GRANDE) / CUBO);

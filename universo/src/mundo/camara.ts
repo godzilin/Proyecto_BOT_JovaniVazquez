@@ -2,8 +2,9 @@
 // Corriendo por una pared se ladea hacia fuera de ella (`inclinar`), suavizado.
 import { PerspectiveCamera, Quaternion, Vector3 } from "three";
 import type { LightShadow, Object3D } from "three";
+import { CAPA_INTERIOR } from "./capas";
 import { clamp } from "./ruido";
-import { terrenoEn } from "./terreno";
+import { terrenoEn } from "./dentro"; // dentro de un interior, su suelo
 
 const DIST_MIN = 3;
 const OJOS = 1.65; // metros sobre los pies; el robot mide 1,9
@@ -222,6 +223,11 @@ export class Camara {
   private ocultarPropios(si: boolean): void {
     if (si === this.propioOculto) return;
     this.propioOculto = si;
-    for (const o of this.propios) o.traverse((c) => c.layers.set(si ? CAPA_PROPIA : 0));
+    for (const o of this.propios) {
+      o.traverse((c) => {
+        c.layers.set(si ? CAPA_PROPIA : 0);
+        if (!si) c.layers.enable(CAPA_INTERIOR); // visible también dentro de un interior, donde la cámara solo ve esa capa
+      });
+    }
   }
 }

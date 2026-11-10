@@ -172,9 +172,9 @@ async def test_quien_se_va_lejos_desaparece_y_quien_llega_ve_a_los_quietos() -> 
         [(a.slot, 0, 20, 0, 7, 1), (b.slot, 50, 20, 0, 7, 1)],
     )
     assert entries(ana.blobs[-1]) == (sala.POSE, [(b.slot, 50, 20, 0, 7, 1)])
-    assert room.cells == {(0, 0): {a.slot, b.slot}}
+    assert room.cells == {("", (0, 0)): {a.slot, b.slot}}
     await rooms.leave(1, b)
-    assert room.cells == {(0, 0): {a.slot}}
+    assert room.cells == {("", (0, 0)): {a.slot}}
     await rooms.close()
 
 
@@ -253,7 +253,7 @@ async def test_la_sala_vacia_se_cierra_y_la_llena_no_deja_entrar(salas: Salas) -
     for player in players:
         salas.pose(1, player, pose(x=player.slot))
     await salas.tick(salas.rooms[1])
-    assert len(salas.rooms[1].cells[0, 0]) == sala.MAX_PLAYERS
+    assert len(salas.rooms[1].cells["", (0, 0)]) == sala.MAX_PLAYERS
     task = salas.rooms[1].task
     for player in players:
         await salas.leave(1, player)

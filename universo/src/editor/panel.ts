@@ -26,6 +26,8 @@ export interface Panel {
   desactivar(): void;
   /** El documento ha cambiado desde fuera (deshacer, rehacer, recargar). */
   alCambiarDoc(): void;
+  /** Han llegado celdas del servidor: hay objetos nuevos al final de `doc.objetos` y los de antes siguen en su sitio. */
+  alLlegarCeldas?(): void;
   /** Cifras del modo para la barra de estado; deja también al día sus botones. */
   estado(): string[];
   /** Atajo de teclado (fuera de un campo de texto); `true` si lo ha tratado. */

@@ -313,8 +313,13 @@ def test_el_terreno_de_la_isla_se_parte_en_sus_16_celdas() -> None:
         ({"alturas": "@@", "colores": ""}, "base64"),
         ({"alturas": base64.b64encode(b"\0\0").decode(), "colores": ""}, "rejilla"),
         (terreno(side=TERRAIN_SIDE), "rejilla"),
-        (terreno([12001], side=CELL_TERRAIN_SIDE), "altura"),
         (terreno([-2001], side=CELL_TERRAIN_SIDE), "altura"),
+        # Con la base: 3990 m + 10,01 m pasa de los 4000 que acepta la sala.
+        ({**terreno([1001], side=CELL_TERRAIN_SIDE), "base": 399_000}, "altura"),
+        ({**terreno([-1], side=CELL_TERRAIN_SIDE), "base": -2000}, "altura"),
+        ({**terreno(side=CELL_TERRAIN_SIDE), "base": 1.5}, "base"),
+        ({**terreno(side=CELL_TERRAIN_SIDE), "base": True}, "base"),
+        ({**terreno(side=CELL_TERRAIN_SIDE), "base": "100"}, "base"),
         (terreno(colores=bytes([TERRAIN_PAINTS + 1]) + bytes(CELL_TERRAIN_SIDE**2 - 1),
                  side=CELL_TERRAIN_SIDE), "paleta"),
         ({**terreno(side=CELL_TERRAIN_SIDE), "extra": 1}, "campos que no se conocen"),
@@ -331,6 +336,25 @@ def test_un_terreno_de_celda_bueno_se_guarda_tal_cual() -> None:
     assert clean == {"objetos": [], "terreno": t}
     assert refs == frozenset()
     assert not is_empty(clean)
+
+
+def test_la_base_sube_la_celda_entera_y_cabe_el_teide() -> None:
+    # El Teide a escala 1:10 (371 m) no cabe en 16 bits de cm (±327 m); con la base, sí.
+    t = {**terreno([-1000, 32_000], side=CELL_TERRAIN_SIDE), "base": 5_100}
+    clean, _ = validate_piece("c/40/-12", {"terreno": t}, {})
+    assert clean["terreno"] == t
+    top, index, _ = split_summary(cell_summary(clean))
+    assert (top, index) == (37_100, 1)
+    # Una base 0 es lo mismo que no traerla: se guarda sin ella, como todo lo de antes.
+    plano = terreno(side=CELL_TERRAIN_SIDE)
+    assert validate_piece("c/0/0", {"terreno": {**plano, "base": 0}}, {})[0]["terreno"] == plano
+
+
+def test_los_objetos_y_el_terreno_llegan_tan_alto_como_la_sala() -> None:
+    from bot.services.universo_sala import MAX_Y_DM, MIN_Y_DM
+
+    assert editor.MAX_Y * 10 == MAX_Y_DM
+    assert editor.MIN_Y * 10 >= MIN_Y_DM
 
 
 @pytest.mark.parametrize(
@@ -547,5 +571,9 @@ def test_el_resumen_de_una_celda_es_su_cima_y_su_rejilla_cada_20_m() -> None:
     assert base64.b64decode(samples) == by_hand.tobytes()
     assert len(base64.b64decode(samples)) == 50
     assert summary.count(",") == 2
+    # Con base, la cima la suma y las muestras llevan la base detrás en int32 (`ponerResumen`).
+    top, index, samples = split_summary(cell_summary({"terreno": {**terreno, "base": 300_000}}))
+    assert (top, index) == (6_000 + 300_000, 12 * side + 7)
+    assert base64.b64decode(samples) == by_hand.tobytes() + struct.pack("<i", 300_000)
     # Sin terreno no hay resumen.
     assert cell_summary({"objetos": []}) == ""

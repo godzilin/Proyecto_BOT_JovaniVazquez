@@ -1,8 +1,9 @@
 """Comprueba que `aTrozos`/`deTrozos` de la página (`universo/src/editor/trozos.ts`) hacen lo mismo que `split_world`.
 
 Compila un guion con `vite build --ssr` (como `volcar_mundo_serie.py`), lo ejecuta con Node sobre el mundo de
-serie (sin terreno y con uno esculpido) y compara en Python: las claves y el JSON de cada trozo contra
-`split_world`, y que juntar lo partido devuelva el mismo mundo. También da lo que tardan `aTrozos`, el
+serie (sin terreno y con uno esculpido, también fuera de la isla y con `base`) y compara en Python: las claves y
+el JSON de cada trozo contra `split_world` (más el terreno de cada celda, que en la página ya va por celdas), que
+el servidor acepte el terreno tal cual y que juntar lo partido devuelva el mismo mundo. También da lo que tardan `aTrozos`, el
 `commit` y el `guardar` del borrador frente al `JSON.stringify` del mundo entero.
 
 Después monta un mundo sintético grande (`CELDAS_GRANDE` celdas llenas, con terreno) y comprueba que el
@@ -23,16 +24,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from bot.services.universo_editor import split_world
+from bot.services.universo_editor import split_world, validate_piece
 
 UNIVERSO = Path(__file__).resolve().parent.parent / "universo"
 SRC = (UNIVERSO / "src").as_posix()
 
 GUION = f"""
 import {{ mundoDeSerie }} from "{SRC}/mundo/serie";
-import {{ alturas, pinturas, terrenoDoc }} from "{SRC}/mundo/terreno";
+import {{ rejillaEditable, rejillas, terrenoDe }} from "{SRC}/mundo/terreno";
 import {{ aTrozos, deTrozos }} from "{SRC}/editor/trozos";
 import {{ Borrador }} from "{SRC}/editor/borrador";
+import type {{ Terreno }} from "{SRC}/editor/formato";
 
 const hoy = (): number => performance.now();
 const medir = (n: number, f: () => unknown): number => {{
@@ -45,28 +47,26 @@ const objeto = (m: Map<string, string>): Record<string, string> => Object.fromEn
 const parse = (m: Map<string, string>): Record<string, unknown> => Object.fromEntries([...m].map(([k, v]) => [k, JSON.parse(v)]));
 
 const serie = mundoDeSerie();
-const pura = terrenoDoc(); // la fórmula de la isla, tal cual
-for (let i = 0; i < alturas.length; i += 7) alturas[i] += (i % 13) * 0.37 - 2; // unos hoyos
-for (let i = 0; i < pinturas.length; i += 11) pinturas[i] = i % 14 === 0 ? 0 : (i % 13) + 1;
-const esculpida = terrenoDoc();
+// Las 16 celdas de la isla con unos hoyos y colores, y una celda lejos y alta (con `base`).
+const esculpida: Record<string, Terreno> = {{}};
+for (const [cx, cz] of [...Array.from({{ length: 16 }}, (_, i) => [(i % 4) - 2, Math.floor(i / 4) - 2]), [30, -12]]) {{
+  const r = rejillaEditable(cx, cz);
+  if (cx === 30) r.alt.fill(2400);
+  for (let i = 0; i < r.alt.length; i += 7) r.alt[i] += (i % 13) * 0.37 - 2;
+  for (let i = 0; i < r.pin.length; i += 11) r.pin[i] = i % 14 === 0 ? 0 : (i % 13) + 1;
+  esculpida[`c/${{cx}}/${{cz}}`] = terrenoDe(r).terreno;
+}}
+rejillas.clear();
 const conTerreno = {{ ...serie, terreno: esculpida }};
 
 const trozos = aTrozos(serie);
 const trozosT = aTrozos(conTerreno);
-// Sin tres celdas con terreno: deben salir de la fórmula, igual que la rejilla pura.
-const purosT = aTrozos({{ ...serie, terreno: pura }});
-const sinTres = parse(purosT);
-for (const k of ["c/-2/-2", "c/0/1", "c/1/0"]) {{
-  const c = sinTres[k] as {{ terreno?: unknown }};
-  delete c.terreno;
-}}
 
 // Tiempos
 const stringify = medir(50, () => JSON.stringify(serie));
 const parte = medir(50, () => aTrozos(serie));
-const parteT = medir(50, () => aTrozos({{ ...serie, terreno: {{ ...esculpida }} }})); // con el corte del terreno en caché
-let n = 0;
-const parteTFria = medir(20, () => aTrozos({{ ...serie, terreno: {{ alturas: esculpida.alturas, colores: String.fromCharCode(65 + (n++ % 2)) + esculpida.colores.slice(1) }} }}));
+const parteT = medir(50, () => aTrozos({{ ...serie, terreno: esculpida }})); // con el corte del terreno en caché
+const parteTFria = medir(20, () => aTrozos({{ ...serie, terreno: {{ ...esculpida }} }}));
 const junta = medir(50, () => deTrozos(parse(trozos)));
 
 (async () => {{
@@ -77,7 +77,7 @@ const cuerpos: string[] = [];
   return {{ ok: true, json: async () => ({{ revs: Object.fromEntries(Object.keys(t).map((k) => [k, 1])) }}) }};
 }};
 const nada = () => undefined;
-const b = new Borrador({{ session: "s", guildId: "1" }}, {{ version: 0, trozos: {{}} }}, {{ fallo: nada, estado: nada, reemplazado: nada }}, structuredClone(serie));
+const b = new Borrador({{ session: "s", guildId: "1" }}, {{ version: 0, trozos: {{}}, borrados: {{}}, docs: {{}} }}, {{ fallo: nada, estado: nada, reemplazado: nada }}, structuredClone(serie));
 const tGuardarTodo = hoy();
 await b.guardar();
 const guardarTodo = hoy() - tGuardarTodo;
@@ -95,7 +95,7 @@ const deshecho = JSON.stringify(b.doc.objetos[0].pos);
 
 process.stdout.write(JSON.stringify({{
   serie, conTerreno, trozos: objeto(trozos), trozosT: objeto(trozosT),
-  juntoSerie: deTrozos(parse(trozos)), juntoT: deTrozos(parse(trozosT)), juntoSinTres: deTrozos(sinTres), pura,
+  juntoSerie: deTrozos(parse(trozos)), juntoT: deTrozos(parse(trozosT)),
   tiempos: {{ stringify, parte, parteT, parteTFria, junta, commit, cambio, guardarTodo, guardarUno, kbTodo, kbUno, deshecho }},
 }}));
 }})();
@@ -108,10 +108,10 @@ OBJETOS_CELDA = 400
 
 GUION_GRANDE = """
 import { mundoDeSerie } from "{SRC}/mundo/serie";
-import { alturas, terrenoDoc } from "{SRC}/mundo/terreno";
+import { rejillaEditable, rejillas, terrenoDe } from "{SRC}/mundo/terreno";
 import { aTrozos, deTrozos } from "{SRC}/editor/trozos";
 import { Borrador } from "{SRC}/editor/borrador";
-import type { MundoDoc, Objeto } from "{SRC}/editor/formato";
+import type { MundoDoc, Objeto, Terreno } from "{SRC}/editor/formato";
 
 const hoy = (): number => performance.now();
 const serie = mundoDeSerie();
@@ -128,15 +128,20 @@ for (let n = 0; n < {CELDAS}; n++) {
     objetos.push({ asset: ids[k % ids.length], pos: [x, 1, z], rot: [0, Math.round(azar() * 600) / 100, 0], esc: [1, 1, 1] });
   }
 }
-for (let i = 0; i < alturas.length; i += 5) alturas[i] += 1.5;
-const grande: MundoDoc = { ...serie, objetos, terreno: terrenoDoc() };
+const terreno: Record<string, Terreno> = {};
+for (let i = 0; i < 16; i++) {
+  const r = rejillaEditable((i % 4) - 2, Math.floor(i / 4) - 2);
+  for (let j = 0; j < r.alt.length; j += 5) r.alt[j] += 1.5;
+  terreno[`c/${(i % 4) - 2}/${Math.floor(i / 4) - 2}`] = terrenoDe(r).terreno;
+}
+const grande: MundoDoc = { ...serie, objetos, terreno };
 const nada = (): undefined => undefined;
 (globalThis as any).fetch = async (_u: string, o: { body: string }) => {
   const t = JSON.parse(o.body).trozos;
   return { ok: true, json: async () => ({ revs: Object.fromEntries(Object.keys(t).map((k) => [k, 1])) }) };
 };
 const nuevo = (): Borrador =>
-  new Borrador({ session: "s", guildId: "1" }, { version: 0, trozos: {} }, { fallo: nada, estado: nada, reemplazado: nada }, structuredClone(grande));
+  new Borrador({ session: "s", guildId: "1" }, { version: 0, trozos: {}, borrados: {}, docs: {} }, { fallo: nada, estado: nada, reemplazado: nada }, structuredClone(grande));
 const actual = (b: Borrador): Map<string, string> => (b as any).actual;
 const igual = (b: Borrador): boolean => {
   const todo = aTrozos(b.doc);
@@ -162,8 +167,9 @@ const igual = (b: Borrador): boolean => {
     ["zona", () => ((Object.values(d().zonas)[0].r += 1), b.commit({}))],
     ["teleportes", () => ((d().teleportes = [{ nombre: "Aquí", x: 1, z: 2 }]), b.commit({}))],
     ["terreno", () => {
-      for (let i = 0; i < 400; i++) alturas[i] -= 1;
-      d().terreno = terrenoDoc();
+      const r = rejillaEditable(-2, -2);
+      for (let i = 0; i < 400; i++) r.alt[i] -= 1;
+      d().terreno = { ...d().terreno, "c/-2/-2": terrenoDe(r).terreno };
       return b.commit({});
     }],
     ["sin terreno", () => (delete d().terreno, b.commit({}))],
@@ -257,6 +263,14 @@ def mismo_mundo(a: dict[str, Any], b: dict[str, Any]) -> bool:
     )
 
 
+def partir(doc: dict[str, Any]) -> dict[str, Any]:
+    """Lo que tiene que dar `aTrozos`: `split_world` sin el terreno y el de cada celda, tal cual."""
+    trozos = split_world({k: v for k, v in doc.items() if k != "terreno"})
+    for clave, terreno in doc.get("terreno", {}).items():
+        trozos.setdefault(clave, {"objetos": []})["terreno"] = terreno
+    return trozos
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     r = ejecutar()
@@ -265,18 +279,18 @@ def main() -> None:
         ("serie con terreno", r["conTerreno"], r["trozosT"], r["juntoT"]),
     ):
         ts = {k: json.loads(v) for k, v in trozos.items()}
-        py = split_world(doc)
+        py = partir(doc)
         distintos = sorted(k for k in ts.keys() | py.keys() if ts.get(k) != py.get(k))
         assert not distintos, (
             f"{nombre}: {len(distintos)} trozos no coinciden, p. ej. {distintos[:5]}"
         )
         assert mismo_mundo(junto, doc), f"{nombre}: juntar lo partido no devuelve el mismo mundo"
         print(f"{nombre}: {len(ts)} trozos iguales a split_world y juntar los devuelve al mundo")
-    pura = r["pura"]
-    assert r["juntoSinTres"]["terreno"] == pura, (
-        "las celdas sin terreno no salen de la fórmula de la isla"
-    )
-    print("celdas sin terreno: la rejilla sale igual que la fórmula pura")
+    for clave, terreno in r["conTerreno"]["terreno"].items():
+        limpio, _ = validate_piece(clave, {"terreno": terreno}, {})
+        assert limpio["terreno"] == terreno, f"{clave}: el servidor no guarda el terreno tal cual"
+    assert r["conTerreno"]["terreno"]["c/30/-12"].get("base"), "la celda alta no lleva base"
+    print("terreno por celdas: el servidor lo acepta tal cual, también la celda alta con base")
     t = r["tiempos"]
     assert t["cambio"] is True and t["deshecho"] != "null"
     print(f"JSON.stringify del mundo: {t['stringify']:.2f} ms | aTrozos: {t['parte']:.2f} ms")

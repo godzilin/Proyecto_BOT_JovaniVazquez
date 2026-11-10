@@ -4,6 +4,7 @@
 // que deja la física: antes de la pose de un teleporte manda `{t: "salto"}` y, al poner o quitar una devtool,
 // `{t: "trucos", on}` (con ellas no cuenta el paseo, que también lo cuenta la sala).
 import { MIN_Y_DM } from "./mundo/borde";
+import { dentro } from "./mundo/dentro";
 import { PRUEBAS } from "./mundo/modo";
 import type { Remotos } from "./mundo/remotos";
 import type { Sesion } from "./paseo";
@@ -80,7 +81,7 @@ export function iniciarSala(
   const hola = (): string =>
     JSON.stringify(
       sesion
-        ? { t: "hola", v: PROTOCOLO, session: sesion.session, guild_id: sesion.guildId, channel_id: sesion.channelId, mundo }
+        ? { t: "hola", v: PROTOCOLO, session: sesion.session, guild_id: sesion.guildId, channel_id: sesion.channelId, mundo, dentro: dentro() }
         : { t: "hola", v: PROTOCOLO, dev: "Prueba" },
     );
 
@@ -118,6 +119,8 @@ export function iniciarSala(
         else if (m.t === "mundo") alMundo(m.version ?? 0);
         // La tirada de otro en una tragaperras: la pinta el casino si está montado (casino.ts).
         else if (m.t === "traga") window.dispatchEvent(new CustomEvent("jv:traga", { detail: m }));
+        // Alguien ha usado algo del interior en el que estás: lo cambia `interiores/entrada.ts`.
+        else if (m.t === "uso") window.dispatchEvent(new CustomEvent("jv:uso", { detail: m }));
         else if (m.t === "error") {
           error = true;
           console.info("Sala del Jovaniverso:", m.error);

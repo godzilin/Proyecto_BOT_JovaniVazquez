@@ -45,3 +45,21 @@ def test_el_paquete_lleva_las_escenas_de_chromium() -> None:
     for scene in sorted(PACKAGE.glob("assets/*/escena.html")):
         assert scene.relative_to(PACKAGE).as_posix() in packaged
     assert "assets/ruleta/escena.html" in packaged
+
+
+def test_el_dockerfile_copia_los_json_que_importa_la_pagina_del_universo() -> None:
+    """Un JSON de `src/bot/assets` que importa `universo/src` y no se copia rompe `docker build`."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    imported = {
+        name
+        for ts in (root / "universo" / "src").rglob("*.ts")
+        for name in re.findall(
+            r'from "[./]+/src/bot/assets/([\w./-]+\.json)"', ts.read_text("utf-8")
+        )
+    }
+    assert imported, "ya no se importa ningún JSON: revisa el patrón"
+    assert not {name for name in imported if f"src/bot/assets/{name}" not in dockerfile}
