@@ -170,6 +170,10 @@ MAX_SIGN_SIDE = 40.0
 #: lee el mundo de serie de la página (`mundo/serie.ts`) y `add_casino` lo añade a los mundos
 #: guardados antes de que las tragaperras fueran objetos.
 CASINO_FILE = Path(__file__).resolve().parent.parent / "assets" / "casino_plaza.json"
+#: El piso de serie (edificio, puerta, sus assets y el interior `piso-plaza`): lo lee el mundo de
+#: serie de la página (`interiores/serie.ts`), el servidor para dejar entrar sin nada publicado
+#: (`bot.cogs.universo.interiores`) y `add_piso` lo pone una vez en el borrador de los de antes.
+PISO_FILE = Path(__file__).resolve().parent.parent / "assets" / "universo_piso.json"
 
 _ID = re.compile(r"[a-z0-9_-]{1,40}")
 _KEY = re.compile(
@@ -908,6 +912,35 @@ def add_casino(pieces: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         if f"a/{key}" not in pieces:
             changed[f"a/{key}"] = asset
     for obj in casino["objetos"]:
+        key = cell_key(obj["pos"][0], obj["pos"][2])
+        if key not in changed:
+            old = pieces.get(key, {"objetos": []})
+            changed[key] = {**old, "objetos": list(old.get("objetos", []))}
+        changed[key]["objetos"].append(obj)
+    return changed
+
+
+def add_piso(pieces: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Los trozos que cambian al poner el piso de serie (`PISO_FILE`) en un mundo.
+
+    Para los mundos de antes de los interiores: el edificio y su puerta (sumados a lo que ya tenga
+    su celda), los assets que no estén y el interior. No toca un mundo que ya tenga ese interior,
+    ni un asset que ya exista con la misma clave.
+
+    Args:
+        pieces: Los trozos del mundo (clave → documento), sin los borrados.
+
+    Returns:
+        Clave → documento nuevo de cada trozo que cambia (vacío si no hace falta nada).
+    """
+    piso = json.loads(PISO_FILE.read_text(encoding="utf-8"))
+    if any(f"i/{key}" in pieces for key in piso["interiores"]):
+        return {}
+    changed: dict[str, dict[str, Any]] = {
+        f"a/{key}": asset for key, asset in piso["assets"].items() if f"a/{key}" not in pieces
+    }
+    changed.update({f"i/{key}": room for key, room in piso["interiores"].items()})
+    for obj in piso["objetos"]:
         key = cell_key(obj["pos"][0], obj["pos"][2])
         if key not in changed:
             old = pieces.get(key, {"objetos": []})

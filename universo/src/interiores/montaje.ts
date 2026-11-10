@@ -4,7 +4,7 @@
 // la capa del interior (`mundo/capas.ts`): mientras se está dentro, la cámara solo ve esa capa.
 //
 // Coste: la habitación, 1 llamada de dibujo; lo fijo de piezas, 1; cada usable, 1; cada GLB, las mallas de su modelo; y la
-// pasada de sombras, otro tanto de lo que proyecta sombra (los muebles; la habitación no). El piso de serie, 7 llamadas y ~1.100
+// pasada de sombras, otro tanto de lo que proyecta sombra (los muebles; la habitación no). El piso de serie, 11 llamadas y ~1.100
 // triángulos (con sombras), muy por debajo del presupuesto (120 y 250 000), y el mundo de fuera no se dibuja.
 import { type BufferGeometry, Group, type Material, Mesh, MeshBasicMaterial, MeshLambertMaterial, type Object3D, PlaneGeometry } from "three";
 import { type Asset, cargarGlb, geometriaAsset, type Interior, type Objeto, type Uso } from "../editor/formato";

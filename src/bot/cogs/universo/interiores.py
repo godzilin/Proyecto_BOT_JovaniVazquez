@@ -17,7 +17,7 @@
 - `accion: "salir"` → `{ok}`: vuelve a la capa de fuera.
 
 Con `mundo: "pruebas"` (el extraplano, solo con `devtools`), el mundo es de la página y no se
-puede comprobar la puerta: la página manda `origen`, `piso` y `usables` (`{"<n>": uso}`), y el
+puede comprobar la puerta: la página manda `piso` y `usables` (`{"<n>": uso}`), y el
 lugar va aparte (`pruebas/`), sin logros. Las reglas están en `bot.services.universo_interiores`.
 
 Quien está dentro se apunta en memoria (`Universo._dentro`, uno por miembro): si la sala se
@@ -35,7 +35,6 @@ import json
 import time
 from datetime import datetime
 from functools import cache
-from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -47,7 +46,14 @@ from bot.cogs.universo.permisos import NOT_DEV
 from bot.services.achievements import StatDelta, universo_interior_stats, universo_use_stats
 from bot.services.levels import TIMEZONE
 from bot.services.universo import UniversoError, bearer, snowflake
-from bot.services.universo_editor import MAX_USABLES, USES, MundoError, parse_key, split_world
+from bot.services.universo_editor import (
+    MAX_USABLES,
+    PISO_FILE,
+    USES,
+    MundoError,
+    parse_key,
+    split_world,
+)
 from bot.services.universo_interiores import (
     USE_SECONDS,
     Inside,
@@ -63,8 +69,10 @@ from bot.services.universo_sala import Salas, place
 
 #: El piso de serie de la plaza (edificio, puerta e interior), el mismo que dibuja la página
 #: cuando no hay nada publicado (`mundo/serie.ts`).
-SERIE_FILE = Path(__file__).resolve().parent.parent.parent / "assets" / "universo_piso.json"
+SERIE_FILE = PISO_FILE
 
+#: Lo que se puede pedir (`accion`).
+ACTIONS = ("entrar", "usar", "salir")
 FAR = "Acércate más a la puerta."
 NOT_INSIDE = "No estás dentro de ningún interior."
 NO_ROOM = "Aún no estás en la sala del Jovaniverso: espera un momento."
@@ -92,6 +100,8 @@ class InteriorsMixin:
             raise UniversoError(NOT_DEV, 403)
         salas = self.pruebas if pruebas else self.salas
         action = body.get("accion")
+        if action not in ACTIONS:
+            raise UniversoError("No se sabe qué hacer con ese interior.")
         self.bot.telemetry.count("universo", f"interior_{action}", guild_id=guild.id)
         if action == "salir":
             self._dentro.pop((guild.id, member.id), None)
@@ -101,12 +111,15 @@ class InteriorsMixin:
         if player is None or player.pose is None:
             raise UniversoError(NO_ROOM, 409)
         x, _y, z = place(player.pose)
+        # Entrar y usar leen la base: como mucho una cosa cada `USE_SECONDS` por persona.
+        now = time.monotonic()
+        if now - self._usado.get(member.id, float("-inf")) < USE_SECONDS:
+            raise UniversoError("Más despacio.", 429)
+        self._usado[member.id] = now
         if action == "entrar":
             return await self._enter(guild.id, member.id, body, salas, pruebas, (x, z))
-        if action == "usar":
-            channel_id = snowflake(body.get("channel_id"))
-            return await self._use(guild.id, member.id, body, salas, (x, z), channel_id)
-        raise UniversoError("No se sabe qué hacer con ese interior.")
+        channel_id = snowflake(body.get("channel_id"))
+        return await self._use(guild.id, member.id, body, salas, (x, z), channel_id)
 
     async def _enter(
         self,
@@ -201,9 +214,6 @@ class InteriorsMixin:
         if not inside.pruebas and not near(*at, usable):
             raise UniversoError("Acércate más.", 403)
         now = time.time()
-        if now - self._usado.get(user_id, 0.0) < USE_SECONDS:
-            raise UniversoError("Más despacio.", 429)
-        self._usado[user_id] = now
         repo = self.bot.universo_interiores
         # shortcut: leer y escribir sin candado; dos personas a la vez en el mismo mueble
         # pueden dejarlo como estaba. Si llega a pasar, un `TimedLock` por lugar.

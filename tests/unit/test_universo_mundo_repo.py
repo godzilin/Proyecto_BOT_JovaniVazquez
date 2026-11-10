@@ -21,6 +21,7 @@ from bot.repositories.universo_mundo import (
     MissingAssets,
     UniversoMundoRepository,
 )
+from bot.services.universo_editor import add_piso
 
 CELL = '{"objetos":[{"asset":"pino"}]}'
 PINO = '{"nombre":"Pino"}'
@@ -470,13 +471,38 @@ async def test_los_mundos_sin_tragaperras_reciben_el_casino_una_sola_vez(tmp_pat
         6,
     ]
     draft = await repo.draft(1)
-    assert draft["c/-1/0"][1] == 2  # sube el rev: un editor abierto de antes no lo pisa
-    assert set(draft) == set(world)
-    assert set(await repo.draft(2)) == {"a/mia"}
+    # Sube el rev (con el casino y con el piso de serie, que va en la misma celda): un editor
+    # abierto de antes no lo pisa.
+    assert draft["c/-1/0"][1] == 3
+    assert set(world) <= set(draft)  # el borrador lleva además el piso de serie (`add_piso`)
+    assert set(await repo.draft(2)) - set(add_piso({})) == {"a/mia"}
     # Quitar el casino después es cosa de los editores: no vuelve al reiniciar.
-    await repo.save(1, {"c/-1/0": put(2, cell, "pino")}, 10)
+    await repo.save(1, {"c/-1/0": put(3, cell, "pino")}, 10)
     await repo.initialize()
     assert (await repo.draft(1))["c/-1/0"][0] == cell
+
+
+async def test_el_borrador_de_antes_recibe_el_piso_de_serie_sin_publicarlo(tmp_path: Path) -> None:
+    repo = UniversoMundoRepository(tmp_path / "bot.sqlite3")
+    await repo.initialize()
+    await repo.save(1, {"a/pino": put(0, PINO)}, 10)
+    await repo.publish(1, 10)
+    connection = sqlite3.connect(repo.database_path)
+    connection.execute("DELETE FROM universo_migraciones WHERE nombre = 'piso'")
+    connection.commit()
+    connection.close()
+    await repo.initialize()
+    draft = await repo.draft(1)
+    assert {"i/piso-plaza", "a/sofa", "a/puerta-pisos", "a/pino"} <= set(draft)
+    _version, world = await published(repo) or (0, {})
+    assert "i/piso-plaza" not in world
+    # Lo usa el interior: el sofá no se puede borrar mientras esté.
+    with pytest.raises(mundo_repo.MissingAssets):
+        await repo.save(1, {"a/sofa": put(draft["a/sofa"][1], "")}, 10)
+    # Quitarlo es cosa de los editores: no vuelve al reiniciar.
+    await repo.save(1, {"i/piso-plaza": put(draft["i/piso-plaza"][1], "")}, 10)
+    await repo.initialize()
+    assert (await repo.draft(1))["i/piso-plaza"][0] == ""
 
 
 def terrain_cell(peak: int) -> tuple[str, str]:
@@ -553,7 +579,9 @@ async def test_las_bases_de_antes_reciben_la_columna_y_el_resumen_una_sola_vez(
                 table: [
                     r[0]
                     for r in db.execute(
-                        f"SELECT resumen FROM universo_trozos_{table} ORDER BY clave"
+                        f"SELECT resumen FROM universo_trozos_{table} "
+                        # Las celdas de la prueba (el borrador recibe además el piso de serie).
+                        "WHERE clave IN ('c/0/0', 'c/1/0') ORDER BY clave"
                     )
                 ]
                 for table in ("borrador", "publicados")

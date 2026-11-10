@@ -30,7 +30,9 @@ Tablas (en el mismo archivo SQLite que el resto del bot):
 - `universo_migraciones`: los arreglos de una sola vez ya hechos en cada servidor. Uno
   es `casino`: los mundos guardados o publicados antes de que las tragaperras fueran objetos
   del editor reciben el casino de la plaza (`bot.services.universo_editor.add_casino`), en el
-  borrador y en una publicación nueva del bot (`author_id` 0). La otra, `glb_disco` (con
+  borrador y en una publicación nueva del bot (`author_id` 0). Otra es `piso`: el borrador de
+  los mundos de antes de los interiores recibe el piso de serie de la plaza
+  (`bot.services.universo_editor.add_piso`), sin publicarlo. La otra, `glb_disco` (con
   `guild_id` 0, porque los GLB son de todos), saca a archivos los GLB que se guardaban en la
   base.
 
@@ -56,7 +58,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from bot.repositories import sqlite
-from bot.services.universo_editor import add_casino, cell_summary, glb_refs
+from bot.services.universo_editor import add_casino, add_piso, cell_summary, glb_refs
 
 T = TypeVar("T")
 
@@ -292,6 +294,7 @@ class UniversoMundoRepository:
         if old:
             self._transaction(lambda c: _migrate_v1(c, old))
         self._transaction(_migrate_casino)
+        self._transaction(_migrate_piso)
         self._transaction(_migrate_resumen)
         self._migrate_glb_sync()
         self._prune_glb_sync()
@@ -969,7 +972,8 @@ def _dump(doc: object) -> str:
 
 
 def _cell_refs(key: str, doc: dict[str, Any]) -> str:
-    return _refs({o["asset"] for o in doc.get("objetos", [])} if key.startswith("c/") else ())
+    used = key.startswith(("c/", "i/"))  # las celdas y los interiores usan assets
+    return _refs({o["asset"] for o in doc.get("objetos", [])} if used else ())
 
 
 def _cell_summary(key: str, doc: dict[str, Any]) -> str:
@@ -1047,6 +1051,50 @@ def _migrate_casino(connection: sqlite3.Connection) -> None:
                 )
         connection.execute(
             "INSERT INTO universo_migraciones (guild_id, nombre) VALUES (?, 'casino')", (guild_id,)
+        )
+
+
+def _migrate_piso(connection: sqlite3.Connection) -> None:
+    """Pone el piso de serie en el borrador de cada servidor que ya tenía uno, una vez.
+
+    Solo en el borrador: aparece en el mundo cuando un editor publica (y antes lo puede mover o
+    quitar). Los servidores sin borrador ya lo tienen en el mundo de serie.
+    """
+    guilds = [
+        int(r[0])
+        for r in connection.execute(
+            "SELECT DISTINCT guild_id FROM universo_trozos_borrador EXCEPT "
+            "SELECT guild_id FROM universo_migraciones WHERE nombre = 'piso'"
+        )
+    ]
+    for guild_id in guilds:
+        revs: dict[str, int] = {}
+        draft: dict[str, dict[str, Any]] = {}
+        for r in connection.execute(
+            "SELECT clave, doc, rev FROM universo_trozos_borrador WHERE guild_id = ?", (guild_id,)
+        ):
+            revs[r["clave"]] = int(r["rev"])
+            if r["doc"]:
+                draft[r["clave"]] = json.loads(r["doc"])
+        for key, doc in (add_piso(draft) if draft else {}).items():
+            connection.execute(
+                "INSERT INTO universo_trozos_borrador "
+                "(guild_id, clave, doc, refs, resumen, rev, author_id, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT (guild_id, clave) DO UPDATE SET "
+                "doc = excluded.doc, refs = excluded.refs, resumen = excluded.resumen, "
+                "rev = excluded.rev, author_id = 0, updated_at = excluded.updated_at",
+                (
+                    guild_id,
+                    key,
+                    _dump(doc),
+                    _cell_refs(key, doc),
+                    _cell_summary(key, doc),
+                    revs.get(key, 0) + 1,
+                    _now(),
+                ),
+            )
+        connection.execute(
+            "INSERT INTO universo_migraciones (guild_id, nombre) VALUES (?, 'piso')", (guild_id,)
         )
 
 

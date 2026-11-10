@@ -48,12 +48,35 @@ VISTAS = [
     "nieves",
     "drago",
     "plaza",
+    "pisos",
+    "pisodentro",
     "casino",
     "casinodentro",
 ]
-CAPTURAS = ["plaza", "faro", "nublo", "cenit", "casino", "casinodentro", "rampas", "escalones"]
+CAPTURAS = [
+    "plaza",
+    "faro",
+    "nublo",
+    "cenit",
+    "pisos",
+    "pisodentro",
+    "casino",
+    "casinodentro",
+    "rampas",
+    "escalones",
+]
 #: Vistas del extraplano: los sitios de `SITIOS_PISTA` (universo/src/mundo/pista.ts) y el casino.
-VISTAS_PRUEBAS = ["plaza", "rampas", "escalones", "columnas", "muro", "casino", "casinodentro"]
+VISTAS_PRUEBAS = [
+    "plaza",
+    "rampas",
+    "escalones",
+    "columnas",
+    "muro",
+    "pisos",
+    "pisodentro",
+    "casino",
+    "casinodentro",
+]
 PERFILES = {
     "escritorio": dict(viewport={"width": 1280, "height": 720}),
     "movil": dict(
@@ -72,7 +95,18 @@ ARGS = [
 
 JS_IR = """async ([nombre, px, pz]) => {
   const jv = window.__jv;
-  if (nombre === 'plaza') jv.tp(px, pz, 0.3, 0.35, 8);
+  if (jv.interior?.dentro()) jv.interior.salir();
+  if (nombre === 'pisos' || nombre === 'pisodentro') {
+    // Delante de la puerta del edificio de pisos (la del interior `piso-plaza`) y, en `pisodentro`, dentro. Sin
+    // interiores (una versión de antes), el mismo sitio.
+    const esperar = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+    const puerta = () => (jv.interior?.puertas() ?? []).findIndex((p) => p.interior === 'piso-plaza');
+    const p0 = jv.interior?.puertas()[puerta()];
+    jv.tp(p0 ? p0.x + 3 * Math.sin(p0.yaw) : px, p0 ? p0.z + 3 * Math.cos(p0.yaw) : pz, p0 ? p0.yaw : 0, 0.3, 8);
+    for (let i = 0; i < 120 && jv.interior && puerta() < 0; i++) await esperar(1);
+    if (nombre === 'pisodentro' && jv.interior && puerta() >= 0) await jv.interior.entrar(puerta());
+  }
+  else if (nombre === 'plaza') jv.tp(px, pz, 0.3, 0.35, 8);
   else if (nombre === 'casino' || nombre === 'casinodentro') {
     jv.irA('casino');
     await jv.casinoListo;
@@ -95,6 +129,16 @@ JS_MEDIR = """async () => {
   await esperar(2);
   return { total, sin };
 }"""
+
+
+#: Dónde está la puerta del piso de serie (x, z), para medir la misma vista con una versión sin interiores.
+PUERTA_PISO = tuple(
+    json.loads(
+        (Path(__file__).resolve().parent.parent / "src/bot/assets/universo_piso.json").read_text(
+            encoding="utf-8"
+        )
+    )["objetos"][1]["pos"][::2]
+)
 
 
 def plaza() -> tuple[float, float]:
@@ -130,7 +174,9 @@ def medir(
                 )
             res[perfil] = {}
             for v in vistas:
-                pag.evaluate(JS_IR, [v, px, pz])
+                # Las vistas del piso, sin interiores (antes), delante de donde va su puerta.
+                donde = (PUERTA_PISO[0] + 3, PUERTA_PISO[1]) if v.startswith("piso") else (px, pz)
+                pag.evaluate(JS_IR, [v, *donde])
                 m = pag.evaluate(JS_MEDIR)
                 t, s = m["total"], m["sin"]
                 res[perfil][v] = dict(
@@ -282,9 +328,7 @@ def main() -> None:
     )
     ap.add_argument("--capturas", type=Path, help="carpeta donde guardar las capturas")
     ap.add_argument("--json", type=Path, help="guarda las cifras en este archivo")
-    ap.add_argument(
-        "--extra", default="", help="parámetros de URL extra, p. ej. &teselas=10"
-    )
+    ap.add_argument("--extra", default="", help="parámetros de URL extra, p. ej. &teselas=10")
     ap.add_argument("--solo", choices=list(PERFILES), default="", help="mide solo este perfil")
     ap.add_argument("--pruebas", action="store_true", help="mide el extraplano de pruebas")
     ap.add_argument("--carga", type=int, default=0, help="mide la entrada tantas veces")

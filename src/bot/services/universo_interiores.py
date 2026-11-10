@@ -35,7 +35,7 @@ from typing import Any
 DOOR_REACH_DM = 40
 #: Lo más lejos de un usable (en horizontal, dm) desde donde se puede usar (la página, 1,8 m).
 USE_REACH_DM = 30
-#: Segundos mínimos entre dos usos de la misma persona.
+#: Segundos mínimos entre dos peticiones de la misma persona (entrar o usar).
 USE_SECONDS = 0.4
 #: Lo que dura arreglado algo de `reparar` antes de volver a romperse.
 REPAIR_SECONDS = 24 * 3600

@@ -93,6 +93,7 @@ async def move(world: World, ws: Any, user_id: int, at: tuple[int, int]) -> None
 
 async def call(world: World, user_id: int, **body: object) -> tuple[int, dict[str, Any]]:
     headers = {"Authorization": f"Bearer {world.cog.signer.issue(user_id)}"}
+    world.cog._usado.clear()  # sin esperar `USE_SECONDS` entre una petición y otra
     response = await world.web.post(
         "/api/interior", json={"guild_id": str(GUILD_ID), **body}, headers=headers
     )
@@ -132,10 +133,8 @@ async def test_sin_piso_se_entra_en_el_piloto_se_usa_y_se_sale(world: World) -> 
     assert status == 403
     await move(world, ana, USER_ID, SOFA)
     assert await call(world, USER_ID, accion="usar", n=1) == (200, {"n": 1, "estado": 0})
-    world.cog._usado.clear()  # sin esperar `USE_SECONDS`
     await move(world, ana, USER_ID, LAMP)
     assert await call(world, USER_ID, accion="usar", n=3) == (200, {"n": 3, "estado": 1})
-    world.cog._usado.clear()
     assert (await call(world, USER_ID, accion="usar", n=3))[0] == 409  # ya está arreglada
     saved = await world.client.universo_interiores.states(GUILD_ID, "piso-plaza")
     assert {n: state for n, (state, _at) in saved.items()} == {1: 0, 3: 1}
@@ -289,3 +288,15 @@ async def test_el_extraplano_va_aparte_y_solo_para_desarrolladores(world: World)
     )
     await ws.close()
     assert "universo_interiors" not in await stats(world)
+
+
+async def test_entrar_y_usar_tienen_ritmo(world: World) -> None:
+    ana = await connect(world, USER_ID)
+    await move(world, ana, USER_ID, OUTSIDE)
+    assert (await call(world, USER_ID, accion="entrar", interior="piso-plaza"))[0] == 200
+    headers = {"Authorization": f"Bearer {world.cog.signer.issue(USER_ID)}"}
+    body = {"guild_id": str(GUILD_ID), "accion": "usar", "n": 1}
+    response = await world.web.post("/api/interior", json=body, headers=headers)
+    assert response.status == 429
+    assert (await call(world, USER_ID, accion="borrar"))[0] == 400
+    await ana.close()

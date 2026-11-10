@@ -20,6 +20,7 @@ El mundo es un mapa de **trozos**, cada uno un JSON pequeño con su clave:
 | `teleportes` | `{"teleportes": [{nombre, x, z}, ...]}`: los sitios del menú Viajar (hasta 24). Sin el trozo, los de serie; con la lista vacía, ninguno. |
 | `a/<id>` | Un asset (el mismo objeto que antes en `assets[<id>]`). |
 | `c/<cx>/<cz>` | Una celda de `CELDA` = 80 m de lado: `{"objetos": [...], "terreno"?: {...}}`. |
+| `i/<id>` | Un interior (fase 4): una habitación con sus objetos, en la que se entra por una puerta. |
 
 - La celda `(cx, cz)` cubre `[cx·80, (cx+1)·80)` en x y lo mismo en z. Un objeto va en la celda
   de su `pos` (x, z), en coordenadas del mundo, no relativas a la celda.
@@ -224,6 +225,84 @@ Lo que queda para la página en un mundo de decenas de km (fase 2): las mallas f
 los vértices en coordenadas del mundo con `float32`, que a 40 km tiene 4 mm de paso; si se nota
 temblor lejos del centro, cada celda se dibuja desde su esquina.
 
+## Interiores y estado de cada jugador (fase 4)
+
+Un **interior** es una habitación en la que se entra por una puerta, sin cambiar de mundo ni de sala.
+Es un trozo propio, `i/<id>`, que no está en ninguna celda:
+
+```
+"i/<id>"  {"nombre", "ancho": m, "fondo": m, "alto": m, "suelo": 0xRRGGBB, "pared": 0xRRGGBB,
+           "piso"?: true, "objetos": [Objeto, ...]}
+```
+
+- Planta de 2 a 40 m, alto de 2 a 12 m, hasta 400 objetos (`MAX_ROOM_OBJECTS`). Los objetos van en
+  coordenadas de la habitación (el centro del suelo es el 0) y usan assets normales (`refs`, como una
+  celda: no se puede borrar un asset que usa un interior). La salida está en el centro de la pared +z.
+- **Funciones nuevas de un asset** (la lista ampliable de `FUNCTIONS`): `puerta` (cada objeto dice a qué
+  interior lleva en `datos.interior`) y `usable` con su `uso`: `mueble` (se pone y se quita; de serie,
+  puesto) o `reparar` (de serie, roto; se arregla y vuelve a romperse a las 24 h). Cada usable lleva su
+  número en el interior (`datos.n`, de 1 a `MAX_USABLES` = 24, sin repetirse): su estado se guarda por
+  número, nunca por posición. Una función nueva se añade igual: `universo_editor.py`, `formato.ts`, sus
+  campos en `editor/funciones.ts` y sus reglas en `bot.services.universo_interiores`.
+- Con `piso`, quien tiene vivienda habitual en `pisos` (`HousingRepository.home_of`) entra en el suyo; el
+  resto, en el **piso piloto**, que es de todos.
+
+**Cómo se entra.** La página baja el interior (y los assets que usa y no tiene) de la misma fuente que el
+mundo cuando el jugador está a menos de 40 m de una puerta, y lo olvida a 90 m. Con E pide entrar
+(`POST /api/interior`, `bot.cogs.universo.interiores`) con las claves y versiones de la celda de la puerta, el
+interior y los assets de sus usables. El servidor:
+
+1. Busca la puerta en esa celda publicada (sin nada publicado, en el piso de serie,
+   `src/bot/assets/universo_piso.json`) y mira con la **pose de la sala** que esté a menos de 4 m.
+2. Decide el **lugar**: `<id>` (de todos) o `<id>@<dueño>` (un piso); en el extraplano, con `pruebas/`
+   delante (allí la página dice el origen y los usables, porque el mundo es suyo; solo con `devtools`).
+3. Pasa al jugador a la **capa** de ese lugar en la sala (`Salas.set_layer`): las regiones del interés por
+   cercanía son de cada capa, así que dentro solo se ve a los del mismo lugar y los de fuera no ven a los de
+   dentro. Cambiar de capa cuesta lo mismo que cambiar de región (un `lejos` y un tipo 3); el tick no
+   cambia. `near` (gestos, tiradas de las tragaperras) tampoco cruza de capa. Si la sala se corta, la página
+   dice en el saludo que sigue dentro (`dentro: true`) y vuelve a su capa; si ha recargado, se olvida.
+4. Devuelve el estado de cada usable y si el jugador puede usarlos (en un piso, solo su dueño).
+
+**La página** monta la habitación en el sitio de la puerta (`interiores/montaje.ts`): suelo, cuatro paredes
+que solo se ven desde dentro (la cámara en tercera persona mira a través de la de detrás), la puerta de
+salida, lo fijo fundido en una malla y cada usable en la suya. Todo va en la capa 1 de three
+(`mundo/capas.ts`) y, mientras se está dentro, la cámara solo ve esa capa (con las luces, tu robot y los
+demás): el mundo de fuera no gasta ni una llamada de dibujo, sombras incluidas, y no hay que ocultarlo ni
+soltarlo (al salir está como estaba; la carga por cercanía sigue alrededor de la puerta). El suelo y el
+borde pasan a ser los de la habitación (`mundo/dentro.ts`, que el jugador y la cámara usan en lugar de
+`terreno.ts` y `borde.ts`) y solo chocan sus muebles (`soloEstos` de `colision.ts`).
+
+**Usar.** `{accion: "usar", n}`: el servidor mira que el jugador esté dentro, a 3 m del usable (con la
+pose de la sala), que el lugar sea suyo o de todos y que no use nada más de una vez cada 0,4 s; calcula el
+estado nuevo, lo guarda y avisa a los demás del lugar (`{t: "uso", n, estado}` por la sala, JSON: es raro).
+
+**Estado en tablas propias** (`bot.repositories.universo_interiores`, nunca en el documento del mundo):
+`universo_interior_estado (guild_id, lugar, n, estado, user_id, updated_at)`, una fila por usable cambiado
+de cada lugar. Lo de reparar se rompe solo al leerlo (`view`: arreglado hace 24 h o más, roto): no hay
+ninguna tarea que simule nada. Un lugar tiene 24 filas como mucho, así que la tabla crece con los pisos de
+los miembros, no con el uso.
+
+**Coste.** En el servidor, entrar es leer un lote de trozos ya en la caché (`world_batch`) y una consulta
+de la tabla; usar, una lectura y una escritura. Nada por tick. En la página, la habitación del piso de serie son 11
+llamadas de dibujo y ~1.100 triángulos con sombras, y quita todo lo de fuera (medido abajo).
+
+**Medido** (`docs/medir_universo.py`, vistas `pisos`, delante de la puerta, y `pisodentro`, dentro, en el
+mismo sitio que antes de los interiores; 10/11/2026):
+
+MEDIDAS
+
+**El piso de serie** está al oeste de la plaza (el hueco del primer anillo de casas): un edificio con su
+puerta y el interior `piso-plaza` (un salón con sofá y mesa, que se ponen y se quitan, y una lámpara y un
+fregadero, que se arreglan). Lo usan el mundo de serie (`mundo/serie.ts`) y el extraplano (a la derecha de
+la plaza, `SITIOS_PISTA.pisos`). Un mundo ya publicado no lo recibe solo: lo coloca un editor (las puertas
+e interiores se editan en el editor de niveles: cada puerta elige su interior o crea uno, y ahí se cambian
+sus medidas, colores y la lista de objetos; no se colocan en 3D).
+
+**Lo que queda:** visitar el piso de otro miembro (el lugar `<id>@<dueño>` ya existe: falta decidir quién
+puede entrar, por ejemplo con el dueño dentro o con una llave de `pisos`, y cómo se elige en la puerta);
+editar los interiores en 3D y no solo con la lista; ver el estado de los muebles en la Confort de `casa`
+(los muebles de verdad de la fase 2 de `docs/casa.md`); el Ultramarino (`docs/ultramarino.md`).
+
 ## Fases
 
 1. **Trozos en el almacenamiento, el editor y la descarga** (hecha, 10.5.0). Los datos quedan ya con su
@@ -233,6 +312,8 @@ temblor lejos del centro, cada celda se dibuja desde su esquina.
    celdas (ver «Rutas») y que el pincel esculpa fuera de la isla.
 3. **Red** (10.11.0, «La red (fase 3)» arriba): posiciones relativas a la región, interés por
    cercanía, el borde del mundo publicado y altura hasta 4000 m.
-4. **Interiores y estado de cada jugador:** los interiores como trozos propios que se cargan al
-   acercarse a la puerta. Lo que cambia jugando (muebles de tu piso, reparaciones, estanterías del
-   Ultramarino) va en sus tablas, nunca en el documento del mundo.
+4. **Interiores y estado de cada jugador** (la base, hecha: «Interiores y estado de cada jugador
+   (fase 4)» arriba): los interiores como trozos propios que se cargan al acercarse a la puerta, las
+   puertas y los usables como funciones de un asset, las capas de la sala y el estado de lo que se usa
+   en su tabla, nunca en el documento del mundo. Falta visitar el piso de otro, editarlos en 3D y el
+   Ultramarino (`docs/ultramarino.md`).
