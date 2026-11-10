@@ -79,7 +79,7 @@ export const AYUDA_MUNDO: [string, string][] = [
   ["Ctrl+D", "Duplica los objetos elegidos, 1 m a un lado; las copias quedan elegidas"],
   ["Ctrl+C / Ctrl+X / Ctrl+V", "Copia, corta y pega. Se pega con el centro del grupo bajo el ratón (o 1 m a un lado), cada objeto a su altura sobre el suelo de origen"],
   ["Supr o Retroceso", "Borra los objetos elegidos"],
-  ["Ctrl+A", "Elige todos los objetos del mismo asset que el último elegido"],
+  ["Ctrl+A", "Elige todos los objetos del mismo asset que el último elegido, de las celdas bajadas (unos 480 m alrededor de la cámara)"],
   ["Escape", "Deja de colocar y de elegir"],
   ["F", "Encuadra lo elegido"],
   ["H", "Oculta los objetos elegidos (solo en el editor, no se guarda; se olvida al deshacer o recargar)"],
@@ -417,7 +417,7 @@ export class PanelMundo implements Panel {
   estado(): string[] {
     const sobra = (n: number, tope: number): string => (n > tope ? "⚠ " : "");
     const partes = [
-      `${this.doc.objetos.length} objetos`,
+      `${this.doc.objetos.length} objetos bajados`,
       `${sobra(this.llamadas, MAX_LLAMADAS)}${this.llamadas} / ${MAX_LLAMADAS} llamadas`,
       `${sobra(this.triangulos, MAX_TRIANGULOS)}${this.triangulos.toLocaleString("es-ES")} / ${MAX_TRIANGULOS.toLocaleString("es-ES")} triángulos`,
     ];
@@ -458,6 +458,11 @@ export class PanelMundo implements Panel {
     this.activo = false;
     cancelAnimationFrame(this.pendiente);
     this.pendiente = 0;
+  }
+
+  /** Han llegado celdas: la selección sigue valiendo (sus objetos van al final), solo se rehacen las obras. */
+  alLlegarCeldas(): void {
+    this.reconstruir();
   }
 
   /** El borrador ha cambiado fuera de este modo (otro modo, deshacer, recargar): se empieza sin selección y con las obras al día. */
@@ -534,7 +539,11 @@ export class PanelMundo implements Panel {
 
   private pintar(): void {
     // El mundo se carga por cercanía alrededor de la cámara del editor; mientras quede algo por montar se sigue pintando.
-    if (this.mundo.enfocar(this.camara.position.x, this.camara.position.z)) this.pedir();
+    const { x, z } = this.camara.position;
+    if (this.mundo.enfocar(x, z)) this.pedir();
+    // Y el borrador baja las celdas de alrededor; soltar las lejanas cambia `doc.objetos`, así que solo sin nada elegido ni a medias.
+    const quieto = !this.sel.lista.length && !this.zona && !this.colocando && this.herramienta === "objetos";
+    if (this.a.b.cerca(x, z, quieto)) this.cargarObras();
     this.ctx.culling.actualizar(this.camara);
     this.renderer.render(this.ctx.escena, this.camara);
     const r = this.renderer.info.render;

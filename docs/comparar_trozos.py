@@ -77,7 +77,7 @@ const cuerpos: string[] = [];
   return {{ ok: true, json: async () => ({{ revs: Object.fromEntries(Object.keys(t).map((k) => [k, 1])) }}) }};
 }};
 const nada = () => undefined;
-const b = new Borrador({{ session: "s", guildId: "1" }}, {{ version: 0, trozos: {{}} }}, {{ fallo: nada, estado: nada, reemplazado: nada }}, structuredClone(serie));
+const b = new Borrador({{ session: "s", guildId: "1" }}, {{ version: 0, trozos: {{}}, borrados: {{}}, docs: {{}} }}, {{ fallo: nada, estado: nada, reemplazado: nada }}, structuredClone(serie));
 const tGuardarTodo = hoy();
 await b.guardar();
 const guardarTodo = hoy() - tGuardarTodo;
@@ -136,7 +136,7 @@ const nada = (): undefined => undefined;
   return { ok: true, json: async () => ({ revs: Object.fromEntries(Object.keys(t).map((k) => [k, 1])) }) };
 };
 const nuevo = (): Borrador =>
-  new Borrador({ session: "s", guildId: "1" }, { version: 0, trozos: {} }, { fallo: nada, estado: nada, reemplazado: nada }, structuredClone(grande));
+  new Borrador({ session: "s", guildId: "1" }, { version: 0, trozos: {}, borrados: {}, docs: {} }, { fallo: nada, estado: nada, reemplazado: nada }, structuredClone(grande));
 const actual = (b: Borrador): Map<string, string> => (b as any).actual;
 const igual = (b: Borrador): boolean => {
   const todo = aTrozos(b.doc);

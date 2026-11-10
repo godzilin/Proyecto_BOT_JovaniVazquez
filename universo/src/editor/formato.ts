@@ -97,6 +97,12 @@ export interface MundoDoc {
   /** Sin la lista, los de serie (`teleportesDeSerie`); con la lista vacía, ninguno. */
   teleportes?: Teleporte[];
   terreno?: Terreno;
+  /**
+   * Lo demás que trae cada celda (`c/<cx>/<cz>`), aparte de sus objetos y del terreno de la isla: el terreno de una celda de
+   * fuera de la isla y los campos que el editor no conoce, que se conservan tal cual. `gen` (la marca del generador) no entra:
+   * una celda que se guarda desde el editor ya está hecha a mano.
+   */
+  celdas?: Record<string, Record<string, unknown>>;
 }
 
 // Los mismos números que en Python; los vigila tests/unit/test_universo_formato_ts.py.

@@ -47,6 +47,20 @@ interface Celda {
   terreno?: Terreno;
 }
 
+/** ¿La celda es una de las 16 de la isla esculpible, cuyo terreno va junto en `MundoDoc.terreno`? */
+export const enIsla = (cx: number, cz: number): boolean => cx >= PRIMERA && cx < -PRIMERA && cz >= PRIMERA && cz < -PRIMERA;
+/** Las claves de las 16 celdas de la isla. */
+export const CELDAS_ISLA: readonly string[] = Array.from({ length: 16 }, (_, i) => `c/${PRIMERA + (i % 4)}/${PRIMERA + Math.floor(i / 4)}`);
+
+/** Lo que trae la celda aparte de sus objetos, del terreno de la isla y de `gen` (ver `MundoDoc.celdas`); `undefined` si nada. */
+export function extraCelda(cx: number, cz: number, c: object): Record<string, unknown> | undefined {
+  const resto: Record<string, unknown> = { ...c };
+  delete resto.objetos;
+  delete resto.gen;
+  if (enIsla(cx, cz)) delete resto.terreno;
+  return Object.keys(resto).length ? resto : undefined;
+}
+
 // El terreno cambia pocas veces y cada commit parte el documento: se reusa el último corte si no ha cambiado.
 let corte: { alturas: string; colores: string; celdas: Map<string, Terreno> } | undefined;
 
@@ -81,8 +95,9 @@ export function trozosSueltos(doc: MundoDoc): [string, string | null][] {
   ];
 }
 
-/** El JSON de una celda con esos objetos (en su orden) y ese terreno; `null` si no lleva nada. */
-export function trozoCelda(objetos: Objeto[], terreno?: Terreno): string | null {
+/** El JSON de una celda con esos objetos (en su orden), ese terreno y lo demás que traía; `null` si no lleva nada. */
+export function trozoCelda(objetos: Objeto[], terreno?: Terreno, extra?: Record<string, unknown>): string | null {
+  if (extra) return JSON.stringify({ objetos, terreno, ...extra });
   if (terreno) return JSON.stringify({ objetos, terreno });
   return objetos.length ? JSON.stringify({ objetos }) : null;
 }
@@ -101,7 +116,8 @@ export function aTrozos(doc: MundoDoc): Map<string, string> {
   }
   const terreno = doc.terreno ? partirTerreno(doc.terreno) : new Map<string, Terreno>();
   for (const clave of terreno.keys()) if (!celdas.has(clave)) celdas.set(clave, []);
-  for (const [clave, objetos] of celdas) trozos.set(clave, trozoCelda(objetos, terreno.get(clave)) as string);
+  for (const clave of Object.keys(doc.celdas ?? {})) if (!celdas.has(clave)) celdas.set(clave, []);
+  for (const [clave, objetos] of celdas) trozos.set(clave, trozoCelda(objetos, terreno.get(clave), doc.celdas?.[clave]) as string);
   return trozos;
 }
 
@@ -130,10 +146,19 @@ export function parchear(doc: MundoDoc, cambios: Record<string, unknown>): Mundo
   }
   if (!celdas.size) return nuevo;
   nuevo.objetos = doc.objetos.filter((o) => !celdas.has(numeroCelda(o.pos[0], o.pos[2])));
+  const extras = { ...doc.celdas };
+  for (const [n, c] of celdas) {
+    const e = c && extraCelda(cxDe(n), czDe(n), c);
+    if (e) extras[claveDeNumero(n)] = e;
+    else delete extras[claveDeNumero(n)];
+  }
+  if (Object.keys(extras).length) nuevo.celdas = extras;
+  else delete nuevo.celdas;
   const terreno = new Map(doc.terreno ? partirTerreno(doc.terreno) : []);
   let otroTerreno = false;
   for (const [n, c] of celdas) {
     if (c) for (const o of c.objetos) nuevo.objetos.push(o);
+    if (!enIsla(cxDe(n), czDe(n))) continue; // su terreno va en `celdas`
     const clave = claveDeNumero(n);
     const viejo = terreno.get(clave);
     if (c?.terreno) {
@@ -172,8 +197,11 @@ export function deTrozos(trozos: Record<string, unknown>): MundoDoc {
       const m = CLAVE_CELDA.exec(clave);
       if (!m) continue;
       const c = t as Celda;
+      const [cx, cz] = [Number(m[1]), Number(m[2])];
       for (const o of c.objetos) doc.objetos.push(o);
-      if (c.terreno) conTerreno.push([Number(m[1]), Number(m[2]), c.terreno]);
+      if (c.terreno && enIsla(cx, cz)) conTerreno.push([cx, cz, c.terreno]);
+      const e = extraCelda(cx, cz, c);
+      if (e) (doc.celdas ??= {})[clave] = e;
     }
   }
   const t = juntarTerreno(conTerreno);
@@ -187,7 +215,7 @@ function juntarTerreno(celdas: [number, number, Terreno][]): Terreno | undefined
   const cubierto = new Uint8Array(LADO_ISLA * LADO_ISLA);
   let alguna = false;
   for (const [cx, cz, t] of celdas) {
-    if (cx < PRIMERA || cx >= -PRIMERA || cz < PRIMERA || cz >= -PRIMERA) continue; // fuera de la isla esculpible
+    if (!enIsla(cx, cz)) continue; // fuera de la isla esculpible (va en `MundoDoc.celdas`)
     const h = aBytes(t.alturas);
     const c = aBytes(t.colores);
     if (h.length !== 2 * LADO_CELDA * LADO_CELDA || c.length !== LADO_CELDA * LADO_CELDA) continue; // el servidor ya lo valida

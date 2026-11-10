@@ -592,3 +592,37 @@ async def test_para_valorar_el_casino_solo_lee_las_celdas_con_tragaperras(
     found, pieces = await repo.casino_pieces(1)
     assert found == version
     assert set(pieces) == {"a/traga", "a/pino", "c/0/0", "c/1/0"}
+
+
+async def test_el_indice_del_borrador_no_lee_las_celdas(repo: UniversoMundoRepository) -> None:
+    zonas = '{"zonas":{}}'
+    await repo.save(
+        1,
+        {
+            "a/pino": put(0, PINO),
+            "zonas": put(0, zonas),
+            "c/0/0": put(0, CELL, "pino"),
+            "c/-1/3": put(0, CELL, "pino"),
+            "c/5/5": put(0, '{"objetos":[]}'),
+        },
+        10,
+    )
+    await repo.save(1, {"c/5/5": put(1, "")}, 10)
+    index = await repo.draft_index(1)
+    assert index.alive == {"a/pino": 1, "zonas": 1, "c/0/0": 1, "c/-1/3": 1}
+    assert index.gone == {"c/5/5": 2}
+    assert index.small == {"a/pino": PINO, "zonas": zonas}
+    assert await repo.draft_pieces(1, ["c/0/0", "c/5/5", "c/9/9"]) == {
+        "c/0/0": (CELL, 1),
+        "c/5/5": ("", 2),
+    }
+    assert await repo.draft_users(1, "pino") == ["c/-1/3", "c/0/0"]
+    assert await repo.draft_users(1, "pin") == []
+    # La lista de trozos sale del índice, sin leer la tabla.
+    connection = sqlite3.connect(repo.database_path)
+    plan = connection.execute(
+        "EXPLAIN QUERY PLAN SELECT clave, rev, doc = '' FROM universo_trozos_borrador "
+        "INDEXED BY universo_trozos_borrador_indice WHERE guild_id = 1"
+    ).fetchall()
+    connection.close()
+    assert "COVERING INDEX" in str(plan)

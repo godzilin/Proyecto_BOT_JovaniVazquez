@@ -78,7 +78,12 @@ que cambian, no una copia del mundo entero.
   cada uno con la versión de su fila (la que da el índice), así que la URL no cambia nunca de
   contenido (`immutable`). Con `resumen=1`, `{"resumenes": {clave: base64}}`: solo el horizonte. 410 si
   alguna fila ya se ha podado: la página pide el índice otra vez.
-- `GET /api/editor/borrador` → `{"version": N, "trozos": {clave: {"doc": doc | null, "rev": r}}}`.
+- `GET /api/editor/indice` → `{"version": N, "trozos": {clave: rev}, "borrados": {clave: rev}, "docs": {clave: doc}}`:
+  qué trozos tiene el borrador y su `rev` (las lápidas aparte), sin las celdas, y los documentos de lo que no es celda (assets,
+  zonas, teleportes). Sale del índice `universo_trozos_borrador_indice` sin leer las celdas. Sin caché (`no-store`).
+- `GET /api/editor/trozos?guild_id=&t=c/0/0,c/1/0` → `{"trozos": {clave: {"doc": doc | null, "rev": r}}}`: hasta 64 trozos
+  del borrador; `doc` nulo en una lápida y `rev` 0 en lo que no existe.
+- `GET /api/editor/usos?guild_id=&asset=id` → `{"celdas": [clave]}`: las celdas del borrador que usan un asset (lee solo `refs`).
 - `PUT /api/editor/borrador` `{guild_id, v, trozos: {clave: {"rev": r, "doc": doc | null}}}`
   → `{"revs": {clave: r}}`. 409 si algún `rev` no coincide (no se guarda nada).
 - `POST /api/editor/publicar` `{guild_id}` → `{"version": N}`.
@@ -144,11 +149,39 @@ compara el mundo entero, y en desarrollo cada `commit` rápido se compara con el
 deshacer de ~150 a ~13. El documento del editor es el `MundoDoc` plano, que se parte en trozos al
 guardar (`aTrozos`) y se junta al cargar (`deTrozos`), en `editor/trozos.ts`.
 
-**El editor** sigue cargando el borrador entero como `MundoDoc` (como en la fase 1) y lo dibuja por
-cercanía alrededor de su cámara. Falta que cargue y guarde solo las celdas que se ven o se tocan: el
-borrador tendría que saber qué celdas existen sin tenerlas (para no pisar una que no ha bajado) y
-bajar las que entren en vista. Hasta entonces, un mundo muy grande pesa al abrir el editor (no al
-jugar). El pincel de terreno sigue esculpiendo solo la isla de 320 m (`alturas` de `terreno.ts`).
+**El editor por celdas** (`editor/borrador.ts`): al abrir solo baja el índice del borrador
+(`/api/editor/indice`: el `rev` de cada trozo, los assets, las zonas y los teleportes) y las 16 celdas de
+la isla, que esculpe el pincel. Las demás celdas llegan como en el juego: las que hay a menos de 480 m de
+la cámara, las más cercanas antes, por lotes de 64 (`Borrador.cerca`, desde el `pintar` de la vista) y
+sus objetos van al final de `doc.objetos`, así que lo elegido sigue valiendo. Las que pasan de 540 m se
+sueltan si no tienen nada sin guardar, no están en el historial de deshacer y no hay nada elegido ni a
+medias (soltar cambia los índices de `doc.objetos`). El `MundoDoc` solo lleva lo bajado.
+
+- **Nunca se pisa una celda sin bajar.** El borrador sabe qué celdas existen sin tenerlas (`porBajar`,
+  del índice). Si un cambio lleva algo a una de ellas (mover un objeto a 2 km escribiendo su x), `commit`
+  lo deshace, pide la celda y lo avisa: con la celda ya bajada, el mismo cambio vale. Una celda que el
+  servidor no tiene cuenta como bajada y vacía; si otro editor la crea mientras, el guardado da 409.
+  Guardar sigue mandando solo los trozos cambiados con su `rev`.
+- **Para quien cambie celdas lejos de la cámara** (el pincel en cualquier celda, un generador desde el
+  editor): `await borrador.asegurar(claves)` las baja y `borrador.bajada(clave)` dice si ya se puede
+  tocar. Una celda que no existe no hace falta pedirla: se crea con el primer cambio.
+- **Lo que no es de la cámara:** Ctrl+A elige solo entre lo bajado (lo dice la ayuda). La barra dice
+  «Bajado: X MB, N celdas (M más sin bajar)»: el peso es solo de lo bajado. Borrar un asset pregunta al
+  servidor (`/usos`) qué celdas lo usan, y si alguna no está bajada no deja (y el servidor tampoco lo
+  guardaría: `MissingAssets`). Publicar y volver a una versión son del servidor y valen para el borrador
+  entero; volver recarga el índice. Deshacer y rehacer solo tocan celdas del historial, que nunca se
+  sueltan.
+- **Lo que trae una celda y el editor no conoce** (el terreno de una celda de fuera de la isla, campos
+  nuevos) va en `MundoDoc.celdas` y se guarda tal cual al tocarla; una celda sin tocar no se manda nunca.
+  `gen`, la marca del generador, se quita al guardarla desde el editor: ya está hecha a mano.
+- **Medido** con el mundo de `docs/editor_local.py --sintetico` (unos 32 KB por celda con terreno):
+  abrir el editor con 3000 celdas bajaba 94 MB (279 ms de SQLite y unos 2 s solo en leer el JSON); ahora,
+  un índice de 38 KB y 503 KB de la isla (8 ms y 10 ms). Con 400 celdas, 12,4 MB antes y 6 + 503 KB
+  ahora: lo único que crece con el mundo es el índice, ~13 bytes por celda. Lo de alrededor de la cámara
+  se baja después, como en el juego (~130 celdas). Lo prueban `test_universo_editor_celdas.py` (Node, un
+  mundo de 3600 celdas contra un servidor falso) y `test_universo_editor_bot.py` (las rutas).
+
+El pincel de terreno sigue esculpiendo solo la isla de 320 m (`alturas` de `terreno.ts`).
 
 ## La red (fase 3)
 
@@ -229,8 +262,8 @@ temblor lejos del centro, cada celda se dibuja desde su esquina.
 1. **Trozos en el almacenamiento, el editor y la descarga** (hecha, 10.5.0). Los datos quedan ya con su
    forma final; lo que se publique desde ahora no hay que migrarlo otra vez.
 2. **La página carga por cercanía** (hecha, 10.12.0): índice, celdas alrededor de la cámara,
-   assets bajo demanda, suelo por celdas con horizonte, sin tope del mundo. Falta el editor por
-   celdas (ver «Rutas») y que el pincel esculpa fuera de la isla.
+   assets bajo demanda, suelo por celdas con horizonte, sin tope del mundo, y el editor por celdas
+   (ver «Rutas»). Falta que el pincel esculpa fuera de la isla.
 3. **Red** (10.11.0, «La red (fase 3)» arriba): posiciones relativas a la región, interés por
    cercanía, el borde del mundo publicado y altura hasta 4000 m.
 4. **Interiores y estado de cada jugador:** los interiores como trozos propios que se cargan al
