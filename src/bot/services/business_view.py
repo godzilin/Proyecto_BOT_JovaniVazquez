@@ -49,6 +49,7 @@ from bot.services.business_catalog import (
     CAMPAIGNS,
     EMBLEMS,
     PALETTES,
+    POINT_BY_KEY,
     PRICE_BY_KEY,
     REVIEW_LINES,
     SECTOR_BY_KEY,
@@ -56,7 +57,7 @@ from bot.services.business_catalog import (
     SIZES,
     equipment_for,
 )
-from bot.services.business_games import TurnGame
+from bot.services.business_games import TurnGame, point_text, twist_text
 from bot.services.economy import format_amount
 from bot.services.housing_catalog import BARRIO_BY_KEY, BARRIOS, ISLANDS
 from bot.services.levels import TIMEZONE
@@ -264,7 +265,7 @@ def dia_state(
 
 
 def montar_state(selected: str | None = None) -> State:
-    """Elegir sector: los tres locales con sus cifras."""
+    """Elegir sector: todos los de `SECTORS`, con sus cifras (la escena los reparte)."""
     cards = []
     for sector in SECTORS:
         quotes = [opening_quote(sector, barrio) for barrio in BARRIOS]
@@ -285,6 +286,7 @@ def montar_state(selected: str | None = None) -> State:
     return {
         "screen": "montar",
         "title": "Elige qué negocio montas",
+        "sub": f"{len(SECTORS)} locales, {len({s.game for s in SECTORS})} minijuegos",
         "sectors": cards,
         "foot": "Eres autónomo: respondes con lo tuyo. El alquiler corre aunque no abras.",
     }
@@ -636,12 +638,13 @@ def cliente_state(business: Business, game: TurnGame) -> State:
         "cash": "",
         "patience": f"{round(game.patience)} s",
     }
-    if game.sector.game == "comandas":
+    kind = game.sector.game
+    if kind == "comandas":
         state["usual"] = client.usual
         state["order"] = (
             None if client.usual else [{"key": k, "n": n} for k, n in client.order.items()]
         )
-    elif game.sector.game == "caja":
+    elif kind == "caja":
         state["basket"] = [
             {"key": k, "n": n, "price": format_amount(game.price_of(k) * n)}
             for k, n in client.order.items()
@@ -649,12 +652,67 @@ def cliente_state(business: Business, game: TurnGame) -> State:
         state["total"] = format_amount(game.total())
         state["paid"] = format_amount(game.paid)
         state["thief"] = client.hidden is not None
+    elif kind == "brasa":
+        # Lo que se ve de la brasa no cambia con cada pulsación (eso va en el texto): el
+        # plato crudo en la parrilla, la mesa y el punto que pide.
+        state["order"] = [{"key": k, "n": n} for k, n in client.order.items()]
+        state["dish"] = client.dish
+        state["usual"] = client.usual
+        state["point"] = (
+            ""
+            if client.usual or not client.dish
+            else point_text(client.dish, client.point).capitalize()
+        )
+        if client.dish and not client.usual:
+            _key, _ask, low, high = POINT_BY_KEY[client.point]
+            state["window"] = [low, high]
+    elif kind == "encargos":
+        state["usual"] = client.usual
+        state["ask"] = (
+            "Vengo a por lo mío, lo de siempre."
+            if client.usual
+            else f"El encargo de {client.label}"
+        )
+        state["clue"] = "" if client.usual else client.clue
+        state["bags"] = [
+            {"label": bag.label, "items": [{"key": k, "n": n} for k, n in bag.order.items()]}
+            for bag in client.bags
+        ]
+    elif kind == "balanza":
+        state["usual"] = client.usual
+        state["species"] = client.species
+        state["grams"] = "" if client.usual else f"{client.grams:,} g".replace(",", ".")
+        state["pieces"] = list(client.pieces)
+        state["per_kg"] = format_amount(game.weight_price(client.species, 1_000))
+    elif kind == "revision":
+        state["phone"] = {"model": client.phone, "color": client.phone_color}
+        state["faults"] = list(client.faults)
+        state["protector"] = client.protector
+        state["symptom"] = client.symptom
+    elif kind == "foto":
+        photo = client.photo
+        assert photo is not None
+        state["usual"] = client.usual
+        state["photo"] = None if client.usual else _style_dict(photo)
+        state["twist"] = "" if client.usual else twist_text(client.twist)
+        state["hair"] = client.hair
+        state["beard"] = client.beard
     else:
         state["car"] = {"color": client.car_color, "model": client.car_model}
         state["symptom"] = client.symptom
         state["cue"] = client.cue
         state["step"] = game.step
     return state
+
+
+def _style_dict(style: Any) -> dict[str, Any]:
+    return {
+        "length": style.length,
+        "fade": style.fade,
+        "color": style.color,
+        "beard": style.beard,
+        "wash": style.wash,
+    }
 
 
 def cierre_state(business: Business, result: Any) -> State:
@@ -683,6 +741,24 @@ def cierre_state(business: Business, result: Any) -> State:
     }
 
 
+#: Lo que se clava en cada minijuego de la 11.3.0, para el tique.
+PERFECT_LINES: dict[str, tuple[str, str]] = {
+    "brasa": ("plato en su punto exacto", "platos en su punto exacto"),
+    "balanza": ("peso casi clavado", "pesos casi clavados"),
+    "revision": ("móvil con tres averías, todas vistas", "móviles con tres averías, todas vistas"),
+    "foto": ("foto con su cambio, acertada", "fotos con su cambio, acertadas"),
+}
+#: Lo que sale mal en los minijuegos de la 11.3.0, para el tique.
+TURN_MISHAPS: tuple[tuple[str, str, str], ...] = (
+    ("burnt", "plato quemado", "platos quemados"),
+    ("raw", "plato devuelto crudo", "platos devueltos crudos"),
+    ("wrong_bag", "bolsa equivocada", "bolsas equivocadas"),
+    ("refused", "pescado rechazado por el peso", "pescados rechazados por el peso"),
+    ("upsell", "pieza cambiada sin hacer falta", "piezas cambiadas sin hacer falta"),
+    ("too_short", "corte más corto de lo pedido", "cortes más cortos de lo pedido"),
+)
+
+
 def turn_lines(result: Any) -> list[str]:
     """Lo que destacar de un turno (`negocio.TurnResult`), en frases cortas."""
     summary = result.summary
@@ -698,6 +774,12 @@ def turn_lines(result: Any) -> list[str]:
             lines.append(f"{name} baja a fidelidad {loyalty}")
     if caught := sum(1 for o in summary.outcomes if "caught" in o.events):
         lines.append(plural(caught, "listillo pillado", "listillos pillados"))
+    game = result.business.sector_info.game
+    if perfect := sum(1 for o in summary.outcomes if o.perfect):
+        lines.append(plural(perfect, *PERFECT_LINES.get(game, ("clavado", "clavados"))))
+    for kind, one, many in TURN_MISHAPS:
+        if n := summary.count(kind):
+            lines.append(plural(n, one, many))
     if missed := summary.count("left"):
         lines.append(
             plural(missed, "cliente se cansó de esperar", "clientes se cansaron de esperar")

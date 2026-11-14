@@ -56,7 +56,7 @@ from bot.services.business_catalog import (
     STAFF_LAST_NAMES,
     Sector,
 )
-from bot.services.business_games import COINS, Client, TurnGame
+from bot.services.business_games import AUTOPLAY_GAMES, COINS, Client, TurnGame, autoplay
 from bot.services.taxes import WAGE_YAPDOLLARS_PER_EURO, WeekIncome, week_tax
 
 # -- Escalas y cifras de la ley ------------------------------------------------------
@@ -205,6 +205,12 @@ EMPLOYER_RATES = {"indefinido": 0.2360 + 0.0550 + 0.0020 + 0.0060 + 0.0075,
 ACCIDENT_RATES = {
     "cafeteria": 0.0150, "heladeria": 0.0150, "tienda": 0.0165, "ferreteria": 0.0165,
     "taller": 0.0445,
+    # 11.3.0. El guachinche es servicio de comidas (56) y la panadería y la pescadería,
+    # comercio al por menor (47), como los de arriba. La peluquería (96.21) y la reparación
+    # de móviles (95.1) van con las cifras de la tarifa anterior (1,10 % y 2,60 %), sin
+    # comprobar aún en la tabla de la CNAE-2025: ver `docs/negocios.md`.
+    "guachinche": 0.0150, "panaderia": 0.0165, "pescaderia": 0.0165, "moviles": 0.0260,
+    "peluqueria": 0.0110,
 }  # fmt: skip
 
 #: Período de prueba (art. 14.1 ET): 3 meses en una empresa de menos de 25 trabajadores,
@@ -317,10 +323,12 @@ class Role:
         return self.schedule
 
 
-#: Los sectores con algo que caduca (el mozo de almacén) y los que llevan a domicilio (el taller
-#: no: el coche no cabe en la mochila).
-PERISHABLE_SECTORS = ("cafeteria", "tienda", "heladeria")
-DELIVERY_SECTORS = ("cafeteria", "tienda", "heladeria", "ferreteria")
+#: Los sectores con algo que caduca (el mozo de almacén) y los que llevan a domicilio (el taller,
+#: los móviles y la peluquería no: el coche, el móvil roto y la cabeza no caben en la mochila).
+PERISHABLE_SECTORS = ("cafeteria", "tienda", "heladeria", "guachinche", "panaderia", "pescaderia")
+DELIVERY_SECTORS = (
+    "cafeteria", "tienda", "heladeria", "ferreteria", "guachinche", "panaderia", "pescaderia",
+)  # fmt: skip
 
 ROLES: tuple[Role, ...] = (
     Role("", "Dependiente", "🙋", "Atiende el mostrador en las franjas de su horario, con el "
@@ -998,6 +1006,9 @@ def play_turn(
         kind = game.sector.game
         if client.usual and rng.random() >= 0.3 + 0.7 * trato:
             now += 3 * click  # no se acuerda de lo de siempre: tiene que preguntarlo
+        if kind in AUTOPLAY_GAMES:  # los minijuegos de la 11.3.0
+            now = autoplay(game, now, click=click, wrong=wrong, rng=rng)
+            continue
         if kind == "comandas":
             order = dict(client.order)
             if wrong:  # sirve otra cosa

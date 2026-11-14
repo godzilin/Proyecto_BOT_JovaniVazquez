@@ -119,7 +119,7 @@ INCOMPATIBILITIES: tuple[Incompatibility, ...] = (
         "Tu contrato del unicornio tiene pacto de plena dedicación.",
     ),
     Incompatibility(
-        "hosteleria", None, frozenset({"cafeteria", "heladeria"}), "art. 21.1 ET",
+        "hosteleria", None, frozenset({"cafeteria", "heladeria", "guachinche"}), "art. 21.1 ET",
         "Sería concurrencia desleal con tu empresa de hostelería.",
     ),
 )  # fmt: skip

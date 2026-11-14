@@ -8,6 +8,13 @@ criterio.
 
 ## 11.x
 
+### 11.3.0 · 2026-11-14
+
+- Negocios: cinco sectores nuevos en `pala`, cada uno con su propio minijuego (se anunciaron en la 9.48.0 pero no llegaron a entrar)
+- Negocios: 🍷 Guachinche (la brasa), 🥖 Panadería (los encargos), 🐟 Pescadería (la balanza), 📱 Reparación de móviles (la revisión) y 💈 Peluquería (la foto)
+- Negocios: el panel de montar enseña todos los negocios, en filas de cinco que se encogen si hay más
+- Logros: 65 nuevos en 🏪 Negocio por los sectores nuevos y sus minijuegos
+
 ### 11.2.0 · 2026-11-10
 
 - Jovaniverso: se entra en los pisos. El edificio al oeste de la plaza tiene puerta y un salón por dentro; quien tiene vivienda habitual en `pisos` entra en el suyo y el resto, en el piso piloto

@@ -55,6 +55,8 @@ from bot.services.business_catalog import (
     CAMPAIGN_BY_KEY,
     EMBLEMS,
     EQUIPMENT_BY_KEY,
+    FISH_ASKS,
+    GRILLED,
     PALETTES,
     PRICE_BY_KEY,
     REGULAR_NAMES,
@@ -131,6 +133,20 @@ REPUTATION: dict[str, float] = {
     # vaya molesto.
     "special": 0.3,
     "special_bad": -0.3,
+    # 11.3.0: los minijuegos de los cinco sectores nuevos (`business_games`).
+    "raw": -0.4,
+    "overdone": -0.15,
+    "burnt": -0.5,
+    "wrong_bag": -0.5,
+    "honest": 0.05,
+    "exact_weight": 0.05,
+    "heavy": -0.15,
+    "light": -0.3,
+    "refused": -0.3,
+    "missed_fault": -0.4,
+    "upsell": -0.6,
+    "too_short": -0.7,
+    "unhappy": -0.3,
 }
 #: Clientes de un turno de referencia: la reputación de un turno se escala a ellos, así un
 #: sector con pocos clientes por turno (el taller) sube y baja al mismo ritmo por turno.
@@ -430,10 +446,28 @@ def regular_names(seed: int) -> tuple[str, ...]:
 
 
 def usual_order(seed: int, regular: str, sector: Sector) -> dict[str, int]:
-    """Lo que pide siempre un habitual (en el taller, la avería que le repite el coche)."""
+    """Lo que pide siempre un habitual (en el taller, la avería que le repite el coche).
+
+    En la pescadería, la especie y los cuartos de kilo (`{"vieja": 4}` es un kilo de vieja);
+    en los móviles, la pieza que siempre rompe. En la peluquería no pide productos: su corte
+    de siempre sale de `business_games.usual_style`.
+    """
     rng = random.Random(f"{seed}:{regular}")
-    if sector.game == "diagnostico":
+    if sector.game in ("diagnostico", "revision"):
         return {rng.choice(sector.products).key: 1}
+    if sector.game == "foto":
+        return {}
+    if sector.game == "balanza":
+        product = rng.choices(sector.products, weights=[p.weight for p in sector.products])[0]
+        return {product.key: rng.choice(FISH_ASKS[product.key]) // 250}
+    if sector.game == "brasa":
+        grill = [p for p in sector.products if p.key in GRILLED]
+        rest = [p for p in sector.products if p.key not in GRILLED]
+        order = {rng.choices(grill, weights=[p.weight for p in grill])[0].key: 1}
+        for _ in range(rng.randint(1, 2)):
+            key = rng.choices(rest, weights=[p.weight for p in rest])[0].key
+            order[key] = order.get(key, 0) + 1
+        return order
     low, high = sector.order
     count = rng.randint(low, max(low, (low + high) // 2))
     order: dict[str, int] = {}

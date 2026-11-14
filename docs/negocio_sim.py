@@ -95,9 +95,11 @@ from bot.services.business_catalog import (  # noqa: E402
     equipment_for,
 )
 from bot.services.business_games import (  # noqa: E402
+    AUTOPLAY_GAMES,
     COINS,
     TurnGame,
     apply_loyalty,
+    autoplay,
     make_clients,
 )
 from bot.services.housing_catalog import BARRIOS, Barrio  # noqa: E402
@@ -124,6 +126,8 @@ def play_client(game: TurnGame, now: float, rng: random.Random, miss: float) -> 
     assert client is not None
     wrong = rng.random() < miss
     kind = game.sector.game
+    if kind in AUTOPLAY_GAMES:  # los minijuegos de la 11.3.0
+        return autoplay(game, now, click=CLICK_SECONDS, wrong=wrong, rng=rng)
     if kind == "comandas":
         order = dict(client.order)
         if wrong:  # sirve otra cosa
