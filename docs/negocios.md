@@ -1699,3 +1699,97 @@ los que se van molestos; turnos dirigidos, con un 100 y con menos de 50; Consejo
 - `docs/negocio_sim.py` no juega clientes especiales, ni dirige, ni celebra consejos: las
   cifras de «Equilibrio» siguen siendo las de antes.
 - El cliente especial no cambia el dibujo del cliente: se ve en el texto y en sus botones.
+
+## Cinco sectores más, cada uno con su minijuego (11.3.0)
+
+Pedido por el usuario el 06/11/2026: cinco negocios más y, a poder ser, un minijuego distinto en cada uno.
+Decidido por Claude, como las fases anteriores; todo se puede cambiar. Los tres minijuegos de antes piden
+copiar (Comandas), contar dinero (La caja) y elegir por un síntoma (Diagnóstico). Los cinco nuevos piden otra
+cosa cada uno. La lógica está en `business_games.py` (`_brasa`, `_encargos`, `_balanza`, `_revision`,
+`_foto`), las cifras en `business_catalog.py` y los botones en `cogs/business.py` (`GAME_ROWS`, `GAME_TEXT`).
+
+### Los sectores
+
+| Sector | Minijuego | Local | Clientes por turno | Paciencia | Cuándo vende | Dónde vende más |
+|---|---|---|---|---|---|---|
+| 🍷 Guachinche | La brasa | 80 m² | 6 | 32 s | Almuerzo y cena | Rural |
+| 🥖 Panadería | Los encargos | 50 m² | 8 | 28 s | De 6 a 10 | Obrero e histórico |
+| 🐟 Pescadería | La balanza | 45 m² | 6 | 35 s | Por la mañana | Marinero |
+| 📱 Reparación de móviles | La revisión | 25 m² | 4 | 50 s | Por la tarde | Centro |
+| 💈 Peluquería | La foto | 45 m² | 4 | 45 s | Mañana y tarde | Lujo y centro |
+
+### Los minijuegos
+
+- **La brasa** (guachinche). La mesa pide un plato de brasa (carne de cabra, costillas o queso asado) con
+  su punto y lo demás (vino, papas, escaldón). 🔥 *Un poco* sube de 6 a 14 puntos y 💥 *Avivar*, de 15 a 30;
+  lo que sube cada pulsación sale de la semilla del cliente, así que no se sabe hasta pulsar pero es
+  repetible. 🍽️ *Sacar y servir* dentro del punto (40-50, 60-70 u 80-90) cobra la mesa; en el centro exacto,
+  lo clava. Antes de tiempo, crudo: devuelven el plato y pagan lo demás. Pasado, se lo comen sin propina. A
+  100 se quema solo. Arriesgar: avivar es rápido (propina) pero se pasa. El habitual dice «lo de siempre» y
+  no dice el punto.
+- **Los encargos** (panadería). En la balda hay cuatro bolsas. Una es suya; otra lleva el mismo nombre con
+  otra inicial; otra, el mismo nombre y la misma inicial pero sin lo que dice que lleva; la cuarta es de otra
+  persona. Una de cada diez veces no hay ninguna suya y lo correcto es 🚫 *No está*. Dar otra bolsa la pierde
+  (hay que rehacer ese encargo). Leer con cuidado. El habitual dice «lo mío» y hay que acordarse de lo que
+  lleva.
+- **La balanza** (pescadería). Piden unos gramos de una especie y en el mostrador hay hasta siete piezas de
+  peso distinto (`FISH_GRAMS`). Se ponen y se quitan hasta acercarse: a un 10 % arriba o abajo vale, a un 2 %
+  lo clava. De un 10 a un 40 % de más se lo lleva sin propina, más aún lo rechaza y por debajo paga lo que
+  hay. Siempre hay una combinación a menos de un 5 % (`WEIGHT_FAIR`). Se cobra por peso: `Product.price` es
+  el precio de una pieza media y la compra al mayorista es por pieza. Sumar.
+- **La revisión** (móviles). El móvil tiene 1 (55 %), 2 (35 %) o 3 averías (10 %) y el cliente solo cuenta
+  la primera; las demás se ven en el dibujo. Se marcan las piezas y 🔧 *Reparar*. Dejarse una: vuelve y paga
+  lo arreglado. Cambiar una que estaba bien: no la paga y baja mucho la reputación. Tres de cada diez sin la
+  pantalla rota traen el protector rayado: no es la pantalla. Mirar. Sin dibujo, el texto dice lo que se ve.
+- **La foto** (peluquería). Trae una foto (largo, degradado y color) y un cambio: «pero un poco más corto»,
+  «sin degradado», «con mi color», «con mechas», «y arréglame la barba» o «y luego me lavas y me peinas».
+  Se elige cada cosa y ✂️ *Listo*. Cortar más de lo pedido no tiene arreglo: no paga. Una cosa mal, paga lo
+  que sí quería; dos o más, peor nota. No se puede dejar más largo de lo que trae. Razonar.
+
+Los cinco usan el mismo `TurnGame` (cola, paciencia, propina por rapidez, relojes justos) y solo cambian de
+imagen al pasar de cliente: cada pulsación cambia el texto, sin subir imagen, y el siguiente cliente se pinta
+mientras se atiende al de ahora (`TurnGame.ahead`).
+
+### Plantilla y calibrador
+
+`business_games.autoplay` juega un cliente de cualquiera de los cinco, bien o con el fallo típico de cada uno
+(sacar antes, la bolsa gemela, una pieza de más o de menos, no ver una avería o el protector, pasar del
+cambio de la foto). Lo usan `business_staff.play_turn` y `docs/negocio_sim.py`: así la plantilla y el
+calibrador juegan con las mismas reglas que el dueño.
+
+Repartidor: guachinche, panadería y pescadería sí; móviles y peluquería no (el móvil roto y la cabeza no
+caben en la mochila). Mozo de almacén: los tres de comida. La incompatibilidad de la hostelería alcanza al
+guachinche.
+
+### Equilibrio
+
+`python docs/negocio_sim.py --fase2`, jugador `bueno`, barrio del medio, días 15 a 28 (06/11/2026). Neto al
+día sin mejoras, a 4 y a 8 turnos:
+
+| Sector | 4 turnos | 8 turnos |
+|---|---|---|
+| Guachinche | 16.100 | 24.600 |
+| Panadería | 9.600 | 23.500 |
+| Pescadería | 15.400 | 22.800 |
+| Reparación de móviles | 16.800 | 20.100 |
+| Peluquería | 16.700 | 17.900 |
+
+- Dentro de la horquilla de los cinco de antes (de 5.900 a 17.100 a 4 turnos; de 16.200 a 23.900 a 8).
+- La panadería, a 4 turnos, gana poco porque el calibrador abre a las 10, 12, 17 y 19 y su clientela es de
+  primera hora. Pasa lo mismo con el taller.
+- La peluquería y los móviles agotan pronto el cupo del barrio: a 8 turnos ganan poco más. Lo que les sube el
+  techo es el local mayor.
+- Las mejoras de paciencia (dispensador de números, microscopio) apenas rinden a quien juega rápido, como el
+  TPV y la máquina de diagnosis.
+
+### Normas e interpretaciones
+
+- IGIC de la compra al mayorista (Decreto Legislativo 1/2025, con la misma lectura que los sectores de antes):
+  tipo cero el pan, el pan de millo y las papas (tubérculos); el 3 % la carne, el queso, el pescado, el
+  marisco y la dulcería; el general el vino, las piezas de móvil y los productos de peluquería. No se pudo
+  abrir el texto consolidado desde la sesión: el pescado, la carne y el queso van al 3 % como «los demás
+  alimentos», igual que los helados.
+- Accidentes de trabajo (`ACCIDENT_RATES`): el guachinche, como servicio de comidas (56, 1,50 %); la
+  panadería y la pescadería, como comercio al por menor (47, 1,65 %). La peluquería (96.21) y la reparación
+  de móviles (95.1) llevan las cifras de la tarifa anterior (1,10 % y 2,60 %) **sin comprobar** en la tabla
+  de la CNAE-2025: desde la sesión no se pudo abrir.
